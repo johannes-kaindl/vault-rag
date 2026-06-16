@@ -29,10 +29,12 @@ export default class VaultRagPlugin extends Plugin {
 
   async loadIndex() {
     try {
-      this.index = await new IndexLoader(this.app.vault.adapter as any, this.settings.indexDir).load();
+      this.index = await new IndexLoader(this.app.vault.adapter, this.settings.indexDir).load();
       this.retriever = new Retriever(this.index);
+      const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/manifest.json`);
+      if (st) this.lastMtime = st.mtime;
       this.refresh();
-    } catch { this.index = null; this.retriever = null; }
+    } catch (e) { this.index = null; this.retriever = null; console.warn("vault-rag: loadIndex failed", e); }
   }
 
   async maybeReload() {

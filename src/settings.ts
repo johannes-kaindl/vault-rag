@@ -14,6 +14,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Min. Ähnlichkeit").addSlider(s =>
       s.setLimits(0, 0.9, 0.05).setValue(this.plugin.settings.minSim).onChange(async (v: number) => { this.plugin.settings.minSim = v; await this.plugin.saveSettings(); this.plugin.refresh(); }));
     new Setting(containerEl).setName("Index-Ordner").addText(t =>
-      t.setValue(this.plugin.settings.indexDir).onChange(async (v: string) => { this.plugin.settings.indexDir = v; await this.plugin.saveSettings(); }));
+      t.setValue(this.plugin.settings.indexDir).onChange(async (v: string) => { this.plugin.settings.indexDir = v; await this.plugin.saveSettings(); await this.plugin.loadIndex(); }));
   }
 }

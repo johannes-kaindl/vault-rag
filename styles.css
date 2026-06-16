@@ -1,0 +1,4 @@
+.vault-rag-hit { display: flex; justify-content: space-between; padding: 4px 8px; cursor: pointer; border-radius: 4px; }
+.vault-rag-hit:hover { background: var(--background-modifier-hover); }
+.vault-rag-hit-score { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.vault-rag-empty { color: var(--text-muted); padding: 8px; }

@@ -1,6 +1,16 @@
 export interface IndexManifest {
-  schema_version: number; embedding_model: string; index_dim: number;
-  scale: number; count: number; granularity: string; quant: string;
+  schema_version: number;
+  embedding_model: string;
+  index_dim: number;
+  scale: number;
+  count: number;
+  granularity: string;
+  quant: string;
+}
+
+export interface VaultAdapter {
+  read(path: string): Promise<string>;
+  readBinary(path: string): Promise<ArrayBuffer>;
 }
 
 export class VaultIndex {
@@ -19,6 +29,9 @@ export class VaultIndex {
 }
 
 export function parseIndex(manifest: IndexManifest, paths: string[], matrix: ArrayBuffer): VaultIndex {
+  if (manifest.count !== paths.length) {
+    throw new Error(`vault-rag index korrupt: manifest.count ${manifest.count} != paths ${paths.length}`);
+  }
   const dim = manifest.index_dim, scale = manifest.scale, n = paths.length;
   const i8 = new Int8Array(matrix);
   const f = new Float32Array(n * dim);
@@ -32,7 +45,7 @@ export function parseIndex(manifest: IndexManifest, paths: string[], matrix: Arr
 }
 
 export class IndexLoader {
-  constructor(private adapter: any, private dir: string) {}
+  constructor(private adapter: VaultAdapter, private dir: string) {}
   async load(): Promise<VaultIndex> {
     const manifest = JSON.parse(await this.adapter.read(`${this.dir}/manifest.json`)) as IndexManifest;
     const paths = JSON.parse(await this.adapter.read(`${this.dir}/paths.json`)) as string[];

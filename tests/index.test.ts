@@ -13,4 +13,19 @@ describe("parseIndex", () => {
     const v = idx.vectorFor("a.md")!;
     expect(v[0]).toBeCloseTo(1, 2); expect(v[1]).toBeCloseTo(0, 2);
   });
+  it("manifest.count Mismatch → wirft Error", () => {
+    const manifest = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 5, granularity: "note", quant: "int8" };
+    const paths = ["a.md", "b.md"];
+    const bytes = new Int8Array([127, 0, 0, 127]);
+    expect(() => parseIndex(manifest, paths, bytes.buffer)).toThrow(/manifest\.count 5 != paths 2/);
+  });
+  it("Null-Vektor-Zeile → vectorFor liefert endliche (nicht NaN) Werte", () => {
+    const manifest = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 2, granularity: "note", quant: "int8" };
+    const paths = ["zero.md", "b.md"];
+    const bytes = new Int8Array([0, 0, 0, 127]); // zero.md = [0,0], b.md = [0,1]
+    const idx = parseIndex(manifest, paths, bytes.buffer);
+    const v = idx.vectorFor("zero.md")!;
+    expect(Number.isFinite(v[0])).toBe(true);
+    expect(Number.isFinite(v[1])).toBe(true);
+  });
 });

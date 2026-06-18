@@ -20,8 +20,13 @@ export class EmbeddingClient {
         body: JSON.stringify({ model: this.model, input: batch }),
       });
       if (!r.ok) throw new Error(`Embedding HTTP ${r.status}`);
-      const data = await r.json() as { data: { embedding: number[] }[] };
-      for (const item of data.data) results.push(new Float32Array(item.embedding));
+      const data: unknown = await r.json();
+      if (!data || typeof data !== "object" || !Array.isArray((data as Record<string, unknown>).data)) {
+        throw new Error("Embedding: ungültiges Response-Schema (data fehlt)");
+      }
+      for (const item of (data as { data: { embedding: number[] }[] }).data) {
+        results.push(new Float32Array(item.embedding));
+      }
     }
     return results;
   }

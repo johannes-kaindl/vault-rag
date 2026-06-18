@@ -7,6 +7,7 @@ export interface VaultRagSettings {
   exclude: string[];
   embeddingEndpoint: string;
   embeddingModel: string;
+  showStatusBar: boolean;
 }
 
 export const DEFAULT_SETTINGS: VaultRagSettings = {
@@ -16,6 +17,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   exclude: ["Templates/", "Archive/", ".trash/"],
   embeddingEndpoint: "http://localhost:11434",
   embeddingModel: "qwen3-embedding:8b",
+  showStatusBar: false,
 };
 
 export class VaultRagSettingTab extends PluginSettingTab {

@@ -129,4 +129,15 @@ describe("LiveIndexer", () => {
     for (let i = 0; i < DIM; i++) dot += a[i] * b[i];
     expect(dot).toBeGreaterThan(0.99);
   });
+
+  it("noteCount gibt die Anzahl der bekannten Notizen zurück", async () => {
+    const adapter = makeAdapter();
+    const embedder = makeEmbedder();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", embedder, "qwen3-embedding:8b");
+    expect(indexer.noteCount).toBe(0);
+    await indexer.update("a.md", "Hallo Welt das ist ein langer Text für einen Chunk");
+    expect(indexer.noteCount).toBe(1);
+    indexer.remove("a.md");
+    expect(indexer.noteCount).toBe(0);
+  });
 });

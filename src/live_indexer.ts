@@ -50,6 +50,8 @@ export class LiveIndexer {
     if (v) { this.noteVectors.set(newPath, v); this.noteVectors.delete(oldPath); }
   }
 
+  get noteCount(): number { return this.noteVectors.size; }
+
   buildIndex(): VaultIndex {
     const paths = [...this.noteVectors.keys()].sort();
     const n = paths.length;

@@ -16,4 +16,8 @@ describe("settings", () => {
   it("hat embeddingModel-Default", () => {
     expect(DEFAULT_SETTINGS.embeddingModel).toBe("qwen3-embedding:8b");
   });
+
+  it("showStatusBar-Default ist false", () => {
+    expect(DEFAULT_SETTINGS.showStatusBar).toBe(false);
+  });
 });

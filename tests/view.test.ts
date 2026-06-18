@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { RelatedNotesView, VIEW_TYPE_RELATED } from "../src/view";
-import { makeFakeApp } from "./__mocks__/obsidian";
+import { RelatedNotesView, VIEW_TYPE_RELATED, renderHits } from "../src/view";
+import { makeFakeApp, makeFakeEl } from "./__mocks__/obsidian";
 
 describe("RelatedNotesView", () => {
   it("rendert eine Zeile pro Hit", async () => {
@@ -56,5 +56,19 @@ describe("RelatedNotesView", () => {
     const row = view.contentEl.children.find((c: any) => c.className?.includes("vault-rag-hit"));
     const scoreEl = row?.children.find((c: any) => c.className?.includes("vault-rag-hit-score"));
     expect(scoreEl?.textContent).toBe("0.80");
+  });
+});
+
+describe("renderHits", () => {
+  it("rendert eine Row pro Hit mit Titel, Score und Klick", () => {
+    const el: any = makeFakeEl();
+    const opened: string[] = [];
+    renderHits(el, [{ path: "notes/foo.md", score: 0.85 }, { path: "bar.md", score: 0.5 }], p => opened.push(p));
+    const rows = el.children.filter((c: any) => c.className?.includes("vault-rag-hit"));
+    expect(rows.length).toBe(2);
+    const score = rows[0].children.find((c: any) => c.className?.includes("vault-rag-hit-score"));
+    expect(score.textContent).toBe("0.85");
+    rows[0].click();
+    expect(opened).toEqual(["notes/foo.md"]);
   });
 });

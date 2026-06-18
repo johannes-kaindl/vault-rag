@@ -1,6 +1,7 @@
 import { VaultAdapter, VaultIndex, IndexManifest } from "./index";
 import { EmbeddingClient } from "./embedder";
 import { chunkMarkdown } from "./chunker";
+import { toIndexVector } from "./embed_vector";
 
 const INDEX_DIM = 256;
 const INT8_SCALE = 127;
@@ -30,17 +31,7 @@ export class LiveIndexer {
     if (chunks.length === 0) { this.noteVectors.delete(path); return; }
 
     const vecs = await this.embedder.embed(chunks.map(c => c.text));
-    const dim = Math.min(INDEX_DIM, vecs[0].length);
-    const mean = new Float32Array(dim);
-    for (const v of vecs) {
-      for (let i = 0; i < dim; i++) mean[i] += v[i] / vecs.length;
-    }
-    let norm = 0;
-    for (let i = 0; i < dim; i++) norm += mean[i] * mean[i];
-    norm = Math.sqrt(norm) || 1;
-    for (let i = 0; i < dim; i++) mean[i] /= norm;
-
-    this.noteVectors.set(path, mean);
+    this.noteVectors.set(path, toIndexVector(vecs, INDEX_DIM));
   }
 
   remove(path: string): void { this.noteVectors.delete(path); }

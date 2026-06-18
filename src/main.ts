@@ -7,6 +7,12 @@ import { EmbeddingClient } from "./embedder";
 import { LiveIndexer } from "./live_indexer";
 import { PendingQueue } from "./pending_queue";
 
+export interface EmbeddingProgress {
+  isEmbedding: boolean;
+  embeddedNotes: number;
+  pendingNotes: number;
+}
+
 export default class VaultRagPlugin extends Plugin {
   settings!: VaultRagSettings;
   private index: VaultIndex | null = null;
@@ -16,6 +22,11 @@ export default class VaultRagPlugin extends Plugin {
   private liveIndexer!: LiveIndexer;
   private pendingQueue!: PendingQueue;
   private debounceTimers = new Map<string, ReturnType<typeof window.setTimeout>>();
+  embeddingProgress: EmbeddingProgress = {
+    isEmbedding: false,
+    embeddedNotes: 0,
+    pendingNotes: 0,
+  };
 
   async onload() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -74,6 +85,7 @@ export default class VaultRagPlugin extends Plugin {
       const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/manifest.json`);
       if (st) this.lastMtime = st.mtime;
       this.refresh();
+      this.syncProgress();
     } catch (e) {
       this.index = null; this.retriever = null;
       console.warn("vault-rag: loadIndex failed", e);
@@ -104,24 +116,33 @@ export default class VaultRagPlugin extends Plugin {
     try { content = await this.app.vault.adapter.read(path); } catch { return; }
 
     if (await this.embedder.ping()) {
+      this.embeddingProgress.isEmbedding = true;
       try {
         await this.liveIndexer.update(path, content);
         this.index = this.liveIndexer.buildIndex();
         this.retriever = new Retriever(this.index);
         await this.liveIndexer.persist();
+        this.syncProgress();
         this.refresh();
-      } catch { await this.pendingQueue.add(path); }
+      } catch {
+        await this.pendingQueue.add(path);
+        this.syncProgress();
+      } finally {
+        this.embeddingProgress.isEmbedding = false;
+      }
     } else {
       await this.pendingQueue.add(path);
+      this.syncProgress();
     }
   }
 
   private async handleDelete(path: string): Promise<void> {
-    if (!(await this.embedder.ping())) return; // offline: defer to next HyperForge reindex
+    if (!(await this.embedder.ping())) return;
     this.liveIndexer.remove(path);
     this.index = this.liveIndexer.buildIndex();
     this.retriever = new Retriever(this.index);
     await this.liveIndexer.persist();
+    this.syncProgress();
     this.refresh();
   }
 
@@ -131,9 +152,11 @@ export default class VaultRagPlugin extends Plugin {
       this.index = this.liveIndexer.buildIndex();
       this.retriever = new Retriever(this.index);
       await this.liveIndexer.persist();
+      this.syncProgress();
       this.refresh();
     } else {
       await this.pendingQueue.add(newPath);
+      this.syncProgress();
     }
   }
 
@@ -145,18 +168,24 @@ export default class VaultRagPlugin extends Plugin {
 
   private async drainPending(): Promise<void> {
     const paths = this.pendingQueue.drain();
-    for (const path of paths) {
-      try {
-        const content = await this.app.vault.adapter.read(path);
-        await this.liveIndexer.update(path, content);
-      } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
+    this.embeddingProgress.isEmbedding = true;
+    try {
+      for (const path of paths) {
+        try {
+          const content = await this.app.vault.adapter.read(path);
+          await this.liveIndexer.update(path, content);
+        } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
+      }
+      // drain() hat in-memory bereits geleert; clear() nicht aufrufen —
+      // sonst gehen Paths verloren die während des await-Loops neu reinkamen.
+      this.index = this.liveIndexer.buildIndex();
+      this.retriever = new Retriever(this.index);
+      await this.liveIndexer.persist();
+      this.syncProgress();
+      this.refresh();
+    } finally {
+      this.embeddingProgress.isEmbedding = false;
     }
-    // drain() hat in-memory bereits geleert; clear() nicht aufrufen —
-    // sonst gehen Paths verloren die während des await-Loops neu reinkamen.
-    this.index = this.liveIndexer.buildIndex();
-    this.retriever = new Retriever(this.index);
-    await this.liveIndexer.persist();
-    this.refresh();
   }
 
   currentHits(): Hit[] {
@@ -170,6 +199,11 @@ export default class VaultRagPlugin extends Plugin {
       const v = leaf.view as RelatedNotesView;
       v.render?.();
     }
+  }
+
+  private syncProgress(): void {
+    this.embeddingProgress.embeddedNotes = this.liveIndexer.noteCount;
+    this.embeddingProgress.pendingNotes = this.pendingQueue.size;
   }
 
   async activateView() {

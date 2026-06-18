@@ -16,7 +16,28 @@ export class ItemView { app: any; contentEl: any; constructor(public leaf: any) 
 export class PluginSettingTab { app: any; plugin: any; containerEl: any; constructor(app: any, plugin: any) { this.app = app; this.plugin = plugin; this.containerEl = makeFakeEl(); } display() {} }
 export class Setting { constructor(public containerEl: any) {} setName(_: string) { return this; } setDesc(_: string) { return this; } addText(cb: any) { cb({ setValue: () => ({ onChange: () => {} }), setPlaceholder: () => ({}) }); return this; } addSlider(cb: any) { cb({ setLimits: () => ({ setValue: () => ({ onChange: () => {} }) }) }); return this; } }
 export class TFile { path = ""; basename = ""; extension = "md"; }
+import { vi } from "vitest";
+
 export function makeFakeApp(): any {
-  return { vault: { adapter: { read: vi.fn().mockResolvedValue(""), readBinary: vi.fn().mockResolvedValue(new ArrayBuffer(0)), exists: vi.fn().mockResolvedValue(true), stat: vi.fn().mockResolvedValue({ mtime: 0 }) } },
-    workspace: { getActiveFile: vi.fn().mockReturnValue(null), getLeavesOfType: vi.fn().mockReturnValue([]), getRightLeaf: vi.fn().mockReturnValue({ setViewState: vi.fn() }), on: vi.fn() } };
+  return {
+    vault: {
+      adapter: {
+        read: vi.fn().mockResolvedValue(""),
+        readBinary: vi.fn().mockResolvedValue(new ArrayBuffer(0)),
+        write: vi.fn().mockResolvedValue(undefined),
+        writeBinary: vi.fn().mockResolvedValue(undefined),
+        mkdir: vi.fn().mockResolvedValue(undefined),
+        exists: vi.fn().mockResolvedValue(true),
+        stat: vi.fn().mockResolvedValue({ mtime: 0 }),
+      },
+      on: vi.fn().mockReturnValue({ id: "mock-event" }),
+    },
+    workspace: {
+      getActiveFile: vi.fn().mockReturnValue(null),
+      getLeavesOfType: vi.fn().mockReturnValue([]),
+      getRightLeaf: vi.fn().mockReturnValue({ setViewState: vi.fn() }),
+      on: vi.fn(),
+      revealLeaf: vi.fn(),
+    },
+  };
 }

@@ -11,6 +11,9 @@ export interface IndexManifest {
 export interface VaultAdapter {
   read(path: string): Promise<string>;
   readBinary(path: string): Promise<ArrayBuffer>;
+  write(path: string, data: string): Promise<void>;
+  writeBinary(path: string, data: ArrayBuffer): Promise<void>;
+  mkdir(path: string): Promise<void>;
 }
 
 export class VaultIndex {

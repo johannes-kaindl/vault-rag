@@ -15,11 +15,19 @@ export class Retriever {
   related(activePath: string, opts: RetrieveOpts): Hit[] {
     const q = this.index.vectorFor(activePath);
     if (!q) return [];
+    return this.rank(q, opts, activePath);
+  }
+
+  search(queryVec: Float32Array, opts: RetrieveOpts): Hit[] {
+    return this.rank(queryVec, opts);
+  }
+
+  private rank(q: Float32Array, opts: RetrieveOpts, skipPath?: string): Hit[] {
     const dim = this.index.dim, vecs = this.index.vectors, paths = this.index.paths;
     const hits: Hit[] = [];
     for (let r = 0; r < paths.length; r++) {
       const p = paths[r];
-      if (p === activePath || opts.exclude.some(e => p.startsWith(e))) continue;
+      if (p === skipPath || opts.exclude.some(e => p.startsWith(e))) continue;
       let dot = 0;
       for (let c = 0; c < dim; c++) dot += q[c] * vecs[r * dim + c];   // Cosinus (normalisiert)
       if (dot >= opts.minSim) hits.push({ path: p, score: dot });

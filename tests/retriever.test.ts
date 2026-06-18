@@ -37,4 +37,16 @@ describe("Retriever", () => {
     expect(hits.length).toBeLessThanOrEqual(2); // 3 notes minus active
     expect(hits.length).toBeGreaterThan(0);
   });
+  it("search rankt per Query-Vektor (kein self-exclude)", () => {
+    const r = new Retriever(idx());
+    const hits = r.search(new Float32Array([1, 0]), { k: 3, minSim: 0, exclude: [] });
+    expect(hits.map(h => h.path)).toEqual(["a.md", "b.md", "c.md"]);
+    expect(hits[0].score).toBeCloseTo(1, 5);
+  });
+  it("search respektiert minSim, exclude-Präfix und k", () => {
+    const r = new Retriever(idx());
+    expect(r.search(new Float32Array([1, 0]), { k: 5, minSim: 0.5, exclude: [] }).map(h => h.path)).toEqual(["a.md", "b.md"]);
+    expect(r.search(new Float32Array([1, 0]), { k: 5, minSim: 0, exclude: ["a.md"] }).map(h => h.path)).toEqual(["b.md", "c.md"]);
+    expect(r.search(new Float32Array([1, 0]), { k: 1, minSim: 0, exclude: [] }).length).toBe(1);
+  });
 });

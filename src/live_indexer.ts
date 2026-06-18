@@ -1,4 +1,4 @@
-import { VaultAdapter, VaultIndex, IndexManifest, parseIndex } from "./index";
+import { VaultAdapter, VaultIndex, IndexManifest } from "./index";
 import { EmbeddingClient } from "./embedder";
 import { chunkMarkdown } from "./chunker";
 

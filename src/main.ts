@@ -27,6 +27,7 @@ export default class VaultRagPlugin extends Plugin {
     embeddedNotes: 0,
     pendingNotes: 0,
   };
+  private statusBarEl: HTMLElement | null = null;
 
   async onload() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -69,6 +70,8 @@ export default class VaultRagPlugin extends Plugin {
     // Index-Refresh nach Sync (30s) + Pending-Drain (60s)
     this.registerInterval(window.setInterval(() => this.maybeReload(), 30000));
     this.registerInterval(window.setInterval(() => void this.maybeDrainPending(), 60000));
+
+    if (this.settings.showStatusBar) this.setStatusBarVisible(true);
   }
 
   reconnectEmbedder(): void {
@@ -201,9 +204,32 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
+  private updateStatusBar(): void {
+    if (!this.statusBarEl) return;
+    const p = this.embeddingProgress;
+    if (p.isEmbedding) {
+      (this.statusBarEl as any).setText("↻ embedding…");
+    } else if (p.pendingNotes > 0) {
+      (this.statusBarEl as any).setText(`● ${p.embeddedNotes.toLocaleString("de-DE")} | ⏳ ${p.pendingNotes}`);
+    } else {
+      (this.statusBarEl as any).setText(`● ${p.embeddedNotes.toLocaleString("de-DE")}`);
+    }
+  }
+
+  setStatusBarVisible(show: boolean): void {
+    if (show && !this.statusBarEl) {
+      this.statusBarEl = this.addStatusBarItem();
+      this.updateStatusBar();
+    } else if (!show && this.statusBarEl) {
+      this.statusBarEl.remove();
+      this.statusBarEl = null;
+    }
+  }
+
   private syncProgress(): void {
     this.embeddingProgress.embeddedNotes = this.liveIndexer.noteCount;
     this.embeddingProgress.pendingNotes = this.pendingQueue.size;
+    this.updateStatusBar();
   }
 
   async activateView() {

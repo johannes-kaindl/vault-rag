@@ -21,7 +21,16 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
 };
 
 export class VaultRagSettingTab extends PluginSettingTab {
+  private refreshInterval: ReturnType<typeof window.setInterval> | null = null;
+
   constructor(app: App, private plugin: any) { super(app, plugin); }
+
+  hide(): void {
+    if (this.refreshInterval !== null) {
+      window.clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
+    }
+  }
 
   display(): void {
     const { containerEl } = this;
@@ -63,6 +72,34 @@ export class VaultRagSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             this.plugin.reconnectEmbedder?.();
           }));
+
+    // Fortschritts-Sektion
+    containerEl.createEl("h3", { text: "Embedding-Fortschritt" });
+
+    const progressStatusEl = containerEl.createDiv({ cls: "vault-rag-progress-status" });
+    const progressEmbeddedEl = containerEl.createDiv({ cls: "vault-rag-progress-embedded" });
+    const progressPendingEl = containerEl.createDiv({ cls: "vault-rag-progress-pending" });
+
+    const updateProgress = () => {
+      const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
+      if (!p) return;
+      progressStatusEl.setText(p.isEmbedding ? "↻ Embedding läuft…" : "● Bereit");
+      progressEmbeddedEl.setText(`Eingebettet: ${p.embeddedNotes.toLocaleString("de-DE")} Notizen`);
+      progressPendingEl.setText(`Ausstehend: ${p.pendingNotes.toLocaleString("de-DE")} Notizen`);
+    };
+
+    updateProgress();
+    this.refreshInterval = window.setInterval(updateProgress, 2000);
+
+    new Setting(containerEl)
+      .setName("Fortschritt in Statusleiste")
+      .setDesc("Zeigt Embedding-Status in der unteren Obsidian-Leiste")
+      .addToggle(t =>
+        t.setValue(this.plugin.settings.showStatusBar).onChange(async (v: boolean) => {
+          this.plugin.settings.showStatusBar = v;
+          await this.plugin.saveSettings();
+          (this.plugin.setStatusBarVisible as ((v: boolean) => void) | undefined)?.(v);
+        }));
 
     // Status-Badge (readonly)
     const statusEl = containerEl.createDiv({ cls: "vault-rag-status" });

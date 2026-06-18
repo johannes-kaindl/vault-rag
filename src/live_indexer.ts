@@ -18,6 +18,7 @@ export class LiveIndexer {
 
   init(index: VaultIndex): void {
     this.loadedManifest = index.manifest;
+    this.noteVectors.clear();
     for (const path of index.paths) {
       const v = index.vectorFor(path);
       if (v) this.noteVectors.set(path, v.slice());

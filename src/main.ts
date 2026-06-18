@@ -151,7 +151,8 @@ export default class VaultRagPlugin extends Plugin {
         await this.liveIndexer.update(path, content);
       } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
     }
-    await this.pendingQueue.clear();
+    // drain() hat in-memory bereits geleert; clear() nicht aufrufen —
+    // sonst gehen Paths verloren die während des await-Loops neu reinkamen.
     this.index = this.liveIndexer.buildIndex();
     this.retriever = new Retriever(this.index);
     await this.liveIndexer.persist();

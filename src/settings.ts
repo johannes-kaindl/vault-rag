@@ -15,7 +15,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
   minSim: 0.3,
   indexDir: "_vaultrag",
-  exclude: ["Templates/", "Archive/", ".trash/"],
+  exclude: ["Templates/", "Archive/"],
   embeddingEndpoint: "http://localhost:11434",
   embeddingModel: "qwen3-embedding:8b",
   showStatusBar: false,
@@ -79,9 +79,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Ausschluss-Pfade")
-      .setDesc("Pfade, die nicht eingebettet werden — kommagetrennt, z.B. Templates/, Archive/, .trash/")
+      .setDesc("Kommagetrennte Pfade, die nicht eingebettet werden (z.B. Templates/, Archive/). Versteckte Pfade wie .obsidian/ und .trash/ sind immer automatisch ausgeschlossen.")
       .addText(t => t
-        .setPlaceholder("Templates/, Archive/, .trash/")
+        .setPlaceholder("Templates/, Archive/")
         .setValue(this.plugin.settings.exclude.join(", "))
         .onChange(async (v: string) => {
           this.plugin.settings.exclude = v.split(",").map((s: string) => s.trim()).filter(Boolean);

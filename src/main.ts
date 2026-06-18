@@ -113,6 +113,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async handleModify(path: string): Promise<void> {
+    if (path.startsWith(".")) return;
     if (this.settings.exclude.some(e => path.startsWith(e))) return;
     if (path.startsWith(this.settings.indexDir + "/")) return;
     let content: string;
@@ -140,6 +141,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async handleDelete(path: string): Promise<void> {
+    if (path.startsWith(".")) return;
     if (!(await this.embedder.ping())) return;
     this.liveIndexer.remove(path);
     this.index = this.liveIndexer.buildIndex();
@@ -150,6 +152,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async handleRename(newPath: string, oldPath: string): Promise<void> {
+    if (newPath.startsWith(".") || oldPath.startsWith(".")) return;
     if (await this.embedder.ping()) {
       this.liveIndexer.rename(oldPath, newPath);
       this.index = this.liveIndexer.buildIndex();

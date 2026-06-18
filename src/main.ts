@@ -6,6 +6,8 @@ import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab } from "./settin
 import { EmbeddingClient } from "./embedder";
 import { LiveIndexer } from "./live_indexer";
 import { PendingQueue } from "./pending_queue";
+import { SemanticSearchView, VIEW_TYPE_SEARCH, SearchResult } from "./search_view";
+import { toIndexVector } from "./embed_vector";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -29,6 +31,11 @@ export default class VaultRagPlugin extends Plugin {
   };
   private statusBarEl: HTMLElement | null = null;
 
+  private openPath = (p: string): void => {
+    const f = this.app.vault.getAbstractFileByPath(p);
+    if (f instanceof TFile) this.app.workspace.getLeaf(false).openFile(f);
+  };
+
   async onload() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.embedder = new EmbeddingClient(this.settings.embeddingEndpoint, this.settings.embeddingModel);
@@ -38,13 +45,16 @@ export default class VaultRagPlugin extends Plugin {
     this.addSettingTab(new VaultRagSettingTab(this.app, this));
     this.registerView(VIEW_TYPE_RELATED, (leaf: WorkspaceLeaf) => new RelatedNotesView(leaf, {
       getHits: () => this.currentHits(),
-      openPath: (p) => {
-        const f = this.app.vault.getAbstractFileByPath(p);
-        if (f instanceof TFile) this.app.workspace.getLeaf(false).openFile(f);
-      },
+      openPath: this.openPath,
+    }));
+    this.registerView(VIEW_TYPE_SEARCH, (leaf: WorkspaceLeaf) => new SemanticSearchView(leaf, {
+      search: (q) => this.runSearch(q),
+      openPath: this.openPath,
     }));
     this.addRibbonIcon("search", "Verwandte Notizen", () => this.activateView());
     this.addCommand({ id: "open-related", name: "Verwandte Notizen öffnen", callback: () => this.activateView() });
+    this.addRibbonIcon("telescope", "Semantische Suche", () => this.activateSearchView());
+    this.addCommand({ id: "open-semantic-search", name: "Semantische Suche öffnen", callback: () => this.activateSearchView() });
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refresh()));
 
     // File-Events
@@ -242,6 +252,28 @@ export default class VaultRagPlugin extends Plugin {
     if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
     const leaf = this.app.workspace.getRightLeaf(false);
     await leaf?.setViewState({ type: VIEW_TYPE_RELATED, active: true });
+  }
+
+  private async runSearch(query: string): Promise<SearchResult> {
+    if (!this.retriever || !this.index) return { kind: "no-index" };
+    if (!(await this.embedder.ping())) return { kind: "offline" };
+    try {
+      const vecs = await this.embedder.embed([query]);
+      const qVec = toIndexVector(vecs, this.index.dim);
+      const hits = this.retriever.search(qVec, {
+        k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude,
+      });
+      return { kind: "hits", hits };
+    } catch {
+      return { kind: "offline" };
+    }
+  }
+
+  async activateSearchView() {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SEARCH);
+    if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
+    const leaf = this.app.workspace.getRightLeaf(false);
+    await leaf?.setViewState({ type: VIEW_TYPE_SEARCH, active: true });
   }
 
   async saveSettings() { await this.saveData(this.settings); }

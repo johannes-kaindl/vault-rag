@@ -2,3 +2,5 @@
 .vault-rag-hit:hover { background: var(--background-modifier-hover); }
 .vault-rag-hit-score { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .vault-rag-empty { color: var(--text-muted); padding: 8px; }
+.vault-rag-search-input { width: 100%; margin-bottom: 8px; }
+.vault-rag-search-state { color: var(--text-muted); padding: 4px 0; }

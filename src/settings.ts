@@ -30,6 +30,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       window.clearInterval(this.refreshInterval);
       this.refreshInterval = null;
     }
+    super.hide();
   }
 
   display(): void {

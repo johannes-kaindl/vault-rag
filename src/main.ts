@@ -171,8 +171,8 @@ export default class VaultRagPlugin extends Plugin {
 
   private async drainPending(): Promise<void> {
     const paths = this.pendingQueue.drain();
-    this.embeddingProgress.isEmbedding = true;
     try {
+      this.embeddingProgress.isEmbedding = true;
       for (const path of paths) {
         try {
           const content = await this.app.vault.adapter.read(path);
@@ -186,6 +186,8 @@ export default class VaultRagPlugin extends Plugin {
       await this.liveIndexer.persist();
       this.syncProgress();
       this.refresh();
+    } catch {
+      this.syncProgress();
     } finally {
       this.embeddingProgress.isEmbedding = false;
     }

@@ -1,17 +1,28 @@
-import { Plugin, WorkspaceLeaf, TFile } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, TAbstractFile } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Retriever, Hit } from "./retriever";
 import { RelatedNotesView, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab } from "./settings";
+import { EmbeddingClient } from "./embedder";
+import { LiveIndexer } from "./live_indexer";
+import { PendingQueue } from "./pending_queue";
 
 export default class VaultRagPlugin extends Plugin {
   settings!: VaultRagSettings;
   private index: VaultIndex | null = null;
   private retriever: Retriever | null = null;
   private lastMtime = 0;
+  embedder!: EmbeddingClient;
+  private liveIndexer!: LiveIndexer;
+  private pendingQueue!: PendingQueue;
+  private debounceTimers = new Map<string, ReturnType<typeof window.setTimeout>>();
 
   async onload() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.embedder = new EmbeddingClient(this.settings.embeddingEndpoint, this.settings.embeddingModel);
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
+    this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
+
     this.addSettingTab(new VaultRagSettingTab(this.app, this));
     this.registerView(VIEW_TYPE_RELATED, (leaf: WorkspaceLeaf) => new RelatedNotesView(leaf, {
       getHits: () => this.currentHits(),
@@ -23,18 +34,50 @@ export default class VaultRagPlugin extends Plugin {
     this.addRibbonIcon("search", "Verwandte Notizen", () => this.activateView());
     this.addCommand({ id: "open-related", name: "Verwandte Notizen öffnen", callback: () => this.activateView() });
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refresh()));
+
+    // File-Events
+    this.registerEvent(this.app.vault.on("modify", (file: TAbstractFile) => {
+      if (!(file instanceof TFile)) return;
+      if (file.extension !== "md") return;
+      this.scheduleEmbed(file.path);
+    }));
+    this.registerEvent(this.app.vault.on("delete", (file: TAbstractFile) => {
+      if (!(file instanceof TFile)) return;
+      if (file.extension !== "md") return;
+      void this.handleDelete(file.path);
+    }));
+    this.registerEvent(this.app.vault.on("rename", (file: TAbstractFile, oldPath: string) => {
+      if (!(file instanceof TFile)) return;
+      if (file.extension !== "md") return;
+      void this.handleRename(file.path, oldPath);
+    }));
+
+    await this.pendingQueue.load();
     await this.loadIndex();
-    this.registerInterval(window.setInterval(() => this.maybeReload(), 30000)); // Index-Refresh nach Sync
+
+    // Index-Refresh nach Sync (30s) + Pending-Drain (60s)
+    this.registerInterval(window.setInterval(() => this.maybeReload(), 30000));
+    this.registerInterval(window.setInterval(() => void this.maybeDrainPending(), 60000));
+  }
+
+  reconnectEmbedder(): void {
+    this.embedder = new EmbeddingClient(this.settings.embeddingEndpoint, this.settings.embeddingModel);
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
+    if (this.index) this.liveIndexer.init(this.index);
   }
 
   async loadIndex() {
     try {
       this.index = await new IndexLoader(this.app.vault.adapter, this.settings.indexDir).load();
       this.retriever = new Retriever(this.index);
+      this.liveIndexer.init(this.index);
       const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/manifest.json`);
       if (st) this.lastMtime = st.mtime;
       this.refresh();
-    } catch (e) { this.index = null; this.retriever = null; console.warn("vault-rag: loadIndex failed", e); }
+    } catch (e) {
+      this.index = null; this.retriever = null;
+      console.warn("vault-rag: loadIndex failed", e);
+    }
   }
 
   async maybeReload() {
@@ -42,6 +85,77 @@ export default class VaultRagPlugin extends Plugin {
       const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/manifest.json`);
       if (st && st.mtime !== this.lastMtime) { this.lastMtime = st.mtime; await this.loadIndex(); }
     } catch { /* noch kein Index */ }
+  }
+
+  private scheduleEmbed(path: string): void {
+    const existing = this.debounceTimers.get(path);
+    if (existing !== undefined) window.clearTimeout(existing);
+    const tid = window.setTimeout(() => {
+      this.debounceTimers.delete(path);
+      void this.handleModify(path);
+    }, 3000);
+    this.debounceTimers.set(path, tid);
+  }
+
+  private async handleModify(path: string): Promise<void> {
+    if (this.settings.exclude.some(e => path.startsWith(e))) return;
+    if (path.startsWith(this.settings.indexDir + "/")) return;
+    let content: string;
+    try { content = await this.app.vault.adapter.read(path); } catch { return; }
+
+    if (await this.embedder.ping()) {
+      try {
+        await this.liveIndexer.update(path, content);
+        this.index = this.liveIndexer.buildIndex();
+        this.retriever = new Retriever(this.index);
+        await this.liveIndexer.persist();
+        this.refresh();
+      } catch { await this.pendingQueue.add(path); }
+    } else {
+      await this.pendingQueue.add(path);
+    }
+  }
+
+  private async handleDelete(path: string): Promise<void> {
+    if (!(await this.embedder.ping())) return; // offline: defer to next HyperForge reindex
+    this.liveIndexer.remove(path);
+    this.index = this.liveIndexer.buildIndex();
+    this.retriever = new Retriever(this.index);
+    await this.liveIndexer.persist();
+    this.refresh();
+  }
+
+  private async handleRename(newPath: string, oldPath: string): Promise<void> {
+    if (await this.embedder.ping()) {
+      this.liveIndexer.rename(oldPath, newPath);
+      this.index = this.liveIndexer.buildIndex();
+      this.retriever = new Retriever(this.index);
+      await this.liveIndexer.persist();
+      this.refresh();
+    } else {
+      await this.pendingQueue.add(newPath);
+    }
+  }
+
+  private async maybeDrainPending(): Promise<void> {
+    if (this.pendingQueue.size === 0) return;
+    if (!(await this.embedder.ping())) return;
+    await this.drainPending();
+  }
+
+  private async drainPending(): Promise<void> {
+    const paths = this.pendingQueue.drain();
+    for (const path of paths) {
+      try {
+        const content = await this.app.vault.adapter.read(path);
+        await this.liveIndexer.update(path, content);
+      } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
+    }
+    await this.pendingQueue.clear();
+    this.index = this.liveIndexer.buildIndex();
+    this.retriever = new Retriever(this.index);
+    await this.liveIndexer.persist();
+    this.refresh();
   }
 
   currentHits(): Hit[] {

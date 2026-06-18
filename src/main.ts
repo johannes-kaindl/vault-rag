@@ -255,12 +255,16 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async runSearch(query: string): Promise<SearchResult> {
-    if (!this.retriever || !this.index) return { kind: "no-index" };
+    // Snapshot vor den awaits: maybeReload() (30s) könnte index/retriever zwischenzeitlich nullen.
+    const retriever = this.retriever;
+    const index = this.index;
+    if (!retriever || !index) return { kind: "no-index" };
     if (!(await this.embedder.ping())) return { kind: "offline" };
     try {
       const vecs = await this.embedder.embed([query]);
-      const qVec = toIndexVector(vecs, this.index.dim);
-      const hits = this.retriever.search(qVec, {
+      if (vecs.length === 0) throw new Error("embed: leere Antwort");
+      const qVec = toIndexVector(vecs, index.dim);
+      const hits = retriever.search(qVec, {
         k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude,
       });
       return { kind: "hits", hits };

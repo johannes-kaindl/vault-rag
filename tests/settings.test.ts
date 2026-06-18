@@ -20,4 +20,8 @@ describe("settings", () => {
   it("showStatusBar-Default ist false", () => {
     expect(DEFAULT_SETTINGS.showStatusBar).toBe(false);
   });
+
+  it("debounceMs-Default ist 3000", () => {
+    expect(DEFAULT_SETTINGS.debounceMs).toBe(3000);
+  });
 });

@@ -108,7 +108,7 @@ export default class VaultRagPlugin extends Plugin {
     const tid = window.setTimeout(() => {
       this.debounceTimers.delete(path);
       void this.handleModify(path);
-    }, 3000);
+    }, this.settings.debounceMs);
     this.debounceTimers.set(path, tid);
   }
 

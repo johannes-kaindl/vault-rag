@@ -24,4 +24,11 @@ describe("settings", () => {
   it("debounceMs-Default ist 3000", () => {
     expect(DEFAULT_SETTINGS.debounceMs).toBe(3000);
   });
+
+  it("hat Chat-Defaults", () => {
+    expect(DEFAULT_SETTINGS.chatEndpoint).toBe("http://localhost:8080");
+    expect(DEFAULT_SETTINGS.chatModel).toBe("qwen3");
+    expect(DEFAULT_SETTINGS.chatK).toBe(5);
+    expect(DEFAULT_SETTINGS.contextCharBudget).toBe(12000);
+  });
 });

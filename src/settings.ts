@@ -9,6 +9,10 @@ export interface VaultRagSettings {
   embeddingModel: string;
   showStatusBar: boolean;
   debounceMs: number;
+  chatEndpoint: string;
+  chatModel: string;
+  chatK: number;
+  contextCharBudget: number;
 }
 
 export const DEFAULT_SETTINGS: VaultRagSettings = {
@@ -20,6 +24,10 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   embeddingModel: "qwen3-embedding:8b",
   showStatusBar: false,
   debounceMs: 3000,
+  chatEndpoint: "http://localhost:8080",
+  chatModel: "qwen3",
+  chatK: 5,
+  contextCharBudget: 12000,
 };
 
 export class VaultRagSettingTab extends PluginSettingTab {
@@ -126,6 +134,61 @@ export class VaultRagSettingTab extends PluginSettingTab {
         .onChange(async (v: number) => {
           this.plugin.settings.debounceMs = v;
           debounceSetting.setName(`Debounce: ${v / 1000} s`);
+          await this.plugin.saveSettings();
+        }));
+
+    // ── Chat ──────────────────────────────────────────────────────────
+    new Setting(containerEl).setName("Chat").setHeading();
+
+    new Setting(containerEl)
+      .setName("Chat Endpoint")
+      .setDesc("OpenAI-kompatibler LLM-Server (MLX/LM-Studio) — getrennt vom Embedding-Endpoint")
+      .addText(t =>
+        t.setPlaceholder("http://localhost:8080")
+          .setValue(this.plugin.settings.chatEndpoint)
+          .onChange(async (v: string) => {
+            this.plugin.settings.chatEndpoint = v.trim();
+            await this.plugin.saveSettings();
+            this.plugin.reconnectChat?.();
+          }));
+
+    new Setting(containerEl)
+      .setName("Chat Modell")
+      .setDesc("Modellname wie auf dem Chat-Endpoint verfügbar")
+      .addText(t =>
+        t.setPlaceholder("qwen3")
+          .setValue(this.plugin.settings.chatModel)
+          .onChange(async (v: string) => {
+            this.plugin.settings.chatModel = v.trim();
+            await this.plugin.saveSettings();
+            this.plugin.reconnectChat?.();
+          }));
+
+    let chatKSetting: Setting;
+    chatKSetting = new Setting(containerEl)
+      .setName(`Kontext-Notizen: ${this.plugin.settings.chatK}`)
+      .setDesc("Wie viele Notizen als Kontext in den Chat gehen (Auto-RAG)")
+      .addSlider(s => s
+        .setLimits(1, 20, 1)
+        .setValue(this.plugin.settings.chatK)
+        .setDynamicTooltip()
+        .onChange(async (v: number) => {
+          this.plugin.settings.chatK = v;
+          chatKSetting.setName(`Kontext-Notizen: ${v}`);
+          await this.plugin.saveSettings();
+        }));
+
+    let budgetSetting: Setting;
+    budgetSetting = new Setting(containerEl)
+      .setName(`Kontext-Budget: ${this.plugin.settings.contextCharBudget.toLocaleString("de-DE")} Zeichen`)
+      .setDesc("Maximale Gesamtlänge des Kontexts (wird anteilig auf die Notizen verteilt)")
+      .addSlider(s => s
+        .setLimits(2000, 32000, 1000)
+        .setValue(this.plugin.settings.contextCharBudget)
+        .setDynamicTooltip()
+        .onChange(async (v: number) => {
+          this.plugin.settings.contextCharBudget = v;
+          budgetSetting.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
           await this.plugin.saveSettings();
         }));
 

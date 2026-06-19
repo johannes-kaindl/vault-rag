@@ -111,4 +111,39 @@ describe("ChatView", () => {
     await view.onOpen();
     expect(all(view.contentEl, "vault-rag-ctx-list").length).toBe(1);
   });
+  it("rendert aufklappbaren Gedanken-Block, zugeklappt wenn Antwort da", async () => {
+    const { view, session } = mkView();
+    await view.onOpen();
+    session.messages = [
+      { role: "user", content: "q" },
+      { role: "assistant", content: "Antwort", reasoning: "weil X" },
+    ];
+    (view as any).renderMessages();
+    const blocks = all(view.contentEl, "vault-rag-chat-reasoning");
+    expect(blocks.length).toBe(1);
+    expect(blocks[0].open).toBe(false);
+    expect(all(view.contentEl, "vault-rag-chat-reasoning-body")[0].textContent).toBe("weil X");
+    expect(all(view.contentEl, "vault-rag-chat-reasoning-sum")[0].textContent).toContain("Gedanken");
+  });
+  it("Gedanken-Block ist offen + 'denkt nach' während des Denkens", async () => {
+    const { view, session } = mkView();
+    await view.onOpen();
+    session.messages = [
+      { role: "user", content: "q" },
+      { role: "assistant", content: "", reasoning: "denke gerade" },
+    ];
+    (view as any).renderMessages();
+    expect(all(view.contentEl, "vault-rag-chat-reasoning")[0].open).toBe(true);
+    expect(all(view.contentEl, "vault-rag-chat-reasoning-sum")[0].textContent).toContain("denkt nach");
+  });
+  it("kein Gedanken-Block ohne reasoning", async () => {
+    const { view, session } = mkView();
+    await view.onOpen();
+    session.messages = [
+      { role: "user", content: "q" },
+      { role: "assistant", content: "Antwort" },
+    ];
+    (view as any).renderMessages();
+    expect(all(view.contentEl, "vault-rag-chat-reasoning").length).toBe(0);
+  });
 });

@@ -97,7 +97,13 @@ export class ChatView extends ItemView {
   private startWorking(): void {
     const el = this.workingEl; if (!el) return;
     this.workStart = Date.now();
-    const tick = () => el.setText(`● generiert… ${((Date.now() - this.workStart) / 1000).toFixed(1)} s`);
+    const tick = () => {
+      const msgs = this.deps.session.messages;
+      const live = msgs[msgs.length - 1];
+      const thinking = !!live && live.role === "assistant" && live.content === "" && !!(live.reasoning ?? "");
+      const phase = thinking ? "denkt nach" : "generiert";
+      el.setText(`● ${phase}… ${((Date.now() - this.workStart) / 1000).toFixed(1)} s`);
+    };
     tick();
     this.timer = window.setInterval(tick, 100);
   }
@@ -111,7 +117,16 @@ export class ChatView extends ItemView {
 
   private renderMessages(): void {
     const el = this.messagesEl; if (!el) return; el.empty();
-    for (const m of this.deps.session.messages) {
+    const msgs = this.deps.session.messages;
+    const last = msgs[msgs.length - 1];
+    for (const m of msgs) {
+      if (m.role === "assistant" && m.reasoning) {
+        const live = m === last && m.content === "" && !m.error;
+        const det = el.createEl("details", { cls: "vault-rag-chat-reasoning" }) as HTMLDetailsElement;
+        det.open = live;
+        det.createEl("summary", { cls: "vault-rag-chat-reasoning-sum", text: live ? "💭 denkt nach…" : "💭 Gedanken" });
+        det.createDiv({ cls: "vault-rag-chat-reasoning-body", text: m.reasoning });
+      }
       if (m.content) el.createDiv({ cls: `vault-rag-chat-msg is-${m.role}`, text: m.content });
       if (m.error) el.createDiv({ cls: "vault-rag-chat-state", text: m.error });
       if (m.sources && m.sources.length) {

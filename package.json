@@ -1,6 +1,8 @@
 {
   "name": "vault-rag",
   "version": "0.1.0",
+  "description": "Lokale, offline Related-Notes aus einem gesyncten Embedding-Index.",
+  "keywords": ["obsidian", "obsidian-plugin", "rag", "embeddings", "semantic-search", "related-notes", "offline", "local-first"],
   "type": "module",
   "scripts": {
     "build": "node esbuild.config.mjs production",

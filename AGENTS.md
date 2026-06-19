@@ -119,11 +119,18 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 Stand 2026-06-18 — `vault-rag` ist **pre-release** (v0.1.0, Slice A+ gerade live). Bewusste,
 begründete Abweichungen (comply-or-explain):
 
-- **CORE-META-01/02/03/05/06/09** — kein README/Badges/Hero-Bild/CHANGELOG/Bilingual.
-  *Grund:* pre-release; der Außenauftritt wird vor dem ersten Release nachgezogen.
-- **CORE-META-07/08** — keine `LICENSE`/`LICENSE-DOCS`. *Grund:* pre-release; AGPL-3.0 (Code) +
-  CC-BY-SA-4.0 (Doku) bei Release.
-- **CORE-META-10** — keine Forge-Description/Topics. *Grund:* noch kein Remote (s. CORE-GIT-01).
+- **CORE-META-02** — Badge-Zeile **partiell**: Lizenz/Docs/Obsidian gesetzt; Release/CI-Badges fehlen.
+  *Grund:* erst mit Forge/CI nachziehbar (kein Remote, s. CORE-GIT-01).
+- **CORE-META-03** — kein Hero-Bild/Feature-Screenshots in `docs/images/`. *Grund:* pre-release;
+  reproduzierbar generierte Screenshots vor dem ersten Release.
+- **CORE-META-04** — kein Diátaxis-Manual unter `docs/`. *Grund:* pre-release; skaliert mit Reife.
+- **CORE-META-06** — `CHANGELOG.md` vorhanden; `CONTRIBUTING.md`/`SECURITY.md` fehlen noch.
+  *Grund:* vor dem ersten Release/Push nachziehen.
+- **CORE-META-07** — `LICENSE` (AGPL-3.0) vorhanden; Dual-License-Option (`LICENSING.md`/`CLA.md`)
+  noch nicht. *Grund:* erst bei Bedarf/Release.
+- **CORE-META-09** — kein `README.de.md` (Bilingual). *Grund:* optional; EN-`README.md` ist kanonisch.
+- **CORE-META-10** — `package.json` `description`/`keywords` konsistent mit dem Manifest; Forge-
+  Description/Topics fehlen. *Grund:* noch kein Remote (s. CORE-GIT-01).
 - **CORE-GIT-01** — kein Codeberg-`origin` (`repo_remote` leer, rein lokal). *Grund:* bleibt lokal,
   bis Slice A stabil ist; geplant `codeberg.org/jkaindl/vault-rag`.
 - **PROF-TS-01** — npm-Scripts ohne `lint`/`typecheck`. *Grund:* offen; `npx tsc --noEmit` ist verfügbar

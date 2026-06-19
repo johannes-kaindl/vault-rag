@@ -33,6 +33,7 @@ export class ChatView extends ItemView {
 
   async onOpen(): Promise<void> {
     const c = this.contentEl; c.empty();
+    c.addClass("vault-rag-chat-root");
     this.statusEl = c.createDiv({ cls: "vault-rag-chat-status" });
     this.statusEl.addEventListener("click", () => void this.refreshStatus());
     this.messagesEl = c.createDiv({ cls: "vault-rag-chat-messages" });
@@ -44,7 +45,7 @@ export class ChatView extends ItemView {
     this.inputEl = input;
     input.addEventListener("input", () => this.scheduleQuery(input.value ?? ""));
     input.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") void this.submit(); });
-    this.sendBtn = row.createEl("button", { cls: "vault-rag-chat-send", text: "Senden" });
+    this.sendBtn = row.createEl("button", { cls: "vault-rag-chat-send mod-cta", text: "Senden" });
     this.sendBtn.addEventListener("click", () => this.onSendClick());
     row.createEl("button", { cls: "vault-rag-chat-new", text: "Neu" }).addEventListener("click", () => this.newChat());
     this.renderMessages();
@@ -137,9 +138,11 @@ export class ChatView extends ItemView {
         }
       }
     }
+    el.scrollTop = el.scrollHeight;   // dem Stream folgen: neueste Antwort sichtbar halten
   }
 
   async onClose(): Promise<void> {
+    this.contentEl.removeClass("vault-rag-chat-root");
     if (this.timer !== null) { window.clearInterval(this.timer); this.timer = null; }
     if (this.debTimer !== null) { window.clearTimeout(this.debTimer); this.debTimer = null; }
   }

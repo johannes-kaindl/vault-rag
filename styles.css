@@ -4,19 +4,20 @@
 .vault-rag-empty { color: var(--text-muted); padding: 8px; }
 .vault-rag-search-input { width: 100%; margin-bottom: 8px; }
 .vault-rag-search-state { color: var(--text-muted); padding: 4px 0; }
-.vault-rag-chat-messages { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+.vault-rag-chat-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.vault-rag-chat-messages { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1 1 auto; min-height: 0; padding-right: 4px; }
 .vault-rag-chat-msg { padding: 6px 8px; border-radius: 6px; white-space: pre-wrap; }
 .vault-rag-chat-msg.is-user { background: var(--background-modifier-hover); align-self: flex-end; }
 .vault-rag-chat-msg.is-assistant { background: var(--background-secondary); }
 .vault-rag-chat-sources { display: flex; flex-wrap: wrap; gap: 4px; }
 .vault-rag-chat-source { font-size: 11px; padding: 2px 6px; border-radius: 10px; background: var(--background-modifier-border); cursor: pointer; }
 .vault-rag-chat-state { color: var(--text-error); padding: 4px 0; }
-.vault-rag-chat-input-row { display: flex; gap: 4px; margin-top: 8px; }
+.vault-rag-chat-input-row { display: flex; gap: 4px; margin-top: 8px; flex: 0 0 auto; }
 .vault-rag-chat-input { flex: 1; }
-.vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; }
-.vault-rag-chat-working { font-size: 11px; color: var(--text-accent); padding: 4px 0; min-height: 16px; }
+.vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; flex: 0 0 auto; }
+.vault-rag-chat-working { font-size: 11px; color: var(--text-accent); padding: 4px 0; min-height: 16px; flex: 0 0 auto; }
 .vault-rag-chat-new { font-size: 12px; }
-.vault-rag-chat-context { border-top: 1px solid var(--background-modifier-border); padding-top: 6px; margin-top: 6px; }
+.vault-rag-chat-context { border-top: 1px solid var(--background-modifier-border); padding-top: 6px; margin-top: 6px; flex: 0 0 auto; max-height: 30vh; overflow-y: auto; }
 .vault-rag-ctx-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; flex-wrap: wrap; }
 .vault-rag-ctx-k { display: flex; align-items: center; gap: 2px; }
 .vault-rag-ctx-list { display: flex; flex-wrap: wrap; gap: 4px; }

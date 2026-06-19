@@ -146,4 +146,15 @@ describe("ChatView", () => {
     (view as any).renderMessages();
     expect(all(view.contentEl, "vault-rag-chat-reasoning").length).toBe(0);
   });
+  it("Eingabezeile ist das letzte Element (unten fixiert)", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    const kids = view.contentEl.children;
+    expect(String(kids[kids.length - 1].className)).toContain("vault-rag-chat-input-row");
+  });
+  it("Senden-Button nutzt Obsidians mod-cta-Stil", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    expect(String(all(view.contentEl, "vault-rag-chat-send")[0].className)).toContain("mod-cta");
+  });
 });

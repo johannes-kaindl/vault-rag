@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { ChatSession } from "../src/chat_session";
 
 function mkSession(streamImpl?: any, assembleImpl?: any) {
-  const client: any = { ping: async () => true, stream: streamImpl ?? (async (_m: any, onToken: (t: string) => void) => { onToken("Hi"); onToken("!"); return "Hi!"; }) };
+  const client: any = { ping: async () => true, stream: streamImpl ?? (async (_m: any, onContent: (t: string) => void) => { onContent("Hi"); onContent("!"); return { content: "Hi!", reasoning: "" }; }) };
   const assemble = assembleImpl ?? vi.fn(async () => ({ text: "ctx", sources: ["a.md"] }));
   return { s: new ChatSession({ client, assemble }), assemble };
 }
@@ -38,13 +38,13 @@ describe("ChatSession", () => {
     expect(s.messages[1].error).toBeTruthy();
   });
   it("leere Antwort → Hinweis", async () => {
-    const { s } = mkSession(async () => "");
+    const { s } = mkSession(async () => ({ content: "", reasoning: "" }));
     await s.send("x", ["a.md"], () => {});
     expect(s.messages[1].error).toContain("Leere Antwort");
   });
   it("pusht die User-Nachricht synchron, vor assemble", () => {
     let resolve: (v: any) => void = () => {};
-    const client: any = { ping: async () => true, stream: async () => "" };
+    const client: any = { ping: async () => true, stream: async () => ({ content: "", reasoning: "" }) };
     const assemble = () => new Promise<any>(r => { resolve = r; });
     const s = new ChatSession({ client, assemble });
     const p = s.send("frage", [], () => {});
@@ -62,15 +62,39 @@ describe("ChatSession", () => {
   it("fehlgeschlagener Turn landet nicht im Folge-Verlauf", async () => {
     let captured: any[] = [];
     let call = 0;
-    const stream = async (msgs: any[], onToken: (t: string) => void) => {
+    const stream = async (msgs: any[], onContent: (t: string) => void) => {
       captured = msgs;
       if (call++ === 0) throw new Error("boom");
-      onToken("ok"); return "ok";
+      onContent("ok"); return { content: "ok", reasoning: "" };
     };
     const { s } = mkSession(stream);
     await s.send("Qf", ["a.md"], () => {});
     await s.send("Qn", ["a.md"], () => {});
     const userContents = captured.filter((m: any) => m.role === "user").map((m: any) => m.content);
     expect(userContents).toEqual(["Qn"]);
+  });
+  it("akkumuliert reasoning am Assistenten", async () => {
+    const stream = async (_m: any, onContent: (t: string) => void, onReasoning: (t: string) => void) => {
+      onReasoning("den"); onReasoning("ke"); onContent("Antwort");
+      return { content: "Antwort", reasoning: "denke" };
+    };
+    const { s } = mkSession(stream);
+    await s.send("frage", ["a.md"], () => {});
+    expect(s.messages[1].reasoning).toBe("denke");
+    expect(s.messages[1].content).toBe("Antwort");
+  });
+  it("reasoning fließt NICHT in die Folge-History ans LLM", async () => {
+    let captured: any[] = [];
+    const stream = async (msgs: any[], onContent: (t: string) => void, onReasoning: (t: string) => void) => {
+      captured = msgs;
+      onReasoning("geheim"); onContent("Antwort");
+      return { content: "Antwort", reasoning: "geheim" };
+    };
+    const { s } = mkSession(stream);
+    await s.send("eins", ["a.md"], () => {});
+    await s.send("zwei", ["a.md"], () => {});
+    expect(captured.some((m: any) => "reasoning" in m)).toBe(false);
+    const assistantTurn = captured.find((m: any) => m.role === "assistant");
+    expect(assistantTurn.content).toBe("Antwort");
   });
 });

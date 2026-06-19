@@ -40,10 +40,18 @@ export class ChatSession {
 
     this.controller = new AbortController();
     try {
-      const full = await this.deps.client.stream(sent, t => { assistant.content += t; onToken(t); }, this.controller.signal);
-      assistant.content = full;
+      // onToken = reiner Re-Render-Notifier (View ignoriert das Argument).
+      // reasoning wird am Assistenten akkumuliert, aber NIE in `history` (oben) aufgenommen.
+      const result = await this.deps.client.stream(
+        sent,
+        c => { assistant.content += c; onToken(c); },
+        r => { assistant.reasoning = (assistant.reasoning ?? "") + r; onToken(r); },
+        this.controller.signal,
+      );
+      assistant.content = result.content;
+      assistant.reasoning = result.reasoning || undefined;
       assistant.sources = ctx.sources;
-      if (full.trim() === "") assistant.error = "Leere Antwort vom Chat-LLM — Endpoint/Modell in den Settings prüfen.";
+      if (result.content.trim() === "") assistant.error = "Leere Antwort vom Chat-LLM — Endpoint/Modell in den Settings prüfen.";
       return { sources: ctx.sources };
     } catch (e) {
       const aborted = (e as { name?: string })?.name === "AbortError";

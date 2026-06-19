@@ -19,6 +19,7 @@ function mkView(opts: { send?: any; activePath?: string | null; ping?: any } = {
       return { sources: ["notes/a.md"] };
     }),
     abort: vi.fn(),
+    reset: vi.fn(() => { session.messages = []; }),
   };
   const opened: string[] = [];
   const view = new ChatView({ app: makeFakeApp() } as any, {
@@ -87,6 +88,15 @@ describe("ChatView", () => {
     const offView = mkView({ ping: async () => false });
     await offView.view.onOpen();
     expect(all(offView.view.contentEl, "vault-rag-chat-status")[0].textContent).toContain("offline");
+  });
+  it("Neuer Chat leert den Verlauf und die Anzeige", async () => {
+    const { view, session } = mkView();
+    await view.onOpen();
+    (view as any).inputEl.value = "frage"; await view.submit();
+    expect(all(view.contentEl, "vault-rag-chat-msg").length).toBeGreaterThan(0);
+    view.newChat();
+    expect(session.reset).toHaveBeenCalled();
+    expect(all(view.contentEl, "vault-rag-chat-msg").length).toBe(0);
   });
   it("picked-notes: '+ Aktive Notiz' fügt die aktive Notiz hinzu", async () => {
     const { view, session } = mkView({ activePath: "ordner/x.md" });

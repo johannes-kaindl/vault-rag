@@ -19,10 +19,13 @@ export interface ChatViewDeps {
 
 export class ChatView extends ItemView {
   private messagesEl: HTMLElement | null = null;
+  private workingEl: HTMLElement | null = null;
   private pickedEl: HTMLElement | null = null;
   private statusEl: HTMLElement | null = null;
   private inputEl: HTMLInputElement | null = null;
   private modeButtons = new Map<ChatMode, HTMLElement>();
+  private timer: ReturnType<typeof window.setInterval> | null = null;
+  private workStart = 0;
 
   constructor(leaf: WorkspaceLeaf, private deps: ChatViewDeps) { super(leaf); }
   getViewType(): string { return VIEW_TYPE_CHAT; }
@@ -43,6 +46,7 @@ export class ChatView extends ItemView {
     this.statusEl.addEventListener("click", () => void this.refreshStatus());
     this.pickedEl = c.createDiv({ cls: "vault-rag-chat-picked" });
     this.messagesEl = c.createDiv({ cls: "vault-rag-chat-messages" });
+    this.workingEl = c.createDiv({ cls: "vault-rag-chat-working" });
     const row = c.createDiv({ cls: "vault-rag-chat-input-row" });
     const input = row.createEl("input", { cls: "vault-rag-chat-input" }) as HTMLInputElement;
     input.type = "text"; input.placeholder = "Frag deinen Vault…";
@@ -50,6 +54,7 @@ export class ChatView extends ItemView {
     input.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") void this.submit(); });
     row.createEl("button", { cls: "vault-rag-chat-send", text: "Senden" }).addEventListener("click", () => void this.submit());
     row.createEl("button", { cls: "vault-rag-chat-stop", text: "Stop" }).addEventListener("click", () => this.deps.session.abort());
+    row.createEl("button", { cls: "vault-rag-chat-new", text: "Neu" }).addEventListener("click", () => this.newChat());
     this.renderPicked();
     this.renderMessages();
     await this.refreshStatus();
@@ -68,12 +73,38 @@ export class ChatView extends ItemView {
     this.renderPicked();
   }
 
+  newChat(): void {
+    this.deps.session.reset();
+    this.stopWorking();
+    this.workingEl?.setText("");
+    this.renderMessages();
+  }
+
   async submit(): Promise<void> {
     const q = (this.inputEl?.value ?? "").trim();
     if (!q) return;
     if (this.inputEl) this.inputEl.value = "";
-    await this.deps.session.send(q, () => this.renderMessages());
+    const pending = this.deps.session.send(q, () => this.renderMessages());
+    this.renderMessages();   // Frage erscheint sofort (User-Nachricht wurde synchron gepusht)
+    this.startWorking();
+    await pending;
+    this.stopWorking();
     this.renderMessages();
+  }
+
+  private startWorking(): void {
+    const el = this.workingEl; if (!el) return;
+    this.workStart = Date.now();
+    const tick = () => el.setText(`● generiert… ${((Date.now() - this.workStart) / 1000).toFixed(1)} s`);
+    tick();
+    this.timer = window.setInterval(tick, 100);
+  }
+
+  private stopWorking(): void {
+    if (this.timer !== null) { window.clearInterval(this.timer); this.timer = null; }
+    if (this.workStart && this.workingEl) {
+      this.workingEl.setText(`✓ Antwort in ${((Date.now() - this.workStart) / 1000).toFixed(1)} s`);
+    }
   }
 
   private renderMessages(): void {
@@ -109,4 +140,8 @@ export class ChatView extends ItemView {
   }
 
   private basename(p: string): string { return p.split("/").pop()?.replace(/\.md$/, "") ?? p; }
+
+  async onClose(): Promise<void> {
+    if (this.timer !== null) { window.clearInterval(this.timer); this.timer = null; }
+  }
 }

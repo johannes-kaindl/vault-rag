@@ -31,16 +31,33 @@ describe("ChatSession", () => {
     expect(r.error).toContain("nicht erreichbar");
     expect(s.messages[1].error).toContain("nicht erreichbar");
   });
-  it("assemble-Fehler → error, ohne Nachrichten anzuhängen", async () => {
+  it("assemble-Fehler → Hinweis an der Assistenten-Nachricht", async () => {
     const { s } = mkSession(undefined, async () => { throw new Error("ctx weg"); });
     const r = await s.send("x", () => {});
     expect(r.error).toBeTruthy();
-    expect(s.messages.length).toBe(0);
+    expect(s.messages[1].error).toBeTruthy();
   });
   it("leere Antwort → Hinweis an der Assistenten-Nachricht", async () => {
     const { s } = mkSession(async () => "");
     const r = await s.send("x", () => {});
     expect(s.messages[1].error).toContain("Leere Antwort");
     expect(r.error).toBeUndefined();
+  });
+  it("pusht die User-Nachricht synchron, vor assemble", () => {
+    let resolve: (v: any) => void = () => {};
+    const client: any = { ping: async () => true, stream: async () => "" };
+    const assemble = () => new Promise<any>(r => { resolve = r; });
+    const s = new ChatSession({ client, assemble });
+    const p = s.send("frage", () => {});
+    expect(s.messages[0].content).toBe("frage");
+    resolve({ text: "", sources: [] });
+    return p;
+  });
+  it("reset leert den Verlauf", async () => {
+    const { s } = mkSession();
+    await s.send("a", () => {});
+    expect(s.messages.length).toBeGreaterThan(0);
+    s.reset();
+    expect(s.messages).toEqual([]);
   });
 });

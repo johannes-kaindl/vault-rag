@@ -19,19 +19,21 @@ export class ChatSession {
   constructor(private deps: ChatSessionDeps) {}
 
   async send(query: string, onToken: (t: string) => void): Promise<{ sources: string[]; error?: string }> {
-    let ctx: ContextResult;
-    try { ctx = await this.deps.assemble(this.mode, query, this.picked); }
-    catch { return { sources: [], error: "Kontext konnte nicht geladen werden." }; }
-
-    const system: ChatMessage = { role: "system", content: ctx.text ? `${SYSTEM_PREAMBLE}\n\n${ctx.text}` : SYSTEM_PREAMBLE };
-    // Verlauf an das LLM: nur Turns mit Inhalt (leere/fehlgeschlagene Assistenten-Turns ausnehmen),
-    // und auf reine role/content abbilden (sources/error sind reine View-Metadaten).
-    const history = this.messages.filter(m => m.content.length > 0).map(m => ({ role: m.role, content: m.content }));
-    const sent: ChatMessage[] = [system, ...history, { role: "user", content: query }];
-
+    // User + leeren Assistenten SOFORT (synchron, vor jedem await) anhängen → die View kann die
+    // Frage + einen Arbeits-Indikator rendern, bevor Retrieval/LLM (Zeit bis zum ersten Token) anlaufen.
     this.messages.push({ role: "user", content: query });
     const assistant: ChatMessage = { role: "assistant", content: "" };
     this.messages.push(assistant);
+
+    let ctx: ContextResult;
+    try { ctx = await this.deps.assemble(this.mode, query, this.picked); }
+    catch { assistant.error = "Kontext konnte nicht geladen werden."; return { sources: [], error: assistant.error }; }
+
+    const system: ChatMessage = { role: "system", content: ctx.text ? `${SYSTEM_PREAMBLE}\n\n${ctx.text}` : SYSTEM_PREAMBLE };
+    // Verlauf an das LLM: prior Turns (ohne den aktuellen, die letzten zwei) mit Inhalt, auf role/content reduziert.
+    const history = this.messages.slice(0, -2).filter(m => m.content.length > 0).map(m => ({ role: m.role, content: m.content }));
+    const sent: ChatMessage[] = [system, ...history, { role: "user", content: query }];
+
     this.controller = new AbortController();
     try {
       const full = await this.deps.client.stream(sent, t => { assistant.content += t; onToken(t); }, this.controller.signal);
@@ -45,6 +47,8 @@ export class ChatSession {
       return { sources: ctx.sources, error: aborted ? undefined : assistant.error };
     }
   }
+
+  reset(): void { this.abort(); this.messages = []; }
 
   abort(): void { this.controller?.abort(); }
 }

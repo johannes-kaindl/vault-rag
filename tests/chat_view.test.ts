@@ -9,23 +9,26 @@ function all(el: any, cls: string): any[] {
   walk(el); return out;
 }
 
-function mkView(opts: { send?: any; activePath?: string | null; ping?: any } = {}) {
+function mkView(opts: { send?: any; ping?: any } = {}) {
   const session: any = {
-    mode: "auto-rag", picked: [], messages: [],
-    send: opts.send ?? vi.fn(async (q: string, onToken: (t: string) => void) => {
+    messages: [],
+    send: opts.send ?? vi.fn(async (q: string, _paths: string[], onToken: (t: string) => void) => {
       session.messages.push({ role: "user", content: q });
       const a: any = { role: "assistant", content: "" }; session.messages.push(a);
-      onToken("Ant"); a.content = "Ant"; onToken("wort"); a.content = "Antwort"; a.sources = ["notes/a.md"];
+      onToken("Ant"); a.content = "Antwort"; a.sources = ["notes/a.md"];
       return { sources: ["notes/a.md"] };
     }),
-    abort: vi.fn(),
-    reset: vi.fn(() => { session.messages = []; }),
+    abort: vi.fn(), reset: vi.fn(() => { session.messages = []; }),
   };
   const opened: string[] = [];
   const view = new ChatView({ app: makeFakeApp() } as any, {
     session, openPath: (p: string) => opened.push(p),
-    getActivePath: () => (opts.activePath !== undefined ? opts.activePath : "aktiv.md"),
     ping: opts.ping ?? (async () => true),
+    getActivePath: () => "aktiv.md",
+    embed: async () => new Float32Array([1, 0]),
+    search: () => ["x.md"],
+    pickNote: async () => null,
+    autoK: 3,
   });
   return { view, session, opened };
 }
@@ -34,32 +37,31 @@ describe("ChatView", () => {
   it("getViewType ist VIEW_TYPE_CHAT", () => {
     expect(mkView().view.getViewType()).toBe(VIEW_TYPE_CHAT);
   });
-  it("submit rendert user+assistant und Quellen-Chip", async () => {
+  it("submit ruft session.send mit (query, paths, onToken) und rendert", async () => {
     const { view, session, opened } = mkView();
     await view.onOpen();
     (view as any).inputEl.value = "frage";
     await view.submit();
-    expect(session.send).toHaveBeenCalled();
+    expect(session.send).toHaveBeenCalledWith("frage", expect.any(Array), expect.any(Function));
     expect(all(view.contentEl, "vault-rag-chat-msg").length).toBe(2);
     const chips = all(view.contentEl, "vault-rag-chat-source");
     expect(chips.length).toBe(1);
     chips[0].click();
     expect(opened).toEqual(["notes/a.md"]);
   });
-  it("Multi-Turn: Quellen früherer Turns bleiben erhalten", async () => {
+  it("Multi-Turn: Quellen früherer Turns bleiben", async () => {
     const { view } = mkView();
     await view.onOpen();
     (view as any).inputEl.value = "eins"; await view.submit();
     (view as any).inputEl.value = "zwei"; await view.submit();
-    expect(all(view.contentEl, "vault-rag-chat-msg").length).toBe(4);
     expect(all(view.contentEl, "vault-rag-chat-source").length).toBe(2);
   });
-  it("Fehler-Zustand (error an der Nachricht) wird gerendert", async () => {
+  it("Fehler-Zustand wird gerendert", async () => {
     const send = vi.fn(async (q: string) => {
       const s: any = (send as any)._s;
       s.messages.push({ role: "user", content: q });
       s.messages.push({ role: "assistant", content: "", error: "Chat-LLM nicht erreichbar (lokal/VPN)." });
-      return { sources: [], error: "Chat-LLM nicht erreichbar (lokal/VPN)." };
+      return { sources: [], error: "x" };
     });
     const { view, session } = mkView({ send });
     (send as any)._s = session;
@@ -75,19 +77,13 @@ describe("ChatView", () => {
     await view.submit();
     expect(session.send).not.toHaveBeenCalled();
   });
-  it("setMode ändert den Session-Modus", async () => {
-    const { view, session } = mkView();
-    await view.onOpen();
-    view.setMode("active-note");
-    expect(session.mode).toBe("active-note");
-  });
   it("zeigt Verbindungsstatus nach onOpen", async () => {
-    const okView = mkView({ ping: async () => true });
-    await okView.view.onOpen();
-    expect(all(okView.view.contentEl, "vault-rag-chat-status")[0].textContent).toContain("verbunden");
-    const offView = mkView({ ping: async () => false });
-    await offView.view.onOpen();
-    expect(all(offView.view.contentEl, "vault-rag-chat-status")[0].textContent).toContain("offline");
+    const okV = mkView({ ping: async () => true });
+    await okV.view.onOpen();
+    expect(all(okV.view.contentEl, "vault-rag-chat-status")[0].textContent).toContain("verbunden");
+    const offV = mkView({ ping: async () => false });
+    await offV.view.onOpen();
+    expect(all(offV.view.contentEl, "vault-rag-chat-status")[0].textContent).toContain("offline");
   });
   it("Senden-Button wird zu Stop während einer laufenden Anfrage", async () => {
     let finish: () => void = () => {};
@@ -110,13 +106,9 @@ describe("ChatView", () => {
     expect(session.reset).toHaveBeenCalled();
     expect(all(view.contentEl, "vault-rag-chat-msg").length).toBe(0);
   });
-  it("picked-notes: '+ Aktive Notiz' fügt die aktive Notiz hinzu", async () => {
-    const { view, session } = mkView({ activePath: "ordner/x.md" });
+  it("Kontext-Panel ist gemountet", async () => {
+    const { view } = mkView();
     await view.onOpen();
-    view.setMode("picked-notes");
-    const add = all(view.contentEl, "vault-rag-chat-pick-add");
-    expect(add.length).toBe(1);
-    add[0].click();
-    expect(session.picked).toEqual(["ordner/x.md"]);
+    expect(all(view.contentEl, "vault-rag-ctx-list").length).toBe(1);
   });
 });

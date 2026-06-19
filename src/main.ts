@@ -9,7 +9,8 @@ import { PendingQueue } from "./pending_queue";
 import { SemanticSearchView, VIEW_TYPE_SEARCH, SearchResult } from "./search_view";
 import { toIndexVector } from "./embed_vector";
 import { ChatClient } from "./chat_client";
-import { assembleContext, ChatMode, ContextResult } from "./context_source";
+import { buildContext } from "./context_source";
+import { pickNote } from "./note_picker";
 import { ChatSession } from "./chat_session";
 import { ChatView, VIEW_TYPE_CHAT } from "./chat_view";
 
@@ -64,11 +65,27 @@ export default class VaultRagPlugin extends Plugin {
     this.registerView(VIEW_TYPE_CHAT, (leaf: WorkspaceLeaf) => new ChatView(leaf, {
       session: new ChatSession({
         client: this.chatClient,
-        assemble: (mode, q, picked) => this.assembleChatContext(mode, q, picked),
+        assemble: (paths) => buildContext(paths, {
+          read: (p) => this.app.vault.adapter.read(p),
+          budget: this.settings.contextCharBudget,
+        }),
       }),
       openPath: this.openPath,
-      getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
       ping: () => this.chatClient.ping(),
+      getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
+      embed: async (q) => {
+        const index = this.index;
+        if (!index) throw new Error("kein Index");
+        const vecs = await this.embedder.embed([q]);
+        if (vecs.length === 0) throw new Error("embed: leere Antwort");
+        return toIndexVector(vecs, index.dim);
+      },
+      search: (vec, n) => {
+        const retriever = this.retriever;
+        return retriever ? retriever.search(vec, { k: n, minSim: this.settings.minSim, exclude: this.settings.exclude }).map(h => h.path) : [];
+      },
+      pickNote: () => pickNote(this.app),
+      autoK: this.settings.chatK,
     }));
     this.addRibbonIcon("message-square", "Vault Chat", () => this.activateChatView());
     this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => this.activateChatView() });
@@ -299,27 +316,6 @@ export default class VaultRagPlugin extends Plugin {
     if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
     const leaf = this.app.workspace.getRightLeaf(false);
     await leaf?.setViewState({ type: VIEW_TYPE_SEARCH, active: true });
-  }
-
-  private assembleChatContext(mode: ChatMode, query: string, picked: string[]): Promise<ContextResult> {
-    // Snapshot vor den awaits: maybeReload() (30s) könnte index/retriever zwischenzeitlich nullen.
-    const retriever = this.retriever;
-    const index = this.index;
-    const opts = { k: this.settings.chatK, minSim: this.settings.minSim, exclude: this.settings.exclude };
-    return assembleContext(mode, query, {
-      embed: async (q) => {
-        const vecs = await this.embedder.embed([q]);
-        if (vecs.length === 0) throw new Error("embed: leere Antwort");
-        return toIndexVector(vecs, index?.dim ?? 256);
-      },
-      search: (qVec) => retriever ? retriever.search(qVec, opts).map(h => h.path) : [],
-      related: (path) => retriever ? retriever.related(path, opts).map(h => h.path) : [],
-      read: (p) => this.app.vault.adapter.read(p),
-      activePath: () => this.app.workspace.getActiveFile()?.path ?? null,
-      picked: () => picked,
-      k: this.settings.chatK,
-      budget: this.settings.contextCharBudget,
-    });
   }
 
   async activateChatView() {

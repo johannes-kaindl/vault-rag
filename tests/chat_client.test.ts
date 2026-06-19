@@ -20,6 +20,10 @@ describe("parseSSE", () => {
   it("setzt done bei [DONE]", () => {
     expect(parseSSE("data: [DONE]\n").done).toBe(true);
   });
+  it("verarbeitet \\r\\n-Zeilenenden", () => {
+    const r = parseSSE('data: {"choices":[{"delta":{"content":"a"}}]}\r\ndata: {"choices":[{"delta":{"content":"b"}}]}\r\n');
+    expect(r.deltas).toEqual(["a", "b"]);
+  });
   it("unvollständige letzte Zeile bleibt in rest", () => {
     const r = parseSSE('data: {"choices":[{"delta":{"content":"x"}}]}\ndata: {"cho');
     expect(r.deltas).toEqual(["x"]);

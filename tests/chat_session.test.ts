@@ -16,6 +16,7 @@ describe("ChatSession", () => {
     expect(sources).toEqual(["a.md"]);
     expect(s.messages.map(m => m.role)).toEqual(["user", "assistant"]);
     expect(s.messages[1].content).toBe("Hi!");
+    expect(s.messages[1].sources).toEqual(["a.md"]);
   });
   it("multi-turn: Verlauf wächst, assemble bekommt Modus + picked", async () => {
     const { s, assemble } = mkSession();
@@ -28,6 +29,7 @@ describe("ChatSession", () => {
     const { s } = mkSession(async () => { throw new Error("boom"); });
     const r = await s.send("x", () => {});
     expect(r.error).toContain("nicht erreichbar");
+    expect(s.messages[1].error).toContain("nicht erreichbar");
   });
   it("assemble-Fehler → error, ohne Nachrichten anzuhängen", async () => {
     const { s } = mkSession(undefined, async () => { throw new Error("ctx weg"); });

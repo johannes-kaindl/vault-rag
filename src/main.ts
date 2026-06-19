@@ -67,6 +67,7 @@ export default class VaultRagPlugin extends Plugin {
         assemble: (mode, q, picked) => this.assembleChatContext(mode, q, picked),
       }),
       openPath: this.openPath,
+      getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
     }));
     this.addRibbonIcon("message-square", "Vault Chat", () => this.activateChatView());
     this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => this.activateChatView() });
@@ -300,14 +301,18 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private assembleChatContext(mode: ChatMode, query: string, picked: string[]): Promise<ContextResult> {
+    // Snapshot vor den awaits: maybeReload() (30s) könnte index/retriever zwischenzeitlich nullen.
+    const retriever = this.retriever;
+    const index = this.index;
     const opts = { k: this.settings.chatK, minSim: this.settings.minSim, exclude: this.settings.exclude };
     return assembleContext(mode, query, {
       embed: async (q) => {
         const vecs = await this.embedder.embed([q]);
-        return toIndexVector(vecs, this.index?.dim ?? 256);
+        if (vecs.length === 0) throw new Error("embed: leere Antwort");
+        return toIndexVector(vecs, index?.dim ?? 256);
       },
-      search: (qVec) => this.retriever ? this.retriever.search(qVec, opts).map(h => h.path) : [],
-      related: (path) => this.retriever ? this.retriever.related(path, opts).map(h => h.path) : [],
+      search: (qVec) => retriever ? retriever.search(qVec, opts).map(h => h.path) : [],
+      related: (path) => retriever ? retriever.related(path, opts).map(h => h.path) : [],
       read: (p) => this.app.vault.adapter.read(p),
       activePath: () => this.app.workspace.getActiveFile()?.path ?? null,
       picked: () => picked,

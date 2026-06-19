@@ -24,7 +24,11 @@ export class ChatSession {
     catch { return { sources: [], error: "Kontext konnte nicht geladen werden." }; }
 
     const system: ChatMessage = { role: "system", content: ctx.text ? `${SYSTEM_PREAMBLE}\n\n${ctx.text}` : SYSTEM_PREAMBLE };
-    const sent: ChatMessage[] = [system, ...this.messages, { role: "user", content: query }];
+    // Verlauf an das LLM: nur Turns mit Inhalt (leere/fehlgeschlagene Assistenten-Turns ausnehmen),
+    // und auf reine role/content abbilden (sources/error sind reine View-Metadaten).
+    const history = this.messages.filter(m => m.content.length > 0).map(m => ({ role: m.role, content: m.content }));
+    const sent: ChatMessage[] = [system, ...history, { role: "user", content: query }];
+
     this.messages.push({ role: "user", content: query });
     const assistant: ChatMessage = { role: "assistant", content: "" };
     this.messages.push(assistant);
@@ -32,10 +36,12 @@ export class ChatSession {
     try {
       const full = await this.deps.client.stream(sent, t => { assistant.content += t; onToken(t); }, this.controller.signal);
       assistant.content = full;
+      assistant.sources = ctx.sources;
       return { sources: ctx.sources };
     } catch (e) {
       const aborted = (e as { name?: string })?.name === "AbortError";
-      return { sources: ctx.sources, error: aborted ? undefined : "Chat-LLM nicht erreichbar (lokal/VPN)." };
+      if (!aborted) assistant.error = "Chat-LLM nicht erreichbar (lokal/VPN).";
+      return { sources: ctx.sources, error: aborted ? undefined : assistant.error };
     }
   }
 

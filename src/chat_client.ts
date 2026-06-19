@@ -1,10 +1,10 @@
-export interface ChatMessage { role: "system" | "user" | "assistant"; content: string }
+export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; sources?: string[]; error?: string }
 
 /** Akkumuliert OpenAI-SSE-Deltas aus einem (Teil-)Buffer; unvollständige letzte Zeile → rest. */
 export function parseSSE(buffer: string): { deltas: string[]; rest: string; done: boolean } {
   const deltas: string[] = [];
   let done = false;
-  const lines = buffer.split("\n");
+  const lines = buffer.split(/\r\n|\n|\r/);
   const rest = lines.pop() ?? "";
   for (const line of lines) {
     const t = line.trim();

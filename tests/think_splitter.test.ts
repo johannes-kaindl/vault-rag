@@ -33,4 +33,14 @@ describe("ThinkSplitter", () => {
     expect(r1.content + r2.content).toBe("a <b > c");
     expect(r1.reasoning + r2.reasoning).toBe("");
   });
+  it("flush gibt gepufferten Content-Rest am Ende zurück", () => {
+    const s = new ThinkSplitter();
+    expect(s.push("Ende <")).toEqual({ content: "Ende ", reasoning: "" });
+    expect(s.flush()).toEqual({ content: "<", reasoning: "" });
+  });
+  it("flush nach offenem <think> gibt reasoning-Rest", () => {
+    const s = new ThinkSplitter();
+    expect(s.push("<think>denke</thi")).toEqual({ content: "", reasoning: "denke" });
+    expect(s.flush()).toEqual({ content: "", reasoning: "</thi" });
+  });
 });

@@ -82,6 +82,14 @@ describe("ChatClient", () => {
     await expect(new ChatClient("http://localhost:8080", "qwen3").stream(
       [{ role: "user", content: "x" }], () => {}, () => {})).rejects.toThrow("500");
   });
+  it("stream verliert keinen Tag-Rest am Stream-Ende (splitter flush)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamRes([
+      'data: {"choices":[{"delta":{"content":"Ende <"}}]}\n\ndata: [DONE]\n\n',
+    ])));
+    const res = await new ChatClient("http://localhost:8080", "qwen3").stream(
+      [{ role: "user", content: "x" }], () => {}, () => {});
+    expect(res.content).toBe("Ende <");
+  });
   it("ping true bei 200", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
     expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(true);

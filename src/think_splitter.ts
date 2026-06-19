@@ -32,6 +32,14 @@ export class ThinkSplitter {
     }
     return { content, reasoning };
   }
+
+  /** Stream-Ende: gibt den noch gepufferten (Tag-)Rest zurück — er hat sich nie zu einem
+   *  vollständigen Tag ergänzt und gehört in den aktuell aktiven Kanal. */
+  flush(): { content: string; reasoning: string } {
+    const out = { content: this.inside ? "" : this.buf, reasoning: this.inside ? this.buf : "" };
+    this.buf = "";
+    return out;
+  }
 }
 
 /** Länge des längsten Suffixes von `s`, das ein echter Präfix von `tag` ist. */

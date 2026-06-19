@@ -49,20 +49,29 @@ export class ChatClient {
     const dec = new TextDecoder();
     const splitter = new ThinkSplitter();
     let buffer = "", content = "", reasoning = "";
+    const emit = (c: string, r: string) => {
+      if (c) { content += c; onContent(c); }
+      if (r) { reasoning += r; onReasoning(r); }
+    };
+    const drain = (p: { content: string[]; reasoning: string[] }) => {
+      for (const r of p.reasoning) emit("", r);
+      for (const c of p.content) { const s = splitter.push(c); emit(s.content, s.reasoning); }
+    };
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += dec.decode(value, { stream: true });
       const p = parseSSE(buffer);
       buffer = p.rest;
-      for (const r of p.reasoning) { reasoning += r; onReasoning(r); }
-      for (const c of p.content) {
-        const split = splitter.push(c);
-        if (split.content) { content += split.content; onContent(split.content); }
-        if (split.reasoning) { reasoning += split.reasoning; onReasoning(split.reasoning); }
-      }
+      drain(p);
       if (p.done) break;
     }
+    // Stream-Ende sauber drainen: TextDecoder leeren (Multibyte über die letzte Chunk-Grenze)
+    // + im ThinkSplitter gepufferten Tag-Rest flushen — sonst gingen letzte Zeichen verloren.
+    buffer += dec.decode();
+    drain(parseSSE(buffer));
+    const tail = splitter.flush();
+    emit(tail.content, tail.reasoning);
     return { content, reasoning };
   }
 }

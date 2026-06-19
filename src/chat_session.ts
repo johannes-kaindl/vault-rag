@@ -37,6 +37,7 @@ export class ChatSession {
       const full = await this.deps.client.stream(sent, t => { assistant.content += t; onToken(t); }, this.controller.signal);
       assistant.content = full;
       assistant.sources = ctx.sources;
+      if (full.trim() === "") assistant.error = "Leere Antwort vom Chat-LLM — Endpoint/Modell in den Settings prüfen.";
       return { sources: ctx.sources };
     } catch (e) {
       const aborted = (e as { name?: string })?.name === "AbortError";

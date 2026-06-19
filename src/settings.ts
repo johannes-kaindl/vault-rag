@@ -140,6 +140,13 @@ export class VaultRagSettingTab extends PluginSettingTab {
     // ── Chat ──────────────────────────────────────────────────────────
     new Setting(containerEl).setName("Chat").setHeading();
 
+    let chatConnSetting: Setting;
+    const pingChat = (): void => {
+      this.plugin.chatClient?.ping().then((ok: boolean) => {
+        chatConnSetting?.setDesc(ok ? "● Verbunden" : "○ Offline — Endpoint/Modell prüfen (LM Studio: http://localhost:1234)");
+      });
+    };
+
     new Setting(containerEl)
       .setName("Chat Endpoint")
       .setDesc("OpenAI-kompatibler LLM-Server (MLX/LM-Studio) — getrennt vom Embedding-Endpoint")
@@ -150,6 +157,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
             this.plugin.settings.chatEndpoint = v.trim();
             await this.plugin.saveSettings();
             this.plugin.reconnectChat?.();
+            pingChat();
           }));
 
     new Setting(containerEl)
@@ -162,6 +170,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
             this.plugin.settings.chatModel = v.trim();
             await this.plugin.saveSettings();
             this.plugin.reconnectChat?.();
+            pingChat();
           }));
 
     let chatKSetting: Setting;
@@ -191,6 +200,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
           budgetSetting.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
           await this.plugin.saveSettings();
         }));
+
+    chatConnSetting = new Setting(containerEl)
+      .setName("Chat-Verbindung")
+      .setDesc("prüfe…");
+    pingChat();
 
     // ── Status ────────────────────────────────────────────────────────
     new Setting(containerEl).setName("Status").setHeading();

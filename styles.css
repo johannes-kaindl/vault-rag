@@ -16,3 +16,6 @@
 .vault-rag-chat-state { color: var(--text-error); padding: 4px 0; }
 .vault-rag-chat-input-row { display: flex; gap: 4px; margin-top: 8px; }
 .vault-rag-chat-input { flex: 1; }
+.vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; }
+.vault-rag-chat-picked { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; align-items: center; }
+.vault-rag-chat-picked-chip { font-size: 11px; padding: 2px 6px; border-radius: 10px; background: var(--background-modifier-border); cursor: pointer; }

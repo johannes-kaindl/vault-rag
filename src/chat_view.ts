@@ -14,11 +14,13 @@ export interface ChatViewDeps {
   session: ChatSession;
   openPath: (path: string) => void;
   getActivePath: () => string | null;
+  ping: () => Promise<boolean>;
 }
 
 export class ChatView extends ItemView {
   private messagesEl: HTMLElement | null = null;
   private pickedEl: HTMLElement | null = null;
+  private statusEl: HTMLElement | null = null;
   private inputEl: HTMLInputElement | null = null;
   private modeButtons = new Map<ChatMode, HTMLElement>();
 
@@ -37,6 +39,8 @@ export class ChatView extends ItemView {
       b.addEventListener("click", () => this.setMode(m.id));
       this.modeButtons.set(m.id, b);
     }
+    this.statusEl = c.createDiv({ cls: "vault-rag-chat-status" });
+    this.statusEl.addEventListener("click", () => void this.refreshStatus());
     this.pickedEl = c.createDiv({ cls: "vault-rag-chat-picked" });
     this.messagesEl = c.createDiv({ cls: "vault-rag-chat-messages" });
     const row = c.createDiv({ cls: "vault-rag-chat-input-row" });
@@ -48,6 +52,14 @@ export class ChatView extends ItemView {
     row.createEl("button", { cls: "vault-rag-chat-stop", text: "Stop" }).addEventListener("click", () => this.deps.session.abort());
     this.renderPicked();
     this.renderMessages();
+    await this.refreshStatus();
+  }
+
+  async refreshStatus(): Promise<void> {
+    const el = this.statusEl; if (!el) return;
+    el.setText("Chat-LLM: prüfe…");
+    const ok = await this.deps.ping();
+    el.setText(ok ? "● Chat-LLM verbunden" : "○ Chat-LLM offline — in den Settings prüfen");
   }
 
   setMode(mode: ChatMode): void {

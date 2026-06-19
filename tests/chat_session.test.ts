@@ -37,4 +37,10 @@ describe("ChatSession", () => {
     expect(r.error).toBeTruthy();
     expect(s.messages.length).toBe(0);
   });
+  it("leere Antwort → Hinweis an der Assistenten-Nachricht", async () => {
+    const { s } = mkSession(async () => "");
+    const r = await s.send("x", () => {});
+    expect(s.messages[1].error).toContain("Leere Antwort");
+    expect(r.error).toBeUndefined();
+  });
 });

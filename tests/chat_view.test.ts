@@ -9,7 +9,7 @@ function all(el: any, cls: string): any[] {
   walk(el); return out;
 }
 
-function mkView(opts: { send?: any; activePath?: string | null } = {}) {
+function mkView(opts: { send?: any; activePath?: string | null; ping?: any } = {}) {
   const session: any = {
     mode: "auto-rag", picked: [], messages: [],
     send: opts.send ?? vi.fn(async (q: string, onToken: (t: string) => void) => {
@@ -24,6 +24,7 @@ function mkView(opts: { send?: any; activePath?: string | null } = {}) {
   const view = new ChatView({ app: makeFakeApp() } as any, {
     session, openPath: (p: string) => opened.push(p),
     getActivePath: () => (opts.activePath !== undefined ? opts.activePath : "aktiv.md"),
+    ping: opts.ping ?? (async () => true),
   });
   return { view, session, opened };
 }
@@ -78,6 +79,14 @@ describe("ChatView", () => {
     await view.onOpen();
     view.setMode("active-note");
     expect(session.mode).toBe("active-note");
+  });
+  it("zeigt Verbindungsstatus nach onOpen", async () => {
+    const okView = mkView({ ping: async () => true });
+    await okView.view.onOpen();
+    expect(all(okView.view.contentEl, "vault-rag-chat-status")[0].textContent).toContain("verbunden");
+    const offView = mkView({ ping: async () => false });
+    await offView.view.onOpen();
+    expect(all(offView.view.contentEl, "vault-rag-chat-status")[0].textContent).toContain("offline");
   });
   it("picked-notes: '+ Aktive Notiz' fügt die aktive Notiz hinzu", async () => {
     const { view, session } = mkView({ activePath: "ordner/x.md" });

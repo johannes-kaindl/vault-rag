@@ -25,7 +25,7 @@ export default class VaultRagPlugin extends Plugin {
   private retriever: Retriever | null = null;
   private lastMtime = 0;
   embedder!: EmbeddingClient;
-  private chatClient!: ChatClient;
+  chatClient!: ChatClient;
   private liveIndexer!: LiveIndexer;
   private pendingQueue!: PendingQueue;
   private debounceTimers = new Map<string, ReturnType<typeof window.setTimeout>>();
@@ -68,6 +68,7 @@ export default class VaultRagPlugin extends Plugin {
       }),
       openPath: this.openPath,
       getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
+      ping: () => this.chatClient.ping(),
     }));
     this.addRibbonIcon("message-square", "Vault Chat", () => this.activateChatView());
     this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => this.activateChatView() });

@@ -23,9 +23,11 @@ export class ChatView extends ItemView {
   private pickedEl: HTMLElement | null = null;
   private statusEl: HTMLElement | null = null;
   private inputEl: HTMLInputElement | null = null;
+  private sendBtn: HTMLElement | null = null;
   private modeButtons = new Map<ChatMode, HTMLElement>();
   private timer: ReturnType<typeof window.setInterval> | null = null;
   private workStart = 0;
+  private running = false;
 
   constructor(leaf: WorkspaceLeaf, private deps: ChatViewDeps) { super(leaf); }
   getViewType(): string { return VIEW_TYPE_CHAT; }
@@ -52,8 +54,8 @@ export class ChatView extends ItemView {
     input.type = "text"; input.placeholder = "Frag deinen Vault…";
     this.inputEl = input;
     input.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") void this.submit(); });
-    row.createEl("button", { cls: "vault-rag-chat-send", text: "Senden" }).addEventListener("click", () => void this.submit());
-    row.createEl("button", { cls: "vault-rag-chat-stop", text: "Stop" }).addEventListener("click", () => this.deps.session.abort());
+    this.sendBtn = row.createEl("button", { cls: "vault-rag-chat-send", text: "Senden" });
+    this.sendBtn.addEventListener("click", () => this.onSendClick());
     row.createEl("button", { cls: "vault-rag-chat-new", text: "Neu" }).addEventListener("click", () => this.newChat());
     this.renderPicked();
     this.renderMessages();
@@ -76,19 +78,28 @@ export class ChatView extends ItemView {
   newChat(): void {
     this.deps.session.reset();
     this.stopWorking();
+    this.running = false; this.sendBtn?.setText("Senden");
     this.workingEl?.setText("");
     this.renderMessages();
   }
 
+  private onSendClick(): void {
+    if (this.running) { this.deps.session.abort(); return; }
+    void this.submit();
+  }
+
   async submit(): Promise<void> {
+    if (this.running) return;
     const q = (this.inputEl?.value ?? "").trim();
     if (!q) return;
     if (this.inputEl) this.inputEl.value = "";
+    this.running = true; this.sendBtn?.setText("Stop");
     const pending = this.deps.session.send(q, () => this.renderMessages());
     this.renderMessages();   // Frage erscheint sofort (User-Nachricht wurde synchron gepusht)
     this.startWorking();
     await pending;
     this.stopWorking();
+    this.running = false; this.sendBtn?.setText("Senden");
     this.renderMessages();
   }
 

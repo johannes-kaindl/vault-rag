@@ -89,6 +89,18 @@ describe("ChatView", () => {
     await offView.view.onOpen();
     expect(all(offView.view.contentEl, "vault-rag-chat-status")[0].textContent).toContain("offline");
   });
+  it("Senden-Button wird zu Stop während einer laufenden Anfrage", async () => {
+    let finish: () => void = () => {};
+    const send = vi.fn(() => new Promise<{ sources: string[] }>(r => { finish = () => r({ sources: [] }); }));
+    const { view } = mkView({ send });
+    await view.onOpen();
+    (view as any).inputEl.value = "frage";
+    const p = view.submit();
+    const btn = () => all(view.contentEl, "vault-rag-chat-send")[0];
+    expect(btn().textContent).toBe("Stop");
+    finish(); await p;
+    expect(btn().textContent).toBe("Senden");
+  });
   it("Neuer Chat leert den Verlauf und die Anzeige", async () => {
     const { view, session } = mkView();
     await view.onOpen();

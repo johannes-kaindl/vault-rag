@@ -8,6 +8,10 @@ import { LiveIndexer } from "./live_indexer";
 import { PendingQueue } from "./pending_queue";
 import { SemanticSearchView, VIEW_TYPE_SEARCH, SearchResult } from "./search_view";
 import { toIndexVector } from "./embed_vector";
+import { ChatClient } from "./chat_client";
+import { assembleContext, ChatMode, ContextResult } from "./context_source";
+import { ChatSession } from "./chat_session";
+import { ChatView, VIEW_TYPE_CHAT } from "./chat_view";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -21,6 +25,7 @@ export default class VaultRagPlugin extends Plugin {
   private retriever: Retriever | null = null;
   private lastMtime = 0;
   embedder!: EmbeddingClient;
+  private chatClient!: ChatClient;
   private liveIndexer!: LiveIndexer;
   private pendingQueue!: PendingQueue;
   private debounceTimers = new Map<string, ReturnType<typeof window.setTimeout>>();
@@ -39,6 +44,7 @@ export default class VaultRagPlugin extends Plugin {
   async onload() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.embedder = new EmbeddingClient(this.settings.embeddingEndpoint, this.settings.embeddingModel);
+    this.chatClient = new ChatClient(this.settings.chatEndpoint, this.settings.chatModel);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
 
@@ -55,6 +61,15 @@ export default class VaultRagPlugin extends Plugin {
     this.addCommand({ id: "open-related", name: "Verwandte Notizen öffnen", callback: () => this.activateView() });
     this.addRibbonIcon("telescope", "Semantische Suche", () => this.activateSearchView());
     this.addCommand({ id: "open-semantic-search", name: "Semantische Suche öffnen", callback: () => this.activateSearchView() });
+    this.registerView(VIEW_TYPE_CHAT, (leaf: WorkspaceLeaf) => new ChatView(leaf, {
+      session: new ChatSession({
+        client: this.chatClient,
+        assemble: (mode, q, picked) => this.assembleChatContext(mode, q, picked),
+      }),
+      openPath: this.openPath,
+    }));
+    this.addRibbonIcon("message-square", "Vault Chat", () => this.activateChatView());
+    this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => this.activateChatView() });
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refresh()));
 
     // File-Events
@@ -88,6 +103,10 @@ export default class VaultRagPlugin extends Plugin {
     this.embedder = new EmbeddingClient(this.settings.embeddingEndpoint, this.settings.embeddingModel);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
     if (this.index) this.liveIndexer.init(this.index);
+  }
+
+  reconnectChat(): void {
+    this.chatClient = new ChatClient(this.settings.chatEndpoint, this.settings.chatModel);
   }
 
   async loadIndex() {
@@ -278,6 +297,30 @@ export default class VaultRagPlugin extends Plugin {
     if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
     const leaf = this.app.workspace.getRightLeaf(false);
     await leaf?.setViewState({ type: VIEW_TYPE_SEARCH, active: true });
+  }
+
+  private assembleChatContext(mode: ChatMode, query: string, picked: string[]): Promise<ContextResult> {
+    const opts = { k: this.settings.chatK, minSim: this.settings.minSim, exclude: this.settings.exclude };
+    return assembleContext(mode, query, {
+      embed: async (q) => {
+        const vecs = await this.embedder.embed([q]);
+        return toIndexVector(vecs, this.index?.dim ?? 256);
+      },
+      search: (qVec) => this.retriever ? this.retriever.search(qVec, opts).map(h => h.path) : [],
+      related: (path) => this.retriever ? this.retriever.related(path, opts).map(h => h.path) : [],
+      read: (p) => this.app.vault.adapter.read(p),
+      activePath: () => this.app.workspace.getActiveFile()?.path ?? null,
+      picked: () => picked,
+      k: this.settings.chatK,
+      budget: this.settings.contextCharBudget,
+    });
+  }
+
+  async activateChatView() {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT);
+    if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
+    const leaf = this.app.workspace.getRightLeaf(false);
+    await leaf?.setViewState({ type: VIEW_TYPE_CHAT, active: true });
   }
 
   async saveSettings() { await this.saveData(this.settings); }

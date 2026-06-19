@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, TFile, TAbstractFile } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Retriever, Hit } from "./retriever";
 import { RelatedNotesView, VIEW_TYPE_RELATED } from "./view";
@@ -71,6 +71,7 @@ export default class VaultRagPlugin extends Plugin {
         }),
       }),
       openPath: this.openPath,
+      copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },
       ping: () => this.chatClient.ping(),
       getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
       embed: async (q) => {

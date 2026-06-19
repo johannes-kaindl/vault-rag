@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
+import { ItemView, WorkspaceLeaf, setIcon } from "obsidian";
 import { ChatSession } from "./chat_session";
 import { ContextPanel, ContextPanelDeps } from "./context_panel";
 
@@ -8,6 +8,7 @@ export interface ChatViewDeps extends ContextPanelDeps {
   session: ChatSession;
   openPath: (path: string) => void;
   ping: () => Promise<boolean>;
+  copyText: (text: string) => void;
   autoK: number;
 }
 
@@ -130,6 +131,12 @@ export class ChatView extends ItemView {
       }
       if (m.content) el.createDiv({ cls: `vault-rag-chat-msg is-${m.role}`, text: m.content });
       if (m.error) el.createDiv({ cls: "vault-rag-chat-state", text: m.error });
+      if (m.role === "assistant" && m.content) {
+        const actions = el.createDiv({ cls: "vault-rag-chat-msg-actions" });
+        const copyBtn = actions.createEl("button", { cls: "vault-rag-chat-copy clickable-icon", attr: { "aria-label": "Antwort kopieren" } });
+        setIcon(copyBtn, "copy");
+        copyBtn.addEventListener("click", () => this.deps.copyText(m.content));
+      }
       if (m.sources && m.sources.length) {
         const row = el.createDiv({ cls: "vault-rag-chat-sources" });
         for (const p of m.sources) {

@@ -9,7 +9,7 @@ function all(el: any, cls: string): any[] {
   walk(el); return out;
 }
 
-function mkView(opts: { send?: any; ping?: any } = {}) {
+function mkView(opts: { send?: any; ping?: any; copyText?: any } = {}) {
   const session: any = {
     messages: [],
     send: opts.send ?? vi.fn(async (q: string, _paths: string[], onToken: (t: string) => void) => {
@@ -24,6 +24,7 @@ function mkView(opts: { send?: any; ping?: any } = {}) {
   const view = new ChatView({ app: makeFakeApp() } as any, {
     session, openPath: (p: string) => opened.push(p),
     ping: opts.ping ?? (async () => true),
+    copyText: opts.copyText ?? vi.fn(),
     getActivePath: () => "aktiv.md",
     embed: async () => new Float32Array([1, 0]),
     search: () => ["x.md"],
@@ -156,5 +157,26 @@ describe("ChatView", () => {
     const { view } = mkView();
     await view.onOpen();
     expect(String(all(view.contentEl, "vault-rag-chat-send")[0].className)).toContain("mod-cta");
+  });
+  it("Kopier-Button an der Antwort kopiert den Antworttext", async () => {
+    const copyText = vi.fn();
+    const { view, session } = mkView({ copyText });
+    await view.onOpen();
+    session.messages = [
+      { role: "user", content: "frage" },
+      { role: "assistant", content: "Die Antwort." },
+    ];
+    (view as any).renderMessages();
+    const btns = all(view.contentEl, "vault-rag-chat-copy");
+    expect(btns.length).toBe(1);
+    btns[0].click();
+    expect(copyText).toHaveBeenCalledWith("Die Antwort.");
+  });
+  it("kein Kopier-Button an der User-Nachricht", async () => {
+    const { view, session } = mkView();
+    await view.onOpen();
+    session.messages = [{ role: "user", content: "frage" }];
+    (view as any).renderMessages();
+    expect(all(view.contentEl, "vault-rag-chat-copy").length).toBe(0);
   });
 });

@@ -49,6 +49,16 @@ describe("ContextPanel", () => {
     p.setAutoK(0);
     expect(p.autoDocs).toEqual([]);
   });
+  it("setAutoK über den Puffer hinaus holt neu", async () => {
+    const calls: number[] = [];
+    const p = new ContextPanel(deps({ search: (_v, n) => { calls.push(n); return Array.from({ length: n }, (_, i) => `n${i}.md`); } }), 1);
+    await p.setQuery("frage");
+    expect(p.autoDocs.length).toBe(1);
+    p.setAutoK(40);
+    await new Promise(r => setTimeout(r, 0));
+    expect(calls).toContain(60);
+    expect(p.autoDocs.length).toBe(40);
+  });
   it("embed-Fehler → autoDocs leer, Pins bleiben", async () => {
     const p = new ContextPanel(deps({ embed: async () => { throw new Error("offline"); } }), 2);
     p.pin("x.md");

@@ -28,7 +28,14 @@ export class ChatSession {
     catch { assistant.error = "Kontext konnte nicht geladen werden."; return { sources: [], error: assistant.error }; }
 
     const system: ChatMessage = { role: "system", content: ctx.text ? `${SYSTEM_PREAMBLE}\n\n${ctx.text}` : SYSTEM_PREAMBLE };
-    const history = this.messages.slice(0, -2).filter(m => m.content.length > 0).map(m => ({ role: m.role, content: m.content }));
+    // Verlauf an das LLM: nur vollständige Turns (Assistent mit Inhalt, ohne Fehler) — paarweise,
+    // damit ein fehlgeschlagener Turn nicht zwei aufeinanderfolgende User-Nachrichten hinterlässt.
+    const prior = this.messages.slice(0, -2);
+    const history: ChatMessage[] = [];
+    for (let i = 0; i + 1 < prior.length; i += 2) {
+      const u = prior[i], a = prior[i + 1];
+      if (a.content.length > 0 && !a.error) history.push({ role: u.role, content: u.content }, { role: a.role, content: a.content });
+    }
     const sent: ChatMessage[] = [system, ...history, { role: "user", content: query }];
 
     this.controller = new AbortController();

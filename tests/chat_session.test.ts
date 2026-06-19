@@ -59,4 +59,18 @@ describe("ChatSession", () => {
     s.reset();
     expect(s.messages).toEqual([]);
   });
+  it("fehlgeschlagener Turn landet nicht im Folge-Verlauf", async () => {
+    let captured: any[] = [];
+    let call = 0;
+    const stream = async (msgs: any[], onToken: (t: string) => void) => {
+      captured = msgs;
+      if (call++ === 0) throw new Error("boom");
+      onToken("ok"); return "ok";
+    };
+    const { s } = mkSession(stream);
+    await s.send("Qf", ["a.md"], () => {});
+    await s.send("Qn", ["a.md"], () => {});
+    const userContents = captured.filter((m: any) => m.role === "user").map((m: any) => m.content);
+    expect(userContents).toEqual(["Qn"]);
+  });
 });

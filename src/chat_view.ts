@@ -80,6 +80,7 @@ export class ChatView extends ItemView {
     if (this.running) return;
     const q = (this.inputEl?.value ?? "").trim();
     if (!q) return;
+    if (this.debTimer !== null) { window.clearTimeout(this.debTimer); this.debTimer = null; }
     if (this.inputEl) this.inputEl.value = "";
     const paths = this.panel.currentPaths();
     this.running = true; this.sendBtn?.setText("Stop");

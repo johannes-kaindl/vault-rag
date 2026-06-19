@@ -15,6 +15,8 @@ export class ContextPanel {
   excluded = new Set<string>();
   autoDocs: string[] = [];
   private ranked: string[] = [];
+  private lastQuery = "";
+  private queryGeneration = 0;
   private listEl: HTMLElement | null = null;
   private countEl: HTMLElement | null = null;
   private kEl: HTMLElement | null = null;
@@ -36,12 +38,18 @@ export class ContextPanel {
   }
 
   async setQuery(q: string): Promise<void> {
+    const gen = ++this.queryGeneration;   // gegen Out-of-Order-Embeds (langsamer Embedder)
     const query = q.trim();
+    this.lastQuery = query;
     if (query.length < MIN_QUERY) { this.ranked = []; this.recompute(); return; }
     try {
       const vec = await this.deps.embed(query);
+      if (gen !== this.queryGeneration) return;   // ein neuerer setQuery hat gewonnen
       this.ranked = this.deps.search(vec, this.autoK + BUFFER);
-    } catch { this.ranked = []; }
+    } catch {
+      if (gen !== this.queryGeneration) return;
+      this.ranked = [];
+    }
     this.recompute();
   }
 
@@ -55,7 +63,18 @@ export class ContextPanel {
   excludeAuto(path: string): void { this.excluded.add(path); this.recompute(); }
   addActive(): void { const p = this.deps.getActivePath(); if (p) this.pin(p); }
   async addViaPicker(): Promise<void> { const p = await this.deps.pickNote(); if (p) this.pin(p); }
-  setAutoK(n: number): void { this.autoK = Math.max(0, n); this.kEl?.setText(`Auto ${this.autoK}`); this.recompute(); }
+  setAutoK(n: number): void {
+    const next = Math.max(0, n);
+    const increasing = next > this.autoK;
+    this.autoK = next;
+    this.kEl?.setText(`Auto ${this.autoK}`);
+    // Bei Erhöhung über den geholten Puffer hinaus neu retrieven, sonst nur neu rechnen.
+    if (increasing && this.ranked.length < next + this.pinned.length && this.lastQuery.length >= MIN_QUERY) {
+      void this.setQuery(this.lastQuery);
+    } else {
+      this.recompute();
+    }
+  }
   currentPaths(): string[] { return [...new Set([...this.pinned, ...this.autoDocs])]; }
   reset(): void { this.excluded.clear(); this.recompute(); }
 

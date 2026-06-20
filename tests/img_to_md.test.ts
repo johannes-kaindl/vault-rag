@@ -55,14 +55,14 @@ function fakeIO(over: any = {}) {
   const created: Record<string, string> = {};
   const notices: string[] = [];
   const io: any = {
-    model: "vm", date: () => "2026-06-20",
+    date: () => "2026-06-20",
     readNote: async (p: string) => notes.get(p) ?? "",
     writeNote: async (p: string, c: string) => { notes.set(p, c); },
     createNote: async (p: string, c: string) => { created[p] = c; notes.set(p, c); },
     noteExists: (p: string) => notes.has(p),
     resolveImage: over.resolveImage ?? ((link: string) => ({ path: link, ext: link.split(".").pop() })),
     readImageDataUrl: async () => "data:image/jpeg;base64,AAAA",
-    transcribe: over.transcribe ?? (async () => "# Transkript"),
+    transcribe: over.transcribe ?? (async () => ({ content: "# Transkript", model: "vmodel" })),
     notify: (m: string) => notices.push(m),
   };
   return { io, created, notices, notes };
@@ -74,6 +74,7 @@ describe("runImgToMd", () => {
     const r = await runImgToMd(io, "q.md");
     expect(r).toEqual({ transcribed: 1, skipped: 0 });
     expect(created["foto.md"]).toContain("# Transkript");
+    expect(created["foto.md"]).toContain('transcribed_by: "vmodel"');
     expect(notes.get("q.md")).toBe("vor\n![[foto]]\nnach");
   });
   it("keine Bilder → Notice, kein Schreiben", async () => {
@@ -90,7 +91,7 @@ describe("runImgToMd", () => {
     expect(notices.some(n => n.includes("nicht unterstützt"))).toBe(true);
   });
   it("leeres Transkript → keine Notiz", async () => {
-    const { io, created } = fakeIO({ notes: [["q.md", "![[foto.jpg]]"]], transcribe: async () => "   " });
+    const { io, created } = fakeIO({ notes: [["q.md", "![[foto.jpg]]"]], transcribe: async () => ({ content: "   ", model: "vmodel" }) });
     const r = await runImgToMd(io, "q.md");
     expect(r).toEqual({ transcribed: 0, skipped: 1 });
     expect(Object.keys(created)).toEqual([]);

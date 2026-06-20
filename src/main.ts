@@ -167,7 +167,6 @@ export default class VaultRagPlugin extends Plugin {
 
   private makeImgIO(): ImgToMdIO {
     return {
-      model: this.settings.visionModel,
       date: () => new Date().toISOString().slice(0, 10),
       readNote: (p) => this.app.vault.adapter.read(p),
       writeNote: async (p, c) => {

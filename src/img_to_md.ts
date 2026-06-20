@@ -64,7 +64,6 @@ function dirOf(path: string): string { const i = path.lastIndexOf("/"); return i
 function basenameNoExt(path: string): string { const b = path.slice(path.lastIndexOf("/") + 1); const d = b.lastIndexOf("."); return d >= 0 ? b.slice(0, d) : b; }
 
 export interface ImgToMdIO {
-  model: string;
   date: () => string;
   readNote(path: string): Promise<string>;
   writeNote(path: string, content: string): Promise<void>;
@@ -72,7 +71,7 @@ export interface ImgToMdIO {
   noteExists(path: string): boolean;
   resolveImage(link: string, sourcePath: string): { path: string; ext: string } | null;
   readImageDataUrl(path: string, ext: string): Promise<string>;
-  transcribe(dataUrl: string): Promise<string>;
+  transcribe(dataUrl: string): Promise<{ content: string; model: string }>;
   notify(msg: string): void;
 }
 
@@ -97,14 +96,15 @@ export async function runImgToMd(io: ImgToMdIO, sourcePath: string, opts?: { onl
     if (!resolved) { io.notify(`Bild nicht gefunden: ${e.link}`); skipped++; continue; }
     if (!SUPPORTED_EXTS.includes(resolved.ext.toLowerCase())) { io.notify(`Format .${resolved.ext} nicht unterstützt (HEIC? iOS auf „Maximal kompatibel"): ${e.link}`); skipped++; continue; }
     io.notify(`Transkribiere Bild ${i + 1}/${embeds.length}…`);
-    let transcript: string;
+    let res: { content: string; model: string };
     try {
       const dataUrl = await io.readImageDataUrl(resolved.path, resolved.ext);
-      transcript = (await io.transcribe(dataUrl)).trim();
+      res = await io.transcribe(dataUrl);
     } catch (err) { io.notify(`Transkription fehlgeschlagen (${e.link}): ${err instanceof Error ? err.message : String(err)}`); skipped++; continue; }
+    const transcript = res.content.trim();
     if (!transcript) { io.notify(`Leeres Transkript: ${e.link}`); skipped++; continue; }
     const newPath = uniqueNotePath(io, dir, basenameNoExt(resolved.path));
-    await io.createNote(newPath, buildTranscriptNote({ imageLink: e.link, sourceName, date: io.date(), model: io.model, transcript }));
+    await io.createNote(newPath, buildTranscriptNote({ imageLink: e.link, sourceName, date: io.date(), model: res.model, transcript }));
     updated = replaceEmbed(updated, e.raw, basenameNoExt(newPath));
     transcribed++;
   }

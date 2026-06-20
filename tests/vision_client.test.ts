@@ -7,7 +7,7 @@ describe("VisionClient", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: "# Titel" } }] }) });
     vi.stubGlobal("fetch", fetchMock);
     const out = await new VisionClient("http://x", "vm").transcribe("data:image/jpeg;base64,AAAA", "Transkribiere");
-    expect(out).toBe("# Titel");
+    expect(out).toEqual({ content: "# Titel", model: "vm" });
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.model).toBe("vm");
     expect(body.stream).toBe(false);
@@ -22,6 +22,10 @@ describe("VisionClient", () => {
   });
   it("transcribe liefert '' bei fehlendem content", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ choices: [] }) }));
-    expect(await new VisionClient("http://x", "vm").transcribe("d", "p")).toBe("");
+    expect(await new VisionClient("http://x", "vm").transcribe("d", "p")).toEqual({ content: "", model: "vm" });
+  });
+  it("transcribe nimmt das Modell aus der Response (autoritativ)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ model: "qwen2-vl:7b", choices: [{ message: { content: "x" } }] }) }));
+    expect(await new VisionClient("http://x", "").transcribe("d", "p")).toEqual({ content: "x", model: "qwen2-vl:7b" });
   });
 });

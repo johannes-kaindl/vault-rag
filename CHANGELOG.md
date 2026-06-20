@@ -4,9 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (without a `v` prefix).
 
-## [Unreleased]
+## [0.2.0] — 2026-06-20
 
 ### Added
+- **IMG→MD sidebar** — an interactive side panel for image transcription: a checkbox list of the active
+  note's images (all selected by default, with a select/deselect-all toggle; unsupported formats like HEIC
+  shown disabled), per-image live-**streaming** transcription into result cards (with an optional thinking
+  block and a copy button), and deliberate writing — "Create note" per card or "Create all" at once
+  (batched, single source-note write; re-scan after writing drops the handled image from the list). Built on
+  a shared SSE transport (`streamSSE`, reused by chat and vision) and a shared batched writer
+  (`writeTranscripts`, reused by the sidebar and the IMG→MD command). The IMG→MD command and editor
+  context-menu entry remain as a one-click path.
 - **Visible thinking in chat** — reasoning models' `reasoning_content` (and inline `<think>…</think>`
   tags via a chunk-robust `ThinkSplitter`) are captured during streaming and shown in a collapsible
   "💭 thinking" block above each answer: live-open while thinking, auto-collapsed once the answer

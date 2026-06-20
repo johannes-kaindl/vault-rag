@@ -1,7 +1,7 @@
 {
   "id": "vault-rag",
   "name": "Vault RAG",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "minAppVersion": "1.4.0",
   "description": "Lokale, offline Related-Notes aus einem gesyncten Embedding-Index.",
   "author": "Johannes Kaindl",

@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
   the server's `/v1/models`, with an offline text fallback); best-effort model details (context window,
   quantization) via LM Studio's `/api/v0/models`; an in-panel model switcher; and an input-position toggle
   (input pinned at the bottom or the top). All read live from settings.
+- **Vision / IMG→MD** — transcribe a photo embedded in a note to structured Markdown with a local vision model.
+  A command (all images in the active note) or an editor context-menu entry creates a new note (frontmatter source
+  reference + the photo on top + the transcript) and replaces the image link in the source note with an embed of the
+  new note. Own vision endpoint / model / prompt settings. The plugin's first vault-write feature — non-destructive
+  (link replacement only) and idempotent; unsupported formats (e.g. HEIC) are skipped with a warning.
 
 ### Fixed
 - Stream end is now drained cleanly — the `ThinkSplitter`'s buffered tag remainder and the

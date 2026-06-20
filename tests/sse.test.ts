@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { parseSSE } from "../src/sse";
+import { parseSSE, streamSSE } from "../src/sse";
+
+function streamRes(chunks: string[]): any {
+  let i = 0;
+  return { ok: true, status: 200, body: { getReader: () => ({
+    read: async () => i < chunks.length
+      ? { done: false, value: new TextEncoder().encode(chunks[i++]) }
+      : { done: true, value: undefined },
+  }) } };
+}
 
 describe("parseSSE", () => {
   it("extrahiert content-Deltas aus data-Zeilen", () => {
@@ -37,5 +46,52 @@ describe("parseSSE", () => {
   });
   it("model ist undefined ohne model-Feld", () => {
     expect(parseSSE('data: {"choices":[{"delta":{"content":"a"}}]}\n').model).toBeUndefined();
+  });
+});
+
+describe("streamSSE", () => {
+  it("akkumuliert content + ruft onContent pro Delta", async () => {
+    const got: string[] = [];
+    const r = await streamSSE(streamRes([
+      'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"lo"}}]}\n\ndata: [DONE]\n\n',
+    ]), t => got.push(t), () => {});
+    expect(got).toEqual(["Hal", "lo"]);
+    expect(r.content).toBe("Hallo");
+    expect(r.reasoning).toBe("");
+  });
+  it("routet reasoning_content an onReasoning", async () => {
+    const reasoning: string[] = [];
+    const r = await streamSSE(streamRes([
+      'data: {"choices":[{"delta":{"reasoning_content":"den"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"A"}}]}\n\ndata: [DONE]\n\n',
+    ]), () => {}, t => reasoning.push(t));
+    expect(reasoning.join("")).toBe("den");
+    expect(r).toMatchObject({ content: "A", reasoning: "den" });
+  });
+  it("zieht inline <think> in den reasoning-Kanal", async () => {
+    const r = await streamSSE(streamRes([
+      'data: {"choices":[{"delta":{"content":"<think>weil</think>"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\ndata: [DONE]\n\n',
+    ]), () => {}, () => {});
+    expect(r).toMatchObject({ content: "Antwort", reasoning: "weil" });
+  });
+  it("verliert keinen Tag-Rest am Stream-Ende (flush)", async () => {
+    const r = await streamSSE(streamRes([
+      'data: {"choices":[{"delta":{"content":"Ende <"}}]}\n\ndata: [DONE]\n\n',
+    ]), () => {}, () => {});
+    expect(r.content).toBe("Ende <");
+  });
+  it("liefert model aus dem ersten Chunk", async () => {
+    const r = await streamSSE(streamRes([
+      'data: {"model":"qwen2-vl","choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n',
+    ]), () => {}, () => {});
+    expect(r.model).toBe("qwen2-vl");
+  });
+  it("model ist '' ohne model-Feld", async () => {
+    const r = await streamSSE(streamRes([
+      'data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n',
+    ]), () => {}, () => {});
+    expect(r.model).toBe("");
   });
 });

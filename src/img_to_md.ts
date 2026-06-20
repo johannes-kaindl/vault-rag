@@ -80,6 +80,31 @@ export interface ImgToMdIO {
   notify(msg: string): void;
 }
 
+/** Schreibt mehrere Transkripte gebündelt: Quelle EINMAL lesen, pro Eintrag Notiz anlegen
+ *  + Embed ersetzen (akkumuliert), Quelle EINMAL schreiben. Leere Transkripte werden
+ *  übersprungen. Nicht-destruktiv/idempotent; keine Read-Modify-Write-Race. */
+export async function writeTranscripts(
+  io: ImgToMdIO, sourcePath: string,
+  entries: { raw: string; link: string; content: string; model: string }[],
+): Promise<{ paths: string[] }> {
+  const before = await io.readNote(sourcePath);
+  let content = before;
+  const sourceName = basenameNoExt(sourcePath);
+  const paths: string[] = [];
+  for (const e of entries) {
+    const transcript = e.content.trim();
+    if (!transcript) continue;
+    const resolved = io.resolveImage(e.link, sourcePath);
+    const imagePath = resolved?.path ?? e.link;
+    const newPath = transcriptNotePath(io, sourcePath, imagePath);
+    await io.createNote(newPath, buildTranscriptNote({ imageLink: e.link, sourceName, date: io.date(), model: e.model, transcript }));
+    content = replaceEmbed(content, e.raw, basenameNoExt(newPath));
+    paths.push(newPath);
+  }
+  if (content !== before) await io.writeNote(sourcePath, content);
+  return { paths };
+}
+
 /** Transkribiert die Bilder einer Notiz nach Markdown, legt je Bild eine Notiz an und
  *  ersetzt den Bild-Link durch einen Embed der neuen Notiz. Nicht-destruktiv, idempotent. */
 export async function runImgToMd(io: ImgToMdIO, sourcePath: string, opts?: { onlyRaw?: string }): Promise<{ transcribed: number; skipped: number }> {
@@ -91,10 +116,8 @@ export async function runImgToMd(io: ImgToMdIO, sourcePath: string, opts?: { onl
   const seen = new Set<string>();
   embeds = embeds.filter(e => { if (seen.has(e.link)) return false; seen.add(e.link); return true; });
   if (!embeds.length) { io.notify("Keine (passenden) Bilder in dieser Notiz."); return { transcribed: 0, skipped: 0 }; }
-  const sourceName = basenameNoExt(sourcePath);
-  const dir = dirOf(sourcePath);
-  let updated = content;
-  let transcribed = 0, skipped = 0;
+  let skipped = 0;
+  const entries: { raw: string; link: string; content: string; model: string }[] = [];
   for (let i = 0; i < embeds.length; i++) {
     const e = embeds[i];
     const resolved = io.resolveImage(e.link, sourcePath);
@@ -106,14 +129,10 @@ export async function runImgToMd(io: ImgToMdIO, sourcePath: string, opts?: { onl
       const dataUrl = await io.readImageDataUrl(resolved.path, resolved.ext);
       res = await io.transcribe(dataUrl);
     } catch (err) { io.notify(`Transkription fehlgeschlagen (${e.link}): ${err instanceof Error ? err.message : String(err)}`); skipped++; continue; }
-    const transcript = res.content.trim();
-    if (!transcript) { io.notify(`Leeres Transkript: ${e.link}`); skipped++; continue; }
-    const newPath = uniqueNotePath(io, dir, basenameNoExt(resolved.path));
-    await io.createNote(newPath, buildTranscriptNote({ imageLink: e.link, sourceName, date: io.date(), model: res.model, transcript }));
-    updated = replaceEmbed(updated, e.raw, basenameNoExt(newPath));
-    transcribed++;
+    if (!res.content.trim()) { io.notify(`Leeres Transkript: ${e.link}`); skipped++; continue; }
+    entries.push({ raw: e.raw, link: e.link, content: res.content, model: res.model });
   }
-  if (updated !== content) await io.writeNote(sourcePath, updated);
-  io.notify(`${transcribed} Bild(er) transkribiert${skipped ? `, ${skipped} übersprungen` : ""}.`);
-  return { transcribed, skipped };
+  const { paths } = await writeTranscripts(io, sourcePath, entries);
+  io.notify(`${paths.length} Bild(er) transkribiert${skipped ? `, ${skipped} übersprungen` : ""}.`);
+  return { transcribed: paths.length, skipped };
 }

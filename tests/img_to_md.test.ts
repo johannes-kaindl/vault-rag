@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findImageEmbeds, buildTranscriptNote, replaceEmbed, uniqueNotePath, transcriptNotePath, runImgToMd, SUPPORTED_EXTS } from "../src/img_to_md";
+import { findImageEmbeds, buildTranscriptNote, replaceEmbed, uniqueNotePath, transcriptNotePath, writeTranscripts, runImgToMd, SUPPORTED_EXTS } from "../src/img_to_md";
 
 describe("findImageEmbeds", () => {
   it("findet wikilink- und markdown-Bild-Embeds, filtert Extensions", () => {
@@ -76,6 +76,35 @@ function fakeIO(over: any = {}) {
   };
   return { io, created, notices, notes };
 }
+
+describe("writeTranscripts", () => {
+  it("batched: legt Notizen an, ersetzt Embeds, schreibt Quelle einmal", async () => {
+    const { io, created, notes } = fakeIO({ notes: [["q.md", "a ![[foto.jpg]] b ![[bild.png]]"]] });
+    const r = await writeTranscripts(io, "q.md", [
+      { raw: "![[foto.jpg]]", link: "foto.jpg", content: "# A", model: "vm" },
+      { raw: "![[bild.png]]", link: "bild.png", content: "# B", model: "vm" },
+    ]);
+    expect(r.paths).toEqual(["foto.md", "bild.md"]);
+    expect(created["foto.md"]).toContain("# A");
+    expect(created["foto.md"]).toContain('transcribed_by: "vm"');
+    expect(notes.get("q.md")).toBe("a ![[foto]] b ![[bild]]");
+  });
+  it("leeres Transkript → diese Notiz wird übersprungen", async () => {
+    const { io, created, notes } = fakeIO({ notes: [["q.md", "![[foto.jpg]]"]] });
+    const r = await writeTranscripts(io, "q.md", [{ raw: "![[foto.jpg]]", link: "foto.jpg", content: "   ", model: "vm" }]);
+    expect(r.paths).toEqual([]);
+    expect(Object.keys(created)).toEqual([]);
+    expect(notes.get("q.md")).toBe("![[foto.jpg]]");   // unverändert, kein Write
+  });
+  it("Kollision über mehrere Entries → Zähler (sequenzielle createNote sichtbar)", async () => {
+    const { io } = fakeIO({ notes: [["q.md", "![[a/foto.jpg]] ![[b/foto.jpg]]"]], resolveImage: (link: string) => ({ path: link, ext: "jpg" }) });
+    const r = await writeTranscripts(io, "q.md", [
+      { raw: "![[a/foto.jpg]]", link: "a/foto.jpg", content: "A", model: "m" },
+      { raw: "![[b/foto.jpg]]", link: "b/foto.jpg", content: "B", model: "m" },
+    ]);
+    expect(r.paths).toEqual(["foto.md", "foto-2.md"]);
+  });
+});
 
 describe("runImgToMd", () => {
   it("Happy-Path: legt Notiz an, ersetzt Link, schreibt Quellnotiz", async () => {

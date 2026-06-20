@@ -31,12 +31,13 @@ export function findImageEmbeds(content: string): ImageEmbed[] {
 
 /** Baut die Transkript-Notiz: Frontmatter-Ref + Foto-Embed oben + Transkript. */
 export function buildTranscriptNote(o: { imageLink: string; sourceName: string; date: string; model: string; transcript: string }): string {
+  const esc = (s: string) => s.replace(/"/g, '\\"');   // YAML-Doppelquote-String — schützt vor Frontmatter-Bruch
   return [
     "---",
-    `source_image: "[[${o.imageLink}]]"`,
-    `source_note: "[[${o.sourceName}]]"`,
+    `source_image: "[[${esc(o.imageLink)}]]"`,
+    `source_note: "[[${esc(o.sourceName)}]]"`,
     `created: ${o.date}`,
-    `transcribed_by: ${o.model}`,
+    `transcribed_by: "${esc(o.model)}"`,
     "---",
     `![[${o.imageLink}]]`,
     "",
@@ -81,6 +82,10 @@ export async function runImgToMd(io: ImgToMdIO, sourcePath: string, opts?: { onl
   const content = await io.readNote(sourcePath);
   let embeds = findImageEmbeds(content);
   if (opts?.onlyRaw) embeds = embeds.filter(e => e.raw === opts.onlyRaw);
+  // Pro Bild-Datei nur einmal: dasselbe Bild mehrfach eingebettet → eine Notiz;
+  // replaceEmbed ersetzt unten ohnehin ALLE Vorkommen des raw-Strings.
+  const seen = new Set<string>();
+  embeds = embeds.filter(e => { if (seen.has(e.link)) return false; seen.add(e.link); return true; });
   if (!embeds.length) { io.notify("Keine (passenden) Bilder in dieser Notiz."); return { transcribed: 0, skipped: 0 }; }
   const sourceName = basenameNoExt(sourcePath);
   const dir = dirOf(sourcePath);

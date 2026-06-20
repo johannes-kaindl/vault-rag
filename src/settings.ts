@@ -312,11 +312,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
         visModelSetting.addDropdown(d => {
           list.forEach((m: string) => d.addOption(m, m));
           if (cur) d.setValue(cur);
-          d.onChange(async (v: string) => { this.plugin.settings.visionModel = v; await this.plugin.saveSettings(); });
+          d.onChange(async (v: string) => { this.plugin.settings.visionModel = v; await this.plugin.saveSettings(); this.plugin.reconnectVision?.(); });
         });
       } else {
         visModelSetting.addText(t => t.setPlaceholder("qwen2-vl").setValue(cur)
-          .onChange(async (v: string) => { this.plugin.settings.visionModel = v.trim(); await this.plugin.saveSettings(); }));
+          .onChange(async (v: string) => { this.plugin.settings.visionModel = v.trim(); await this.plugin.saveSettings(); this.plugin.reconnectVision?.(); }));
         visModelSetting.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.display()));
       }
     });

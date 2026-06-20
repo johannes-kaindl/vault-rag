@@ -23,9 +23,15 @@ describe("buildTranscriptNote", () => {
     expect(note).toContain('source_image: "[[foto.jpg]]"');
     expect(note).toContain('source_note: "[[Notiz]]"');
     expect(note).toContain("created: 2026-06-20");
-    expect(note).toContain("transcribed_by: vm");
+    expect(note).toContain('transcribed_by: "vm"');
     expect(note).toContain("![[foto.jpg]]");
     expect(note.indexOf("![[foto.jpg]]")).toBeLessThan(note.indexOf("# H"));
+  });
+  it("escaped Anführungszeichen im Frontmatter", () => {
+    const note = buildTranscriptNote({ imageLink: 'fo"to.jpg', sourceName: 'No"tiz', date: "2026-06-20", model: 'v"m', transcript: "x" });
+    expect(note).toContain('source_image: "[[fo\\"to.jpg]]"');
+    expect(note).toContain('source_note: "[[No\\"tiz]]"');
+    expect(note).toContain('transcribed_by: "v\\"m"');
   });
 });
 
@@ -103,5 +109,12 @@ describe("runImgToMd", () => {
     const { io, created } = fakeIO({ notes: [["q.md", "![[foto.jpg]]"], ["foto.md", "alt"]] });
     await runImgToMd(io, "q.md");
     expect(created["foto-2.md"]).toBeTruthy();
+  });
+  it("Duplikat-Embeds desselben Bildes → eine Transkription, alle Vorkommen ersetzt", async () => {
+    const { io, created, notes } = fakeIO({ notes: [["q.md", "![[foto.jpg]]\ntext\n![[foto.jpg]]"]] });
+    const r = await runImgToMd(io, "q.md");
+    expect(r.transcribed).toBe(1);
+    expect(Object.keys(created)).toEqual(["foto.md"]);
+    expect(notes.get("q.md")).toBe("![[foto]]\ntext\n![[foto]]");
   });
 });

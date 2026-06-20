@@ -106,10 +106,18 @@ export default class VaultRagPlugin extends Plugin {
       void runImgToMd(this.makeImgIO(), f.path);
     } });
     this.registerEvent(this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor) => {
-      const embeds = findImageEmbeds(editor.getLine(editor.getCursor().line));
+      const cur = editor.getCursor();
+      const line = editor.getLine(cur.line);
+      const embeds = findImageEmbeds(line);
       const f = this.app.workspace.getActiveFile();
       if (!embeds.length || !f) return;
-      const raw = embeds[0].raw;
+      // Bild unter dem Cursor wählen (sonst das erste der Zeile)
+      let chosen = embeds[0];
+      for (const e of embeds) {
+        const start = line.indexOf(e.raw);
+        if (start >= 0 && cur.ch >= start && cur.ch <= start + e.raw.length) { chosen = e; break; }
+      }
+      const raw = chosen.raw;
       menu.addItem(item => item.setTitle("IMG → MD").setIcon("scan-text").onClick(() => void runImgToMd(this.makeImgIO(), f.path, { onlyRaw: raw })));
     }));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refresh()));

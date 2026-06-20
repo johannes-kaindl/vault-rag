@@ -66,7 +66,7 @@ main.ts           Plugin-Entry: View/Ribbon/Command/SettingTab registrieren, fil
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # prod-Bundle    (= node esbuild.config.mjs production) → main.js
-npm test                          # vitest run     (45 Tests, 9 Files)
+npm test                          # vitest run     (195 Tests, 22 Files)
 npx vitest run tests/<datei>      # eine Test-Datei
 npx tsc --noEmit                  # Typecheck (noch kein npm-Script — siehe Abweichungen)
 ```
@@ -116,11 +116,11 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 
 ## Abweichungen von der Leitkonvention
 
-Stand 2026-06-18 — `vault-rag` ist **pre-release** (v0.1.0, Slice A+ gerade live). Bewusste,
-begründete Abweichungen (comply-or-explain):
+Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich released (Codeberg kanonisch
++ GitHub-Mirror). Bewusste, begründete Abweichungen (comply-or-explain):
 
 - **CORE-META-02** — Badge-Zeile **partiell**: Lizenz/Docs/Obsidian gesetzt; Release/CI-Badges fehlen.
-  *Grund:* erst mit Forge/CI nachziehbar (kein Remote, s. CORE-GIT-01).
+  *Grund:* Release-Badge mit v0.2.0 nachziehbar; CI-Badges erst mit CI.
 - **CORE-META-03** — kein Hero-Bild/Feature-Screenshots in `docs/images/`. *Grund:* pre-release;
   reproduzierbar generierte Screenshots vor dem ersten Release.
 - **CORE-META-04** — kein Diátaxis-Manual unter `docs/`. *Grund:* pre-release; skaliert mit Reife.
@@ -129,10 +129,10 @@ begründete Abweichungen (comply-or-explain):
 - **CORE-META-07** — `LICENSE` (AGPL-3.0) vorhanden; Dual-License-Option (`LICENSING.md`/`CLA.md`)
   noch nicht. *Grund:* erst bei Bedarf/Release.
 - **CORE-META-09** — kein `README.de.md` (Bilingual). *Grund:* optional; EN-`README.md` ist kanonisch.
-- **CORE-META-10** — `package.json` `description`/`keywords` konsistent mit dem Manifest; Forge-
-  Description/Topics fehlen. *Grund:* noch kein Remote (s. CORE-GIT-01).
-- **CORE-GIT-01** — kein Codeberg-`origin` (`repo_remote` leer, rein lokal). *Grund:* bleibt lokal,
-  bis Slice A stabil ist; geplant `codeberg.org/jkaindl/vault-rag`.
+- **CORE-META-10** — ✅ erledigt (v0.2.0): `package.json`/Manifest konsistent; Forge-Description + Topics
+  auf Codeberg **und** GitHub gesetzt.
+- **CORE-GIT-01** — ✅ erledigt (v0.2.0, 2026-06-21): Codeberg-`origin` gesetzt (`codeberg.org/jkaindl/vault-rag`,
+  kanonisch) + GitHub-Push-Mirror (`johannes-kaindl/vault-rag`, `sync_on_commit`).
 - **PROF-TS-01** — npm-Scripts ohne `lint`/`typecheck`. *Grund:* offen; `npx tsc --noEmit` ist verfügbar
   (typescript als devDep), aber nicht als Script verdrahtet — ESLint + Scripts nachzuziehen.
 - **PROF-TS-04** — kein `tsconfig.build.json`-Split. *Grund:* klein genug; ein `tsconfig.json` (IDE + Tests)

@@ -4,7 +4,7 @@ import { ChatSession } from "../src/chat_session";
 function mkSession(streamImpl?: any, assembleImpl?: any) {
   const client: any = { ping: async () => true, stream: streamImpl ?? (async (_m: any, onContent: (t: string) => void) => { onContent("Hi"); onContent("!"); return { content: "Hi!", reasoning: "" }; }) };
   const assemble = assembleImpl ?? vi.fn(async () => ({ text: "ctx", sources: ["a.md"] }));
-  return { s: new ChatSession({ client, assemble }), assemble };
+  return { s: new ChatSession({ client: () => client, assemble, systemPreamble: () => "SYS", params: () => ({ model: "m", temperature: 0.5 }) }), assemble };
 }
 
 describe("ChatSession", () => {
@@ -46,7 +46,7 @@ describe("ChatSession", () => {
     let resolve: (v: any) => void = () => {};
     const client: any = { ping: async () => true, stream: async () => ({ content: "", reasoning: "" }) };
     const assemble = () => new Promise<any>(r => { resolve = r; });
-    const s = new ChatSession({ client, assemble });
+    const s = new ChatSession({ client: () => client, assemble, systemPreamble: () => "SYS", params: () => ({ model: "m", temperature: 0.5 }) });
     const p = s.send("frage", [], () => {});
     expect(s.messages[0].content).toBe("frage");
     resolve({ text: "", sources: [] });
@@ -96,5 +96,21 @@ describe("ChatSession", () => {
     expect(captured.some((m: any) => "reasoning" in m)).toBe(false);
     const assistantTurn = captured.find((m: any) => m.role === "assistant");
     expect(assistantTurn.content).toBe("Antwort");
+  });
+  it("stream bekommt model+temperature aus params() als opts", async () => {
+    let opts: any;
+    const stream = async (_m: any, _c: any, _r: any, _sig: any, o: any) => { opts = o; return { content: "ok", reasoning: "" }; };
+    const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", params: () => ({ model: "mx", temperature: 0.9 }) });
+    await s.send("frage", [], () => {});
+    expect(opts).toEqual({ model: "mx", temperature: 0.9 });
+  });
+  it("System-Message beginnt mit dem systemPreamble() und enthält den Kontext", async () => {
+    let sent: any[] = [];
+    const stream = async (msgs: any[]) => { sent = msgs; return { content: "ok", reasoning: "" }; };
+    const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "CTX", sources: [] }), systemPreamble: () => "MEINPROMPT", params: () => ({ model: "m", temperature: 0.5 }) });
+    await s.send("frage", [], () => {});
+    expect(sent[0].role).toBe("system");
+    expect(sent[0].content.startsWith("MEINPROMPT")).toBe(true);
+    expect(sent[0].content).toContain("CTX");
   });
 });

@@ -1,13 +1,11 @@
 import { ChatClient, ChatMessage } from "./chat_client";
 import { ContextResult } from "./context_source";
 
-const SYSTEM_PREAMBLE =
-  "Du beantwortest Fragen gegroundet in den bereitgestellten Notizen des Nutzers. " +
-  "Wenn die Antwort nicht aus ihnen hervorgeht, sag das offen. Antworte knapp und auf Deutsch.";
-
 export interface ChatSessionDeps {
-  client: ChatClient;
+  client: () => ChatClient;
   assemble: (paths: string[]) => Promise<ContextResult>;
+  systemPreamble: () => string;
+  params: () => { model: string; temperature: number };
 }
 
 export class ChatSession {
@@ -27,7 +25,8 @@ export class ChatSession {
     try { ctx = await this.deps.assemble(paths); }
     catch { assistant.error = "Kontext konnte nicht geladen werden."; return { sources: [], error: assistant.error }; }
 
-    const system: ChatMessage = { role: "system", content: ctx.text ? `${SYSTEM_PREAMBLE}\n\n${ctx.text}` : SYSTEM_PREAMBLE };
+    const parts = [this.deps.systemPreamble(), ctx.text].filter(Boolean);
+    const system: ChatMessage = { role: "system", content: parts.join("\n\n") };
     // Verlauf an das LLM: nur vollständige Turns (Assistent mit Inhalt, ohne Fehler) — paarweise,
     // damit ein fehlgeschlagener Turn nicht zwei aufeinanderfolgende User-Nachrichten hinterlässt.
     const prior = this.messages.slice(0, -2);
@@ -42,11 +41,13 @@ export class ChatSession {
     try {
       // onToken = reiner Re-Render-Notifier (View ignoriert das Argument).
       // reasoning wird am Assistenten akkumuliert, aber NIE in `history` (oben) aufgenommen.
-      const result = await this.deps.client.stream(
+      const p = this.deps.params();
+      const result = await this.deps.client().stream(
         sent,
         c => { assistant.content += c; onToken(c); },
         r => { assistant.reasoning = (assistant.reasoning ?? "") + r; onToken(r); },
         this.controller.signal,
+        { model: p.model, temperature: p.temperature },
       );
       assistant.content = result.content;
       assistant.reasoning = result.reasoning || undefined;

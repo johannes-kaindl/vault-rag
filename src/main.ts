@@ -64,11 +64,13 @@ export default class VaultRagPlugin extends Plugin {
     this.addCommand({ id: "open-semantic-search", name: "Semantische Suche öffnen", callback: () => this.activateSearchView() });
     this.registerView(VIEW_TYPE_CHAT, (leaf: WorkspaceLeaf) => new ChatView(leaf, {
       session: new ChatSession({
-        client: this.chatClient,
+        client: () => this.chatClient,
         assemble: (paths) => buildContext(paths, {
           read: (p) => this.app.vault.adapter.read(p),
           budget: this.settings.contextCharBudget,
         }),
+        systemPreamble: () => this.settings.chatSystemPrompt,
+        params: () => ({ model: this.settings.chatModel, temperature: this.settings.chatTemperature }),
       }),
       openPath: this.openPath,
       copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },

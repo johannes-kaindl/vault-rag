@@ -31,4 +31,10 @@ describe("settings", () => {
     expect(DEFAULT_SETTINGS.chatK).toBe(5);
     expect(DEFAULT_SETTINGS.contextCharBudget).toBe(12000);
   });
+
+  it("hat Chat-Modell-UX-Defaults", () => {
+    expect(DEFAULT_SETTINGS.chatTemperature).toBe(0.7);
+    expect(DEFAULT_SETTINGS.chatInputPosition).toBe("bottom");
+    expect(DEFAULT_SETTINGS.chatSystemPrompt).toContain("gegroundet");
+  });
 });

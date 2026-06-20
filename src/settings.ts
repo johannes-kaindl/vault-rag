@@ -13,7 +13,14 @@ export interface VaultRagSettings {
   chatModel: string;
   chatK: number;
   contextCharBudget: number;
+  chatTemperature: number;
+  chatSystemPrompt: string;
+  chatInputPosition: "bottom" | "top";
 }
+
+export const DEFAULT_SYSTEM_PROMPT =
+  "Du beantwortest Fragen gegroundet in den bereitgestellten Notizen des Nutzers. " +
+  "Wenn die Antwort nicht aus ihnen hervorgeht, sag das offen. Antworte knapp und auf Deutsch.";
 
 export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
@@ -28,6 +35,9 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   chatModel: "qwen3",
   chatK: 5,
   contextCharBudget: 12000,
+  chatTemperature: 0.7,
+  chatSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+  chatInputPosition: "bottom",
 };
 
 export class VaultRagSettingTab extends PluginSettingTab {
@@ -198,6 +208,30 @@ export class VaultRagSettingTab extends PluginSettingTab {
         .onChange(async (v: number) => {
           this.plugin.settings.contextCharBudget = v;
           budgetSetting.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
+          await this.plugin.saveSettings();
+        }));
+
+    let tempSetting: Setting;
+    tempSetting = new Setting(containerEl)
+      .setName(`Temperatur: ${this.plugin.settings.chatTemperature}`)
+      .setDesc("Kreativität vs. Bestimmtheit (0 = deterministisch, höher = kreativer)")
+      .addSlider(s => s
+        .setLimits(0, 2, 0.1)
+        .setValue(this.plugin.settings.chatTemperature)
+        .setDynamicTooltip()
+        .onChange(async (v: number) => {
+          this.plugin.settings.chatTemperature = v;
+          tempSetting.setName(`Temperatur: ${v}`);
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("System-Prompt")
+      .setDesc("Grundanweisung an das Modell. Der Notiz-Kontext wird automatisch angehängt.")
+      .addTextArea(t => t
+        .setValue(this.plugin.settings.chatSystemPrompt)
+        .onChange(async (v: string) => {
+          this.plugin.settings.chatSystemPrompt = v;
           await this.plugin.saveSettings();
         }));
 

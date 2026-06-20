@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findImageEmbeds, buildTranscriptNote, replaceEmbed, uniqueNotePath, SUPPORTED_EXTS } from "../src/img_to_md";
+import { findImageEmbeds, buildTranscriptNote, replaceEmbed, uniqueNotePath, runImgToMd, SUPPORTED_EXTS } from "../src/img_to_md";
 
 describe("findImageEmbeds", () => {
   it("findet wikilink- und markdown-Bild-Embeds, filtert Extensions", () => {
@@ -41,5 +41,67 @@ describe("uniqueNotePath", () => {
     const io = { noteExists: (p: string) => exists.has(p) };
     expect(uniqueNotePath(io, "dir", "foto")).toBe("dir/foto-3.md");
     expect(uniqueNotePath(io, "", "neu")).toBe("neu.md");
+  });
+});
+
+function fakeIO(over: any = {}) {
+  const notes = new Map<string, string>(over.notes ?? []);
+  const created: Record<string, string> = {};
+  const notices: string[] = [];
+  const io: any = {
+    model: "vm", date: () => "2026-06-20",
+    readNote: async (p: string) => notes.get(p) ?? "",
+    writeNote: async (p: string, c: string) => { notes.set(p, c); },
+    createNote: async (p: string, c: string) => { created[p] = c; notes.set(p, c); },
+    noteExists: (p: string) => notes.has(p),
+    resolveImage: over.resolveImage ?? ((link: string) => ({ path: link, ext: link.split(".").pop() })),
+    readImageDataUrl: async () => "data:image/jpeg;base64,AAAA",
+    transcribe: over.transcribe ?? (async () => "# Transkript"),
+    notify: (m: string) => notices.push(m),
+  };
+  return { io, created, notices, notes };
+}
+
+describe("runImgToMd", () => {
+  it("Happy-Path: legt Notiz an, ersetzt Link, schreibt Quellnotiz", async () => {
+    const { io, created, notes } = fakeIO({ notes: [["q.md", "vor\n![[foto.jpg]]\nnach"]] });
+    const r = await runImgToMd(io, "q.md");
+    expect(r).toEqual({ transcribed: 1, skipped: 0 });
+    expect(created["foto.md"]).toContain("# Transkript");
+    expect(notes.get("q.md")).toBe("vor\n![[foto]]\nnach");
+  });
+  it("keine Bilder → Notice, kein Schreiben", async () => {
+    const { io, created } = fakeIO({ notes: [["q.md", "nur text"]] });
+    const r = await runImgToMd(io, "q.md");
+    expect(r.transcribed).toBe(0);
+    expect(Object.keys(created)).toEqual([]);
+  });
+  it("nicht unterstütztes Format → skip", async () => {
+    const { io, created, notices } = fakeIO({ notes: [["q.md", "![[IMG.heic]]"]] });
+    const r = await runImgToMd(io, "q.md");
+    expect(r).toEqual({ transcribed: 0, skipped: 1 });
+    expect(Object.keys(created)).toEqual([]);
+    expect(notices.some(n => n.includes("nicht unterstützt"))).toBe(true);
+  });
+  it("leeres Transkript → keine Notiz", async () => {
+    const { io, created } = fakeIO({ notes: [["q.md", "![[foto.jpg]]"]], transcribe: async () => "   " });
+    const r = await runImgToMd(io, "q.md");
+    expect(r).toEqual({ transcribed: 0, skipped: 1 });
+    expect(Object.keys(created)).toEqual([]);
+  });
+  it("Transkriptions-Fehler → skip, kein Crash", async () => {
+    const { io } = fakeIO({ notes: [["q.md", "![[foto.jpg]]"]], transcribe: async () => { throw new Error("offline"); } });
+    const r = await runImgToMd(io, "q.md");
+    expect(r).toEqual({ transcribed: 0, skipped: 1 });
+  });
+  it("onlyRaw verarbeitet nur das eine Embed", async () => {
+    const { io, created } = fakeIO({ notes: [["q.md", "![[a.jpg]]\n![[b.jpg]]"]] });
+    await runImgToMd(io, "q.md", { onlyRaw: "![[b.jpg]]" });
+    expect(Object.keys(created)).toEqual(["b.md"]);
+  });
+  it("Namens-Kollision → Zähler", async () => {
+    const { io, created } = fakeIO({ notes: [["q.md", "![[foto.jpg]]"], ["foto.md", "alt"]] });
+    await runImgToMd(io, "q.md");
+    expect(created["foto-2.md"]).toBeTruthy();
   });
 });

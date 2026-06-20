@@ -58,3 +58,52 @@ export function uniqueNotePath(io: { noteExists(p: string): boolean }, dir: stri
   while (io.noteExists(join(`${base}-${i}`))) i++;
   return join(`${base}-${i}`);
 }
+
+function dirOf(path: string): string { const i = path.lastIndexOf("/"); return i >= 0 ? path.slice(0, i) : ""; }
+function basenameNoExt(path: string): string { const b = path.slice(path.lastIndexOf("/") + 1); const d = b.lastIndexOf("."); return d >= 0 ? b.slice(0, d) : b; }
+
+export interface ImgToMdIO {
+  model: string;
+  date: () => string;
+  readNote(path: string): Promise<string>;
+  writeNote(path: string, content: string): Promise<void>;
+  createNote(path: string, content: string): Promise<void>;
+  noteExists(path: string): boolean;
+  resolveImage(link: string, sourcePath: string): { path: string; ext: string } | null;
+  readImageDataUrl(path: string, ext: string): Promise<string>;
+  transcribe(dataUrl: string): Promise<string>;
+  notify(msg: string): void;
+}
+
+/** Transkribiert die Bilder einer Notiz nach Markdown, legt je Bild eine Notiz an und
+ *  ersetzt den Bild-Link durch einen Embed der neuen Notiz. Nicht-destruktiv, idempotent. */
+export async function runImgToMd(io: ImgToMdIO, sourcePath: string, opts?: { onlyRaw?: string }): Promise<{ transcribed: number; skipped: number }> {
+  const content = await io.readNote(sourcePath);
+  let embeds = findImageEmbeds(content);
+  if (opts?.onlyRaw) embeds = embeds.filter(e => e.raw === opts.onlyRaw);
+  if (!embeds.length) { io.notify("Keine (passenden) Bilder in dieser Notiz."); return { transcribed: 0, skipped: 0 }; }
+  const sourceName = basenameNoExt(sourcePath);
+  const dir = dirOf(sourcePath);
+  let updated = content;
+  let transcribed = 0, skipped = 0;
+  for (let i = 0; i < embeds.length; i++) {
+    const e = embeds[i];
+    const resolved = io.resolveImage(e.link, sourcePath);
+    if (!resolved) { io.notify(`Bild nicht gefunden: ${e.link}`); skipped++; continue; }
+    if (!SUPPORTED_EXTS.includes(resolved.ext.toLowerCase())) { io.notify(`Format .${resolved.ext} nicht unterstützt (HEIC? iOS auf „Maximal kompatibel"): ${e.link}`); skipped++; continue; }
+    io.notify(`Transkribiere Bild ${i + 1}/${embeds.length}…`);
+    let transcript: string;
+    try {
+      const dataUrl = await io.readImageDataUrl(resolved.path, resolved.ext);
+      transcript = (await io.transcribe(dataUrl)).trim();
+    } catch { io.notify(`Transkription fehlgeschlagen: ${e.link}`); skipped++; continue; }
+    if (!transcript) { io.notify(`Leeres Transkript: ${e.link}`); skipped++; continue; }
+    const newPath = uniqueNotePath(io, dir, basenameNoExt(resolved.path));
+    await io.createNote(newPath, buildTranscriptNote({ imageLink: e.link, sourceName, date: io.date(), model: io.model, transcript }));
+    updated = replaceEmbed(updated, e.raw, basenameNoExt(newPath));
+    transcribed++;
+  }
+  if (updated !== content) await io.writeNote(sourcePath, updated);
+  io.notify(`${transcribed} Bild(er) transkribiert${skipped ? `, ${skipped} übersprungen` : ""}.`);
+  return { transcribed, skipped };
+}

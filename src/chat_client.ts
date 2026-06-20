@@ -25,11 +25,49 @@ export function parseSSE(buffer: string): { content: string[]; reasoning: string
   return { content, reasoning, rest, done };
 }
 
+export interface ModelInfo {
+  id: string;
+  contextLength?: number;
+  loadedContextLength?: number;
+  quantization?: string;
+  arch?: string;
+  state?: string;
+}
+
 export class ChatClient {
   constructor(private endpoint: string, private model: string) {}
 
   async ping(): Promise<boolean> {
     try { return (await fetch(`${this.endpoint}/v1/models`)).ok; } catch { return false; }
+  }
+
+  /** Verfügbare Modelle vom OpenAI-kompatiblen Endpoint (GET /v1/models). [] bei Fehler/Offline. */
+  async listModels(): Promise<string[]> {
+    try {
+      const r = await fetch(`${this.endpoint}/v1/models`);
+      if (!r.ok) return [];
+      const j = await r.json() as { data?: { id?: string }[] };
+      return (j.data ?? []).map(m => m.id).filter((x): x is string => typeof x === "string").sort();
+    } catch { return []; }
+  }
+
+  /** Best-effort Modell-Details via LM Studios GET /api/v0/models. null wenn nicht verfügbar. */
+  async modelInfo(model: string): Promise<ModelInfo | null> {
+    try {
+      const r = await fetch(`${this.endpoint}/api/v0/models`);
+      if (!r.ok) return null;
+      const j = await r.json() as { data?: Record<string, unknown>[] };
+      const m = (j.data ?? []).find(x => x.id === model);
+      if (!m) return null;
+      return {
+        id: model,
+        contextLength: typeof m.max_context_length === "number" ? m.max_context_length : undefined,
+        loadedContextLength: typeof m.loaded_context_length === "number" ? m.loaded_context_length : undefined,
+        quantization: typeof m.quantization === "string" ? m.quantization : undefined,
+        arch: typeof m.arch === "string" ? m.arch : undefined,
+        state: typeof m.state === "string" ? m.state : undefined,
+      };
+    } catch { return null; }
   }
 
   async stream(

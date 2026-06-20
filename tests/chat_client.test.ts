@@ -113,3 +113,32 @@ describe("ChatClient", () => {
     expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(true);
   });
 });
+
+describe("ChatClient Modelle", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("listModels parst data[].id und sortiert", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ id: "qwen" }, { id: "deepseek" }] }) }));
+    expect(await new ChatClient("http://x", "m").listModels()).toEqual(["deepseek", "qwen"]);
+  });
+  it("listModels gibt [] bei HTTP-Fehler", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+    expect(await new ChatClient("http://x", "m").listModels()).toEqual([]);
+  });
+  it("listModels gibt [] bei Netzwerkfehler", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    expect(await new ChatClient("http://x", "m").listModels()).toEqual([]);
+  });
+  it("modelInfo parst /api/v0/models-Eintrag", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ id: "m", max_context_length: 8192, loaded_context_length: 4096, quantization: "Q4_K_M", arch: "qwen2", state: "loaded" }] }) }));
+    const info = await new ChatClient("http://x", "m").modelInfo("m");
+    expect(info).toMatchObject({ id: "m", contextLength: 8192, loadedContextLength: 4096, quantization: "Q4_K_M", arch: "qwen2", state: "loaded" });
+  });
+  it("modelInfo gibt null wenn Modell fehlt", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ id: "andere" }] }) }));
+    expect(await new ChatClient("http://x", "m").modelInfo("m")).toBeNull();
+  });
+  it("modelInfo gibt null bei Fehler", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    expect(await new ChatClient("http://x", "m").modelInfo("m")).toBeNull();
+  });
+});

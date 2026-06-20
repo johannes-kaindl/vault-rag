@@ -34,7 +34,7 @@ Diese Slice baut eine **eigene Sidebar-View** (wie `ChatView`), die genau das li
 | `src/sse.ts` | **neu** | `parseSSE` (umgezogen aus `chat_client.ts`, additiv um `model?` erweitert) + `streamSSE(res, onContent, onReasoning) → Promise<{content; reasoning; model}>`. Einziger Ort für Reader-Loop + Multibyte-Drain + `ThinkSplitter`-Verdrahtung. |
 | `src/chat_client.ts` | geändert | `ChatClient.stream` baut Body + fetch + `res.ok`-Check (wirft `'Chat HTTP <status>'`) und delegiert das Body-Lesen an `streamSSE`. Verhaltensgleich; `content` bleibt `string`. `parseSSE`-Import aus `./sse`. |
 | `src/vision_client.ts` | geändert | Neue Methode `transcribeStream(dataUrl, prompt, onContent, onReasoning, signal?) → Promise<{content; reasoning; model}>` (stream:true, `res.ok`-Check wirft `'Vision HTTP <status>'`, delegiert an `streamSSE`). Bestehendes `transcribe` (non-stream) bleibt **verhaltensgleich** — wird nur so refactored, dass es den Body-Bau via privatem `buildVisionMessages(dataUrl, prompt)` mit `transcribeStream` teilt (DRY). |
-| `src/img_to_md.ts` | geändert | Extrahiert reinen Helfer `transcriptNotePath(io: {noteExists}, sourcePath, imagePath) → string` (kapselt `dir = dirOf(source)`, `base = basenameNoExt(image)`, `uniqueNotePath`). `runImgToMd` nutzt ihn (1-Zeilen-Refactor) → Platzierungsregel ist single-source. Sonst unverändert. |
+| `src/img_to_md.ts` | geändert | Extrahiert reinen Helfer `transcriptNotePath(io: {noteExists}, sourcePath, imagePath) → string` (kapselt `dir = dirOf(source)`, `base = basenameNoExt(image)`, `uniqueNotePath`) **und** den geteilten **batched** Schreiber `writeTranscripts(io, sourcePath, entries) → {paths}` (read-once → sequenziell `createNote` + `replaceEmbed` akkumulieren → write-once; leer→skip). `runImgToMd` wird so refactored, dass es Transkripte sammelt und am Ende `writeTranscripts` ruft → Verhalten identisch, Schreib-Logik single-source & getestet. |
 | `src/img_to_md_state.ts` | **neu, rein** | View-Buchhaltung ohne DOM: Auswahl-Set, Toggle-all, Karten-Liste (`status`, `text`, `reasoning`, `writtenPath`), `addDelta`, `markWritten`, Abfrage „welche Karten fertig & ungeschrieben". |
 | `src/img_to_md_view.ts` | **neu** | `VIEW_TYPE_IMGMD = "vault-rag-img"`, `ImgToMdView extends ItemView` + `ImgToMdViewDeps` (alle Obsidian-/Vision-Zugriffe als injizierte Closures). Dünner Renderer über `img_to_md_state`. |
 | `src/main.ts` | geändert | `registerView` + Ribbon (`scan-text`) + Command „IMG→MD-Sidebar öffnen" + `activateImgMdView()` (rechte Sidebar, Singleton-Reveal). Deps via Live-Getter; `refresh`-Fan-out bei `active-leaf-change`. Bestehendes Batch-Command + Kontextmenü bleiben. |
@@ -97,32 +97,29 @@ transcribeStream(
 
 Body identisch zu `transcribe` (via `buildVisionMessages`), nur `stream: true`. `model`-Fallback: ist `parseSSE.model` leer, der Konstruktor-`model` (= `settings.visionModel`, via `reconnectVision` aktuell gehalten) — nie blind raten.
 
-## Schreib-Mechanik (Korrektur ggü. erstem Entwurf)
+## Schreib-Mechanik
 
-Kein gemeinsamer Schreib-Orchestrator (`applyTranscript`): `runImgToMd` schreibt die Quellnotiz **gebündelt einmal am Ende**, die Sidebar schreibt **inkrementell** — verschiedene Muster, nicht in eine Funktion zwingen. Geteilt werden nur die reinen Helfer (`buildTranscriptNote`, `replaceEmbed`, `uniqueNotePath`) **plus** der neue `transcriptNotePath` (Platzierungsregel).
+Ein **geteilter, batched** Schreiber statt eines per-Bild-Orchestrators — Command **und** Sidebar batchen (einzelnes „Notiz anlegen" = Batch mit *einem* Eintrag), daher dieselbe getestete Funktion:
 
-**Einzelnes „Notiz anlegen" (eine Karte):**
 ```
-content = await readNote(sourcePath)
-path    = transcriptNotePath(io, sourcePath, imagePath)
-await createNote(path, buildTranscriptNote({ imageLink, sourceName, date, model, transcript }))
-updated = replaceEmbed(content, embed.raw, basenameNoExt(path))
-if (updated !== content) await writeNote(sourcePath, updated)
-→ markWritten(card, path); Re-Scan
+writeTranscripts(io, sourcePath, entries: { raw; link; content; model }[]) → { paths }
+  before = await readNote(sourcePath); content = before
+  sourceName = basenameNoExt(sourcePath)
+  for (e of entries) {                              // sequenziell:
+    transcript = e.content.trim(); if (!transcript) continue   // leer → skip
+    imagePath = resolveImage(e.link, sourcePath)?.path ?? e.link
+    newPath   = transcriptNotePath(io, sourcePath, imagePath)  // uniqueNotePath sieht zuvor
+    await createNote(newPath, buildTranscriptNote({ imageLink: e.link, sourceName, date, model: e.model, transcript }))
+    content = replaceEmbed(content, e.raw, basenameNoExt(newPath))   // angelegte (createNote awaited)
+    paths.push(newPath)
+  }
+  if (content !== before) await writeNote(sourcePath, content)       // EIN Write → keine Race
+  return { paths }
 ```
 
-**„Alle anlegen" (mehrere Karten):** vermeidet die Read-Modify-Write-Race durch **Batching** wie `runImgToMd`:
-```
-content = await readNote(sourcePath)
-for (card of fertigUndUngeschrieben) {              // sequenziell:
-  path = transcriptNotePath(io, sourcePath, card.imagePath)   // uniqueNotePath sieht zuvor angelegte,
-  await createNote(path, buildTranscriptNote({…}))            // weil createNote awaited wird
-  content = replaceEmbed(content, card.embed.raw, basenameNoExt(path))
-  markWritten(card, path)
-}
-if (content !== original) await writeNote(sourcePath, content)
-→ Re-Scan
-```
+- **Einzelnes „Notiz anlegen"** (eine Karte): `writeTranscripts(sourcePath, [{ raw, link, content: card.text, model: card.model }])`.
+- **„Alle anlegen"**: `writeTranscripts(sourcePath, <alle fertigen, ungeschriebenen Karten>)`.
+- **`runImgToMd`** (Command): sammelt pro Bild `{ raw, link, content, model }` (skippt unsupported/Fehler/leer mit Notice), ruft am Ende `writeTranscripts` — Verhalten identisch zu heute, bestehende Tests bleiben grün.
 
 **Re-Scan nach Schreiben:** Der ersetzte Embed ist nicht mehr als Bild auffindbar → das Bild fällt aus der Liste; ein zweites `-2`-Duplikat ist strukturell ausgeschlossen. Die Ergebnis-Karte bleibt sichtbar mit „✓ angelegt".
 
@@ -152,7 +149,7 @@ if (content !== original) await writeNote(sourcePath, content)
 | `tests/sse.test.ts` *(neu)* | `streamSSE` treibt onContent/onReasoning; **Drain** (Multibyte über Chunk-Grenze + abgeschnittene letzte Zeile, z.B. `'Ende <'`); `model` aus erstem Chunk; `AbortError` propagiert; `parseSSE.model`-Extraktion. |
 | `tests/chat_client.test.ts` | bleibt grün nach Refactor (Verhaltensgleichheit) + `parseSSE`-Import aus `./sse`. |
 | `tests/vision_client.test.ts` | `transcribeStream` streamt Deltas + liefert `{content, reasoning, model}`; `transcribe` unverändert grün; `buildVisionMessages`-Body korrekt. |
-| `tests/img_to_md.test.ts` | `transcriptNotePath` (dir/base/Kollision); `runImgToMd` weiter grün (nutzt Helfer). |
+| `tests/img_to_md.test.ts` | `transcriptNotePath` (dir/base/Kollision); `writeTranscripts` (batched create+replace, write-once, leer→skip, Kollision über Entries); `runImgToMd` weiter grün (nutzt jetzt `writeTranscripts`). |
 | `tests/img_to_md_state.test.ts` *(neu)* | Auswahl-Set, Toggle-all (alle an↔aus), unsupported nicht wählbar, Karten-Append (Delta), `markWritten`, „fertig & ungeschrieben"-Abfrage. |
 | `tests/img_to_md_view.test.ts` *(neu, headless wie `chat_view.test.ts`)* | Liste mit Checkboxen (Default alle an); Toggle-all kippt; unsupported disabled; „Transkribieren" streamt live in Karte (synchroner State-Push, dann await); Gedanken-Block nur bei reasoning; Kopieren → `copyText`; „Notiz anlegen" → Schreib-Closure + „✓ angelegt"; „Alle anlegen" batched; Stop bricht ab; Timer-Cleanup bei `onClose`. |
 | `tests/settings.test.ts` | Vision-Felder-Tests bleiben grün; optionale Verbindungszeile. |

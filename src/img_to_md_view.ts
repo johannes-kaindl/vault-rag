@@ -170,8 +170,27 @@ export class ImgToMdView extends ItemView {
     this.controller = null;
     this.renderCards();
   }
-  async writeOne(_i: number): Promise<void> { /* Task 9 */ }
-  async writeAll(): Promise<void> { /* Task 9 */ }
+  async writeOne(i: number): Promise<void> {
+    const path = this.deps.getActivePath();
+    const card = this.state.cards[i];
+    if (!path || !card || card.status !== "done") return;
+    const [created] = await this.deps.writeTranscripts(path, [{ item: card.item, content: card.text.trim(), model: card.model }]);
+    if (created) this.state.markWritten(i, created);
+    this.renderCards();
+    await this.rescan();
+  }
+
+  async writeAll(): Promise<void> {
+    const path = this.deps.getActivePath();
+    if (!path) return;
+    const idx = this.state.doneCardIndices();
+    if (!idx.length) return;
+    const entries = idx.map(i => ({ item: this.state.cards[i].item, content: this.state.cards[i].text.trim(), model: this.state.cards[i].model }));
+    const paths = await this.deps.writeTranscripts(path, entries);
+    idx.forEach((i, k) => { if (paths[k]) this.state.markWritten(i, paths[k]); });
+    this.renderCards();
+    await this.rescan();
+  }
 
   async onClose(): Promise<void> {
     this.controller?.abort();

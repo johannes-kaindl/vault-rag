@@ -126,3 +126,43 @@ describe("ImgToMdView — Transkribieren", () => {
     expect(btn().textContent).toBe("Transkribieren");
   });
 });
+
+describe("ImgToMdView — Notiz anlegen", () => {
+  it("'Notiz anlegen' ruft writeTranscripts mit einem Eintrag, Karte → angelegt", async () => {
+    const { view, calls } = mkView({ writeTranscripts: async (_sp: string, entries: any[]) => { calls.written.push(entries); return ["foto.md"]; } });
+    await view.onOpen(); await view.run();
+    all(view.contentEl, "vault-rag-img-write")[0].click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(calls.written.length).toBe(1);
+    expect(calls.written[0]).toEqual([{ item: ITEMS[0], content: "Hallo", model: "vm" }]);
+    expect(all(view.contentEl, "vault-rag-img-written")[0].textContent).toContain("foto.md");
+  });
+  it("'angelegt'-Zeile öffnet die Notiz per Klick", async () => {
+    const { view, calls } = mkView({ writeTranscripts: async () => ["foto.md"] });
+    await view.onOpen(); await view.run();
+    await view.writeOne(0);
+    all(view.contentEl, "vault-rag-img-written")[0].click();
+    expect(calls.opened).toEqual(["foto.md"]);
+  });
+  it("'Alle anlegen' schreibt alle fertigen Karten in einem Batch", async () => {
+    const twoItems: ImgItem[] = [
+      { raw: "![[a.png]]", link: "a.png", ext: "png", supported: true },
+      { raw: "![[b.png]]", link: "b.png", ext: "png", supported: true },
+    ];
+    const { view, calls } = mkView({ scan: async () => twoItems, writeTranscripts: async (_sp: string, entries: any[]) => { calls.written.push(entries); return entries.map((_: any, i: number) => `n-${i}.md`); } });
+    await view.onOpen(); await view.run();
+    all(view.contentEl, "vault-rag-img-all")[0].click();
+    await Promise.resolve(); await Promise.resolve();
+    expect(calls.written.length).toBe(1);
+    expect(calls.written[0].length).toBe(2);
+    expect(all(view.contentEl, "vault-rag-img-written").length).toBe(2);
+  });
+  it("nach Schreiben wird neu gescannt (scan erneut aufgerufen)", async () => {
+    const scan = vi.fn(async () => ITEMS);
+    const { view } = mkView({ scan, writeTranscripts: async () => ["foto.md"] });
+    await view.onOpen();          // scan #1
+    await view.run();
+    await view.writeOne(0);       // scan #2 (rescan nach Schreiben)
+    expect(scan.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+});

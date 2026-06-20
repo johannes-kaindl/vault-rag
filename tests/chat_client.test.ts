@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { parseSSE, ChatClient } from "../src/chat_client";
+import { ChatClient } from "../src/chat_client";
 
 function streamRes(chunks: string[], ok = true, status = 200): any {
   let i = 0;
@@ -9,38 +9,6 @@ function streamRes(chunks: string[], ok = true, status = 200): any {
       : { done: true, value: undefined },
   }) } };
 }
-
-describe("parseSSE", () => {
-  it("extrahiert content-Deltas aus data-Zeilen", () => {
-    const r = parseSSE('data: {"choices":[{"delta":{"content":"Hal"}}]}\ndata: {"choices":[{"delta":{"content":"lo"}}]}\n');
-    expect(r.content).toEqual(["Hal", "lo"]);
-    expect(r.reasoning).toEqual([]);
-    expect(r.done).toBe(false);
-    expect(r.rest).toBe("");
-  });
-  it("extrahiert reasoning_content-Deltas", () => {
-    const r = parseSSE('data: {"choices":[{"delta":{"reasoning_content":"den"}}]}\ndata: {"choices":[{"delta":{"reasoning_content":"ke"}}]}\n');
-    expect(r.reasoning).toEqual(["den", "ke"]);
-    expect(r.content).toEqual([]);
-  });
-  it("trennt content und reasoning im selben Buffer", () => {
-    const r = parseSSE('data: {"choices":[{"delta":{"reasoning_content":"r"}}]}\ndata: {"choices":[{"delta":{"content":"c"}}]}\n');
-    expect(r.reasoning).toEqual(["r"]);
-    expect(r.content).toEqual(["c"]);
-  });
-  it("setzt done bei [DONE]", () => {
-    expect(parseSSE("data: [DONE]\n").done).toBe(true);
-  });
-  it("verarbeitet \\r\\n-Zeilenenden", () => {
-    const r = parseSSE('data: {"choices":[{"delta":{"content":"a"}}]}\r\ndata: {"choices":[{"delta":{"content":"b"}}]}\r\n');
-    expect(r.content).toEqual(["a", "b"]);
-  });
-  it("unvollständige letzte Zeile bleibt in rest", () => {
-    const r = parseSSE('data: {"choices":[{"delta":{"content":"x"}}]}\ndata: {"cho');
-    expect(r.content).toEqual(["x"]);
-    expect(r.rest).toBe('data: {"cho');
-  });
-});
 
 describe("ChatClient", () => {
   afterEach(() => vi.unstubAllGlobals());

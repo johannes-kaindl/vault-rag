@@ -1,29 +1,7 @@
 import { ThinkSplitter } from "./think_splitter";
+import { parseSSE } from "./sse";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
-
-/** Akkumuliert OpenAI-SSE-Deltas (content + reasoning_content) aus einem (Teil-)Buffer;
- *  unvollständige letzte Zeile → rest. Reine Funktion — kein Zustand. */
-export function parseSSE(buffer: string): { content: string[]; reasoning: string[]; rest: string; done: boolean } {
-  const content: string[] = [];
-  const reasoning: string[] = [];
-  let done = false;
-  const lines = buffer.split(/\r\n|\n|\r/);
-  const rest = lines.pop() ?? "";
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t.startsWith("data:")) continue;
-    const data = t.slice(5).trim();
-    if (data === "[DONE]") { done = true; continue; }
-    try {
-      const j = JSON.parse(data) as { choices?: { delta?: { content?: string; reasoning_content?: string } }[] };
-      const d = j.choices?.[0]?.delta;
-      if (typeof d?.content === "string") content.push(d.content);
-      if (typeof d?.reasoning_content === "string") reasoning.push(d.reasoning_content);
-    } catch { /* unvollständig — sollte bei kompletten Zeilen nicht passieren */ }
-  }
-  return { content, reasoning, rest, done };
-}
 
 export interface ModelInfo {
   id: string;

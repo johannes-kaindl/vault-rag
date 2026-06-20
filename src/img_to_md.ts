@@ -101,7 +101,7 @@ export async function runImgToMd(io: ImgToMdIO, sourcePath: string, opts?: { onl
     try {
       const dataUrl = await io.readImageDataUrl(resolved.path, resolved.ext);
       transcript = (await io.transcribe(dataUrl)).trim();
-    } catch { io.notify(`Transkription fehlgeschlagen: ${e.link}`); skipped++; continue; }
+    } catch (err) { io.notify(`Transkription fehlgeschlagen (${e.link}): ${err instanceof Error ? err.message : String(err)}`); skipped++; continue; }
     if (!transcript) { io.notify(`Leeres Transkript: ${e.link}`); skipped++; continue; }
     const newPath = uniqueNotePath(io, dir, basenameNoExt(resolved.path));
     await io.createNote(newPath, buildTranscriptNote({ imageLink: e.link, sourceName, date: io.date(), model: io.model, transcript }));

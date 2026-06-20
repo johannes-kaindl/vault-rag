@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findImageEmbeds, buildTranscriptNote, replaceEmbed, uniqueNotePath, runImgToMd, SUPPORTED_EXTS } from "../src/img_to_md";
+import { findImageEmbeds, buildTranscriptNote, replaceEmbed, uniqueNotePath, transcriptNotePath, runImgToMd, SUPPORTED_EXTS } from "../src/img_to_md";
 
 describe("findImageEmbeds", () => {
   it("findet wikilink- und markdown-Bild-Embeds, filtert Extensions", () => {
@@ -47,6 +47,15 @@ describe("uniqueNotePath", () => {
     const io = { noteExists: (p: string) => exists.has(p) };
     expect(uniqueNotePath(io, "dir", "foto")).toBe("dir/foto-3.md");
     expect(uniqueNotePath(io, "", "neu")).toBe("neu.md");
+  });
+});
+
+describe("transcriptNotePath", () => {
+  it("legt neben die Quellnotiz, Basename des Bildes, Kollisions-Suffix", () => {
+    const exists = new Set(["dir/foto.md"]);
+    const io = { noteExists: (p: string) => exists.has(p) };
+    expect(transcriptNotePath(io, "dir/quelle.md", "dir/img/foto.png")).toBe("dir/foto-2.md");
+    expect(transcriptNotePath(io, "quelle.md", "foto.png")).toBe("foto.md");
   });
 });
 

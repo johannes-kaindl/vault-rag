@@ -63,6 +63,11 @@ export function uniqueNotePath(io: { noteExists(p: string): boolean }, dir: stri
 function dirOf(path: string): string { const i = path.lastIndexOf("/"); return i >= 0 ? path.slice(0, i) : ""; }
 function basenameNoExt(path: string): string { const b = path.slice(path.lastIndexOf("/") + 1); const d = b.lastIndexOf("."); return d >= 0 ? b.slice(0, d) : b; }
 
+/** Pfad für die Transkript-Notiz: neben der Quellnotiz, Basename des Bildes, kollisionsfrei. */
+export function transcriptNotePath(io: { noteExists(p: string): boolean }, sourcePath: string, imagePath: string): string {
+  return uniqueNotePath(io, dirOf(sourcePath), basenameNoExt(imagePath));
+}
+
 export interface ImgToMdIO {
   date: () => string;
   readNote(path: string): Promise<string>;

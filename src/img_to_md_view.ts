@@ -102,10 +102,74 @@ export class ImgToMdView extends ItemView {
     }
   }
 
-  private renderCards(): void { /* Task 8 */ const el = this.cardsEl; if (el) el.empty(); }
+  private renderCards(): void {
+    const el = this.cardsEl; if (!el) return; el.empty();
+    for (let i = 0; i < this.state.cards.length; i++) {
+      const card = this.state.cards[i];
+      const cardEl = el.createDiv({ cls: "vault-rag-img-card" });
+      cardEl.createDiv({ cls: "vault-rag-img-card-head", text: `Bild ${card.index}/${card.total} · ${this.basename(card.item.link)}` });
+      if (card.reasoning) {
+        const live = card.status === "streaming" && card.text === "";
+        const det = cardEl.createEl("details", { cls: "vault-rag-img-reasoning" }) as HTMLDetailsElement;
+        det.open = live;
+        det.createEl("summary", { cls: "vault-rag-img-reasoning-sum", text: live ? "💭 denkt nach…" : "💭 Gedanken" });
+        det.createDiv({ cls: "vault-rag-img-reasoning-body", text: card.reasoning });
+      }
+      if (card.text) cardEl.createDiv({ cls: "vault-rag-img-text", text: card.text });
+      if (card.status === "error") cardEl.createDiv({ cls: "vault-rag-img-error", text: card.error ?? "Fehler" });
+      if (card.status === "written") {
+        const w = cardEl.createDiv({ cls: "vault-rag-img-written", text: `✓ angelegt: ${card.writtenPath}` });
+        w.addEventListener("click", () => { if (card.writtenPath) this.deps.openPath(card.writtenPath); });
+      }
+      if (card.text) {
+        const actions = cardEl.createDiv({ cls: "vault-rag-img-card-actions" });
+        const copyBtn = actions.createEl("button", { cls: "vault-rag-img-copy clickable-icon", attr: { "aria-label": "Transkript kopieren" } });
+        setIcon(copyBtn, "copy");
+        copyBtn.addEventListener("click", () => this.deps.copyText(card.text));
+        if (card.status === "done") {
+          actions.createEl("button", { cls: "vault-rag-img-write", text: "Notiz anlegen" }).addEventListener("click", () => void this.writeOne(i));
+        }
+      }
+    }
+  }
 
-  private onRunClick(): void { /* Task 8 */ }
-  async run(): Promise<void> { /* Task 8 */ }
+  private onRunClick(): void {
+    if (this.running) { this.controller?.abort(); return; }
+    void this.run();
+  }
+
+  async run(): Promise<void> {
+    if (this.running) return;
+    const path = this.deps.getActivePath();
+    if (!path) return;
+    const cards = this.state.startCards();
+    this.renderCards();
+    if (!cards.length) return;
+    this.running = true; this.runBtn?.setText("Stop");
+    this.controller = new AbortController();
+    const signal = this.controller.signal;
+    for (let i = 0; i < cards.length; i++) {
+      try {
+        const r = await this.deps.transcribeStream(
+          path, cards[i].item,
+          (t) => { this.state.appendContent(i, t); this.renderCards(); },
+          (t) => { this.state.appendReasoning(i, t); this.renderCards(); },
+          signal,
+        );
+        cards[i].model = r.model;
+        this.state.setDone(i);
+      } catch (e) {
+        if (signal.aborted) break;   // Stop gedrückt — Rest unten als „Abgebrochen" markieren
+        this.state.setError(i, e instanceof Error ? e.message : String(e));
+      }
+      this.renderCards();
+    }
+    // Nach Abbruch: noch nicht verarbeitete Karten kennzeichnen.
+    for (let i = 0; i < cards.length; i++) if (cards[i].status === "streaming") this.state.setError(i, "Abgebrochen");
+    this.running = false; this.runBtn?.setText("Transkribieren");
+    this.controller = null;
+    this.renderCards();
+  }
   async writeOne(_i: number): Promise<void> { /* Task 9 */ }
   async writeAll(): Promise<void> { /* Task 9 */ }
 

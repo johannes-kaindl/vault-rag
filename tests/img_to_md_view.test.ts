@@ -75,3 +75,54 @@ describe("ImgToMdView — Gerüst + Liste", () => {
     expect(all(view.contentEl, "vault-rag-img-empty").length).toBe(1);
   });
 });
+
+describe("ImgToMdView — Transkribieren", () => {
+  it("run streamt in eine Karte, Status done, 'Notiz anlegen' erscheint", async () => {
+    const { view } = mkView(); await view.onOpen();
+    await view.run();
+    const cards = all(view.contentEl, "vault-rag-img-card");
+    expect(cards.length).toBe(1);   // nur a.png (b.heic unsupported)
+    expect(all(view.contentEl, "vault-rag-img-text")[0].textContent).toBe("Hallo");
+    expect(all(view.contentEl, "vault-rag-img-write").length).toBe(1);
+  });
+  it("Karten-Kopf zeigt 'Bild i/n · name'", async () => {
+    const { view } = mkView(); await view.onOpen(); await view.run();
+    expect(all(view.contentEl, "vault-rag-img-card-head")[0].textContent).toContain("Bild 1/1");
+    expect(all(view.contentEl, "vault-rag-img-card-head")[0].textContent).toContain("a.png");
+  });
+  it("Kopier-Button kopiert den Transkript-Text", async () => {
+    const { view, calls } = mkView(); await view.onOpen(); await view.run();
+    all(view.contentEl, "vault-rag-img-copy")[0].click();
+    expect(calls.copied).toEqual(["Hallo"]);
+  });
+  it("Gedanken-Block nur bei reasoning", async () => {
+    const noReason = mkView(); await noReason.view.onOpen(); await noReason.view.run();
+    expect(all(noReason.view.contentEl, "vault-rag-img-reasoning").length).toBe(0);
+    const withReason = mkView({ transcribeStream: async (_sp: string, _it: ImgItem, onC: any, onR: any) => { onR("weil"); onC("Text"); return { content: "Text", reasoning: "weil", model: "vm" }; } });
+    await withReason.view.onOpen(); await withReason.view.run();
+    expect(all(withReason.view.contentEl, "vault-rag-img-reasoning").length).toBe(1);
+  });
+  it("Transkriptionsfehler → Karte mit Fehler, kein 'Notiz anlegen'", async () => {
+    const { view } = mkView({ transcribeStream: async () => { throw new Error("Vision HTTP 500"); } });
+    await view.onOpen(); await view.run();
+    expect(all(view.contentEl, "vault-rag-img-error")[0].textContent).toContain("500");
+    expect(all(view.contentEl, "vault-rag-img-write").length).toBe(0);
+  });
+  it("leeres Transkript → Fehler 'Leeres Transkript', kein 'Notiz anlegen'", async () => {
+    const { view } = mkView({ transcribeStream: async () => ({ content: "   ", reasoning: "", model: "vm" }) });
+    await view.onOpen(); await view.run();
+    expect(all(view.contentEl, "vault-rag-img-error")[0].textContent).toContain("Leeres Transkript");
+    expect(all(view.contentEl, "vault-rag-img-write").length).toBe(0);
+  });
+  it("Run-Button wird während des Laufs zu 'Stop'", async () => {
+    let release: () => void = () => {};
+    const transcribeStream = vi.fn(() => new Promise<{ content: string; reasoning: string; model: string }>(r => { release = () => r({ content: "x", reasoning: "", model: "vm" }); }));
+    const { view } = mkView({ transcribeStream });
+    await view.onOpen();
+    const p = view.run();
+    const btn = () => all(view.contentEl, "vault-rag-img-run")[0];
+    expect(btn().textContent).toBe("Stop");
+    release(); await p;
+    expect(btn().textContent).toBe("Transkribieren");
+  });
+});

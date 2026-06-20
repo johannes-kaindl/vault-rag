@@ -75,6 +75,10 @@ export default class VaultRagPlugin extends Plugin {
       openPath: this.openPath,
       copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },
       ping: () => this.chatClient.ping(),
+      listModels: () => this.chatClient.listModels(),
+      getModel: () => this.settings.chatModel,
+      setModel: (m: string) => { this.settings.chatModel = m; void this.saveSettings(); },
+      inputPosition: () => this.settings.chatInputPosition,
       getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
       embed: async (q) => {
         const index = this.index;

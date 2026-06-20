@@ -170,18 +170,50 @@ export class VaultRagSettingTab extends PluginSettingTab {
             pingChat();
           }));
 
-    new Setting(containerEl)
+    const modelSetting = new Setting(containerEl)
       .setName("Chat Modell")
-      .setDesc("Modellname wie auf dem Chat-Endpoint verfügbar")
-      .addText(t =>
-        t.setPlaceholder("qwen3")
-          .setValue(this.plugin.settings.chatModel)
-          .onChange(async (v: string) => {
-            this.plugin.settings.chatModel = v.trim();
+      .setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
+    const infoSetting = new Setting(containerEl)
+      .setName("Modell-Details")
+      .setDesc("…");
+    const showInfo = (model: string): void => {
+      void this.plugin.chatClient?.modelInfo(model).then((info: { contextLength?: number; quantization?: string; state?: string } | null) => {
+        if (info) {
+          const ctx = info.contextLength ? `Context ${info.contextLength.toLocaleString("de-DE")}` : "";
+          infoSetting.setDesc([ctx, info.quantization, info.state].filter(Boolean).join(" · ") || "geladen");
+        } else {
+          infoSetting.setDesc("keine Details (braucht LM Studios /api/v0/models)");
+        }
+      });
+    };
+    void this.plugin.chatClient?.listModels().then((models: string[]) => {
+      if (models.length) {
+        const cur = this.plugin.settings.chatModel;
+        const list = models.includes(cur) ? models : [cur, ...models];
+        modelSetting.addDropdown(d => {
+          list.forEach((m: string) => d.addOption(m, m));
+          d.setValue(cur).onChange(async (v: string) => {
+            this.plugin.settings.chatModel = v;
             await this.plugin.saveSettings();
             this.plugin.reconnectChat?.();
             pingChat();
-          }));
+            showInfo(v);
+          });
+        });
+      } else {
+        modelSetting.setDesc("Server offline — Modellname eintippen, dann „Modelle laden“");
+        modelSetting.addText(t =>
+          t.setPlaceholder("qwen3").setValue(this.plugin.settings.chatModel)
+            .onChange(async (v: string) => {
+              this.plugin.settings.chatModel = v.trim();
+              await this.plugin.saveSettings();
+              this.plugin.reconnectChat?.();
+              pingChat();
+            }));
+        modelSetting.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.display()));
+      }
+      showInfo(this.plugin.settings.chatModel);
+    });
 
     let chatKSetting: Setting;
     chatKSetting = new Setting(containerEl)
@@ -232,6 +264,18 @@ export class VaultRagSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.chatSystemPrompt)
         .onChange(async (v: string) => {
           this.plugin.settings.chatSystemPrompt = v;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName("Eingabe-Position")
+      .setDesc("Wo die Chat-Eingabe sitzt (greift beim nächsten Öffnen des Panels)")
+      .addDropdown(d => d
+        .addOption("bottom", "Unten")
+        .addOption("top", "Oben")
+        .setValue(this.plugin.settings.chatInputPosition)
+        .onChange(async (v: string) => {
+          this.plugin.settings.chatInputPosition = v as "bottom" | "top";
           await this.plugin.saveSettings();
         }));
 

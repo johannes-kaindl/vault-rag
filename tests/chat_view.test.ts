@@ -9,7 +9,7 @@ function all(el: any, cls: string): any[] {
   walk(el); return out;
 }
 
-function mkView(opts: { send?: any; ping?: any; copyText?: any } = {}) {
+function mkView(opts: { send?: any; ping?: any; copyText?: any; listModels?: any; getModel?: any; setModel?: any; inputPosition?: any } = {}) {
   const session: any = {
     messages: [],
     send: opts.send ?? vi.fn(async (q: string, _paths: string[], onToken: (t: string) => void) => {
@@ -25,6 +25,10 @@ function mkView(opts: { send?: any; ping?: any; copyText?: any } = {}) {
     session, openPath: (p: string) => opened.push(p),
     ping: opts.ping ?? (async () => true),
     copyText: opts.copyText ?? vi.fn(),
+    listModels: opts.listModels ?? (async () => []),
+    getModel: opts.getModel ?? (() => "qwen3"),
+    setModel: opts.setModel ?? vi.fn(),
+    inputPosition: opts.inputPosition ?? (() => "bottom"),
     getActivePath: () => "aktiv.md",
     embed: async () => new Float32Array([1, 0]),
     search: () => ["x.md"],
@@ -178,5 +182,24 @@ describe("ChatView", () => {
     session.messages = [{ role: "user", content: "frage" }];
     (view as any).renderMessages();
     expect(all(view.contentEl, "vault-rag-chat-copy").length).toBe(0);
+  });
+  it("Modell-Switcher ruft setModel bei Auswahl", async () => {
+    const setModel = vi.fn();
+    const { view } = mkView({ setModel, listModels: async () => ["a", "b"] });
+    await view.onOpen();
+    const sel = all(view.contentEl, "vault-rag-chat-model")[0];
+    expect(sel).toBeTruthy();
+    sel.value = "b";
+    (sel._listeners["change"] ?? []).forEach((cb: any) => cb());
+    expect(setModel).toHaveBeenCalledWith("b");
+  });
+  it("inputPosition 'top' rendert die Eingabe vor den Nachrichten", async () => {
+    const { view } = mkView({ inputPosition: () => "top" });
+    await view.onOpen();
+    const kids: any[] = Array.from(view.contentEl.children);
+    const idxInput = kids.findIndex(k => String(k.className).includes("vault-rag-chat-input-row"));
+    const idxMsgs = kids.findIndex(k => String(k.className).includes("vault-rag-chat-messages"));
+    expect(idxInput).toBeGreaterThanOrEqual(0);
+    expect(idxInput).toBeLessThan(idxMsgs);
   });
 });

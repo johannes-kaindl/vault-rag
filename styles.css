@@ -29,3 +29,4 @@
 .vault-rag-chat-msg-actions { display: flex; gap: 4px; }
 .vault-rag-chat-copy.clickable-icon { color: var(--text-faint); padding: 2px 4px; height: auto; width: auto; }
 .vault-rag-chat-copy.clickable-icon:hover { color: var(--text-normal); }
+.vault-rag-chat-model { width: 100%; margin-bottom: 6px; flex: 0 0 auto; font-size: 12px; }

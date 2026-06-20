@@ -9,6 +9,10 @@ export interface ChatViewDeps extends ContextPanelDeps {
   openPath: (path: string) => void;
   ping: () => Promise<boolean>;
   copyText: (text: string) => void;
+  listModels: () => Promise<string[]>;
+  getModel: () => string;
+  setModel: (m: string) => void;
+  inputPosition: () => "bottom" | "top";
   autoK: number;
 }
 
@@ -17,6 +21,7 @@ export class ChatView extends ItemView {
   private messagesEl: HTMLElement | null = null;
   private workingEl: HTMLElement | null = null;
   private statusEl: HTMLElement | null = null;
+  private modelSel: HTMLSelectElement | null = null;
   private inputEl: HTMLInputElement | null = null;
   private sendBtn: HTMLElement | null = null;
   private timer: ReturnType<typeof window.setInterval> | null = null;
@@ -37,20 +42,42 @@ export class ChatView extends ItemView {
     c.addClass("vault-rag-chat-root");
     this.statusEl = c.createDiv({ cls: "vault-rag-chat-status" });
     this.statusEl.addEventListener("click", () => void this.refreshStatus());
-    this.messagesEl = c.createDiv({ cls: "vault-rag-chat-messages" });
-    this.workingEl = c.createDiv({ cls: "vault-rag-chat-working" });
-    this.panel.mount(c.createDiv({ cls: "vault-rag-chat-context" }));
-    const row = c.createDiv({ cls: "vault-rag-chat-input-row" });
-    const input = row.createEl("input", { cls: "vault-rag-chat-input" }) as HTMLInputElement;
-    input.type = "text"; input.placeholder = "Frag deinen Vault…";
-    this.inputEl = input;
-    input.addEventListener("input", () => this.scheduleQuery(input.value ?? ""));
-    input.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") void this.submit(); });
-    this.sendBtn = row.createEl("button", { cls: "vault-rag-chat-send mod-cta", text: "Senden" });
-    this.sendBtn.addEventListener("click", () => this.onSendClick());
-    row.createEl("button", { cls: "vault-rag-chat-new", text: "Neu" }).addEventListener("click", () => this.newChat());
+    this.modelSel = c.createEl("select", { cls: "vault-rag-chat-model dropdown" });
+    this.modelSel.addEventListener("change", () => this.deps.setModel(this.modelSel?.value ?? ""));
+
+    const buildMessages = (): void => {
+      this.messagesEl = c.createDiv({ cls: "vault-rag-chat-messages" });
+      this.workingEl = c.createDiv({ cls: "vault-rag-chat-working" });
+    };
+    const buildInput = (): void => {
+      this.panel.mount(c.createDiv({ cls: "vault-rag-chat-context" }));
+      const row = c.createDiv({ cls: "vault-rag-chat-input-row" });
+      const input = row.createEl("input", { cls: "vault-rag-chat-input" }) as HTMLInputElement;
+      input.type = "text"; input.placeholder = "Frag deinen Vault…";
+      this.inputEl = input;
+      input.addEventListener("input", () => this.scheduleQuery(input.value ?? ""));
+      input.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") void this.submit(); });
+      this.sendBtn = row.createEl("button", { cls: "vault-rag-chat-send mod-cta", text: "Senden" });
+      this.sendBtn.addEventListener("click", () => this.onSendClick());
+      row.createEl("button", { cls: "vault-rag-chat-new", text: "Neu" }).addEventListener("click", () => this.newChat());
+    };
+
+    if (this.deps.inputPosition() === "top") { buildInput(); buildMessages(); }
+    else { buildMessages(); buildInput(); }
+
     this.renderMessages();
     await this.refreshStatus();
+    await this.refreshModels();
+  }
+
+  private async refreshModels(): Promise<void> {
+    const sel = this.modelSel; if (!sel) return;
+    const cur = this.deps.getModel();
+    const models = await this.deps.listModels();
+    sel.empty();
+    const list = models.includes(cur) ? models : [cur, ...models];
+    for (const m of list) { const o = sel.createEl("option", { text: m }); o.value = m; }
+    sel.value = cur;
   }
 
   private scheduleQuery(q: string): void {

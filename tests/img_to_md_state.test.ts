@@ -66,8 +66,8 @@ describe("ImgToMdState — Karten", () => {
   });
   it("doneCardIndices liefert nur done-Karten", () => {
     const s = new ImgToMdState();
-    s.setItems(items); s.startCards();      // 1 Karte (a.png? nein: beide unterstützten)
-    // beide unterstützten ausgewählt → 2 Karten
+    // beide unterstützten Items ausgewählt → 2 Karten
+    s.setItems(items); s.startCards();
     expect(s.cards.length).toBe(2);
     s.appendContent(0, "x"); s.setDone(0);
     s.appendContent(1, "y"); s.setDone(1);

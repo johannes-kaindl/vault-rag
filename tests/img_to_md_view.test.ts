@@ -125,6 +125,21 @@ describe("ImgToMdView — Transkribieren", () => {
     release(); await p;
     expect(btn().textContent).toBe("Transkribieren");
   });
+  it("Stop markiert die laufende Karte als abgebrochen, ohne 'Notiz anlegen'", async () => {
+    const transcribeStream = vi.fn((_sp: string, _it: any, _oc: any, _or: any, signal: AbortSignal) =>
+      new Promise<{ content: string; reasoning: string; model: string }>((_res, rej) => {
+        signal.addEventListener("abort", () => rej(new Error("aborted")));
+      }));
+    const { view } = mkView({ transcribeStream });
+    await view.onOpen();
+    const p = view.run();          // startet die (hängende) Transkription
+    view.onRunClick();             // läuft → Stop → controller.abort()
+    await p;
+    const errs = all(view.contentEl, "vault-rag-img-error");
+    expect(errs.length).toBe(1);
+    expect(errs[0].textContent).toContain("Abgebrochen");
+    expect(all(view.contentEl, "vault-rag-img-write").length).toBe(0);
+  });
 });
 
 describe("ImgToMdView — Notiz anlegen", () => {

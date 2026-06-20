@@ -30,7 +30,7 @@ export function parseSSE(buffer: string): { content: string[]; reasoning: string
  *  Ruft onContent/onReasoning pro Delta; trennt inline <think> via ThinkSplitter; drained am
  *  Ende TextDecoder-Multibyte + Splitter-Rest. Gibt das Akkumulat + das erste Chunk-model zurück. */
 export async function streamSSE(
-  res: { body: { getReader(): { read(): Promise<{ done: boolean; value?: Uint8Array }> } } },
+  res: Response,
   onContent: (t: string) => void,
   onReasoning: (t: string) => void,
 ): Promise<{ content: string; reasoning: string; model: string }> {

@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Editor, Menu, arrayBufferToBase64 } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Retriever, Hit } from "./retriever";
 import { RelatedNotesView, VIEW_TYPE_RELATED } from "./view";
@@ -13,6 +13,8 @@ import { buildContext } from "./context_source";
 import { pickNote } from "./note_picker";
 import { ChatSession } from "./chat_session";
 import { ChatView, VIEW_TYPE_CHAT } from "./chat_view";
+import { VisionClient } from "./vision_client";
+import { runImgToMd, findImageEmbeds, ImgToMdIO } from "./img_to_md";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -27,6 +29,7 @@ export default class VaultRagPlugin extends Plugin {
   private lastMtime = 0;
   embedder!: EmbeddingClient;
   chatClient!: ChatClient;
+  visionClient!: VisionClient;
   private liveIndexer!: LiveIndexer;
   private pendingQueue!: PendingQueue;
   private debounceTimers = new Map<string, ReturnType<typeof window.setTimeout>>();
@@ -46,6 +49,7 @@ export default class VaultRagPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     this.embedder = new EmbeddingClient(this.settings.embeddingEndpoint, this.settings.embeddingModel);
     this.chatClient = new ChatClient(this.settings.chatEndpoint, this.settings.chatModel);
+    this.visionClient = new VisionClient(this.settings.visionEndpoint, this.settings.visionModel);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
 
@@ -96,6 +100,18 @@ export default class VaultRagPlugin extends Plugin {
     }));
     this.addRibbonIcon("message-square", "Vault Chat", () => this.activateChatView());
     this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => this.activateChatView() });
+    this.addCommand({ id: "img-to-md", name: "IMG → MD: Bilder der Notiz transkribieren", callback: () => {
+      const f = this.app.workspace.getActiveFile();
+      if (!f) { new Notice("Keine aktive Notiz."); return; }
+      void runImgToMd(this.makeImgIO(), f.path);
+    } });
+    this.registerEvent(this.app.workspace.on("editor-menu", (menu: Menu, editor: Editor) => {
+      const embeds = findImageEmbeds(editor.getLine(editor.getCursor().line));
+      const f = this.app.workspace.getActiveFile();
+      if (!embeds.length || !f) return;
+      const raw = embeds[0].raw;
+      menu.addItem(item => item.setTitle("IMG → MD").setIcon("scan-text").onClick(() => void runImgToMd(this.makeImgIO(), f.path, { onlyRaw: raw })));
+    }));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refresh()));
 
     // File-Events
@@ -133,6 +149,30 @@ export default class VaultRagPlugin extends Plugin {
 
   reconnectChat(): void {
     this.chatClient = new ChatClient(this.settings.chatEndpoint, this.settings.chatModel);
+  }
+
+  reconnectVision(): void {
+    this.visionClient = new VisionClient(this.settings.visionEndpoint, this.settings.visionModel);
+  }
+
+  private mimeOf(ext: string): string { const e = ext.toLowerCase(); return e === "jpg" ? "jpeg" : e; }
+
+  private makeImgIO(): ImgToMdIO {
+    return {
+      model: this.settings.visionModel,
+      date: () => new Date().toISOString().slice(0, 10),
+      readNote: (p) => this.app.vault.adapter.read(p),
+      writeNote: async (p, c) => {
+        const f = this.app.vault.getAbstractFileByPath(p);
+        if (f instanceof TFile) await this.app.vault.modify(f, c); else await this.app.vault.adapter.write(p, c);
+      },
+      createNote: async (p, c) => { await this.app.vault.create(p, c); },
+      noteExists: (p) => this.app.vault.getAbstractFileByPath(p) != null,
+      resolveImage: (link, src) => { const f = this.app.metadataCache.getFirstLinkpathDest(link, src); return f ? { path: f.path, ext: f.extension } : null; },
+      readImageDataUrl: async (p, ext) => `data:image/${this.mimeOf(ext)};base64,${arrayBufferToBase64(await this.app.vault.adapter.readBinary(p))}`,
+      transcribe: (dataUrl) => this.visionClient.transcribe(dataUrl, this.settings.visionPrompt),
+      notify: (m) => { new Notice(m); },
+    };
   }
 
   async loadIndex() {

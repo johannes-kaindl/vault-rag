@@ -1,4 +1,5 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
+import { ChatClient } from "./chat_client";
 
 export interface VaultRagSettings {
   k: number;
@@ -16,11 +17,18 @@ export interface VaultRagSettings {
   chatTemperature: number;
   chatSystemPrompt: string;
   chatInputPosition: "bottom" | "top";
+  visionEndpoint: string;
+  visionModel: string;
+  visionPrompt: string;
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
   "Du beantwortest Fragen gegroundet in den bereitgestellten Notizen des Nutzers. " +
   "Wenn die Antwort nicht aus ihnen hervorgeht, sag das offen. Antworte knapp und auf Deutsch.";
+
+export const DEFAULT_VISION_PROMPT =
+  "Transkribiere den Text im Bild exakt nach Markdown. Erhalte die Struktur: Überschriften, Absätze, " +
+  "**Hervorhebungen**, Listen und Tabellen. Gib nur das Markdown aus, keine Kommentare.";
 
 export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
@@ -38,6 +46,9 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   chatTemperature: 0.7,
   chatSystemPrompt: DEFAULT_SYSTEM_PROMPT,
   chatInputPosition: "bottom",
+  visionEndpoint: "http://localhost:8080",
+  visionModel: "",
+  visionPrompt: DEFAULT_VISION_PROMPT,
 };
 
 export class VaultRagSettingTab extends PluginSettingTab {
@@ -283,6 +294,38 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .setName("Chat-Verbindung")
       .setDesc("prüfe…");
     pingChat();
+
+    // ── Vision (IMG→MD) ───────────────────────────────────────────────
+    new Setting(containerEl).setName("Vision (IMG→MD)").setHeading();
+
+    new Setting(containerEl)
+      .setName("Vision Endpoint")
+      .setDesc("OpenAI-kompatibler Server mit Vision-Modell (z.B. LM Studio)")
+      .addText(t => t.setPlaceholder("http://localhost:8080").setValue(this.plugin.settings.visionEndpoint)
+        .onChange(async (v: string) => { this.plugin.settings.visionEndpoint = v.trim(); await this.plugin.saveSettings(); this.plugin.reconnectVision?.(); }));
+
+    const visModelSetting = new Setting(containerEl).setName("Vision Modell").setDesc("Vision-fähiges Modell (Qwen2-VL, Llama-3.2-Vision …)");
+    void new ChatClient(this.plugin.settings.visionEndpoint, "").listModels().then((models: string[]) => {
+      const cur = this.plugin.settings.visionModel;
+      if (models.length) {
+        const list = cur && !models.includes(cur) ? [cur, ...models] : models;
+        visModelSetting.addDropdown(d => {
+          list.forEach((m: string) => d.addOption(m, m));
+          if (cur) d.setValue(cur);
+          d.onChange(async (v: string) => { this.plugin.settings.visionModel = v; await this.plugin.saveSettings(); });
+        });
+      } else {
+        visModelSetting.addText(t => t.setPlaceholder("qwen2-vl").setValue(cur)
+          .onChange(async (v: string) => { this.plugin.settings.visionModel = v.trim(); await this.plugin.saveSettings(); }));
+        visModelSetting.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.display()));
+      }
+    });
+
+    new Setting(containerEl)
+      .setName("Transkriptions-Prompt")
+      .setDesc("Anweisung an das Vision-Modell. Der Bild-Inhalt wird mitgeschickt.")
+      .addTextArea(t => t.setValue(this.plugin.settings.visionPrompt)
+        .onChange(async (v: string) => { this.plugin.settings.visionPrompt = v; await this.plugin.saveSettings(); }));
 
     // ── Status ────────────────────────────────────────────────────────
     new Setting(containerEl).setName("Status").setHeading();

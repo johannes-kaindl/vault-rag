@@ -145,7 +145,11 @@ export class ChatView extends ItemView {
   }
 
   private renderMessages(): void {
-    const el = this.messagesEl; if (!el) return; el.empty();
+    const el = this.messagesEl; if (!el) return;
+    // Scroll-Position VOR dem Leeren merken: nur automatisch ans Ende scrollen, wenn der Nutzer
+    // ohnehin unten war — sonst reißt es ihn beim Lesen älterer Turns nach unten (beide Eingabe-Positionen).
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    el.empty();
     const msgs = this.deps.session.messages;
     const last = msgs[msgs.length - 1];
     for (const m of msgs) {
@@ -172,7 +176,7 @@ export class ChatView extends ItemView {
         }
       }
     }
-    el.scrollTop = el.scrollHeight;   // dem Stream folgen: neueste Antwort sichtbar halten
+    if (atBottom) el.scrollTop = el.scrollHeight;   // dem Stream folgen, aber manuelles Hochscrollen respektieren
   }
 
   async onClose(): Promise<void> {

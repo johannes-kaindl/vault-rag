@@ -37,11 +37,17 @@ export class ChatClient {
     onContent: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
+    opts?: { model?: string; temperature?: number },
   ): Promise<{ content: string; reasoning: string }> {
     const res = await fetch(`${this.endpoint}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: this.model, messages, stream: true }),
+      body: JSON.stringify({
+        model: opts?.model ?? this.model,
+        messages,
+        stream: true,
+        ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
+      }),
       signal,
     });
     if (!res.ok) throw new Error(`Chat HTTP ${res.status}`);

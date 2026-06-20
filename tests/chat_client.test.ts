@@ -90,6 +90,24 @@ describe("ChatClient", () => {
       [{ role: "user", content: "x" }], () => {}, () => {});
     expect(res.content).toBe("Ende <");
   });
+  it("stream schickt model+temperature aus opts im Body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamRes(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']));
+    vi.stubGlobal("fetch", fetchMock);
+    await new ChatClient("http://localhost:8080", "qwen3").stream(
+      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { model: "m2", temperature: 0.2 });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.model).toBe("m2");
+    expect(body.temperature).toBe(0.2);
+  });
+  it("stream ohne opts: model = Konstruktor-Wert, kein temperature-Key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamRes(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']));
+    vi.stubGlobal("fetch", fetchMock);
+    await new ChatClient("http://localhost:8080", "qwen3").stream(
+      [{ role: "user", content: "hi" }], () => {}, () => {});
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.model).toBe("qwen3");
+    expect("temperature" in body).toBe(false);
+  });
   it("ping true bei 200", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
     expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(true);

@@ -2,107 +2,88 @@
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-DOCS)
-[![Obsidian](https://img.shields.io/badge/obsidian-1.4.0%2B-purple)](https://obsidian.md)
+[![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fcodeberg.org&label=release)](https://codeberg.org/jkaindl/vault-rag/releases)
+![Platform](https://img.shields.io/badge/platform-Obsidian%201.4%2B%20·%20desktop%20%26%20mobile-7c3aed)
 
-One Obsidian plugin for **local, offline retrieval over your vault** — related notes, semantic search, and a grounded RAG chat — all from a single shared embedding index.
+**Retrieval over your own vault — related notes, semantic search, and grounded chat — running locally and offline.**
 
-**Target platform:** Obsidian 1.4.0+, desktop and mobile. No telemetry, no remote services required for retrieval — the related-notes panel runs entirely offline, on every device.
+Vault RAG turns your notes into a searchable knowledge base without sending anything to the cloud. It reads a small embedding index that ships with your vault and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Generation (chat) runs against a local LLM endpoint you control.
 
-> **Status: pre-release (0.1.0), local-only.** Slice A (related notes) is built and in daily use; Slice B (RAG chat) is feature-complete. Not yet published to a forge or the Obsidian Community Directory. See [`CHANGELOG.md`](CHANGELOG.md).
+<!-- TODO(submission): hero GIF in docs/images/ — see CORE-META-03 -->
 
----
+## Features
 
-## Why
+- **Related notes** — a side panel ranks the notes most similar to the one you're reading. Cosine similarity over a compact note-level index, computed on-device — works fully offline, including on mobile.
+- **Semantic search** — find notes by *meaning*, not just keywords.
+- **Grounded RAG chat** — ask your vault a question and get an answer grounded in retrieved notes, streamed token-by-token from your local LLM. An editable live-context panel shows exactly which notes feed the answer, with source chips that link back.
+- **Visible thinking** — for reasoning models, the live "💭 thinking" stream appears in a collapsible block above the answer and folds away once it arrives. Reasoning is never sent back into the conversation history.
+- **Live indexing** — notes are re-embedded on save; edits made offline queue up and catch up automatically on reconnect.
 
-Three AI plugins (Similar Notes, Local GPT, Smart Composer) each compute **their own** embeddings over the same model — redundant and resource-hungry, and one of them writes a synced chat database into the vault. **Vault RAG** replaces all three with **one** plugin on **one** shared retrieval backend, and keeps retrieval (offline, on-device) cleanly separate from generation (your local LLMs).
+## Requirements
 
-## What it does
-
-- **Related notes** — a side panel shows the notes most similar to the one you're reading. Brute-force cosine over a tiny note-level index, computed locally — works offline on every device, including mobile.
-- **Semantic search** — query your vault by meaning, not just keywords; reuses the same cosine engine.
-- **RAG chat** — ask your vault questions. Answers are grounded in retrieved notes, streamed token-by-token from your local LLM (OpenAI-compatible endpoint, e.g. LM Studio). An editable live-context panel shows exactly which notes feed the answer; source chips link back to them.
-- **Visible thinking** — for reasoning models, the live "💭 thinking" stream is shown in a collapsible block above each answer, then folds away when the answer arrives. Reasoning stays out of the conversation history sent back to the model.
-- **Live indexing** — edits are re-embedded on save (configurable Ollama/MLX endpoint); offline edits queue in a dirty-list and catch up on reconnect.
-
-## How it works
-
-A companion backend exports a note-level **Matryoshka-256 int8 mini-index** (~1.4 MB) into `<vault>/_vaultrag/` on reindex. The plugin reads it and runs **brute-force cosine locally** — no daemon, no VPN, no on-device LLM needed for the related-notes panel. Generation (chat) is the only part that talks to an LLM, over an endpoint you configure. The portable index format is the reason this works across all your devices and is publishable on its own.
-
----
+- **Obsidian 1.4+** (desktop or mobile).
+- An **embedding index** in `<vault>/_vaultrag/` — produced by your indexing backend and synced with the vault. The related-notes panel and semantic search need only this index; no running server.
+- For **chat** (and live re-indexing): an **OpenAI-compatible local LLM endpoint** — e.g. [LM Studio](https://lmstudio.ai), [Ollama](https://ollama.com), or an MLX server. Configurable in settings; nothing leaves your machine.
 
 ## Install
 
-> Pre-release — not yet on a forge or in the Community Directory. Build from source:
+### Community Plugins
+
+> Coming soon — Vault RAG is being prepared for the Obsidian Community Plugin directory.
+
+### Manual
+
+Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://codeberg.org/jkaindl/vault-rag/releases), drop them into `<vault>/.obsidian/plugins/vault-rag/`, then enable **Settings → Community plugins → Vault RAG**.
+
+### BRAT (beta)
+
+Add the GitHub mirror `johannes-kaindl/vault-rag` in the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin to track pre-release builds.
+
+### From source
 
 ```bash
-git clone <repo>            # planned home: https://codeberg.org/jkaindl/vault-rag
+git clone https://codeberg.org/jkaindl/vault-rag
 cd vault-rag
 npm install
-npm run build               # produces main.js
+npm run build      # → main.js
 # copy main.js, manifest.json, styles.css into <vault>/.obsidian/plugins/vault-rag/
 ```
 
-Then enable **Settings → Community plugins → Installed → Vault RAG**, and point the embedding/chat endpoints at your local LLM in the plugin settings.
+## Usage
 
----
+1. Enable the plugin and open a note. The **Related notes** panel (ribbon: 🔍) populates automatically.
+2. Open **Semantic search** (ribbon: 🔭) to query the vault by meaning.
+3. Open **Vault Chat** (ribbon: 💬), point the chat endpoint at your local LLM in settings, and ask away. Edit the live-context list to control which notes ground the answer.
 
-## Development
+### Configuration
 
-```bash
-npm run dev                 # esbuild watch
-npm run build               # production bundle → main.js
-npm test                    # vitest run (115 tests)
-npx vitest run tests/<file> # a single test file
-npx tsc --noEmit            # typecheck
-```
+| Setting | What it does | Default |
+|---|---|---|
+| Embedding endpoint / model | Re-embeds notes on save | `http://localhost:11434` · `qwen3-embedding:8b` |
+| Chat endpoint / model | LLM for RAG chat | `http://localhost:8080` · `qwen3` |
+| Index directory | Where the synced index lives | `_vaultrag` |
+| Similarity / top-k | Retrieval thresholds | tunable |
+| Excluded folders | Paths skipped by indexing | `Templates/`, `Archive/` |
 
-The codebase is strict TDD — every change is backed by a failing test first. Larger features run through the brainstorm → spec → plan → TDD → review chain; specs and plans live under [`docs/superpowers/`](docs/superpowers/).
+> **Endpoint tip:** enter the base URL *without* a trailing `/v1` — the plugin appends it. Both forms are accepted.
 
-### Architecture
+## How it works
 
-The Obsidian boundary is a single `VaultAdapter` interface in `src/index.ts`. All index/embedding modules speak **only** that interface — never the Obsidian API directly — so they're unit-testable in Node without a DOM mock. Only `main.ts`, `view.ts`, `chat_view.ts`, `search_view.ts` and `settings.ts` import `obsidian`.
+Your indexing backend exports a portable note-level **Matryoshka-256 int8 mini-index** (~1.4 MB) into `<vault>/_vaultrag/`. The plugin loads it and runs **brute-force cosine locally** — no daemon, no VPN, no on-device LLM needed for retrieval. Only chat talks to an LLM, over an endpoint you configure. The portable index is what makes retrieval work identically across all your synced devices.
 
-```
-src/
-├── index.ts          VaultAdapter · IndexManifest · parseIndex · IndexLoader (reads _vaultrag/)
-├── retriever.ts      brute-force cosine top-k over normalized vectors
-├── chunker.ts        frontmatter-strip + heading-split
-├── embedder.ts       EmbeddingClient → Ollama/MLX HTTP endpoint
-├── embed_vector.ts   shared embed → index-vector helper
-├── live_indexer.ts   note-level vector map; update/remove/rename · build · persist
-├── pending_queue.ts  dirty-list; drain-on-reconnect
-├── chat_client.ts    OpenAI-compatible SSE streaming (content + reasoning channels)
-├── think_splitter.ts pulls <think>…</think> out of the content stream (chunk-robust)
-├── chat_session.ts   multi-turn, ephemeral; reasoning kept out of LLM history
-├── context_panel.ts  editable live-context list (auto-RAG + pins)
-├── context_source.ts buildContext(paths) → grounded system prompt
-├── chat_view.ts      RAG chat panel (streaming, sources, thinking block)
-├── search_view.ts    semantic search panel
-├── view.ts           related-notes side panel
-├── settings.ts       settings tab
-└── main.ts           plugin entry — events, debounce, drain, status bar
-```
+Architecture, module layout and contributor conventions live in [`AGENTS.md`](AGENTS.md).
 
----
+## Related
 
-## Documentation
+Image transcription (handwriting/screenshots → Markdown) lives in the sibling plugin **[image-to-markdown](https://codeberg.org/jkaindl/image-to-markdown)**.
 
-- [`CHANGELOG.md`](CHANGELOG.md) — per-release notes (Keep-A-Changelog).
-- [`AGENTS.md`](AGENTS.md) — orientation for contributors and AI agents; architecture, conventions, gotchas.
-- [`docs/superpowers/specs/`](docs/superpowers/specs) — design specs (brainstormed before implementation).
-- [`docs/superpowers/plans/`](docs/superpowers/plans) — checkbox implementation plans (task-by-task, TDD).
+## Contributing
 
-## Hosting
-
-Planned primary home: **Codeberg** (`codeberg.org/jkaindl/vault-rag`), with GitHub as a release mirror for the Obsidian Community Directory. Currently local-only (pre-release).
-
----
+Issues and pull requests are welcome on [Codeberg](https://codeberg.org/jkaindl/vault-rag). The project is test-driven — every change ships with tests (`npm test`), and larger features go through a brainstorm → spec → plan → TDD flow ([`docs/superpowers/`](docs/superpowers/)). See [`AGENTS.md`](AGENTS.md) for conventions.
 
 ## License
 
-- **Code:** GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later) — see [`LICENSE`](LICENSE). A commercial dual-license is available on request if the AGPL's copyleft doesn't fit your use case.
-- **Documentation/text:** Creative Commons Attribution-ShareAlike 4.0 (CC BY-SA 4.0) — see [`LICENSE-DOCS`](LICENSE-DOCS).
+- **Code:** GNU Affero General Public License v3.0 or later ([`LICENSE`](LICENSE)). A commercial dual-license is available on request if the AGPL's copyleft doesn't fit your use case.
+- **Documentation & text:** Creative Commons Attribution-ShareAlike 4.0 ([`LICENSE-DOCS`](LICENSE-DOCS)).
 
----
-
-Copyright © 2026 Johannes Kaindl. Code: AGPL-3.0-or-later · Docs: CC BY-SA 4.0.
+Copyright © 2026 Johannes Kaindl.

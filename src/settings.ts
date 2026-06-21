@@ -113,6 +113,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
       ] },
       { type: "group", heading: "Chat", items: [
         item("Chat-Endpoint", s => this.buildChatEndpoint(s)),
+        // Reihenfolge-Invariante: Modelldetails/Fähigkeiten MÜSSEN nach Chat-Modell stehen —
+        // dessen async listModels().then() befüllt this.infoValue/this.capSetting (per Microtask
+        // nach allen sync-Renders). Gilt für beide Pfade (group-Array UND display()).
         item("Chat-Modell", s => this.buildChatModel(s)),
         item("Modelldetails", s => this.buildModelDetails(s)),
         item("Fähigkeiten", s => this.buildCaps(s)),
@@ -194,6 +197,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   private showInfo(model: string): void {
+    // Tolerant gegenüber stale .then nach einem update()/display()-Re-Render: resetRenderState()
+    // nullt die Felder, die Null-Guards no-oppen dann; bei gleichem Modell ist der Inhalt idempotent.
     void this.plugin.chatClient?.modelInfo(model).then((info: { contextLength?: number; quantization?: string; state?: string } | null) => {
       if (!this.infoValue) return;
       if (info) {

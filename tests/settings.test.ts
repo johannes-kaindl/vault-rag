@@ -37,10 +37,4 @@ describe("settings", () => {
     expect(DEFAULT_SETTINGS.chatInputPosition).toBe("bottom");
     expect(DEFAULT_SETTINGS.chatSystemPrompt).toContain("gegroundet");
   });
-
-  it("hat Vision-Defaults", () => {
-    expect(DEFAULT_SETTINGS.visionEndpoint).toBe("http://localhost:8080");
-    expect(DEFAULT_SETTINGS.visionModel).toBe("");
-    expect(DEFAULT_SETTINGS.visionPrompt).toContain("Markdown");
-  });
 });

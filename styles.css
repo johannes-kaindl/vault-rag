@@ -30,26 +30,3 @@
 .vault-rag-chat-copy.clickable-icon { color: var(--text-faint); padding: 2px 4px; height: auto; width: auto; }
 .vault-rag-chat-copy.clickable-icon:hover { color: var(--text-normal); }
 .vault-rag-chat-model { width: 100%; margin-bottom: 6px; flex: 0 0 auto; font-size: 12px; }
-.vault-rag-img-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.vault-rag-img-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; flex: 0 0 auto; }
-.vault-rag-img-model { width: 100%; margin-bottom: 6px; flex: 0 0 auto; font-size: 12px; }
-.vault-rag-img-head { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; margin-bottom: 6px; }
-.vault-rag-img-toggle { font-size: 12px; }
-.vault-rag-img-list { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; max-height: 30vh; overflow-y: auto; margin-bottom: 6px; }
-.vault-rag-img-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.vault-rag-img-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vault-rag-img-empty { color: var(--text-muted); font-size: 12px; padding: 4px 0; }
-.vault-rag-img-cards { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1 1 auto; min-height: 0; padding-right: 4px; }
-.vault-rag-img-card { border: 1px solid var(--background-modifier-border); border-radius: 6px; padding: 6px 8px; }
-.vault-rag-img-card-head { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
-.vault-rag-img-text { white-space: pre-wrap; font-size: 13px; }
-.vault-rag-img-error { color: var(--text-error); font-size: 12px; }
-.vault-rag-img-written { color: var(--text-accent); font-size: 11px; cursor: pointer; margin-top: 4px; }
-.vault-rag-img-reasoning { font-size: 12px; margin: 2px 0; }
-.vault-rag-img-reasoning-sum { color: var(--text-muted); cursor: pointer; }
-.vault-rag-img-reasoning-body { color: var(--text-faint); white-space: pre-wrap; font-style: italic; padding: 4px 0 4px 12px; border-left: 2px solid var(--background-modifier-border); }
-.vault-rag-img-card-actions { display: flex; gap: 4px; margin-top: 4px; }
-.vault-rag-img-copy.clickable-icon { color: var(--text-faint); padding: 2px 4px; height: auto; width: auto; }
-.vault-rag-img-copy.clickable-icon:hover { color: var(--text-normal); }
-.vault-rag-img-write { font-size: 12px; }
-.vault-rag-img-foot { flex: 0 0 auto; margin-top: 6px; }

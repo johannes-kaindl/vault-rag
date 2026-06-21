@@ -1,4 +1,5 @@
 import { streamSSE } from "./sse";
+import { normalizeEndpoint } from "./endpoint";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
 
@@ -12,7 +13,10 @@ export interface ModelInfo {
 }
 
 export class ChatClient {
-  constructor(private endpoint: string, private model: string) {}
+  private endpoint: string;
+  constructor(endpoint: string, private model: string) {
+    this.endpoint = normalizeEndpoint(endpoint);
+  }
 
   async ping(): Promise<boolean> {
     try { return (await fetch(`${this.endpoint}/v1/models`)).ok; } catch { return false; }

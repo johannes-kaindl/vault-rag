@@ -1,5 +1,10 @@
+import { normalizeEndpoint } from "./endpoint";
+
 export class EmbeddingClient {
-  constructor(private endpoint: string, private model: string) {}
+  private endpoint: string;
+  constructor(endpoint: string, private model: string) {
+    this.endpoint = normalizeEndpoint(endpoint);
+  }
 
   async ping(): Promise<boolean> {
     try {

@@ -41,7 +41,4 @@
 .vault-rag-chat-copy.clickable-icon { color: var(--text-faint); padding: 2px 4px; height: auto; width: auto; }
 .vault-rag-chat-copy.clickable-icon:hover { color: var(--text-normal); }
 .vault-rag-chat-model { flex: 1; min-width: 0; font-size: 12px; }
-.vault-rag-status-dot { margin-left: 8px; font-size: 11px; color: var(--text-muted); }
-.vault-rag-status-dot.is-ok { color: var(--text-success); }
-.vault-rag-status-dot.is-error { color: var(--text-error); }
 .vault-rag-prompt-textarea { width: 100%; min-height: 8rem; resize: vertical; }

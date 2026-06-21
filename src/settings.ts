@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, setIcon } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
@@ -69,16 +69,13 @@ export class VaultRagSettingTab extends PluginSettingTab {
       this.refreshInterval = null;
     }
 
-    // ── Helpers: Status-Dot ───────────────────────────────────────────
-    const statusDot = (setting: Setting): HTMLElement => {
-      const dot = setting.controlEl.createSpan({ cls: "vault-rag-status-dot" });
-      dot.setText("·");
-      return dot;
-    };
-    const showPing = (dot: HTMLElement, ok: boolean): void => {
-      dot.toggleClass("is-ok", ok);
-      dot.toggleClass("is-error", !ok);
-      dot.setText(ok ? "● verbunden" : "○ offline");
+    // Verbindungstest meldet per Notice (kein nachgestelltes Status-Element in der controlEl —
+    // das bricht sonst die einheitliche rechte Kante; siehe _docs PROF-OBS-06).
+    const testEndpoint = async (b: { setButtonText: (t: string) => unknown; setDisabled: (d: boolean) => unknown }, label: string, ping?: () => Promise<boolean>): Promise<void> => {
+      b.setButtonText("Teste…"); b.setDisabled(true);
+      const ok = await ping?.();
+      new Notice(ok ? `${label} verbunden` : `${label} offline`);
+      b.setButtonText("Testen"); b.setDisabled(false);
     };
 
     // ── Suche ─────────────────────────────────────────────────────────
@@ -126,10 +123,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
         }));
 
     // ── Live Embedding ─────────────────────────────────────────────────
-    new Setting(containerEl).setName("Live Embedding").setHeading();
+    new Setting(containerEl).setName("Live-Embedding").setHeading();
 
-    const embEndpointSetting = new Setting(containerEl)
-      .setName("Embedding Endpoint")
+    new Setting(containerEl)
+      .setName("Embedding-Endpoint")
       .setDesc("Ollama- oder MLX-Server-URL — Desktop oder VPN-erreichbar")
       .addText(t =>
         t.setPlaceholder("http://localhost:11434")
@@ -139,13 +136,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             this.plugin.reconnectEmbedder?.();
           }))
-      .addButton(b => b.setButtonText("Testen").onClick(async () => {
-        b.setDisabled(true);
-        const ok = await this.plugin.embedder?.ping();
-        showPing(embDot, !!ok);
-        b.setDisabled(false);
-      }));
-    const embDot = statusDot(embEndpointSetting);
+      .addButton(b => b.setButtonText("Testen").onClick(() => testEndpoint(b, "Embedding-Endpoint", () => this.plugin.embedder?.ping())));
 
     const embModelSetting = new Setting(containerEl)
       .setName("Embedding-Modell")
@@ -190,8 +181,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     // ── Chat ──────────────────────────────────────────────────────────
     new Setting(containerEl).setName("Chat").setHeading();
 
-    const chatEndpointSetting = new Setting(containerEl)
-      .setName("Chat Endpoint")
+    new Setting(containerEl)
+      .setName("Chat-Endpoint")
       .setDesc("OpenAI-kompatibler LLM-Server (MLX/LM-Studio) — getrennt vom Embedding-Endpoint")
       .addText(t =>
         t.setPlaceholder("http://localhost:8080")
@@ -201,13 +192,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             this.plugin.reconnectChat?.();
           }))
-      .addButton(b => b.setButtonText("Testen").onClick(async () => {
-        b.setDisabled(true);
-        const ok = await this.plugin.chatClient?.ping();
-        showPing(chatDot, !!ok);
-        b.setDisabled(false);
-      }));
-    const chatDot = statusDot(chatEndpointSetting);
+      .addButton(b => b.setButtonText("Testen").onClick(() => testEndpoint(b, "Chat-Endpoint", () => this.plugin.chatClient?.ping())));
 
     // ── Capability-Helpers (Lucide-Icons statt Emoji) ─────────────────
     type Caps = { vision: string; thinking: { support: string; confidence: string } };
@@ -233,9 +218,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     let updateBudgetMax: (maxChars: number) => void = () => {};
 
     const modelSetting = new Setting(containerEl)
-      .setName("Chat Modell")
+      .setName("Chat-Modell")
       .setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
-    const infoSetting = new Setting(containerEl).setName("Modell-Details");
+    const infoSetting = new Setting(containerEl).setName("Modelldetails");
     const infoValue = infoSetting.controlEl.createSpan({ cls: "vault-rag-info-value", text: "…" });
     const capSetting = new Setting(containerEl).setName("Fähigkeiten");
 
@@ -368,7 +353,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    const thinkSetting = new Setting(containerEl)
+    new Setting(containerEl)
       .setName("Thinking unterdrücken")
       .setDesc("Standard für neue Chats. Sendet Suppress-Hints (reasoning_effort/enable_thinking). Pro Chat im Panel umschaltbar. „Testen“ prüft, ob das Modell wirklich abschaltet.")
       .addToggle(t =>
@@ -378,29 +363,23 @@ export class VaultRagSettingTab extends PluginSettingTab {
         }))
       .addButton(b => b.setButtonText("Testen").onClick(async () => {
         const model = this.plugin.settings.chatModel;
-        const setStatus = (text: string, ok: boolean | null): void => {
-          thinkStatus.setText(text);
-          thinkStatus.toggleClass("is-ok", ok === true);
-          thinkStatus.toggleClass("is-error", ok === false);
-        };
-        if (isAlwaysOnThinker(model)) { setStatus("⚠ denkt immer", false); return; }
-        b.setDisabled(true); setStatus("teste…", null);
+        if (isAlwaysOnThinker(model)) { new Notice("Dieses Modell denkt immer (nur low/medium/high)."); return; }
+        b.setButtonText("Teste…"); b.setDisabled(true);
         try {
           const res = await (this.plugin.chatClient as ChatClient).stream(
             [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
             () => {}, () => {}, undefined, { model, suppressThinking: true });
           const happened = reasoningHappened(res.content, res.reasoning);
-          setStatus(happened ? "⚠ denkt trotz „aus“" : "✓ unterdrückt", !happened);
+          new Notice(happened ? "Modell denkt trotz „aus“" : "Thinking wird unterdrückt");
           if (happened) {
             // Live-Nachweis, dass das Modell denkt → Fähigkeiten-Zeile hochstufen.
             lastCaps = { ...lastCaps, thinking: { support: "always", confidence: "confirmed" } };
             renderCaps(capSetting, lastCaps);
           }
         } catch {
-          setStatus("○ offline", false);
-        } finally { b.setDisabled(false); }
+          new Notice("Chat-Endpoint nicht erreichbar");
+        } finally { b.setButtonText("Testen"); b.setDisabled(false); }
       }));
-    const thinkStatus = thinkSetting.controlEl.createSpan({ cls: "vault-rag-status-dot" });
 
     new Setting(containerEl)
       .setName("Enter sendet")

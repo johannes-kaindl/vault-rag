@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
@@ -209,16 +209,28 @@ export class VaultRagSettingTab extends PluginSettingTab {
       }));
     const chatDot = statusDot(chatEndpointSetting);
 
-    // ── Capability-Helpers ────────────────────────────────────────────
-    const capLabel = (c: { vision: string; thinking: { support: string; confidence: string } }): string => {
-      const parts: string[] = [];
-      if (c.vision !== "no") parts.push(c.vision === "confirmed" ? "👁 Vision" : "👁 Vision?");
+    // ── Capability-Helpers (Lucide-Icons statt Emoji) ─────────────────
+    type Caps = { vision: string; thinking: { support: string; confidence: string } };
+    const renderCaps = (setting: Setting, c: Caps): void => {
+      const el = setting.descEl; el.empty();
+      const chip = (icon: string, text: string, dim: boolean): void => {
+        const span = el.createSpan({ cls: dim ? "vault-rag-cap is-dim" : "vault-rag-cap" });
+        setIcon(span.createSpan({ cls: "vault-rag-cap-icon" }), icon);
+        span.createSpan({ text });
+      };
+      let any = false;
+      if (c.vision !== "no") { chip("eye", c.vision === "confirmed" ? "Vision" : "Vision?", c.vision !== "confirmed"); any = true; }
       if (c.thinking.support !== "none") {
-        const t = c.thinking.support === "always" ? "💭 Thinking (immer an)" : "💭 Thinking";
-        parts.push(c.thinking.confidence === "confirmed" ? t : t + "?");
+        const t = c.thinking.support === "always" ? "Thinking (immer an)" : "Thinking";
+        chip("brain", c.thinking.confidence === "confirmed" ? t : t + "?", c.thinking.confidence !== "confirmed");
+        any = true;
       }
-      return parts.length ? parts.join(" · ") : "keine besonderen Fähigkeiten erkannt";
+      if (!any) el.setText("keine besonderen Fähigkeiten erkannt");
     };
+    // zuletzt aufgelöste Caps — der Suppress-Test (unten) hebt Thinking hier live an.
+    let lastCaps: Caps = { vision: "no", thinking: { support: "none", confidence: "no" } };
+    // wird im Budget-Slider-Block gesetzt (Modell-Fenster koppelt die Obergrenze).
+    let updateBudgetMax: (maxChars: number) => void = () => {};
 
     const modelSetting = new Setting(containerEl)
       .setName("Chat Modell")
@@ -233,8 +245,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const showInfo = (model: string): void => {
       void this.plugin.chatClient?.modelInfo(model).then((info: { contextLength?: number; quantization?: string; state?: string } | null) => {
         if (info) {
-          const ctx = info.contextLength ? `Context ${info.contextLength.toLocaleString("de-DE")}` : "";
+          const ctx = info.contextLength ? `max Context ${info.contextLength.toLocaleString("de-DE")}` : "";
           infoSetting.setDesc([ctx, info.quantization, info.state].filter(Boolean).join(" · ") || "geladen");
+          // Budget-Obergrenze ans Modell-Fenster koppeln (~4 Zeichen/Token).
+          if (info.contextLength) updateBudgetMax(info.contextLength * 4);
         } else {
           infoSetting.setDesc("keine Details (braucht LM Studios /api/v0/models)");
         }
@@ -243,8 +257,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
     const showCaps = (model: string): void => {
       void this.plugin.chatClient?.fetchCapabilities(model).then((meta: Parameters<typeof resolveCapabilities>[0]) => {
-        const caps = resolveCapabilities(meta, model, {});
-        capSetting.setDesc(capLabel(caps));
+        lastCaps = resolveCapabilities(meta, model, {});
+        renderCaps(capSetting, lastCaps);
       });
     };
 
@@ -294,16 +308,29 @@ export class VaultRagSettingTab extends PluginSettingTab {
     let budgetSetting: Setting;
     budgetSetting = new Setting(containerEl)
       .setName(`Kontext-Budget: ${this.plugin.settings.contextCharBudget.toLocaleString("de-DE")} Zeichen`)
-      .setDesc("Maximale Gesamtlänge des Kontexts (wird anteilig auf die Notizen verteilt)")
-      .addSlider(s => s
-        .setLimits(2000, 32000, 1000)
-        .setValue(this.plugin.settings.contextCharBudget)
-        .setDynamicTooltip()
-        .onChange(async (v: number) => {
-          this.plugin.settings.contextCharBudget = v;
-          budgetSetting.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
-          await this.plugin.saveSettings();
-        }));
+      .setDesc("Maximale Gesamtlänge des Notiz-Kontexts (anteilig verteilt). Obergrenze richtet sich nach dem Modell-Fenster.")
+      .addSlider(s => {
+        s.setLimits(2000, 32000, 1000)
+          .setValue(this.plugin.settings.contextCharBudget)
+          .setDynamicTooltip()
+          .onChange(async (v: number) => {
+            this.plugin.settings.contextCharBudget = v;
+            budgetSetting.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
+            await this.plugin.saveSettings();
+          });
+        // Sobald das Modell-Fenster bekannt ist (showInfo): Slider-Max daran koppeln + Wert klemmen.
+        updateBudgetMax = (maxChars: number): void => {
+          const max = Math.max(8000, Math.round(maxChars / 1000) * 1000);
+          s.setLimits(2000, max, 1000);
+          const val = Math.min(this.plugin.settings.contextCharBudget, max);
+          s.setValue(val);
+          budgetSetting.setName(`Kontext-Budget: ${val.toLocaleString("de-DE")} / max ~${max.toLocaleString("de-DE")} Zeichen`);
+          if (val !== this.plugin.settings.contextCharBudget) {
+            this.plugin.settings.contextCharBudget = val;   // nur bei echter Klemmung schreiben
+            void this.plugin.saveSettings();
+          }
+        };
+      });
 
     let tempSetting: Setting;
     tempSetting = new Setting(containerEl)
@@ -344,33 +371,39 @@ export class VaultRagSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    new Setting(containerEl)
+    const thinkSetting = new Setting(containerEl)
       .setName("Thinking unterdrücken")
-      .setDesc("Standard für neue Chats. Sendet Suppress-Hints (reasoning_effort/enable_thinking). Pro Chat im Panel umschaltbar.")
+      .setDesc("Standard für neue Chats. Sendet Suppress-Hints (reasoning_effort/enable_thinking). Pro Chat im Panel umschaltbar. „Testen“ prüft, ob das Modell wirklich abschaltet.")
       .addToggle(t =>
         t.setValue(this.plugin.settings.suppressThinking).onChange(async (v: boolean) => {
           this.plugin.settings.suppressThinking = v;
           await this.plugin.saveSettings();
-        }));
-
-    const suppressTest = new Setting(containerEl)
-      .setName("Suppress testen")
-      .setDesc("Prüft, ob das aktuelle Modell Thinking wirklich abschaltet.");
-    suppressTest.addButton(b => b.setButtonText("Testen").onClick(async () => {
-      const model = this.plugin.settings.chatModel;
-      if (isAlwaysOnThinker(model)) { suppressTest.setDesc("⚠ Dieses Modell denkt immer (nur low/medium/high)."); return; }
-      b.setDisabled(true);
-      suppressTest.setDesc("teste…");
-      try {
-        const res = await (this.plugin.chatClient as ChatClient).stream(
-          [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
-          () => {}, () => {}, undefined, { model, suppressThinking: true });
-        const happened = reasoningHappened(res.content, res.reasoning);
-        suppressTest.setDesc(happened ? '⚠ Modell denkt trotz „aus“.' : "✓ wird unterdrückt.");
-      } catch {
-        suppressTest.setDesc("○ Endpoint nicht erreichbar.");
-      } finally { b.setDisabled(false); }
-    }));
+        }))
+      .addButton(b => b.setButtonText("Testen").onClick(async () => {
+        const model = this.plugin.settings.chatModel;
+        const setStatus = (text: string, ok: boolean | null): void => {
+          thinkStatus.setText(text);
+          thinkStatus.toggleClass("is-ok", ok === true);
+          thinkStatus.toggleClass("is-error", ok === false);
+        };
+        if (isAlwaysOnThinker(model)) { setStatus("⚠ denkt immer", false); return; }
+        b.setDisabled(true); setStatus("teste…", null);
+        try {
+          const res = await (this.plugin.chatClient as ChatClient).stream(
+            [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
+            () => {}, () => {}, undefined, { model, suppressThinking: true });
+          const happened = reasoningHappened(res.content, res.reasoning);
+          setStatus(happened ? "⚠ denkt trotz „aus“" : "✓ unterdrückt", !happened);
+          if (happened) {
+            // Live-Nachweis, dass das Modell denkt → Fähigkeiten-Zeile hochstufen.
+            lastCaps = { ...lastCaps, thinking: { support: "always", confidence: "confirmed" } };
+            renderCaps(capSetting, lastCaps);
+          }
+        } catch {
+          setStatus("○ offline", false);
+        } finally { b.setDisabled(false); }
+      }));
+    const thinkStatus = thinkSetting.controlEl.createSpan({ cls: "vault-rag-status-dot" });
 
     new Setting(containerEl)
       .setName("Enter sendet")

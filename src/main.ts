@@ -13,7 +13,6 @@ import { buildContext } from "./context_source";
 import { pickNote } from "./note_picker";
 import { ChatSession } from "./chat_session";
 import { ChatView, VIEW_TYPE_CHAT } from "./chat_view";
-import { resolveCapabilities } from "./capabilities";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -97,10 +96,6 @@ export default class VaultRagPlugin extends Plugin {
       getSuppress: () => this.settings.suppressThinking,
       setSuppress: (v: boolean) => { this.settings.suppressThinking = v; void this.saveSettings(); },
       enterSends: () => this.settings.enterSends,
-      fetchCapabilities: async (model: string) => {
-        const meta = await this.chatClient.fetchCapabilities(model);
-        return resolveCapabilities(meta, model, {});
-      },
     }));
     this.addRibbonIcon("message-square", "Vault Chat", () => this.activateChatView());
     this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => this.activateChatView() });

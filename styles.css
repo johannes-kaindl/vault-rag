@@ -14,11 +14,16 @@
 .vault-rag-chat-state { color: var(--text-error); padding: 4px 0; }
 .vault-rag-chat-input-row { display: flex; gap: 4px; margin-top: 8px; flex: 0 0 auto; }
 .vault-rag-chat-input { flex: 1; resize: none; min-height: 60px; max-height: 180px; overflow-y: auto; }
-.vault-rag-chat-think-toggle { font-size: 12px; margin-bottom: 6px; }
+.vault-rag-chat-model-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex: 0 0 auto; }
+.vault-rag-chat-think-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
 .vault-rag-chat-think-toggle.is-disabled { opacity: 0.6; pointer-events: none; }
-.vault-rag-chat-caps { display: flex; gap: 6px; margin-bottom: 6px; }
-.vault-rag-chat-cap { font-size: 11px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--background-modifier-border); }
-.vault-rag-chat-cap.is-likely { opacity: 0.6; }
+.vault-rag-chat-think-toggle.is-off { opacity: 0.55; }
+.vault-rag-chat-think-icon { display: inline-flex; }
+.vault-rag-chat-think-icon svg { width: 14px; height: 14px; }
+.vault-rag-cap { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
+.vault-rag-cap-icon { display: inline-flex; }
+.vault-rag-cap-icon svg { width: 14px; height: 14px; }
+.vault-rag-cap.is-dim { opacity: 0.6; }
 .vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; flex: 0 0 auto; }
 .vault-rag-chat-working { font-size: 11px; color: var(--text-accent); padding: 4px 0; min-height: 16px; flex: 0 0 auto; }
 .vault-rag-chat-new { font-size: 12px; }
@@ -34,7 +39,7 @@
 .vault-rag-chat-msg-actions { display: flex; gap: 4px; }
 .vault-rag-chat-copy.clickable-icon { color: var(--text-faint); padding: 2px 4px; height: auto; width: auto; }
 .vault-rag-chat-copy.clickable-icon:hover { color: var(--text-normal); }
-.vault-rag-chat-model { width: 100%; margin-bottom: 6px; flex: 0 0 auto; font-size: 12px; }
+.vault-rag-chat-model { flex: 1; min-width: 0; font-size: 12px; }
 .vault-rag-status-dot { margin-left: 8px; font-size: 11px; color: var(--text-muted); }
 .vault-rag-status-dot.is-ok { color: var(--text-success); }
 .vault-rag-status-dot.is-error { color: var(--text-error); }

@@ -9,7 +9,7 @@ function all(el: any, cls: string): any[] {
   walk(el); return out;
 }
 
-function mkView(opts: { send?: any; ping?: any; copyText?: any; listModels?: any; getModel?: any; setModel?: any; inputPosition?: any; getSuppress?: any; setSuppress?: any; enterSends?: any; fetchCapabilities?: any } = {}) {
+function mkView(opts: { send?: any; ping?: any; copyText?: any; listModels?: any; getModel?: any; setModel?: any; inputPosition?: any; getSuppress?: any; setSuppress?: any; enterSends?: any } = {}) {
   const session: any = {
     messages: [],
     send: opts.send ?? vi.fn(async (q: string, _paths: string[], onToken: (t: string) => void) => {
@@ -32,7 +32,6 @@ function mkView(opts: { send?: any; ping?: any; copyText?: any; listModels?: any
     getSuppress: opts.getSuppress ?? (() => false),
     setSuppress: opts.setSuppress ?? vi.fn(),
     enterSends: opts.enterSends ?? (() => true),
-    fetchCapabilities: opts.fetchCapabilities ?? (async () => ({ vision: "no", thinking: { support: "none", confidence: "no" } })),
     getActivePath: () => "aktiv.md",
     embed: async () => new Float32Array([1, 0]),
     search: () => ["x.md"],

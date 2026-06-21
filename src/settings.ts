@@ -212,7 +212,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     // ── Capability-Helpers (Lucide-Icons statt Emoji) ─────────────────
     type Caps = { vision: string; thinking: { support: string; confidence: string } };
     const renderCaps = (setting: Setting, c: Caps): void => {
-      const el = setting.descEl; el.empty();
+      const el = setting.controlEl; el.empty();
       const chip = (icon: string, text: string, dim: boolean): void => {
         const span = el.createSpan({ cls: dim ? "vault-rag-cap is-dim" : "vault-rag-cap" });
         setIcon(span.createSpan({ cls: "vault-rag-cap-icon" }), icon);
@@ -235,22 +235,19 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const modelSetting = new Setting(containerEl)
       .setName("Chat Modell")
       .setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
-    const infoSetting = new Setting(containerEl)
-      .setName("Modell-Details")
-      .setDesc("…");
-    const capSetting = new Setting(containerEl)
-      .setName("Fähigkeiten")
-      .setDesc("…");
+    const infoSetting = new Setting(containerEl).setName("Modell-Details");
+    const infoValue = infoSetting.controlEl.createSpan({ cls: "vault-rag-info-value", text: "…" });
+    const capSetting = new Setting(containerEl).setName("Fähigkeiten");
 
     const showInfo = (model: string): void => {
       void this.plugin.chatClient?.modelInfo(model).then((info: { contextLength?: number; quantization?: string; state?: string } | null) => {
         if (info) {
           const ctx = info.contextLength ? `max Context ${info.contextLength.toLocaleString("de-DE")}` : "";
-          infoSetting.setDesc([ctx, info.quantization, info.state].filter(Boolean).join(" · ") || "geladen");
+          infoValue.setText([ctx, info.quantization, info.state].filter(Boolean).join(" · ") || "geladen");
           // Budget-Obergrenze ans Modell-Fenster koppeln (~4 Zeichen/Token).
           if (info.contextLength) updateBudgetMax(info.contextLength * 4);
         } else {
-          infoSetting.setDesc("keine Details (braucht LM Studios /api/v0/models)");
+          infoValue.setText("keine Details (braucht LM Studios /api/v0/models)");
         }
       });
     };

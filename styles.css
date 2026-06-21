@@ -24,6 +24,7 @@
 .vault-rag-cap-icon { display: inline-flex; }
 .vault-rag-cap-icon svg { width: 14px; height: 14px; }
 .vault-rag-cap.is-dim { opacity: 0.6; }
+.vault-rag-info-value { color: var(--text-muted); font-size: 12px; }
 .vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; flex: 0 0 auto; }
 .vault-rag-chat-working { font-size: 11px; color: var(--text-accent); padding: 4px 0; min-height: 16px; flex: 0 0 auto; }
 .vault-rag-chat-new { font-size: 12px; }

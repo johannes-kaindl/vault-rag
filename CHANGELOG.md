@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-06-21
+
 ### Added
 - **Thinking on/off** — a quick toggle in the chat (with a default in settings) suppresses a reasoning
   model's thinking via cross-server-portable request params (`reasoning_effort: "none"`,

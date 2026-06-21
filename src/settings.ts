@@ -17,6 +17,8 @@ export interface VaultRagSettings {
   chatTemperature: number;
   chatSystemPrompt: string;
   chatInputPosition: "bottom" | "top";
+  suppressThinking: boolean;
+  enterSends: boolean;
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
@@ -39,6 +41,8 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   chatTemperature: 0.7,
   chatSystemPrompt: DEFAULT_SYSTEM_PROMPT,
   chatInputPosition: "bottom",
+  suppressThinking: false,
+  enterSends: true,
 };
 
 export class VaultRagSettingTab extends PluginSettingTab {

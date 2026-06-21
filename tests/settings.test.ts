@@ -37,4 +37,9 @@ describe("settings", () => {
     expect(DEFAULT_SETTINGS.chatInputPosition).toBe("bottom");
     expect(DEFAULT_SETTINGS.chatSystemPrompt).toContain("gegroundet");
   });
+
+  it("hat UX-Politur-Defaults", () => {
+    expect(DEFAULT_SETTINGS.suppressThinking).toBe(false);
+    expect(DEFAULT_SETTINGS.enterSends).toBe(true);
+  });
 });

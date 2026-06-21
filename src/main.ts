@@ -70,7 +70,7 @@ export default class VaultRagPlugin extends Plugin {
           budget: this.settings.contextCharBudget,
         }),
         systemPreamble: () => this.settings.chatSystemPrompt,
-        params: () => ({ model: this.settings.chatModel, temperature: this.settings.chatTemperature }),
+        params: () => ({ model: this.settings.chatModel, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
       }),
       openPath: this.openPath,
       copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },
@@ -93,6 +93,9 @@ export default class VaultRagPlugin extends Plugin {
       },
       pickNote: () => pickNote(this.app),
       autoK: this.settings.chatK,
+      getSuppress: () => this.settings.suppressThinking,
+      setSuppress: (v: boolean) => { this.settings.suppressThinking = v; void this.saveSettings(); },
+      enterSends: () => this.settings.enterSends,
     }));
     this.addRibbonIcon("message-square", "Vault Chat", () => this.activateChatView());
     this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => this.activateChatView() });

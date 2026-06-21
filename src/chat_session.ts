@@ -5,7 +5,7 @@ export interface ChatSessionDeps {
   client: () => ChatClient;
   assemble: (paths: string[]) => Promise<ContextResult>;
   systemPreamble: () => string;
-  params: () => { model: string; temperature: number };
+  params: () => { model: string; temperature: number; suppressThinking: boolean };
 }
 
 export class ChatSession {
@@ -47,7 +47,7 @@ export class ChatSession {
         c => { assistant.content += c; onToken(c); },
         r => { assistant.reasoning = (assistant.reasoning ?? "") + r; onToken(r); },
         this.controller.signal,
-        { model: p.model, temperature: p.temperature },
+        { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking },
       );
       assistant.content = result.content;
       assistant.reasoning = result.reasoning || undefined;

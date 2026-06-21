@@ -16,7 +16,8 @@ Vault RAG turns your notes into a searchable knowledge base without sending anyt
 - **Related notes** — a side panel ranks the notes most similar to the one you're reading. Cosine similarity over a compact note-level index, computed on-device — works fully offline, including on mobile.
 - **Semantic search** — find notes by *meaning*, not just keywords.
 - **Grounded RAG chat** — ask your vault a question and get an answer grounded in retrieved notes, streamed token-by-token from your local LLM. An editable live-context panel shows exactly which notes feed the answer, with source chips that link back.
-- **Visible thinking** — for reasoning models, the live "💭 thinking" stream appears in a collapsible block above the answer and folds away once it arrives. Reasoning is never sent back into the conversation history.
+- **Visible thinking, with an off switch** — for reasoning models, the live "💭 thinking" stream appears in a collapsible block above the answer and folds away once it arrives (and is never sent back into the conversation history). A toggle suppresses thinking when you want faster answers — via cross-server-portable hints — and a settings test tells you whether your model actually honours it.
+- **Model capability hints** — settings show, best-effort, whether the selected chat model supports vision and/or thinking, so you can pick the right one. Each endpoint has an inline connection test, and the model pickers populate from the server.
 - **Live indexing** — notes are re-embedded on save; edits made offline queue up and catch up automatically on reconnect.
 
 ## Requirements
@@ -64,6 +65,9 @@ npm run build      # → main.js
 | Index directory | Where the synced index lives | `_vaultrag` |
 | Similarity / top-k | Retrieval thresholds | tunable |
 | Excluded folders | Paths skipped by indexing | `Templates/`, `Archive/` |
+| Context budget | Max characters fed as context (ceiling follows the model window) | `12000` |
+| Suppress thinking | Default for new chats; also a per-chat toggle in the panel | off |
+| Enter sends | On: Enter sends, Shift+Enter newlines · Off: reversed | on |
 
 > **Endpoint tip:** enter the base URL *without* a trailing `/v1` — the plugin appends it. Both forms are accepted.
 

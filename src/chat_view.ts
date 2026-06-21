@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf, setIcon } from "obsidian";
 import { ChatSession } from "./chat_session";
 import { ContextPanel, ContextPanelDeps } from "./context_panel";
+import { isAlwaysOnThinker } from "./reasoning";
 
 export const VIEW_TYPE_CHAT = "vault-rag-chat";
 
@@ -14,6 +15,9 @@ export interface ChatViewDeps extends ContextPanelDeps {
   setModel: (m: string) => void;
   inputPosition: () => "bottom" | "top";
   autoK: number;
+  getSuppress: () => boolean;
+  setSuppress: (v: boolean) => void;
+  enterSends: () => boolean;
 }
 
 export class ChatView extends ItemView {
@@ -22,7 +26,8 @@ export class ChatView extends ItemView {
   private workingEl: HTMLElement | null = null;
   private statusEl: HTMLElement | null = null;
   private modelSel: HTMLSelectElement | null = null;
-  private inputEl: HTMLInputElement | null = null;
+  private inputEl: HTMLTextAreaElement | null = null;
+  private thinkToggleEl: HTMLElement | null = null;
   private sendBtn: HTMLElement | null = null;
   private timer: ReturnType<typeof window.setInterval> | null = null;
   private debTimer: ReturnType<typeof window.setTimeout> | null = null;
@@ -42,8 +47,16 @@ export class ChatView extends ItemView {
     c.addClass("vault-rag-chat-root");
     this.statusEl = c.createDiv({ cls: "vault-rag-chat-status" });
     this.statusEl.addEventListener("click", () => void this.refreshStatus());
-    this.modelSel = c.createEl("select", { cls: "vault-rag-chat-model dropdown" });
-    this.modelSel.addEventListener("change", () => this.deps.setModel(this.modelSel?.value ?? ""));
+    // Modell-Dropdown + Thinking-Toggle in einer kompakten Zeile (kein zentriertes Einzelelement).
+    const modelRow = c.createDiv({ cls: "vault-rag-chat-model-row" });
+    this.modelSel = modelRow.createEl("select", { cls: "vault-rag-chat-model dropdown" });
+    this.modelSel.addEventListener("change", () => { this.deps.setModel(this.modelSel?.value ?? ""); this.renderThinkToggle(); });
+    this.thinkToggleEl = modelRow.createEl("button", { cls: "vault-rag-chat-think-toggle clickable-icon" });
+    this.thinkToggleEl.addEventListener("click", () => {
+      if (isAlwaysOnThinker(this.deps.getModel())) return;   // nicht abschaltbar
+      this.deps.setSuppress(!this.deps.getSuppress());
+      this.renderThinkToggle();
+    });
 
     const buildMessages = (): void => {
       this.messagesEl = c.createDiv({ cls: "vault-rag-chat-messages" });
@@ -52,11 +65,11 @@ export class ChatView extends ItemView {
     const buildInput = (): void => {
       this.panel.mount(c.createDiv({ cls: "vault-rag-chat-context" }));
       const row = c.createDiv({ cls: "vault-rag-chat-input-row" });
-      const input = row.createEl("input", { cls: "vault-rag-chat-input" }) as HTMLInputElement;
-      input.type = "text"; input.placeholder = "Frag deinen Vault…";
+      const input = row.createEl("textarea", { cls: "vault-rag-chat-input" }) as HTMLTextAreaElement;
+      input.rows = 3; input.placeholder = "Frag deinen Vault…";
       this.inputEl = input;
-      input.addEventListener("input", () => this.scheduleQuery(input.value ?? ""));
-      input.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") void this.submit(); });
+      input.addEventListener("input", () => { this.autoGrow(); this.scheduleQuery(input.value ?? ""); });
+      input.addEventListener("keydown", (e: KeyboardEvent) => this.onKeydown(e));
       this.sendBtn = row.createEl("button", { cls: "vault-rag-chat-send mod-cta", text: "Senden" });
       this.sendBtn.addEventListener("click", () => this.onSendClick());
       row.createEl("button", { cls: "vault-rag-chat-new", text: "Neu" }).addEventListener("click", () => this.newChat());
@@ -68,6 +81,7 @@ export class ChatView extends ItemView {
     this.renderMessages();
     await this.refreshStatus();
     await this.refreshModels();
+    this.renderThinkToggle();
   }
 
   private async refreshModels(): Promise<void> {
@@ -83,6 +97,39 @@ export class ChatView extends ItemView {
   private scheduleQuery(q: string): void {
     if (this.debTimer !== null) window.clearTimeout(this.debTimer);
     this.debTimer = window.setTimeout(() => void this.panel.setQuery(q), 400);
+  }
+
+  private autoGrow(): void {
+    const el = this.inputEl; if (!el) return;
+    // Fake-DOM in Tests hat kein scrollHeight → defensiv.
+    const sh = (el as unknown as { scrollHeight?: number }).scrollHeight;
+    if (typeof sh !== "number") return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(sh, 180)}px`;
+  }
+
+  private onKeydown(e: KeyboardEvent): void {
+    if (e.key === "Escape" && this.running) { this.deps.session.abort(); return; }
+    if (e.isComposing || e.key === "Process") return;          // IME-Guard
+    if (e.key !== "Enter") return;
+    const plain = !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
+    const sends = this.deps.enterSends() ? plain : e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
+    if (sends) { e.preventDefault(); void this.submit(); }
+  }
+
+  private renderThinkToggle(): void {
+    const el = this.thinkToggleEl; if (!el) return;
+    const always = isAlwaysOnThinker(this.deps.getModel());
+    const suppressed = this.deps.getSuppress();
+    el.empty();
+    const icon = el.createSpan({ cls: "vault-rag-chat-think-icon" });
+    setIcon(icon, "brain");
+    el.createSpan({ cls: "vault-rag-chat-think-label", text: always ? "Thinking: immer an" : suppressed ? "Thinking: aus" : "Thinking: an" });
+    el.setAttribute("aria-label", always
+      ? "Dieses Modell denkt immer (nicht abschaltbar)"
+      : suppressed ? "Thinking ist aus — klicken zum Einschalten" : "Thinking ist an — klicken zum Ausschalten");
+    el.toggleClass("is-disabled", always);
+    el.toggleClass("is-off", !always && suppressed);
   }
 
   async refreshStatus(): Promise<void> {

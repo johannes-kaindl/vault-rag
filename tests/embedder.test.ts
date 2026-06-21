@@ -73,4 +73,28 @@ describe("EmbeddingClient", () => {
       await expect(c.embed(["x"])).rejects.toThrow("503");
     });
   });
+
+  describe("listModels", () => {
+    it("parst data[].id und sortiert", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ id: "b" }, { id: "a" }] }) }));
+      const c = new EmbeddingClient("http://localhost:11434", "m");
+      expect(await c.listModels()).toEqual(["a", "b"]);
+    });
+    it("gibt [] bei Fehler", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+      expect(await new EmbeddingClient("http://x", "m").listModels()).toEqual([]);
+    });
+  });
+
+  describe("fetchCapabilities", () => {
+    it("liest Ollama /api/show capabilities", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ capabilities: ["completion"] }) }));
+      const c = await new EmbeddingClient("http://localhost:11434", "m").fetchCapabilities("m");
+      expect(c).not.toBeNull();
+    });
+    it("gibt null wenn keine Metadaten verfügbar", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+      expect(await new EmbeddingClient("http://x", "m").fetchCapabilities("m")).toBeNull();
+    });
+  });
 });

@@ -1,5 +1,7 @@
 import { streamSSE } from "./sse";
 import { normalizeEndpoint } from "./endpoint";
+import { Capabilities, fetchCapabilities } from "./capabilities";
+import { suppressParams } from "./reasoning";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
 
@@ -51,12 +53,16 @@ export class ChatClient {
     } catch { return null; }
   }
 
+  async fetchCapabilities(model: string): Promise<Capabilities | null> {
+    return fetchCapabilities(this.endpoint, model);
+  }
+
   async stream(
     messages: ChatMessage[],
     onContent: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
-    opts?: { model?: string; temperature?: number },
+    opts?: { model?: string; temperature?: number; suppressThinking?: boolean },
   ): Promise<{ content: string; reasoning: string }> {
     const res = await fetch(`${this.endpoint}/v1/chat/completions`, {
       method: "POST",
@@ -66,6 +72,7 @@ export class ChatClient {
         messages,
         stream: true,
         ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
+        ...suppressParams(opts?.suppressThinking ?? false),
       }),
       signal,
     });

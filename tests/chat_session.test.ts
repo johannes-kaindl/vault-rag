@@ -4,7 +4,7 @@ import { ChatSession } from "../src/chat_session";
 function mkSession(streamImpl?: any, assembleImpl?: any) {
   const client: any = { ping: async () => true, stream: streamImpl ?? (async (_m: any, onContent: (t: string) => void) => { onContent("Hi"); onContent("!"); return { content: "Hi!", reasoning: "" }; }) };
   const assemble = assembleImpl ?? vi.fn(async () => ({ text: "ctx", sources: ["a.md"] }));
-  return { s: new ChatSession({ client: () => client, assemble, systemPreamble: () => "SYS", params: () => ({ model: "m", temperature: 0.5 }) }), assemble };
+  return { s: new ChatSession({ client: () => client, assemble, systemPreamble: () => "SYS", params: () => ({ model: "m", temperature: 0.5, suppressThinking: false }) }), assemble };
 }
 
 describe("ChatSession", () => {
@@ -46,7 +46,7 @@ describe("ChatSession", () => {
     let resolve: (v: any) => void = () => {};
     const client: any = { ping: async () => true, stream: async () => ({ content: "", reasoning: "" }) };
     const assemble = () => new Promise<any>(r => { resolve = r; });
-    const s = new ChatSession({ client: () => client, assemble, systemPreamble: () => "SYS", params: () => ({ model: "m", temperature: 0.5 }) });
+    const s = new ChatSession({ client: () => client, assemble, systemPreamble: () => "SYS", params: () => ({ model: "m", temperature: 0.5, suppressThinking: false }) });
     const p = s.send("frage", [], () => {});
     expect(s.messages[0].content).toBe("frage");
     resolve({ text: "", sources: [] });
@@ -100,14 +100,26 @@ describe("ChatSession", () => {
   it("stream bekommt model+temperature aus params() als opts", async () => {
     let opts: any;
     const stream = async (_m: any, _c: any, _r: any, _sig: any, o: any) => { opts = o; return { content: "ok", reasoning: "" }; };
-    const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", params: () => ({ model: "mx", temperature: 0.9 }) });
+    const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", params: () => ({ model: "mx", temperature: 0.9, suppressThinking: false }) });
     await s.send("frage", [], () => {});
-    expect(opts).toEqual({ model: "mx", temperature: 0.9 });
+    expect(opts).toEqual({ model: "mx", temperature: 0.9, suppressThinking: false });
+  });
+  it("reicht suppressThinking aus params an client.stream durch", async () => {
+    let seenOpts: any = null;
+    const client: any = { stream: vi.fn(async (_m: any, _c: any, _r: any, _s: any, opts: any) => { seenOpts = opts; return { content: "A", reasoning: "" }; }) };
+    const session = new ChatSession({
+      client: () => client,
+      assemble: async () => ({ text: "", sources: [] }),
+      systemPreamble: () => "",
+      params: () => ({ model: "m", temperature: 0.5, suppressThinking: true }),
+    });
+    await session.send("frage", [], () => {});
+    expect(seenOpts.suppressThinking).toBe(true);
   });
   it("System-Message beginnt mit dem systemPreamble() und enthält den Kontext", async () => {
     let sent: any[] = [];
     const stream = async (msgs: any[]) => { sent = msgs; return { content: "ok", reasoning: "" }; };
-    const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "CTX", sources: [] }), systemPreamble: () => "MEINPROMPT", params: () => ({ model: "m", temperature: 0.5 }) });
+    const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "CTX", sources: [] }), systemPreamble: () => "MEINPROMPT", params: () => ({ model: "m", temperature: 0.5, suppressThinking: false }) });
     await s.send("frage", [], () => {});
     expect(sent[0].role).toBe("system");
     expect(sent[0].content.startsWith("MEINPROMPT")).toBe(true);

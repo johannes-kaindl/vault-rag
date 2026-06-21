@@ -9,7 +9,7 @@ function all(el: any, cls: string): any[] {
   walk(el); return out;
 }
 
-function mkView(opts: { send?: any; ping?: any; copyText?: any; listModels?: any; getModel?: any; setModel?: any; inputPosition?: any } = {}) {
+function mkView(opts: { send?: any; ping?: any; copyText?: any; listModels?: any; getModel?: any; setModel?: any; inputPosition?: any; getSuppress?: any; setSuppress?: any; enterSends?: any } = {}) {
   const session: any = {
     messages: [],
     send: opts.send ?? vi.fn(async (q: string, _paths: string[], onToken: (t: string) => void) => {
@@ -29,6 +29,9 @@ function mkView(opts: { send?: any; ping?: any; copyText?: any; listModels?: any
     getModel: opts.getModel ?? (() => "qwen3"),
     setModel: opts.setModel ?? vi.fn(),
     inputPosition: opts.inputPosition ?? (() => "bottom"),
+    getSuppress: opts.getSuppress ?? (() => false),
+    setSuppress: opts.setSuppress ?? vi.fn(),
+    enterSends: opts.enterSends ?? (() => true),
     getActivePath: () => "aktiv.md",
     embed: async () => new Float32Array([1, 0]),
     search: () => ["x.md"],
@@ -201,5 +204,50 @@ describe("ChatView", () => {
     const idxMsgs = kids.findIndex(k => String(k.className).includes("vault-rag-chat-messages"));
     expect(idxInput).toBeGreaterThanOrEqual(0);
     expect(idxInput).toBeLessThan(idxMsgs);
+  });
+  it("Eingabe ist eine Textarea", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    expect(String((view as any).inputEl.tagName)).toBe("TEXTAREA");
+  });
+  it("Enter sendet, Shift+Enter nicht (enterSends=true)", async () => {
+    const { view, session } = mkView();
+    await view.onOpen();
+    (view as any).inputEl.value = "frage";
+    const ta = (view as any).inputEl;
+    const ev = (over: any) => ({ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, isComposing: false, preventDefault: () => {}, ...over });
+    (ta._listeners["keydown"] ?? []).forEach((cb: any) => cb(ev({ shiftKey: true })));
+    expect(session.send).not.toHaveBeenCalled();
+    (ta._listeners["keydown"] ?? []).forEach((cb: any) => cb(ev({})));
+    expect(session.send).toHaveBeenCalled();
+  });
+  it("sendet nicht während IME-Komposition", async () => {
+    const { view, session } = mkView();
+    await view.onOpen();
+    (view as any).inputEl.value = "字";
+    const ta = (view as any).inputEl;
+    (ta._listeners["keydown"] ?? []).forEach((cb: any) =>
+      cb({ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, isComposing: true, preventDefault: () => {} }));
+    expect(session.send).not.toHaveBeenCalled();
+  });
+  it("enterSends=false: Enter macht keine Sendung, Shift+Enter schon", async () => {
+    const { view, session } = mkView({ enterSends: () => false });
+    await view.onOpen();
+    (view as any).inputEl.value = "frage";
+    const ta = (view as any).inputEl;
+    const ev = (over: any) => ({ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, isComposing: false, preventDefault: () => {}, ...over });
+    (ta._listeners["keydown"] ?? []).forEach((cb: any) => cb(ev({})));
+    expect(session.send).not.toHaveBeenCalled();
+    (ta._listeners["keydown"] ?? []).forEach((cb: any) => cb(ev({ shiftKey: true })));
+    expect(session.send).toHaveBeenCalled();
+  });
+  it("Thinking-Toggle ruft setSuppress", async () => {
+    const setSuppress = vi.fn();
+    const { view } = mkView({ setSuppress, getSuppress: () => false });
+    await view.onOpen();
+    const toggle = all(view.contentEl, "vault-rag-chat-think-toggle")[0];
+    expect(toggle).toBeTruthy();
+    toggle.click();
+    expect(setSuppress).toHaveBeenCalledWith(true);
   });
 });

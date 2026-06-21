@@ -13,7 +13,21 @@
 .vault-rag-chat-source { font-size: 11px; padding: 2px 6px; border-radius: 10px; background: var(--background-modifier-border); cursor: pointer; }
 .vault-rag-chat-state { color: var(--text-error); padding: 4px 0; }
 .vault-rag-chat-input-row { display: flex; gap: 4px; margin-top: 8px; flex: 0 0 auto; }
-.vault-rag-chat-input { flex: 1; }
+.vault-rag-chat-input { flex: 1; resize: none; min-height: 60px; max-height: 180px; overflow-y: auto; }
+.vault-rag-chat-model-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex: 0 0 auto; }
+.vault-rag-chat-think-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
+.vault-rag-chat-think-toggle.is-disabled { opacity: 0.6; pointer-events: none; }
+.vault-rag-chat-think-toggle.is-off { opacity: 0.55; }
+.vault-rag-chat-think-icon { display: inline-flex; }
+.vault-rag-chat-think-icon svg { width: 14px; height: 14px; }
+.vault-rag-cap { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
+.vault-rag-cap-icon { display: inline-flex; }
+.vault-rag-cap-icon svg { width: 14px; height: 14px; }
+.vault-rag-cap.is-dim { opacity: 0.6; }
+.vault-rag-info-value { color: var(--text-muted); font-size: 12px; }
+.vault-rag-conn-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); margin-right: 6px; vertical-align: middle; }
+.vault-rag-conn-dot.is-ok { background: var(--text-success); }
+.vault-rag-conn-dot.is-error { background: var(--text-error); }
 .vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; flex: 0 0 auto; }
 .vault-rag-chat-working { font-size: 11px; color: var(--text-accent); padding: 4px 0; min-height: 16px; flex: 0 0 auto; }
 .vault-rag-chat-new { font-size: 12px; }
@@ -29,4 +43,5 @@
 .vault-rag-chat-msg-actions { display: flex; gap: 4px; }
 .vault-rag-chat-copy.clickable-icon { color: var(--text-faint); padding: 2px 4px; height: auto; width: auto; }
 .vault-rag-chat-copy.clickable-icon:hover { color: var(--text-normal); }
-.vault-rag-chat-model { width: 100%; margin-bottom: 6px; flex: 0 0 auto; font-size: 12px; }
+.vault-rag-chat-model { flex: 1; min-width: 0; font-size: 12px; }
+.vault-rag-prompt-textarea { width: 100%; min-height: 8rem; resize: vertical; }

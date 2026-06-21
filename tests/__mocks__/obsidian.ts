@@ -5,6 +5,13 @@ export function makeFakeEl(): any {
     createDiv: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; children.push(c); return c; },
     createEl: (t: string, o?: any) => { const c = makeFakeEl(); c.tagName = t.toUpperCase(); if (o?.text) c.textContent = o.text; if (o?.cls) c.className = o.cls; children.push(c); return c; },
     setText: (t: string) => { el.textContent = t; }, addClass: () => {}, removeClass: () => {},
+    createSpan: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; children.push(c); return c; },
+    toggleClass: (cls: string, on: boolean) => {
+      const parts = String(el.className ?? "").split(" ").filter(Boolean).filter((p: string) => p !== cls);
+      if (on) parts.push(cls);
+      el.className = parts.join(" ");
+    },
+    setAttribute: (_k: string, _v: string) => {},
     _listeners: {} as Record<string, Function[]>,
     addEventListener: (event: string, cb: Function) => { if (!el._listeners[event]) el._listeners[event] = []; el._listeners[event].push(cb); },
     click: () => { (el._listeners["click"] ?? []).forEach((cb: Function) => cb()); },

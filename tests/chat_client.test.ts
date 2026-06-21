@@ -76,6 +76,23 @@ describe("ChatClient", () => {
     expect(body.model).toBe("qwen3");
     expect("temperature" in body).toBe(false);
   });
+  it("stream mischt Suppress-Params in den Body wenn suppressThinking", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamRes(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']));
+    vi.stubGlobal("fetch", fetchMock);
+    await new ChatClient("http://x", "m").stream(
+      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { suppressThinking: true });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("none");
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(body.reasoning_budget).toBe(0);
+  });
+  it("stream ohne suppressThinking sendet keine Suppress-Keys", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamRes(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']));
+    vi.stubGlobal("fetch", fetchMock);
+    await new ChatClient("http://x", "m").stream([{ role: "user", content: "hi" }], () => {}, () => {});
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect("reasoning_effort" in body).toBe(false);
+  });
   it("ping true bei 200", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
     expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(true);
@@ -108,5 +125,18 @@ describe("ChatClient Modelle", () => {
   it("modelInfo gibt null bei Fehler", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     expect(await new ChatClient("http://x", "m").modelInfo("m")).toBeNull();
+  });
+  it("fetchCapabilities liest LM Studio /api/v1/models", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith("/api/show")) return { ok: false, status: 404 };
+      if (url.endsWith("/api/v1/models")) return { ok: true, json: async () => ({ data: [{ id: "m", capabilities: { vision: true } }] }) };
+      return { ok: false, status: 404 };
+    }));
+    const c = await new ChatClient("http://localhost:1234", "m").fetchCapabilities("m");
+    expect(c?.vision).toBe("confirmed");
+  });
+  it("fetchCapabilities gibt null wenn nichts greift", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    expect(await new ChatClient("http://x", "m").fetchCapabilities("m")).toBeNull();
   });
 });

@@ -135,8 +135,7 @@ Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich release
 - **CORE-META-03** — kein Hero-Bild/Feature-Screenshots in `docs/images/`. *Grund:* pre-release;
   reproduzierbar generierte Screenshots vor dem ersten Release.
 - **CORE-META-04** — kein Diátaxis-Manual unter `docs/`. *Grund:* pre-release; skaliert mit Reife.
-- **CORE-META-06** — `CHANGELOG.md` vorhanden; `CONTRIBUTING.md`/`SECURITY.md` fehlen noch.
-  *Grund:* vor dem ersten Release/Push nachziehen.
+- **CORE-META-06** — ✅ erledigt: `CHANGELOG.md`, `CONTRIBUTING.md` und `SECURITY.md` vorhanden.
 - **CORE-META-07** — `LICENSE` (AGPL-3.0) vorhanden; Dual-License-Option (`LICENSING.md`/`CLA.md`)
   noch nicht. *Grund:* erst bei Bedarf/Release.
 - **CORE-META-09** — kein `README.de.md` (Bilingual). *Grund:* optional; EN-`README.md` ist kanonisch.

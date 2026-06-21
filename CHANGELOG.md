@@ -6,11 +6,35 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Thinking on/off** — a quick toggle in the chat (with a default in settings) suppresses a reasoning
+  model's thinking via cross-server-portable request params (`reasoning_effort: "none"`,
+  `chat_template_kwargs.enable_thinking: false`, `reasoning_budget: 0`). A "Test" button in settings
+  reports whether the selected model actually honours suppression; if a model keeps thinking, the
+  thinking block stays visible so you can see that it didn't take.
+- **Model capability hints** — settings show, best-effort, whether the selected chat model supports
+  **vision** and/or **thinking**, layered from native metadata (Ollama `/api/show`, LM Studio), model-name
+  heuristics, and live confirmation — with Lucide icons. Live signals only ever upgrade confidence.
+- **Embedding model dropdown** — the embedding model is now a dropdown populated from the endpoint (with
+  an offline text fallback), matching the chat model picker.
+- **Inline endpoint test** — a "Test" button next to each endpoint reports the connection via a notice.
+- **Multi-line chat input** — the chat input is an auto-growing textarea; Enter sends and Shift+Enter
+  inserts a newline (configurable), with IME-composition handling for CJK input.
+- **Context-budget ↔ model window** — the context-budget slider's ceiling follows the selected model's
+  context window (read from LM Studio model details).
+
 ### Changed
 - **Breaking:** IMG→MD (image transcription) has been split out into its own plugin,
   [`image-to-markdown`](https://codeberg.org/jkaindl/vault-rag). vault-rag is now a focused RAG core
   (related notes, semantic search, chat). The IMG→MD sidebar, command and editor context-menu entry,
   along with the Vision settings, move there. Install `image-to-markdown` separately to keep that feature.
+- **Settings layout** — reworked toward Obsidian's native conventions: sentence-case labels, one-line
+  read-only info rows (value in the control slot), a consistent connection indicator placed next to the
+  embedding settings, and a larger system-prompt field. The tab also implements Obsidian 1.13's
+  declarative settings API (forward-compatible grouped layout) while keeping the classic renderer as a
+  fallback for older versions.
+- **Frontend capability display** — the chat shows only an actionable thinking toggle (vision is a
+  settings-only model hint, since the chat itself is text-only).
 
 ## [0.2.0] — 2026-06-20
 

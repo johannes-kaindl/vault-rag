@@ -1,6 +1,8 @@
 import { ItemView, WorkspaceLeaf, setIcon } from "obsidian";
 import { ChatSession } from "./chat_session";
 import { ContextPanel, ContextPanelDeps } from "./context_panel";
+import { isAlwaysOnThinker } from "./reasoning";
+import { resolveCapabilities, Capabilities } from "./capabilities";
 
 export const VIEW_TYPE_CHAT = "vault-rag-chat";
 
@@ -14,6 +16,10 @@ export interface ChatViewDeps extends ContextPanelDeps {
   setModel: (m: string) => void;
   inputPosition: () => "bottom" | "top";
   autoK: number;
+  getSuppress: () => boolean;
+  setSuppress: (v: boolean) => void;
+  enterSends: () => boolean;
+  fetchCapabilities: (model: string) => Promise<Capabilities>;
 }
 
 export class ChatView extends ItemView {
@@ -22,7 +28,9 @@ export class ChatView extends ItemView {
   private workingEl: HTMLElement | null = null;
   private statusEl: HTMLElement | null = null;
   private modelSel: HTMLSelectElement | null = null;
-  private inputEl: HTMLInputElement | null = null;
+  private inputEl: HTMLTextAreaElement | null = null;
+  private thinkToggleEl: HTMLElement | null = null;
+  private capEl: HTMLElement | null = null;
   private sendBtn: HTMLElement | null = null;
   private timer: ReturnType<typeof window.setInterval> | null = null;
   private debTimer: ReturnType<typeof window.setTimeout> | null = null;
@@ -43,7 +51,13 @@ export class ChatView extends ItemView {
     this.statusEl = c.createDiv({ cls: "vault-rag-chat-status" });
     this.statusEl.addEventListener("click", () => void this.refreshStatus());
     this.modelSel = c.createEl("select", { cls: "vault-rag-chat-model dropdown" });
-    this.modelSel.addEventListener("change", () => this.deps.setModel(this.modelSel?.value ?? ""));
+    this.modelSel.addEventListener("change", () => { this.deps.setModel(this.modelSel?.value ?? ""); void this.refreshCaps(); });
+    this.thinkToggleEl = c.createEl("button", { cls: "vault-rag-chat-think-toggle clickable-icon" });
+    this.thinkToggleEl.addEventListener("click", () => {
+      this.deps.setSuppress(!this.deps.getSuppress());
+      this.renderThinkToggle();
+    });
+    this.capEl = c.createDiv({ cls: "vault-rag-chat-caps" });
 
     const buildMessages = (): void => {
       this.messagesEl = c.createDiv({ cls: "vault-rag-chat-messages" });
@@ -52,11 +66,11 @@ export class ChatView extends ItemView {
     const buildInput = (): void => {
       this.panel.mount(c.createDiv({ cls: "vault-rag-chat-context" }));
       const row = c.createDiv({ cls: "vault-rag-chat-input-row" });
-      const input = row.createEl("input", { cls: "vault-rag-chat-input" }) as HTMLInputElement;
-      input.type = "text"; input.placeholder = "Frag deinen Vault…";
+      const input = row.createEl("textarea", { cls: "vault-rag-chat-input" }) as HTMLTextAreaElement;
+      input.rows = 3; input.placeholder = "Frag deinen Vault…";
       this.inputEl = input;
-      input.addEventListener("input", () => this.scheduleQuery(input.value ?? ""));
-      input.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") void this.submit(); });
+      input.addEventListener("input", () => { this.autoGrow(); this.scheduleQuery(input.value ?? ""); });
+      input.addEventListener("keydown", (e: KeyboardEvent) => this.onKeydown(e));
       this.sendBtn = row.createEl("button", { cls: "vault-rag-chat-send mod-cta", text: "Senden" });
       this.sendBtn.addEventListener("click", () => this.onSendClick());
       row.createEl("button", { cls: "vault-rag-chat-new", text: "Neu" }).addEventListener("click", () => this.newChat());
@@ -68,6 +82,8 @@ export class ChatView extends ItemView {
     this.renderMessages();
     await this.refreshStatus();
     await this.refreshModels();
+    this.renderThinkToggle();
+    await this.refreshCaps();
   }
 
   private async refreshModels(): Promise<void> {
@@ -83,6 +99,54 @@ export class ChatView extends ItemView {
   private scheduleQuery(q: string): void {
     if (this.debTimer !== null) window.clearTimeout(this.debTimer);
     this.debTimer = window.setTimeout(() => void this.panel.setQuery(q), 400);
+  }
+
+  private autoGrow(): void {
+    const el = this.inputEl; if (!el) return;
+    // Fake-DOM in Tests hat kein scrollHeight → defensiv.
+    const sh = (el as unknown as { scrollHeight?: number }).scrollHeight;
+    if (typeof sh !== "number") return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(sh, 180)}px`;
+  }
+
+  private onKeydown(e: KeyboardEvent): void {
+    if (e.key === "Escape" && this.running) { this.deps.session.abort(); return; }
+    if (e.isComposing || e.key === "Process") return;          // IME-Guard
+    if (e.key !== "Enter") return;
+    const plain = !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
+    const sends = this.deps.enterSends() ? plain : e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
+    if (sends) { e.preventDefault(); void this.submit(); }
+  }
+
+  private renderThinkToggle(): void {
+    const el = this.thinkToggleEl; if (!el) return;
+    const model = this.deps.getModel();
+    const always = isAlwaysOnThinker(model);
+    const suppressed = this.deps.getSuppress();
+    const label = always ? "💭 immer an" : suppressed ? "💭 aus" : "💭 an";
+    el.setText(label);
+    el.setAttribute("aria-label", always
+      ? "Dieses Modell denkt immer (nicht abschaltbar)"
+      : suppressed ? "Thinking ist aus — klicken zum Einschalten" : "Thinking ist an — klicken zum Ausschalten");
+    el.toggleClass("is-disabled", always);
+  }
+
+  private renderCaps(caps: Capabilities): void {
+    const el = this.capEl; if (!el) return;
+    el.empty();
+    if (caps.vision !== "no") el.createSpan({ cls: `vault-rag-chat-cap is-${caps.vision}`, text: "👁 Vision" });
+    if (caps.thinking.support !== "none") {
+      const t = caps.thinking.support === "always" ? "💭 Thinking (immer)" : "💭 Thinking";
+      el.createSpan({ cls: `vault-rag-chat-cap is-${caps.thinking.confidence}`, text: t });
+    }
+  }
+
+  private async refreshCaps(): Promise<void> {
+    const model = this.deps.getModel();
+    const caps = await this.deps.fetchCapabilities(model);
+    this.renderCaps(caps);
+    this.renderThinkToggle();
   }
 
   async refreshStatus(): Promise<void> {
@@ -120,6 +184,11 @@ export class ChatView extends ItemView {
     this.stopWorking();
     this.running = false; this.sendBtn?.setText("Senden");
     this.panel.reset();
+    const msgs = this.deps.session.messages;
+    const last = msgs[msgs.length - 1];
+    if (last?.role === "assistant" && (last.reasoning ?? "")) {
+      this.renderCaps(resolveCapabilities(null, this.deps.getModel(), { thinking: true }));
+    }
     this.renderMessages();
   }
 

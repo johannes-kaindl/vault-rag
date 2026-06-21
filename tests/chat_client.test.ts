@@ -109,4 +109,17 @@ describe("ChatClient Modelle", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
     expect(await new ChatClient("http://x", "m").modelInfo("m")).toBeNull();
   });
+  it("fetchCapabilities liest LM Studio /api/v1/models", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith("/api/show")) return { ok: false, status: 404 };
+      if (url.endsWith("/api/v1/models")) return { ok: true, json: async () => ({ data: [{ id: "m", capabilities: { vision: true } }] }) };
+      return { ok: false, status: 404 };
+    }));
+    const c = await new ChatClient("http://localhost:1234", "m").fetchCapabilities("m");
+    expect(c?.vision).toBe("confirmed");
+  });
+  it("fetchCapabilities gibt null wenn nichts greift", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    expect(await new ChatClient("http://x", "m").fetchCapabilities("m")).toBeNull();
+  });
 });

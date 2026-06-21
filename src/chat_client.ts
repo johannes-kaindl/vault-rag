@@ -1,5 +1,6 @@
 import { streamSSE } from "./sse";
 import { normalizeEndpoint } from "./endpoint";
+import { Capabilities, fetchCapabilities } from "./capabilities";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
 
@@ -49,6 +50,10 @@ export class ChatClient {
         state: typeof m.state === "string" ? m.state : undefined,
       };
     } catch { return null; }
+  }
+
+  async fetchCapabilities(model: string): Promise<Capabilities | null> {
+    return fetchCapabilities(this.endpoint, model);
   }
 
   async stream(

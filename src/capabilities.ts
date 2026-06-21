@@ -125,3 +125,25 @@ export function resolveCapabilities(
 ): Capabilities {
   return mergeCapability(meta, guessFromName(model), live);
 }
+
+/** Probiert native Capability-Endpoints gegen eine Basis-URL (ohne /v1). */
+export async function fetchCapabilities(baseUrl: string, model: string): Promise<Capabilities | null> {
+  // 1) Ollama
+  try {
+    const r = await fetch(`${baseUrl}/api/show`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }),
+    });
+    if (r.ok) { const c = parseOllamaShow(await r.json()); if (c) return c; }
+  } catch { /* weiter */ }
+  // 2) LM Studio v1
+  try {
+    const r = await fetch(`${baseUrl}/api/v1/models`);
+    if (r.ok) { const c = parseLmStudioV1(await r.json(), model); if (c) return c; }
+  } catch { /* weiter */ }
+  // 3) LM Studio v0
+  try {
+    const r = await fetch(`${baseUrl}/api/v0/models`);
+    if (r.ok) { const c = parseLmStudioV0(await r.json(), model); if (c) return c; }
+  } catch { /* weiter */ }
+  return null;
+}

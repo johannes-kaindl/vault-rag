@@ -49,7 +49,14 @@ index.ts          VaultAdapter-Interface · IndexManifest · VaultIndex · parse
 retriever.ts      Retriever(index).related(path, {k,minSim,exclude}) → Hit[];
                   Brute-Force-Cosinus auf normalisierten Vektoren, Top-k über minSim.
 chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker.py).
-embedder.ts       EmbeddingClient → Ollama/MLX HTTP-Endpoint; ping() + Batch-Embed (32/Req).
+reasoning.ts      Reine Thinking-Helfer: suppressParams (Cross-Server-Union reasoning_effort/
+                  chat_template_kwargs/reasoning_budget — nie Boolean/„minimal") · reasoningHappened
+                  (griff der Suppress? <think>/reasoning-Feld) · isAlwaysOnThinker (gpt-oss/Harmony).
+capabilities.ts   Reine Vision/Thinking-Erkennung, geschichtet L1 Metadaten (Ollama /api/show,
+                  LM Studio /api/v1|v0) → L2 Name-Heuristik → L3 live-bestätigt (monotones Upgrade);
+                  geteilter fetchCapabilities(baseUrl, model)-Probe-Helper.
+embedder.ts       EmbeddingClient → Ollama/MLX HTTP-Endpoint; ping() + Batch-Embed (32/Req) +
+                  listModels() + fetchCapabilities().
 pending_queue.ts  PendingQueue → Dirty-List in pending.json; drain-on-reconnect.
 live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename · buildIndex ·
                   persist (Write-Order: notes.i8 → paths.json → manifest.json) · noteCount-Getter.
@@ -70,7 +77,7 @@ main.ts           Plugin-Entry: View/Ribbon/Command/SettingTab registrieren, fil
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # prod-Bundle    (= node esbuild.config.mjs production) → main.js
-npm test                          # vitest run     (140 Tests, 18 Files)
+npm test                          # vitest run     (191 Tests, 21 Files)
 npx vitest run tests/<datei>      # eine Test-Datei
 npx tsc --noEmit                  # Typecheck (noch kein npm-Script — siehe Abweichungen)
 ```

@@ -76,6 +76,23 @@ describe("ChatClient", () => {
     expect(body.model).toBe("qwen3");
     expect("temperature" in body).toBe(false);
   });
+  it("stream mischt Suppress-Params in den Body wenn suppressThinking", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamRes(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']));
+    vi.stubGlobal("fetch", fetchMock);
+    await new ChatClient("http://x", "m").stream(
+      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { suppressThinking: true });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("none");
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(body.reasoning_budget).toBe(0);
+  });
+  it("stream ohne suppressThinking sendet keine Suppress-Keys", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(streamRes(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']));
+    vi.stubGlobal("fetch", fetchMock);
+    await new ChatClient("http://x", "m").stream([{ role: "user", content: "hi" }], () => {}, () => {});
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect("reasoning_effort" in body).toBe(false);
+  });
   it("ping true bei 200", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
     expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(true);

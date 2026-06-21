@@ -70,7 +70,7 @@ export default class VaultRagPlugin extends Plugin {
           budget: this.settings.contextCharBudget,
         }),
         systemPreamble: () => this.settings.chatSystemPrompt,
-        params: () => ({ model: this.settings.chatModel, temperature: this.settings.chatTemperature }),
+        params: () => ({ model: this.settings.chatModel, temperature: this.settings.chatTemperature, suppressThinking: false }),
       }),
       openPath: this.openPath,
       copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },

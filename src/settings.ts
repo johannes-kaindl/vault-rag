@@ -1,5 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import { ChatClient } from "./chat_client";
+import { resolveCapabilities } from "./capabilities";
+import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
 
 export interface VaultRagSettings {
   k: number;
@@ -67,6 +69,18 @@ export class VaultRagSettingTab extends PluginSettingTab {
       this.refreshInterval = null;
     }
 
+    // ── Helpers: Status-Dot ───────────────────────────────────────────
+    const statusDot = (setting: Setting): HTMLElement => {
+      const dot = setting.controlEl.createSpan({ cls: "vault-rag-status-dot" });
+      dot.setText("·");
+      return dot;
+    };
+    const showPing = (dot: HTMLElement, ok: boolean): void => {
+      dot.toggleClass("is-ok", ok);
+      dot.toggleClass("is-error", !ok);
+      dot.setText(ok ? "● verbunden" : "○ offline");
+    };
+
     // ── Suche ─────────────────────────────────────────────────────────
     new Setting(containerEl).setName("Suche").setHeading();
 
@@ -114,7 +128,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     // ── Live Embedding ─────────────────────────────────────────────────
     new Setting(containerEl).setName("Live Embedding").setHeading();
 
-    new Setting(containerEl)
+    const embEndpointSetting = new Setting(containerEl)
       .setName("Embedding Endpoint")
       .setDesc("Ollama- oder MLX-Server-URL — Desktop oder VPN-erreichbar")
       .addText(t =>
@@ -124,19 +138,40 @@ export class VaultRagSettingTab extends PluginSettingTab {
             this.plugin.settings.embeddingEndpoint = v.trim();
             await this.plugin.saveSettings();
             this.plugin.reconnectEmbedder?.();
-          }));
+          }))
+      .addButton(b => b.setButtonText("Testen").onClick(async () => {
+        b.setDisabled(true);
+        const ok = await this.plugin.embedder?.ping();
+        showPing(embDot, !!ok);
+        b.setDisabled(false);
+      }));
+    const embDot = statusDot(embEndpointSetting);
 
-    new Setting(containerEl)
-      .setName("Embedding Modell")
-      .setDesc("Modellname wie auf dem Endpoint verfügbar")
-      .addText(t =>
-        t.setPlaceholder("qwen3-embedding:8b")
-          .setValue(this.plugin.settings.embeddingModel)
-          .onChange(async (v: string) => {
+    const embModelSetting = new Setting(containerEl)
+      .setName("Embedding-Modell")
+      .setDesc("Modellname wie auf dem Endpoint verfügbar");
+    void this.plugin.embedder?.listModels().then((models: string[]) => {
+      const cur = this.plugin.settings.embeddingModel;
+      if (models.length) {
+        const list = models.includes(cur) ? models : [cur, ...models];
+        embModelSetting.addDropdown(d => {
+          list.forEach((m: string) => d.addOption(m, m));
+          d.setValue(cur).onChange(async (v: string) => {
+            this.plugin.settings.embeddingModel = v;
+            await this.plugin.saveSettings();
+            this.plugin.reconnectEmbedder?.();
+          });
+        });
+      } else {
+        embModelSetting.addText(t =>
+          t.setPlaceholder("qwen3-embedding:8b").setValue(cur).onChange(async (v: string) => {
             this.plugin.settings.embeddingModel = v.trim();
             await this.plugin.saveSettings();
             this.plugin.reconnectEmbedder?.();
           }));
+        embModelSetting.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.display()));
+      }
+    });
 
     let debounceSetting: Setting;
     debounceSetting = new Setting(containerEl)
@@ -155,14 +190,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     // ── Chat ──────────────────────────────────────────────────────────
     new Setting(containerEl).setName("Chat").setHeading();
 
-    let chatConnSetting: Setting;
-    const pingChat = (): void => {
-      this.plugin.chatClient?.ping().then((ok: boolean) => {
-        chatConnSetting?.setDesc(ok ? "● Verbunden" : "○ Offline — Endpoint/Modell prüfen (LM Studio: http://localhost:1234)");
-      });
-    };
-
-    new Setting(containerEl)
+    const chatEndpointSetting = new Setting(containerEl)
       .setName("Chat Endpoint")
       .setDesc("OpenAI-kompatibler LLM-Server (MLX/LM-Studio) — getrennt vom Embedding-Endpoint")
       .addText(t =>
@@ -172,8 +200,25 @@ export class VaultRagSettingTab extends PluginSettingTab {
             this.plugin.settings.chatEndpoint = v.trim();
             await this.plugin.saveSettings();
             this.plugin.reconnectChat?.();
-            pingChat();
-          }));
+          }))
+      .addButton(b => b.setButtonText("Testen").onClick(async () => {
+        b.setDisabled(true);
+        const ok = await this.plugin.chatClient?.ping();
+        showPing(chatDot, !!ok);
+        b.setDisabled(false);
+      }));
+    const chatDot = statusDot(chatEndpointSetting);
+
+    // ── Capability-Helpers ────────────────────────────────────────────
+    const capLabel = (c: { vision: string; thinking: { support: string; confidence: string } }): string => {
+      const parts: string[] = [];
+      if (c.vision !== "no") parts.push(c.vision === "confirmed" ? "👁 Vision" : "👁 Vision?");
+      if (c.thinking.support !== "none") {
+        const t = c.thinking.support === "always" ? "💭 Thinking (immer an)" : "💭 Thinking";
+        parts.push(c.thinking.confidence === "confirmed" ? t : t + "?");
+      }
+      return parts.length ? parts.join(" · ") : "keine besonderen Fähigkeiten erkannt";
+    };
 
     const modelSetting = new Setting(containerEl)
       .setName("Chat Modell")
@@ -181,6 +226,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const infoSetting = new Setting(containerEl)
       .setName("Modell-Details")
       .setDesc("…");
+    const capSetting = new Setting(containerEl)
+      .setName("Fähigkeiten")
+      .setDesc("…");
+
     const showInfo = (model: string): void => {
       void this.plugin.chatClient?.modelInfo(model).then((info: { contextLength?: number; quantization?: string; state?: string } | null) => {
         if (info) {
@@ -191,6 +240,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
         }
       });
     };
+
+    const showCaps = (model: string): void => {
+      void this.plugin.chatClient?.fetchCapabilities(model).then((meta: Parameters<typeof resolveCapabilities>[0]) => {
+        const caps = resolveCapabilities(meta, model, {});
+        capSetting.setDesc(capLabel(caps));
+      });
+    };
+
     void this.plugin.chatClient?.listModels().then((models: string[]) => {
       if (models.length) {
         const cur = this.plugin.settings.chatModel;
@@ -201,23 +258,23 @@ export class VaultRagSettingTab extends PluginSettingTab {
             this.plugin.settings.chatModel = v;
             await this.plugin.saveSettings();
             this.plugin.reconnectChat?.();
-            pingChat();
             showInfo(v);
+            showCaps(v);
           });
         });
       } else {
-        modelSetting.setDesc("Server offline — Modellname eintippen, dann „Modelle laden“");
+        modelSetting.setDesc('Server offline — Modellname eintippen, dann „Modelle laden“');
         modelSetting.addText(t =>
           t.setPlaceholder("qwen3").setValue(this.plugin.settings.chatModel)
             .onChange(async (v: string) => {
               this.plugin.settings.chatModel = v.trim();
               await this.plugin.saveSettings();
               this.plugin.reconnectChat?.();
-              pingChat();
             }));
         modelSetting.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.display()));
       }
       showInfo(this.plugin.settings.chatModel);
+      showCaps(this.plugin.settings.chatModel);
     });
 
     let chatKSetting: Setting;
@@ -265,12 +322,15 @@ export class VaultRagSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("System-Prompt")
       .setDesc("Grundanweisung an das Modell. Der Notiz-Kontext wird automatisch angehängt.")
-      .addTextArea(t => t
-        .setValue(this.plugin.settings.chatSystemPrompt)
-        .onChange(async (v: string) => {
-          this.plugin.settings.chatSystemPrompt = v;
-          await this.plugin.saveSettings();
-        }));
+      .addTextArea(t => {
+        t.setValue(this.plugin.settings.chatSystemPrompt)
+          .onChange(async (v: string) => {
+            this.plugin.settings.chatSystemPrompt = v;
+            await this.plugin.saveSettings();
+          });
+        t.inputEl.rows = 8;
+        t.inputEl.addClass("vault-rag-prompt-textarea");
+      });
 
     new Setting(containerEl)
       .setName("Eingabe-Position")
@@ -284,10 +344,42 @@ export class VaultRagSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }));
 
-    chatConnSetting = new Setting(containerEl)
-      .setName("Chat-Verbindung")
-      .setDesc("prüfe…");
-    pingChat();
+    new Setting(containerEl)
+      .setName("Thinking unterdrücken")
+      .setDesc("Standard für neue Chats. Sendet Suppress-Hints (reasoning_effort/enable_thinking). Pro Chat im Panel umschaltbar.")
+      .addToggle(t =>
+        t.setValue(this.plugin.settings.suppressThinking).onChange(async (v: boolean) => {
+          this.plugin.settings.suppressThinking = v;
+          await this.plugin.saveSettings();
+        }));
+
+    const suppressTest = new Setting(containerEl)
+      .setName("Suppress testen")
+      .setDesc("Prüft, ob das aktuelle Modell Thinking wirklich abschaltet.");
+    suppressTest.addButton(b => b.setButtonText("Testen").onClick(async () => {
+      const model = this.plugin.settings.chatModel;
+      if (isAlwaysOnThinker(model)) { suppressTest.setDesc("⚠ Dieses Modell denkt immer (nur low/medium/high)."); return; }
+      b.setDisabled(true);
+      suppressTest.setDesc("teste…");
+      try {
+        const res = await (this.plugin.chatClient as ChatClient).stream(
+          [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
+          () => {}, () => {}, undefined, { model, suppressThinking: true });
+        const happened = reasoningHappened(res.content, res.reasoning);
+        suppressTest.setDesc(happened ? '⚠ Modell denkt trotz „aus“.' : "✓ wird unterdrückt.");
+      } catch {
+        suppressTest.setDesc("○ Endpoint nicht erreichbar.");
+      } finally { b.setDisabled(false); }
+    }));
+
+    new Setting(containerEl)
+      .setName("Enter sendet")
+      .setDesc("An: Enter sendet, Shift+Enter macht eine neue Zeile. Aus: umgekehrt.")
+      .addToggle(t =>
+        t.setValue(this.plugin.settings.enterSends).onChange(async (v: boolean) => {
+          this.plugin.settings.enterSends = v;
+          await this.plugin.saveSettings();
+        }));
 
     // ── Status ────────────────────────────────────────────────────────
     new Setting(containerEl).setName("Status").setHeading();

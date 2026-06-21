@@ -19,6 +19,10 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
 - **Retrieval ≠ Generierung.** Retrieval läuft über HyperForge; Chat/Composer (spätere Slices)
   über lokale LLMs. Das Panel selbst braucht **keinen** Daemon, kein VPN, kein On-Device-LLM.
 - **Slices statt Monolith:** **A Related-Notes** (✅ gebaut + live) · **B Chat** · **C Inline-Composer**.
+- **IMG→MD ausgegliedert (2026-06-21):** Bild-Transkription ist kein RAG → eigenständiges
+  Plugin [`image-to-markdown`](https://codeberg.org/jkaindl/vault-rag) (`/Users/Shared/code/image-to-markdown`).
+  vault-rag bleibt der schlanke RAG-Kern. Der SSE-Transport (`sse.ts`/`think_splitter.ts`) ist in beide
+  Plugins kopiert, nicht geteilt.
 - **Offline-first & cross-device:** HyperForge exportiert beim Reindex einen note-level
   Matryoshka-256-int8-Mini-Index (~1,4 MB) nach `<vault>/_vaultrag/`. Das Plugin liest ihn und
   rechnet **Brute-Force-Cosinus lokal** — auf allen Geräten, auch auf dem iPhone.
@@ -66,7 +70,7 @@ main.ts           Plugin-Entry: View/Ribbon/Command/SettingTab registrieren, fil
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # prod-Bundle    (= node esbuild.config.mjs production) → main.js
-npm test                          # vitest run     (195 Tests, 22 Files)
+npm test                          # vitest run     (140 Tests, 18 Files)
 npx vitest run tests/<datei>      # eine Test-Datei
 npx tsc --noEmit                  # Typecheck (noch kein npm-Script — siehe Abweichungen)
 ```

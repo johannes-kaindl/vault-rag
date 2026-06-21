@@ -65,7 +65,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private updateBudgetMax: (maxChars: number) => void = () => {};
   private infoValue: HTMLElement | null = null;
   private capSetting: Setting | null = null;
-  private progressSetting: Setting | null = null;
 
   constructor(app: App, private plugin: any) { super(app, plugin); }
 
@@ -80,13 +79,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   private resetRenderState(): void {
     // Intervall NICHT hier stoppen — getSettingDefinitions() kann auch fürs Such-Indexing
-    // (ohne Render) laufen. Gestartet wird es ausschließlich in buildProgress (clear-then-start),
-    // gestoppt in hide().
+    // (ohne Render) laufen. Gestartet wird es ausschließlich in buildEmbeddingStatus
+    // (clear-then-start), gestoppt in hide().
     this.lastCaps = { vision: "no", thinking: { support: "none", confidence: "no" } };
     this.updateBudgetMax = () => {};
     this.infoValue = null;
     this.capSetting = null;
-    this.progressSetting = null;
   }
 
   /** Re-Render: deklarativ (1.13+ `update()`) falls verfügbar, sonst legacy `display()`. */
@@ -109,7 +107,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
       { type: "group", heading: "Live-Embedding", items: [
         item("Embedding-Endpoint", s => this.buildEmbeddingEndpoint(s)),
         item("Embedding-Modell", s => this.buildEmbeddingModel(s)),
+        item("Embedding-Status", s => this.buildEmbeddingStatus(s)),
         item("Debounce", s => this.buildDebounce(s)),
+        item("Fortschritt in Statusleiste", s => this.buildStatusBar(s)),
       ] },
       { type: "group", heading: "Chat", items: [
         item("Chat-Endpoint", s => this.buildChatEndpoint(s)),
@@ -127,11 +127,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
         item("Thinking unterdrücken", s => this.buildThinking(s)),
         item("Enter sendet", s => this.buildEnter(s)),
       ] },
-      { type: "group", heading: "Status", items: [
-        item("Status", s => this.buildProgress(s)),
-        item("Verbindung", s => this.buildConnection(s)),
-        item("Fortschritt in Statusleiste", s => this.buildStatusBar(s)),
-      ] },
     ];
   }
 
@@ -148,7 +143,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     sec("Live-Embedding");
     this.buildEmbeddingEndpoint(new Setting(containerEl));
     this.buildEmbeddingModel(new Setting(containerEl));
+    this.buildEmbeddingStatus(new Setting(containerEl));
     this.buildDebounce(new Setting(containerEl));
+    this.buildStatusBar(new Setting(containerEl));
     sec("Chat");
     this.buildChatEndpoint(new Setting(containerEl));
     this.buildChatModel(new Setting(containerEl));
@@ -161,10 +158,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildInputPos(new Setting(containerEl));
     this.buildThinking(new Setting(containerEl));
     this.buildEnter(new Setting(containerEl));
-    sec("Status");
-    this.buildProgress(new Setting(containerEl));
-    this.buildConnection(new Setting(containerEl));
-    this.buildStatusBar(new Setting(containerEl));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
@@ -465,25 +458,27 @@ export class VaultRagSettingTab extends PluginSettingTab {
       }));
   }
 
-  // ── Builder: Status ───────────────────────────────────────────────────
-  private buildProgress(s: Setting): void {
-    this.progressSetting = s.setName("● Bereit").setDesc("Lade…");
-    const update = (): void => {
+  /** Kompakte einzeilige Embedding-Status-Zeile (bei den Embedding-Settings): EIN konsistent
+   *  gefärbter Verbindungspunkt + Zähler, live aktualisiert. Kein Control → Wert in controlEl ok. */
+  private buildEmbeddingStatus(s: Setting): void {
+    s.setName("Embedding-Status");
+    const val = s.controlEl.createSpan({ cls: "vault-rag-info-value" });
+    const dot = val.createSpan({ cls: "vault-rag-conn-dot" });
+    const text = val.createSpan();
+    let connected: boolean | null = null;
+    const render = (): void => {
+      dot.toggleClass("is-ok", connected === true);
+      dot.toggleClass("is-error", connected === false);
+      const conn = connected === null ? "prüfe…" : connected ? "Verbunden" : "Offline";
       const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
-      if (!p || !this.progressSetting) return;
-      this.progressSetting.setName(p.isEmbedding ? "↻ Embedding läuft…" : "● Bereit");
-      this.progressSetting.setDesc(`${p.embeddedNotes.toLocaleString("de-DE")} eingebettet · ${p.pendingNotes.toLocaleString("de-DE")} ausstehend`);
+      const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet · ${p.pendingNotes.toLocaleString("de-DE")} ausstehend` : "";
+      const act = p?.isEmbedding ? "Embedding läuft" : "";
+      text.setText([conn, act, counts].filter(Boolean).join(" · "));
     };
-    update();
+    render();
+    void this.plugin.embedder?.ping().then((ok: boolean) => { connected = ok; render(); });
     this.clearInterval();
-    this.refreshInterval = window.setInterval(update, 2000);
-  }
-
-  private buildConnection(s: Setting): void {
-    s.setName("Verbindung").setDesc("prüfe…");
-    void this.plugin.embedder?.ping().then((ok: boolean) => {
-      s.setDesc(ok ? "● Verbunden" : "○ Offline — Embeddings werden gespeichert und beim nächsten Connect nachgeholt");
-    });
+    this.refreshInterval = window.setInterval(render, 2000);
   }
 
   private buildStatusBar(s: Setting): void {

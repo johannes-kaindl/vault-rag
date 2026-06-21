@@ -3,7 +3,7 @@
   "name": "Vault RAG",
   "version": "0.3.0",
   "minAppVersion": "1.4.0",
-  "description": "Lokale, offline Related-Notes aus einem gesyncten Embedding-Index.",
+  "description": "Local, offline retrieval over your vault: related notes, semantic search, and grounded chat with a local LLM — nothing leaves your machine.",
   "author": "Johannes Kaindl",
   "isDesktopOnly": false
 }

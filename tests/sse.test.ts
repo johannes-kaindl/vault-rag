@@ -1,14 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { parseSSE, streamSSE } from "../src/sse";
+import { installFakeXHR } from "./fake_xhr";
 
-function streamRes(chunks: string[]): any {
-  let i = 0;
-  return { ok: true, status: 200, body: { getReader: () => ({
-    read: async () => i < chunks.length
-      ? { done: false, value: new TextEncoder().encode(chunks[i++]) }
-      : { done: true, value: undefined },
-  }) } };
-}
+const init = { method: "POST", headers: {}, body: "" };
 
 describe("parseSSE", () => {
   it("extrahiert content-Deltas aus data-Zeilen", () => {
@@ -49,49 +43,64 @@ describe("parseSSE", () => {
   });
 });
 
-describe("streamSSE", () => {
+describe("streamSSE (XHR)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
   it("akkumuliert content + ruft onContent pro Delta", async () => {
+    const xhr = installFakeXHR();
     const got: string[] = [];
-    const r = await streamSSE(streamRes([
+    const p = streamSSE("u", init, t => got.push(t), () => {});
+    xhr.feed([
       'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
       'data: {"choices":[{"delta":{"content":"lo"}}]}\n\ndata: [DONE]\n\n',
-    ]), t => got.push(t), () => {});
+    ]);
+    const r = await p;
     expect(got).toEqual(["Hal", "lo"]);
     expect(r.content).toBe("Hallo");
     expect(r.reasoning).toBe("");
   });
+
   it("routet reasoning_content an onReasoning", async () => {
+    const xhr = installFakeXHR();
     const reasoning: string[] = [];
-    const r = await streamSSE(streamRes([
+    const p = streamSSE("u", init, () => {}, t => reasoning.push(t));
+    xhr.feed([
       'data: {"choices":[{"delta":{"reasoning_content":"den"}}]}\n\n',
       'data: {"choices":[{"delta":{"content":"A"}}]}\n\ndata: [DONE]\n\n',
-    ]), () => {}, t => reasoning.push(t));
+    ]);
+    const r = await p;
     expect(reasoning.join("")).toBe("den");
     expect(r).toMatchObject({ content: "A", reasoning: "den" });
   });
+
   it("zieht inline <think> in den reasoning-Kanal", async () => {
-    const r = await streamSSE(streamRes([
+    const xhr = installFakeXHR();
+    const p = streamSSE("u", init, () => {}, () => {});
+    xhr.feed([
       'data: {"choices":[{"delta":{"content":"<think>weil</think>"}}]}\n\n',
       'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\ndata: [DONE]\n\n',
-    ]), () => {}, () => {});
-    expect(r).toMatchObject({ content: "Antwort", reasoning: "weil" });
+    ]);
+    expect(await p).toMatchObject({ content: "Antwort", reasoning: "weil" });
   });
+
   it("verliert keinen Tag-Rest am Stream-Ende (flush)", async () => {
-    const r = await streamSSE(streamRes([
-      'data: {"choices":[{"delta":{"content":"Ende <"}}]}\n\ndata: [DONE]\n\n',
-    ]), () => {}, () => {});
-    expect(r.content).toBe("Ende <");
+    const xhr = installFakeXHR();
+    const p = streamSSE("u", init, () => {}, () => {});
+    xhr.feed(['data: {"choices":[{"delta":{"content":"Ende <"}}]}\n\ndata: [DONE]\n\n']);
+    expect((await p).content).toBe("Ende <");
   });
+
   it("liefert model aus dem ersten Chunk", async () => {
-    const r = await streamSSE(streamRes([
-      'data: {"model":"qwen2-vl","choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n',
-    ]), () => {}, () => {});
-    expect(r.model).toBe("qwen2-vl");
+    const xhr = installFakeXHR();
+    const p = streamSSE("u", init, () => {}, () => {});
+    xhr.feed(['data: {"model":"qwen2-vl","choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']);
+    expect((await p).model).toBe("qwen2-vl");
   });
-  it("model ist '' ohne model-Feld", async () => {
-    const r = await streamSSE(streamRes([
-      'data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n',
-    ]), () => {}, () => {});
-    expect(r.model).toBe("");
+
+  it("wirft bei HTTP-Fehlerstatus", async () => {
+    const xhr = installFakeXHR();
+    const p = streamSSE("u", init, () => {}, () => {});
+    xhr.feed([""], 500);
+    await expect(p).rejects.toThrow("500");
   });
 });

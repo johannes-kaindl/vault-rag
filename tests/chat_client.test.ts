@@ -1,97 +1,97 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { ChatClient } from "../src/chat_client";
 import { requestUrl } from "obsidian";
+import { installFakeXHR } from "./fake_xhr";
 
-function streamRes(chunks: string[], ok = true, status = 200): any {
-  let i = 0;
-  return { ok, status, body: { getReader: () => ({
-    read: async () => i < chunks.length
-      ? { done: false, value: new TextEncoder().encode(chunks[i++]) }
-      : { done: true, value: undefined },
-  }) } };
-}
+const DONE = "data: [DONE]\n\n";
 
 describe("ChatClient", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.mocked(requestUrl).mockReset(); });
   it("stream akkumuliert content und gibt {content,reasoning} zurück", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamRes([
-      'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
-      'data: {"choices":[{"delta":{"content":"lo"}}]}\n\ndata: [DONE]\n\n',
-    ])));
+    const xhr = installFakeXHR();
     const content: string[] = [];
-    const res = await new ChatClient("http://localhost:8080", "qwen3").stream(
+    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
       [{ role: "user", content: "hi" }], t => content.push(t), () => {});
+    xhr.feed([
+      'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n' + DONE,
+    ]);
+    expect(await p).toEqual({ content: "Hallo", reasoning: "" });
     expect(content).toEqual(["Hal", "lo"]);
-    expect(res).toEqual({ content: "Hallo", reasoning: "" });
   });
   it("stream routet reasoning_content an onReasoning", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamRes([
+    const xhr = installFakeXHR();
+    const reasoning: string[] = []; const content: string[] = [];
+    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
+      [{ role: "user", content: "hi" }], c => content.push(c), r => reasoning.push(r));
+    xhr.feed([
       'data: {"choices":[{"delta":{"reasoning_content":"den"}}]}\n\n',
       'data: {"choices":[{"delta":{"reasoning_content":"ke"}}]}\n\n',
-      'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\ndata: [DONE]\n\n',
-    ])));
-    const reasoning: string[] = []; const content: string[] = [];
-    const res = await new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "hi" }], c => content.push(c), r => reasoning.push(r));
-    expect(reasoning.join("")).toBe("denke");
-    expect(content.join("")).toBe("Antwort");
-    expect(res).toEqual({ content: "Antwort", reasoning: "denke" });
+      'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\n' + DONE,
+    ]);
+    expect(await p).toEqual({ content: "Antwort", reasoning: "denke" });
   });
   it("stream zieht inline <think> in den reasoning-Kanal", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamRes([
-      'data: {"choices":[{"delta":{"content":"<think>weil</think>"}}]}\n\n',
-      'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\ndata: [DONE]\n\n',
-    ])));
-    const res = await new ChatClient("http://localhost:8080", "qwen3").stream(
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
       [{ role: "user", content: "hi" }], () => {}, () => {});
-    expect(res).toEqual({ content: "Antwort", reasoning: "weil" });
+    xhr.feed([
+      'data: {"choices":[{"delta":{"content":"<think>weil</think>"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\n' + DONE,
+    ]);
+    expect(await p).toEqual({ content: "Antwort", reasoning: "weil" });
   });
-  it("stream wirft bei HTTP-Fehler", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamRes([], false, 500)));
-    await expect(new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "x" }], () => {}, () => {})).rejects.toThrow("500");
+  it("stream wirft bei HTTP-Fehlerstatus", async () => {
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
+      [{ role: "user", content: "x" }], () => {}, () => {});
+    xhr.feed([], 500);
+    await expect(p).rejects.toThrow("500");
   });
   it("stream verliert keinen Tag-Rest am Stream-Ende (splitter flush)", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamRes([
-      'data: {"choices":[{"delta":{"content":"Ende <"}}]}\n\ndata: [DONE]\n\n',
-    ])));
-    const res = await new ChatClient("http://localhost:8080", "qwen3").stream(
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
       [{ role: "user", content: "x" }], () => {}, () => {});
-    expect(res.content).toBe("Ende <");
+    xhr.feed(['data: {"choices":[{"delta":{"content":"Ende <"}}]}\n\n' + DONE]);
+    expect((await p).content).toBe("Ende <");
   });
   it("stream schickt model+temperature aus opts im Body", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(streamRes(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']));
-    vi.stubGlobal("fetch", fetchMock);
-    await new ChatClient("http://localhost:8080", "qwen3").stream(
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
       [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { model: "m2", temperature: 0.2 });
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+    await p;
+    const body = JSON.parse(xhr.body) as { model: string; temperature: number };
     expect(body.model).toBe("m2");
     expect(body.temperature).toBe(0.2);
   });
   it("stream ohne opts: model = Konstruktor-Wert, kein temperature-Key", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(streamRes(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']));
-    vi.stubGlobal("fetch", fetchMock);
-    await new ChatClient("http://localhost:8080", "qwen3").stream(
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
       [{ role: "user", content: "hi" }], () => {}, () => {});
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+    await p;
+    const body = JSON.parse(xhr.body) as Record<string, unknown>;
     expect(body.model).toBe("qwen3");
     expect("temperature" in body).toBe(false);
   });
   it("stream mischt Suppress-Params in den Body wenn suppressThinking", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(streamRes(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']));
-    vi.stubGlobal("fetch", fetchMock);
-    await new ChatClient("http://x", "m").stream(
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://x", "m").stream(
       [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { suppressThinking: true });
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+    await p;
+    const body = JSON.parse(xhr.body) as { reasoning_effort: string; chat_template_kwargs: unknown; reasoning_budget: number };
     expect(body.reasoning_effort).toBe("none");
     expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
     expect(body.reasoning_budget).toBe(0);
   });
   it("stream ohne suppressThinking sendet keine Suppress-Keys", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(streamRes(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']));
-    vi.stubGlobal("fetch", fetchMock);
-    await new ChatClient("http://x", "m").stream([{ role: "user", content: "hi" }], () => {}, () => {});
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://x", "m").stream([{ role: "user", content: "hi" }], () => {}, () => {});
+    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+    await p;
+    const body = JSON.parse(xhr.body) as Record<string, unknown>;
     expect("reasoning_effort" in body).toBe(false);
   });
   it("ping true bei 200", async () => {

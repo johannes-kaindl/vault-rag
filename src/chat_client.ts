@@ -65,21 +65,18 @@ export class ChatClient {
     signal?: AbortSignal,
     opts?: { model?: string; temperature?: number; suppressThinking?: boolean },
   ): Promise<{ content: string; reasoning: string }> {
-    // Streaming-SSE braucht fetch (requestUrl kann nicht streamen) — bewusste Ausnahme.
-    const res = await fetch(`${this.endpoint}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: opts?.model ?? this.model,
-        messages,
-        stream: true,
-        ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
-        ...suppressParams(opts?.suppressThinking ?? false),
-      }),
-      signal,
+    const body = JSON.stringify({
+      model: opts?.model ?? this.model,
+      messages,
+      stream: true,
+      ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
+      ...suppressParams(opts?.suppressThinking ?? false),
     });
-    if (!res.ok) throw new Error(`Chat HTTP ${res.status}`);
-    const { content, reasoning } = await streamSSE(res, onContent, onReasoning);
+    const { content, reasoning } = await streamSSE(
+      `${this.endpoint}/v1/chat/completions`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body },
+      onContent, onReasoning, signal,
+    );
     return { content, reasoning };
   }
 }

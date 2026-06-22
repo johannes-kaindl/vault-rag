@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.5] — 2026-06-22
+
+### Changed
+- The chat SSE stream now uses **`XMLHttpRequest`** (via `onprogress`) instead of `fetch`. This keeps live
+  token streaming while removing the last `fetch` usage — so the plugin no longer triggers the
+  "use `requestUrl` instead of `fetch`" lint, without sacrificing streaming (`requestUrl` cannot stream).
+
 ## [0.3.4] — 2026-06-22
 
 ### Added

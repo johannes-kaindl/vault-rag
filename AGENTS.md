@@ -42,8 +42,9 @@ Interface an, nie direkt die Obsidian-API → in Node testbar ohne DOM-Mock (PRO
 Nur `main.ts`, `view.ts`, `search_view.ts`, `settings.ts` und `http.ts` importieren `obsidian`.
 `http.ts` kapselt Obsidians `requestUrl` (CORS-frei, mobil-tauglich) als einzigen Netz-Helfer — die
 Client-Module (`chat_client`, `embedder`, `capabilities`) sprechen nur `http.ts` an und bleiben damit
-obsidian-frei + in Node testbar. **Ausnahme:** `ChatClient.stream` nutzt bewusst `fetch` (SSE-Streaming;
-`requestUrl` kann nicht streamen). `main.ts` orchestriert:
+obsidian-frei + in Node testbar. **Streaming:** `ChatClient.stream` → `streamSSE` (`sse.ts`) nutzt
+`XMLHttpRequest` (via `onprogress`), weil `requestUrl` nicht streamen kann und `fetch` von der
+obsidianmd-Lint-Regel gesperrt ist — XHR ist der erlaubte Streaming-Primitive. `main.ts` orchestriert:
 `file-Events → Debounce → embed → buildIndex → persist → refresh`.
 
 ### Modul-Layout (`src/`)

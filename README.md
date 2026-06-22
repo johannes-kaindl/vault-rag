@@ -28,7 +28,7 @@ Vault Retrieval turns your notes into a searchable knowledge base without sendin
 
 ### Community Plugins
 
-> Coming soon — Vault Retrieval is being prepared for the Obsidian Community Plugin directory.
+In Obsidian, open **Settings → Community plugins → Browse**, search for **Vault Retrieval**, then install and enable it.
 
 ### Manual
 

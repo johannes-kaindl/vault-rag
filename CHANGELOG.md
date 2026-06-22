@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-06-22
+
+### Fixed
+- Removed inline `eslint-disable` directives — the Obsidian community review disallows them. The two
+  unavoidable cases (the chat SSE `fetch`, and the deprecated `display()` kept for `minAppVersion 1.7.2`)
+  are now handled in the local ESLint config instead of inline comments.
+- Reworded the README install section (dropped the "coming soon" placeholder).
+
 ## [0.3.2] — 2026-06-22
 
 ### Changed

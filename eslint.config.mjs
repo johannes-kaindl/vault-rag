@@ -19,4 +19,8 @@ export default tseslint.config(
       "obsidianmd/ui/sentence-case": "off",
     },
   },
+  // Unvermeidbare Fälle (kein Inline-eslint-disable, weil der Obsidian-Review das verbietet):
+  // ChatClient.stream braucht fetch (SSE-Streaming); settings.display() ist für minAppVersion 1.7.2 nötig.
+  { files: ["src/chat_client.ts"], rules: { "no-restricted-globals": "off" } },
+  { files: ["src/settings.ts"], rules: { "@typescript-eslint/no-deprecated": "off" } },
 );

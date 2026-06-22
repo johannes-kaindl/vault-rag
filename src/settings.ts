@@ -98,7 +98,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** Re-Render nach einem Daten-Refresh (z.B. „Modelle laden“). */
   private rerender(): void {
     // display() ist seit 1.13 deprecated, bleibt aber der Render-Pfad für minAppVersion 1.7.2.
-    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.display();
   }
 

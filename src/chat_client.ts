@@ -66,7 +66,6 @@ export class ChatClient {
     opts?: { model?: string; temperature?: number; suppressThinking?: boolean },
   ): Promise<{ content: string; reasoning: string }> {
     // Streaming-SSE braucht fetch (requestUrl kann nicht streamen) — bewusste Ausnahme.
-    // eslint-disable-next-line no-restricted-globals
     const res = await fetch(`${this.endpoint}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

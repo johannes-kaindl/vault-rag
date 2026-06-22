@@ -39,7 +39,11 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
 Interface an, nie direkt die Obsidian-API → in Node testbar ohne DOM-Mock (PROF-OBS-03/04).
 **Dieses Interface nicht ohne Not ändern** — Tests und `LiveIndexer` hängen daran.
 
-Nur `main.ts`, `view.ts`, `settings.ts` importieren `obsidian`. `main.ts` orchestriert:
+Nur `main.ts`, `view.ts`, `search_view.ts`, `settings.ts` und `http.ts` importieren `obsidian`.
+`http.ts` kapselt Obsidians `requestUrl` (CORS-frei, mobil-tauglich) als einzigen Netz-Helfer — die
+Client-Module (`chat_client`, `embedder`, `capabilities`) sprechen nur `http.ts` an und bleiben damit
+obsidian-frei + in Node testbar. **Ausnahme:** `ChatClient.stream` nutzt bewusst `fetch` (SSE-Streaming;
+`requestUrl` kann nicht streamen). `main.ts` orchestriert:
 `file-Events → Debounce → embed → buildIndex → persist → refresh`.
 
 ### Modul-Layout (`src/`)
@@ -59,6 +63,7 @@ capabilities.ts   Reine Vision/Thinking-Erkennung, geschichtet L1 Metadaten (Oll
                   geteilter fetchCapabilities(baseUrl, model)-Probe-Helper.
 embedder.ts       EmbeddingClient → Ollama/MLX HTTP-Endpoint; ping() + Batch-Embed (32/Req) +
                   listModels() + fetchCapabilities().
+http.ts           httpJson() über Obsidians requestUrl — einziger obsidian-Import der Netz-Schicht.
 pending_queue.ts  PendingQueue → Dirty-List in pending.json; drain-on-reconnect.
 live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename · buildIndex ·
                   persist (Write-Order: notes.i8 → paths.json → manifest.json) · noteCount-Getter.
@@ -80,6 +85,8 @@ npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # prod-Bundle    (= node esbuild.config.mjs production) → main.js
 npm test                          # vitest run     (191 Tests, 21 Files)
+npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
+npm run typecheck                 # tsc --noEmit
 npx vitest run tests/<datei>      # eine Test-Datei
 npx tsc --noEmit                  # Typecheck (noch kein npm-Script — siehe Abweichungen)
 ```
@@ -145,8 +152,9 @@ Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich release
   auf Codeberg **und** GitHub gesetzt.
 - **CORE-GIT-01** — ✅ erledigt (v0.2.0, 2026-06-21): Codeberg-`origin` gesetzt (`codeberg.org/jkaindl/vault-rag`,
   kanonisch) + GitHub-Push-Mirror (`johannes-kaindl/vault-rag`, `sync_on_commit`).
-- **PROF-TS-01** — npm-Scripts ohne `lint`/`typecheck`. *Grund:* offen; `npx tsc --noEmit` ist verfügbar
-  (typescript als devDep), aber nicht als Script verdrahtet — ESLint + Scripts nachzuziehen.
+- **PROF-TS-01** — ✅ erledigt: `npm run lint` (ESLint flat-config: `typescript-eslint` recommended-type-checked
+  + `eslint-plugin-obsidianmd`) und `npm run typecheck` (`tsc --noEmit`) verdrahtet; ESLint ist sauber
+  (die `sentence-case`-Regel ist für die deutsche UI bewusst aus).
 - **PROF-TS-04** — kein `tsconfig.build.json`-Split. *Grund:* klein genug; ein `tsconfig.json` (IDE + Tests)
   + `vitest.config.ts` (obsidian-Mock-Alias) reicht aktuell.
 - **PROF-OBS-01** — ✅ erfüllt: manifest-`id` = `vault-retrieval` (fachlich, ≠ Repo-Slug `vault-rag`).

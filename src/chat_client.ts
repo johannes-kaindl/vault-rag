@@ -2,6 +2,7 @@ import { streamSSE } from "./sse";
 import { normalizeEndpoint } from "./endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
 import { suppressParams } from "./reasoning";
+import { httpJson } from "./http";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
 
@@ -21,15 +22,15 @@ export class ChatClient {
   }
 
   async ping(): Promise<boolean> {
-    try { return (await fetch(`${this.endpoint}/v1/models`)).ok; } catch { return false; }
+    try { return (await httpJson({ url: `${this.endpoint}/v1/models` })).status === 200; } catch { return false; }
   }
 
   /** Verfügbare Modelle vom OpenAI-kompatiblen Endpoint (GET /v1/models). [] bei Fehler/Offline. */
   async listModels(): Promise<string[]> {
     try {
-      const r = await fetch(`${this.endpoint}/v1/models`);
-      if (!r.ok) return [];
-      const j = await r.json() as { data?: { id?: string }[] };
+      const { status, json } = await httpJson({ url: `${this.endpoint}/v1/models` });
+      if (status !== 200) return [];
+      const j = json as { data?: { id?: string }[] };
       return (j.data ?? []).map(m => m.id).filter((x): x is string => typeof x === "string").sort();
     } catch { return []; }
   }
@@ -37,9 +38,9 @@ export class ChatClient {
   /** Best-effort Modell-Details via LM Studios GET /api/v0/models. null wenn nicht verfügbar. */
   async modelInfo(model: string): Promise<ModelInfo | null> {
     try {
-      const r = await fetch(`${this.endpoint}/api/v0/models`);
-      if (!r.ok) return null;
-      const j = await r.json() as { data?: Record<string, unknown>[] };
+      const { status, json } = await httpJson({ url: `${this.endpoint}/api/v0/models` });
+      if (status !== 200) return null;
+      const j = json as { data?: Record<string, unknown>[] };
       const m = (j.data ?? []).find(x => x.id === model);
       if (!m) return null;
       return {
@@ -64,6 +65,8 @@ export class ChatClient {
     signal?: AbortSignal,
     opts?: { model?: string; temperature?: number; suppressThinking?: boolean },
   ): Promise<{ content: string; reasoning: string }> {
+    // Streaming-SSE braucht fetch (requestUrl kann nicht streamen) — bewusste Ausnahme.
+    // eslint-disable-next-line no-restricted-globals
     const res = await fetch(`${this.endpoint}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

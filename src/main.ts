@@ -43,7 +43,7 @@ export default class VaultRagPlugin extends Plugin {
   };
 
   async onload() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<VaultRagSettings>);
     this.embedder = new EmbeddingClient(this.settings.embeddingEndpoint, this.settings.embeddingModel);
     this.chatClient = new ChatClient(this.settings.chatEndpoint, this.settings.chatModel);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
@@ -122,7 +122,7 @@ export default class VaultRagPlugin extends Plugin {
     await this.loadIndex();
 
     // Index-Refresh nach Sync (30s) + Pending-Drain (60s)
-    this.registerInterval(window.setInterval(() => this.maybeReload(), 30000));
+    this.registerInterval(window.setInterval(() => void this.maybeReload(), 30000));
     this.registerInterval(window.setInterval(() => void this.maybeDrainPending(), 60000));
 
     if (this.settings.showStatusBar) this.setStatusBarVisible(true);
@@ -271,11 +271,11 @@ export default class VaultRagPlugin extends Plugin {
     if (!this.statusBarEl) return;
     const p = this.embeddingProgress;
     if (p.isEmbedding) {
-      (this.statusBarEl as any).setText("↻ embedding…");
+      this.statusBarEl.setText("↻ embedding…");
     } else if (p.pendingNotes > 0) {
-      (this.statusBarEl as any).setText(`● ${p.embeddedNotes.toLocaleString("de-DE")} | ⏳ ${p.pendingNotes}`);
+      this.statusBarEl.setText(`● ${p.embeddedNotes.toLocaleString("de-DE")} | ⏳ ${p.pendingNotes}`);
     } else {
-      (this.statusBarEl as any).setText(`● ${p.embeddedNotes.toLocaleString("de-DE")}`);
+      this.statusBarEl.setText(`● ${p.embeddedNotes.toLocaleString("de-DE")}`);
     }
   }
 

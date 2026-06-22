@@ -28,6 +28,8 @@ export function setIcon(_el: any, _name: string): void {}
 export class Notice { constructor(_message: string) {} }
 import { vi } from "vitest";
 
+export const requestUrl = vi.fn();
+
 export function makeFakeApp(): any {
   return {
     vault: {

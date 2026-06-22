@@ -79,7 +79,7 @@ export class LiveIndexer {
     await this.adapter.write(`${this.indexDir}/paths.json`, JSON.stringify(paths));
     const manifest = {
       schema_version: 1,
-      vault: (this.loadedManifest as any)?.vault ?? "10_Pallas",
+      vault: (this.loadedManifest as { vault?: string } | null)?.vault ?? "10_Pallas",
       embedding_model: this.embeddingModel,
       source_dim: INDEX_DIM,
       index_dim: INDEX_DIM,

@@ -1,19 +1,33 @@
 {
   "name": "vault-retrieval",
-  "version": "0.3.1",
-  "description": "Lokale, offline Related-Notes aus einem gesyncten Embedding-Index.",
-  "keywords": ["obsidian", "obsidian-plugin", "rag", "embeddings", "semantic-search", "related-notes", "offline", "local-first"],
+  "version": "0.3.2",
+  "description": "Local, offline retrieval over your vault: related notes, semantic search, and grounded chat with a local LLM.",
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin",
+    "rag",
+    "embeddings",
+    "semantic-search",
+    "related-notes",
+    "offline",
+    "local-first"
+  ],
   "type": "module",
   "scripts": {
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "obsidian": "^1.13.0",
     "esbuild": "^0.21.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-obsidianmd": "^0.3.0",
+    "happy-dom": "^14.0.0",
+    "obsidian": "^1.13.0",
     "typescript": "^5.4.0",
-    "vitest": "^1.6.0",
-    "happy-dom": "^14.0.0"
+    "typescript-eslint": "^8.61.1",
+    "vitest": "^1.6.0"
   }
 }

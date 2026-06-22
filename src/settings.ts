@@ -1,5 +1,6 @@
-import { App, ButtonComponent, Notice, PluginSettingTab, Setting, setIcon } from "obsidian";
+import { App, ButtonComponent, Notice, Plugin, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { ChatClient } from "./chat_client";
+import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
 
@@ -49,6 +50,19 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
 
 type Caps = { vision: string; thinking: { support: string; confidence: string } };
 
+/** Die Plugin-Oberfläche, die der Settings-Tab nutzt — getypt statt `any`. */
+export interface VaultRagPluginHost extends Plugin {
+  settings: VaultRagSettings;
+  embedder: EmbeddingClient;
+  chatClient: ChatClient;
+  embeddingProgress: { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number };
+  saveSettings(): Promise<void>;
+  refresh(): void;
+  reconnectEmbedder(): void;
+  reconnectChat(): void;
+  setStatusBarVisible(visible: boolean): void;
+}
+
 /**
  * Settings-Tab. Die Zeilen-Logik lebt in `build*`-Methoden, die EINEN `Setting` füllen; `display()`
  * rendert sie flach. Querverweise zwischen Zeilen (Modelldetails↔Budget-Slider, Suppress-Test↔
@@ -61,7 +75,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private infoValue: HTMLElement | null = null;
   private capSetting: Setting | null = null;
 
-  constructor(app: App, private plugin: any) { super(app, plugin); }
+  constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
 
   hide(): void {
     this.clearInterval();
@@ -83,6 +97,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   /** Re-Render nach einem Daten-Refresh (z.B. „Modelle laden“). */
   private rerender(): void {
+    // display() ist seit 1.13 deprecated, bleibt aber der Render-Pfad für minAppVersion 1.7.2.
+    // eslint-disable-next-line @typescript-eslint/no-deprecated
     this.display();
   }
 
@@ -220,11 +236,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
       if (models.length) {
         const list = models.includes(cur) ? models : [cur, ...models];
         s.addDropdown(d => {
-          list.forEach((m: string) => d.addOption(m, m));
-          d.setValue(cur).onChange(async (v: string) => {
+          list.forEach((m: string) => { d.addOption(m, m); });
+          d.setValue(cur).onChange((v: string) => {
             this.plugin.settings.embeddingModel = v;
-            await this.plugin.saveSettings();
-            this.plugin.reconnectEmbedder?.();
+            void this.plugin.saveSettings();
+            this.plugin.reconnectEmbedder();
           });
         });
       } else {
@@ -268,11 +284,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
         const cur = this.plugin.settings.chatModel;
         const list = models.includes(cur) ? models : [cur, ...models];
         s.addDropdown(d => {
-          list.forEach((m: string) => d.addOption(m, m));
-          d.setValue(cur).onChange(async (v: string) => {
+          list.forEach((m: string) => { d.addOption(m, m); });
+          d.setValue(cur).onChange((v: string) => {
             this.plugin.settings.chatModel = v;
-            await this.plugin.saveSettings();
-            this.plugin.reconnectChat?.();
+            void this.plugin.saveSettings();
+            this.plugin.reconnectChat();
             this.showInfo(v);
             this.showCaps(v);
           });
@@ -382,7 +398,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         if (isAlwaysOnThinker(model)) { new Notice("Dieses Modell denkt immer (nur low/medium/high)."); return; }
         b.setButtonText("Teste…"); b.setDisabled(true);
         try {
-          const res = await (this.plugin.chatClient as ChatClient).stream(
+          const res = await this.plugin.chatClient.stream(
             [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
             () => {}, () => {}, undefined, { model, suppressThinking: true });
           const happened = reasoningHappened(res.content, res.reasoning);
@@ -436,7 +452,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .addToggle(t => t.setValue(this.plugin.settings.showStatusBar).onChange(async (v: boolean) => {
         this.plugin.settings.showStatusBar = v;
         await this.plugin.saveSettings();
-        (this.plugin.setStatusBarVisible as ((v: boolean) => void) | undefined)?.(v);
+        this.plugin.setStatusBarVisible(v);
       }));
   }
 }

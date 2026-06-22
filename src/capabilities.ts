@@ -1,4 +1,5 @@
 import { ThinkingSupport } from "./reasoning";
+import { httpJson } from "./http";
 
 export type Confidence = "no" | "likely" | "confirmed";
 export interface ThinkingState { support: ThinkingSupport; confidence: Confidence }
@@ -71,10 +72,10 @@ export function parseOllamaShow(json: unknown): Capabilities | null {
 }
 
 function findModel(json: unknown, model: string): Record<string, unknown> | null {
-  const data = (json as { data?: unknown })?.data;
+  const data = (json as { data?: unknown }).data;
   if (!Array.isArray(data)) return null;
-  const hit = data.find(x => (x as { id?: unknown })?.id === model);
-  return (hit as Record<string, unknown>) ?? null;
+  const hit = (data as unknown[]).find(x => (x as { id?: unknown }).id === model);
+  return (hit as Record<string, unknown> | undefined) ?? null;
 }
 
 export function parseLmStudioV1(json: unknown, model: string): Capabilities | null {
@@ -130,20 +131,21 @@ export function resolveCapabilities(
 export async function fetchCapabilities(baseUrl: string, model: string): Promise<Capabilities | null> {
   // 1) Ollama
   try {
-    const r = await fetch(`${baseUrl}/api/show`, {
+    const { status, json } = await httpJson({
+      url: `${baseUrl}/api/show`,
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }),
     });
-    if (r.ok) { const c = parseOllamaShow(await r.json()); if (c) return c; }
+    if (status === 200) { const c = parseOllamaShow(json); if (c) return c; }
   } catch { /* weiter */ }
   // 2) LM Studio v1
   try {
-    const r = await fetch(`${baseUrl}/api/v1/models`);
-    if (r.ok) { const c = parseLmStudioV1(await r.json(), model); if (c) return c; }
+    const { status, json } = await httpJson({ url: `${baseUrl}/api/v1/models` });
+    if (status === 200) { const c = parseLmStudioV1(json, model); if (c) return c; }
   } catch { /* weiter */ }
   // 3) LM Studio v0
   try {
-    const r = await fetch(`${baseUrl}/api/v0/models`);
-    if (r.ok) { const c = parseLmStudioV0(await r.json(), model); if (c) return c; }
+    const { status, json } = await httpJson({ url: `${baseUrl}/api/v0/models` });
+    if (status === 200) { const c = parseLmStudioV0(json, model); if (c) return c; }
   } catch { /* weiter */ }
   return null;
 }

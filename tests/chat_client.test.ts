@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { ChatClient } from "../src/chat_client";
+import { requestUrl } from "obsidian";
 
 function streamRes(chunks: string[], ok = true, status = 200): any {
   let i = 0;
@@ -11,7 +12,7 @@ function streamRes(chunks: string[], ok = true, status = 200): any {
 }
 
 describe("ChatClient", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); vi.mocked(requestUrl).mockReset(); });
   it("stream akkumuliert content und gibt {content,reasoning} zurück", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(streamRes([
       'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
@@ -94,49 +95,50 @@ describe("ChatClient", () => {
     expect("reasoning_effort" in body).toBe(false);
   });
   it("ping true bei 200", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+    vi.mocked(requestUrl).mockResolvedValue({ status: 200, json: {} } as any);
     expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(true);
   });
 });
 
 describe("ChatClient Modelle", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); vi.mocked(requestUrl).mockReset(); });
+  const ok = (json: unknown) => ({ status: 200, json });
   it("listModels parst data[].id und sortiert", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ id: "qwen" }, { id: "deepseek" }] }) }));
+    vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "qwen" }, { id: "deepseek" }] }) as any);
     expect(await new ChatClient("http://x", "m").listModels()).toEqual(["deepseek", "qwen"]);
   });
   it("listModels gibt [] bei HTTP-Fehler", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+    vi.mocked(requestUrl).mockResolvedValue({ status: 500 } as any);
     expect(await new ChatClient("http://x", "m").listModels()).toEqual([]);
   });
   it("listModels gibt [] bei Netzwerkfehler", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    vi.mocked(requestUrl).mockRejectedValue(new Error("offline"));
     expect(await new ChatClient("http://x", "m").listModels()).toEqual([]);
   });
   it("modelInfo parst /api/v0/models-Eintrag", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ id: "m", max_context_length: 8192, loaded_context_length: 4096, quantization: "Q4_K_M", arch: "qwen2", state: "loaded" }] }) }));
+    vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m", max_context_length: 8192, loaded_context_length: 4096, quantization: "Q4_K_M", arch: "qwen2", state: "loaded" }] }) as any);
     const info = await new ChatClient("http://x", "m").modelInfo("m");
     expect(info).toMatchObject({ id: "m", contextLength: 8192, loadedContextLength: 4096, quantization: "Q4_K_M", arch: "qwen2", state: "loaded" });
   });
   it("modelInfo gibt null wenn Modell fehlt", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ id: "andere" }] }) }));
+    vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "andere" }] }) as any);
     expect(await new ChatClient("http://x", "m").modelInfo("m")).toBeNull();
   });
   it("modelInfo gibt null bei Fehler", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    vi.mocked(requestUrl).mockRejectedValue(new Error("offline"));
     expect(await new ChatClient("http://x", "m").modelInfo("m")).toBeNull();
   });
   it("fetchCapabilities liest LM Studio /api/v1/models", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url: string) => {
-      if (url.endsWith("/api/show")) return { ok: false, status: 404 };
-      if (url.endsWith("/api/v1/models")) return { ok: true, json: async () => ({ data: [{ id: "m", capabilities: { vision: true } }] }) };
-      return { ok: false, status: 404 };
-    }));
+    vi.mocked(requestUrl).mockImplementation((p: any) => Promise.resolve(
+      p.url.endsWith("/api/v1/models")
+        ? ok({ data: [{ id: "m", capabilities: { vision: true } }] })
+        : { status: 404 },
+    ) as any);
     const c = await new ChatClient("http://localhost:1234", "m").fetchCapabilities("m");
     expect(c?.vision).toBe("confirmed");
   });
   it("fetchCapabilities gibt null wenn nichts greift", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    vi.mocked(requestUrl).mockResolvedValue({ status: 404 } as any);
     expect(await new ChatClient("http://x", "m").fetchCapabilities("m")).toBeNull();
   });
 });

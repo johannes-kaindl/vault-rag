@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-06-22
+
+### Changed
+- All network requests except the chat SSE stream now use Obsidian's `requestUrl` (CORS-free,
+  mobile-friendly) via a single internal `http` module. The chat stream keeps `fetch` for incremental
+  token streaming, which `requestUrl` cannot do.
+
+### Fixed
+- Cleared all ESLint findings from the community review: typed the settings tab's plugin reference
+  (no more `any`), removed redundant type assertions, voided fire-and-forget promises, and dropped
+  deprecated `setDynamicTooltip` calls. Added `lint` and `typecheck` npm scripts (ESLint with
+  `typescript-eslint` + `eslint-plugin-obsidianmd`).
+
 ## [0.3.1] — 2026-06-22
 
 ### Fixed

@@ -201,7 +201,7 @@ export class ChatView extends ItemView {
     for (const m of msgs) {
       if (m.role === "assistant" && m.reasoning) {
         const live = m === last && m.content === "" && !m.error;
-        const det = el.createEl("details", { cls: "vault-rag-chat-reasoning" }) as HTMLDetailsElement;
+        const det = el.createEl("details", { cls: "vault-rag-chat-reasoning" });
         det.open = live;
         det.createEl("summary", { cls: "vault-rag-chat-reasoning-sum", text: live ? "💭 denkt nach…" : "💭 Gedanken" });
         det.createDiv({ cls: "vault-rag-chat-reasoning-body", text: m.reasoning });

@@ -29,7 +29,7 @@ export class SemanticSearchView extends ItemView {
 
   async onOpen(): Promise<void> {
     const c = this.contentEl; c.empty();
-    const input = c.createEl("input", { cls: "vault-rag-search-input" }) as HTMLInputElement;
+    const input = c.createEl("input", { cls: "vault-rag-search-input" });
     input.type = "text";
     input.placeholder = "Semantisch suchen…";
     this.inputEl = input;

@@ -65,7 +65,7 @@ export class ChatView extends ItemView {
     const buildInput = (): void => {
       this.panel.mount(c.createDiv({ cls: "vault-rag-chat-context" }));
       const row = c.createDiv({ cls: "vault-rag-chat-input-row" });
-      const input = row.createEl("textarea", { cls: "vault-rag-chat-input" }) as HTMLTextAreaElement;
+      const input = row.createEl("textarea", { cls: "vault-rag-chat-input" });
       input.rows = 3; input.placeholder = "Frag deinen Vault…";
       this.inputEl = input;
       input.addEventListener("input", () => { this.autoGrow(); this.scheduleQuery(input.value ?? ""); });
@@ -101,11 +101,10 @@ export class ChatView extends ItemView {
 
   private autoGrow(): void {
     const el = this.inputEl; if (!el) return;
-    // Fake-DOM in Tests hat kein scrollHeight → defensiv.
-    const sh = (el as unknown as { scrollHeight?: number }).scrollHeight;
-    if (typeof sh !== "number") return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(sh, 180)}px`;
+    // Auto-Grow bis 180px (CSS-Klasse cappt zusätzlich). setCssStyles statt direkter style-Zuweisung
+    // (Obsidian-Guideline no-static-styles-assignment).
+    el.setCssStyles({ height: "auto" });
+    el.setCssStyles({ height: `${Math.min(el.scrollHeight, 180)}px` });
   }
 
   private onKeydown(e: KeyboardEvent): void {

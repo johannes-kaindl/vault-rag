@@ -1,4 +1,4 @@
-import { App, ButtonComponent, Notice, PluginSettingTab, Setting, SettingDefinitionItem, SettingDefinitionRender, setIcon } from "obsidian";
+import { App, ButtonComponent, Notice, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
@@ -50,14 +50,9 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
 type Caps = { vision: string; thinking: { support: string; confidence: string } };
 
 /**
- * Settings-Tab. Die Zeilen-Logik lebt in `build*`-Methoden, die EINEN `Setting` füllen.
- * Zwei Render-Pfade teilen sich diese Builder:
- *  - `getSettingDefinitions()` (Obsidian 1.13+) gruppiert die Zeilen in native Card-Gruppen
- *    (jede Zeile via `render`, das den Builder aufruft).
- *  - `display()` (Fallback < 1.13) rendert dieselben Builder flach. Auf 1.13+ wird `display()`
- *    von Obsidian übersprungen, sobald `getSettingDefinitions()` nicht-leer ist.
- * Querverweise zwischen Zeilen (Modelldetails↔Budget-Slider, Suppress-Test↔Fähigkeiten) laufen
- * über Render-State-Felder, die `resetRenderState()` pro Render-Zyklus neu initialisiert.
+ * Settings-Tab. Die Zeilen-Logik lebt in `build*`-Methoden, die EINEN `Setting` füllen; `display()`
+ * rendert sie flach. Querverweise zwischen Zeilen (Modelldetails↔Budget-Slider, Suppress-Test↔
+ * Fähigkeiten) laufen über Render-State-Felder, die `resetRenderState()` pro Render-Zyklus neu setzt.
  */
 export class VaultRagSettingTab extends PluginSettingTab {
   private refreshInterval: ReturnType<typeof window.setInterval> | null = null;
@@ -78,59 +73,19 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   private resetRenderState(): void {
-    // Intervall NICHT hier stoppen — getSettingDefinitions() kann auch fürs Such-Indexing
-    // (ohne Render) laufen. Gestartet wird es ausschließlich in buildEmbeddingStatus
-    // (clear-then-start), gestoppt in hide().
+    // Intervall NUR in buildEmbeddingStatus (clear-then-start) starten + in hide() stoppen —
+    // hier nicht anfassen.
     this.lastCaps = { vision: "no", thinking: { support: "none", confidence: "no" } };
     this.updateBudgetMax = () => {};
     this.infoValue = null;
     this.capSetting = null;
   }
 
-  /** Re-Render: deklarativ (1.13+ `update()`) falls verfügbar, sonst legacy `display()`. */
+  /** Re-Render nach einem Daten-Refresh (z.B. „Modelle laden“). */
   private rerender(): void {
-    const self = this as unknown as { update?: () => void };
-    if (typeof self.update === "function") self.update();
-    else this.display();
+    this.display();
   }
 
-  // ── Deklarativer Pfad (Obsidian 1.13+): native Card-Gruppen ──────────
-  getSettingDefinitions(): SettingDefinitionItem[] {
-    this.resetRenderState();
-    const item = (name: string, build: (s: Setting) => void): SettingDefinitionRender => ({ name, render: (s) => { build(s); } });
-    return [
-      { type: "group", heading: "Suche", items: [
-        item("Anzahl verwandter Notizen", s => this.buildK(s)),
-        item("Mindest-Ähnlichkeit", s => this.buildMinSim(s)),
-        item("Ausschluss-Pfade", s => this.buildExclude(s)),
-      ] },
-      { type: "group", heading: "Live-Embedding", items: [
-        item("Embedding-Endpoint", s => this.buildEmbeddingEndpoint(s)),
-        item("Embedding-Modell", s => this.buildEmbeddingModel(s)),
-        item("Embedding-Status", s => this.buildEmbeddingStatus(s)),
-        item("Debounce", s => this.buildDebounce(s)),
-        item("Fortschritt in Statusleiste", s => this.buildStatusBar(s)),
-      ] },
-      { type: "group", heading: "Chat", items: [
-        item("Chat-Endpoint", s => this.buildChatEndpoint(s)),
-        // Reihenfolge-Invariante: Modelldetails/Fähigkeiten MÜSSEN nach Chat-Modell stehen —
-        // dessen async listModels().then() befüllt this.infoValue/this.capSetting (per Microtask
-        // nach allen sync-Renders). Gilt für beide Pfade (group-Array UND display()).
-        item("Chat-Modell", s => this.buildChatModel(s)),
-        item("Modelldetails", s => this.buildModelDetails(s)),
-        item("Fähigkeiten", s => this.buildCaps(s)),
-        item("Kontext-Notizen", s => this.buildChatK(s)),
-        item("Kontext-Budget", s => this.buildBudget(s)),
-        item("Temperatur", s => this.buildTemp(s)),
-        item("System-Prompt", s => this.buildSystemPrompt(s)),
-        item("Eingabe-Position", s => this.buildInputPos(s)),
-        item("Thinking unterdrücken", s => this.buildThinking(s)),
-        item("Enter sendet", s => this.buildEnter(s)),
-      ] },
-    ];
-  }
-
-  // ── Legacy-Pfad (Obsidian < 1.13): flache Liste, dieselben Builder ────
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
@@ -216,8 +171,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private buildK(s: Setting): void {
     s.setName(`Anzahl verwandter Notizen: ${this.plugin.settings.k}`)
       .setDesc("Wie viele ähnliche Notizen im Panel angezeigt werden (5–50)")
-      .addSlider(sl => sl.setLimits(5, 50, 1).setValue(this.plugin.settings.k).setDynamicTooltip()
-        .onChange(async (v: number) => {
+      .addSlider(sl => sl.setLimits(5, 50, 1).setValue(this.plugin.settings.k)        .onChange(async (v: number) => {
           this.plugin.settings.k = v;
           s.setName(`Anzahl verwandter Notizen: ${v}`);
           await this.plugin.saveSettings();
@@ -228,8 +182,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private buildMinSim(s: Setting): void {
     s.setName(`Mindest-Ähnlichkeit: ${Math.round(this.plugin.settings.minSim * 100)} %`)
       .setDesc("Notizen unterhalb dieser Schwelle werden ausgeblendet — niedriger = mehr Treffer, unschärfer")
-      .addSlider(sl => sl.setLimits(0, 0.9, 0.05).setValue(this.plugin.settings.minSim).setDynamicTooltip()
-        .onChange(async (v: number) => {
+      .addSlider(sl => sl.setLimits(0, 0.9, 0.05).setValue(this.plugin.settings.minSim)        .onChange(async (v: number) => {
           this.plugin.settings.minSim = v;
           s.setName(`Mindest-Ähnlichkeit: ${Math.round(v * 100)} %`);
           await this.plugin.saveSettings();
@@ -239,7 +192,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   private buildExclude(s: Setting): void {
     s.setName("Ausschluss-Pfade")
-      .setDesc("Kommagetrennte Pfade, die nicht eingebettet werden (z.B. Templates/, Archive/). Versteckte Pfade wie .obsidian/ und .trash/ sind immer automatisch ausgeschlossen.")
+      .setDesc("Kommagetrennte Pfade, die nicht eingebettet werden (z.B. Templates/, Archive/). Versteckte Pfade (Konfig-Ordner, Papierkorb) sind immer automatisch ausgeschlossen.")
       .addText(t => t.setPlaceholder("Templates/, Archive/").setValue(this.plugin.settings.exclude.join(", "))
         .onChange(async (v: string) => {
           this.plugin.settings.exclude = v.split(",").map((x: string) => x.trim()).filter(Boolean);
@@ -288,8 +241,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private buildDebounce(s: Setting): void {
     s.setName(`Debounce: ${this.plugin.settings.debounceMs / 1000} s`)
       .setDesc("Wartezeit nach dem letzten Speichern, bevor neu eingebettet wird")
-      .addSlider(sl => sl.setLimits(500, 10000, 500).setValue(this.plugin.settings.debounceMs).setDynamicTooltip()
-        .onChange(async (v: number) => {
+      .addSlider(sl => sl.setLimits(500, 10000, 500).setValue(this.plugin.settings.debounceMs)        .onChange(async (v: number) => {
           this.plugin.settings.debounceMs = v;
           s.setName(`Debounce: ${v / 1000} s`);
           await this.plugin.saveSettings();
@@ -354,8 +306,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private buildChatK(s: Setting): void {
     s.setName(`Kontext-Notizen: ${this.plugin.settings.chatK}`)
       .setDesc("Wie viele Notizen als Kontext in den Chat gehen (Auto-RAG)")
-      .addSlider(sl => sl.setLimits(1, 20, 1).setValue(this.plugin.settings.chatK).setDynamicTooltip()
-        .onChange(async (v: number) => {
+      .addSlider(sl => sl.setLimits(1, 20, 1).setValue(this.plugin.settings.chatK)        .onChange(async (v: number) => {
           this.plugin.settings.chatK = v;
           s.setName(`Kontext-Notizen: ${v}`);
           await this.plugin.saveSettings();
@@ -366,8 +317,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     s.setName(`Kontext-Budget: ${this.plugin.settings.contextCharBudget.toLocaleString("de-DE")} Zeichen`)
       .setDesc("Maximale Gesamtlänge des Notiz-Kontexts (anteilig verteilt). Obergrenze richtet sich nach dem Modell-Fenster.")
       .addSlider(sl => {
-        sl.setLimits(2000, 32000, 1000).setValue(this.plugin.settings.contextCharBudget).setDynamicTooltip()
-          .onChange(async (v: number) => {
+        sl.setLimits(2000, 32000, 1000).setValue(this.plugin.settings.contextCharBudget)          .onChange(async (v: number) => {
             this.plugin.settings.contextCharBudget = v;
             s.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
             await this.plugin.saveSettings();
@@ -390,8 +340,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private buildTemp(s: Setting): void {
     s.setName(`Temperatur: ${this.plugin.settings.chatTemperature}`)
       .setDesc("Kreativität vs. Bestimmtheit (0 = deterministisch, höher = kreativer)")
-      .addSlider(sl => sl.setLimits(0, 2, 0.1).setValue(this.plugin.settings.chatTemperature).setDynamicTooltip()
-        .onChange(async (v: number) => {
+      .addSlider(sl => sl.setLimits(0, 2, 0.1).setValue(this.plugin.settings.chatTemperature)        .onChange(async (v: number) => {
           this.plugin.settings.chatTemperature = v;
           s.setName(`Temperatur: ${v}`);
           await this.plugin.saveSettings();

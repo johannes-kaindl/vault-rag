@@ -9,8 +9,6 @@
 
 Vault Retrieval turns your notes into a searchable knowledge base without sending anything to the cloud. It reads a small embedding index that ships with your vault and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Generation (chat) runs against a local LLM endpoint you control.
 
-<!-- TODO(submission): hero GIF in docs/images/ — see CORE-META-03 -->
-
 ## Features
 
 - **Related notes** — a side panel ranks the notes most similar to the one you're reading. Cosine similarity over a compact note-level index, computed on-device — works fully offline, including on mobile.

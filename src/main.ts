@@ -39,7 +39,7 @@ export default class VaultRagPlugin extends Plugin {
 
   private openPath = (p: string): void => {
     const f = this.app.vault.getAbstractFileByPath(p);
-    if (f instanceof TFile) this.app.workspace.getLeaf(false).openFile(f);
+    if (f instanceof TFile) void this.app.workspace.getLeaf(false).openFile(f);
   };
 
   async onload() {
@@ -297,7 +297,7 @@ export default class VaultRagPlugin extends Plugin {
 
   async activateView() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_RELATED);
-    if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
+    if (existing.length) { void this.app.workspace.revealLeaf(existing[0]); return; }
     const leaf = this.app.workspace.getRightLeaf(false);
     await leaf?.setViewState({ type: VIEW_TYPE_RELATED, active: true });
   }
@@ -323,14 +323,14 @@ export default class VaultRagPlugin extends Plugin {
 
   async activateSearchView() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SEARCH);
-    if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
+    if (existing.length) { void this.app.workspace.revealLeaf(existing[0]); return; }
     const leaf = this.app.workspace.getRightLeaf(false);
     await leaf?.setViewState({ type: VIEW_TYPE_SEARCH, active: true });
   }
 
   async activateChatView() {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT);
-    if (existing.length) { this.app.workspace.revealLeaf(existing[0]); return; }
+    if (existing.length) { void this.app.workspace.revealLeaf(existing[0]); return; }
     const leaf = this.app.workspace.getRightLeaf(false);
     await leaf?.setViewState({ type: VIEW_TYPE_CHAT, active: true });
   }

@@ -1,6 +1,6 @@
 {
   "name": "vault-retrieval",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Lokale, offline Related-Notes aus einem gesyncten Embedding-Index.",
   "keywords": ["obsidian", "obsidian-plugin", "rag", "embeddings", "semantic-search", "related-notes", "offline", "local-first"],
   "type": "module",

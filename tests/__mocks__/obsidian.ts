@@ -12,6 +12,7 @@ export function makeFakeEl(): any {
       el.className = parts.join(" ");
     },
     setAttribute: (_k: string, _v: string) => {},
+    setCssStyles: (_s: any) => {},
     _listeners: {} as Record<string, Function[]>,
     addEventListener: (event: string, cb: Function) => { if (!el._listeners[event]) el._listeners[event] = []; el._listeners[event].push(cb); },
     click: () => { (el._listeners["click"] ?? []).forEach((cb: Function) => cb()); },

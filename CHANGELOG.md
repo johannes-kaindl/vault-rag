@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-06-22
+
+### Fixed
+- Obsidian community-review fixes: replaced a direct `style.height` assignment with `setCssStyles`
+  (no-static-styles-assignment), and voided floating workspace-leaf promises.
+- Removed the inert declarative settings API (`getSettingDefinitions`) so the plugin no longer uses
+  Obsidian 1.13-only APIs; settings render via the classic `display()` on all supported versions.
+- Bumped `minAppVersion` to **1.7.2** (the `revealLeaf` API used to focus the side panels is @since 1.7.2).
+
+### Removed
+- Deprecated `setDynamicTooltip()` calls (slider values now show inline) and a few redundant type assertions.
+
 ## [0.3.0] — 2026-06-21
 
 ### Added

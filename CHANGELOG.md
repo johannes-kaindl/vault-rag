@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.4] — 2026-06-22
+
+### Added
+- **GitHub Actions release pipeline.** Pushing a version tag builds, type-checks, tests and lints the
+  plugin, then publishes the GitHub release with **build-provenance attestations** for `main.js` /
+  `manifest.json` / `styles.css` — cryptographic proof the assets were built from this source in CI.
+
 ## [0.3.3] — 2026-06-22
 
 ### Fixed

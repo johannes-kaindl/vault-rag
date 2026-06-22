@@ -1,6 +1,6 @@
 {
-  "id": "vault-rag",
-  "name": "Vault RAG",
+  "id": "vault-retrieval",
+  "name": "Vault Retrieval",
   "version": "0.3.0",
   "minAppVersion": "1.4.0",
   "description": "Local, offline retrieval over your vault: related notes, semantic search, and grounded chat with a local LLM — nothing leaves your machine.",

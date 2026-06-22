@@ -1,4 +1,4 @@
-# Vault RAG
+# Vault Retrieval
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-DOCS)
@@ -7,7 +7,7 @@
 
 **Retrieval over your own vault — related notes, semantic search, and grounded chat — running locally and offline.**
 
-Vault RAG turns your notes into a searchable knowledge base without sending anything to the cloud. It reads a small embedding index that ships with your vault and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Generation (chat) runs against a local LLM endpoint you control.
+Vault Retrieval turns your notes into a searchable knowledge base without sending anything to the cloud. It reads a small embedding index that ships with your vault and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Generation (chat) runs against a local LLM endpoint you control.
 
 <!-- TODO(submission): hero GIF in docs/images/ — see CORE-META-03 -->
 
@@ -30,11 +30,11 @@ Vault RAG turns your notes into a searchable knowledge base without sending anyt
 
 ### Community Plugins
 
-> Coming soon — Vault RAG is being prepared for the Obsidian Community Plugin directory.
+> Coming soon — Vault Retrieval is being prepared for the Obsidian Community Plugin directory.
 
 ### Manual
 
-Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://codeberg.org/jkaindl/vault-rag/releases), drop them into `<vault>/.obsidian/plugins/vault-rag/`, then enable **Settings → Community plugins → Vault RAG**.
+Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://codeberg.org/jkaindl/vault-rag/releases), drop them into `<vault>/.obsidian/plugins/vault-retrieval/`, then enable **Settings → Community plugins → Vault Retrieval**.
 
 ### BRAT (beta)
 
@@ -47,7 +47,7 @@ git clone https://codeberg.org/jkaindl/vault-rag
 cd vault-rag
 npm install
 npm run build      # → main.js
-# copy main.js, manifest.json, styles.css into <vault>/.obsidian/plugins/vault-rag/
+# copy main.js, manifest.json, styles.css into <vault>/.obsidian/plugins/vault-retrieval/
 ```
 
 ## Usage

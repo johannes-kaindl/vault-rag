@@ -26,6 +26,9 @@ All notable changes to this project are documented here. The format follows
   context window (read from LM Studio model details).
 
 ### Changed
+- **Renamed** the plugin id to `vault-retrieval` and the display name to **Vault Retrieval** — the `vault-rag`
+  id was already taken in the Obsidian community directory by an unrelated plugin. The GitHub/Codeberg repo
+  keeps the `vault-rag` name; only the plugin identity changed.
 - **Breaking:** IMG→MD (image transcription) has been split out into its own plugin,
   [`image-to-markdown`](https://codeberg.org/jkaindl/vault-rag). vault-rag is now a focused RAG core
   (related notes, semantic search, chat). The IMG→MD sidebar, command and editor context-menu entry,

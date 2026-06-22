@@ -7,8 +7,10 @@ Workspace-weite Standards (comply-or-explain): siehe [`../_docs/CONVENTIONS.md`]
 
 ## Project character
 
-**Projekt:** `vault-rag` (Plugin-id) — Obsidian-Plugin für **lokale, offline Related-Notes**
-aus einem gesyncten Embedding-Index. Autor: Johannes Kaindl.
+**Projekt:** `vault-rag` (Repo-Slug) · Plugin-id **`vault-retrieval`**, Name **„Vault Retrieval"** —
+Obsidian-Plugin für **lokale, offline Related-Notes** aus einem gesyncten Embedding-Index. Autor: Johannes Kaindl.
+(Repo-Name bleibt `vault-rag`; die manifest-`id` wurde zu `vault-retrieval` umbenannt, weil `vault-rag` in der
+Obsidian-Community-Directory bereits von einem fremden Plugin belegt ist.)
 
 **Warum es existiert:** Drei AI-Plugins (`similar-notes`, `local-gpt`, `smart-composer`)
 berechnen je **eigene** Embeddings über dasselbe Modell (`qwen3-embedding:8b`) → redundant
@@ -147,8 +149,9 @@ Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich release
   (typescript als devDep), aber nicht als Script verdrahtet — ESLint + Scripts nachzuziehen.
 - **PROF-TS-04** — kein `tsconfig.build.json`-Split. *Grund:* klein genug; ein `tsconfig.json` (IDE + Tests)
   + `vitest.config.ts` (obsidian-Mock-Alias) reicht aktuell.
-- **PROF-OBS-01** — manifest-`id` = `vault-rag` = Projekt-Slug (Regel will eine fachliche id). *Grund:*
-  bewusst behalten — `vault-rag` beschreibt die Funktion (RAG über den Vault) hinreichend fachlich; eine
-  spätere Umbenennung (z. B. `related-notes`) ist offen, falls vor Community-Registry-Einreichung nötig.
+- **PROF-OBS-01** — ✅ erfüllt: manifest-`id` = `vault-retrieval` (fachlich, ≠ Repo-Slug `vault-rag`).
+  Umbenannt 2026-06-22, weil `vault-rag` in der Community-Directory bereits belegt ist (fremdes Plugin von
+  vasallo94). Interne Bezeichner (`vault-rag-*`-CSS, `vault-rag-chat`-ViewTypes, `_vaultrag`-Index) bleiben
+  bewusst unverändert — unsichtbar, ein Umbenennen wäre nur Risiko.
 - **PROF-OBS-02** — kein `deploy`-Script. *Grund:* aktuell manueller Plugin-Deploy; env-gesteuertes
   `npm run deploy` (`cp main.js manifest.json styles.css "$OBSIDIAN_PLUGIN_DIR"/`) nachzuziehen.

@@ -94,6 +94,24 @@ describe("ChatClient", () => {
     const body = JSON.parse(xhr.body) as Record<string, unknown>;
     expect("reasoning_effort" in body).toBe(false);
   });
+  it("stream schreibt max_tokens in den Body wenn maxTokens gesetzt", async () => {
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://x", "m").stream(
+      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { maxTokens: 512 });
+    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+    await p;
+    const body = JSON.parse(xhr.body) as Record<string, unknown>;
+    expect(body.max_tokens).toBe(512);
+  });
+  it("stream ohne maxTokens: kein max_tokens-Key im Body", async () => {
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://x", "m").stream(
+      [{ role: "user", content: "hi" }], () => {}, () => {});
+    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+    await p;
+    const body = JSON.parse(xhr.body) as Record<string, unknown>;
+    expect("max_tokens" in body).toBe(false);
+  });
   it("ping true bei 200", async () => {
     vi.mocked(requestUrl).mockResolvedValue({ status: 200, json: {} } as any);
     expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(true);

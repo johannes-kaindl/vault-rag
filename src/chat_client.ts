@@ -63,13 +63,14 @@ export class ChatClient {
     onContent: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
-    opts?: { model?: string; temperature?: number; suppressThinking?: boolean },
+    opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number },
   ): Promise<{ content: string; reasoning: string }> {
     const body = JSON.stringify({
       model: opts?.model ?? this.model,
       messages,
       stream: true,
       ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
+      ...(opts?.maxTokens != null ? { max_tokens: opts.maxTokens } : {}),
       ...suppressParams(opts?.suppressThinking ?? false),
     });
     const { content, reasoning } = await streamSSE(

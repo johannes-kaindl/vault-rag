@@ -25,6 +25,9 @@ export interface VaultRagSettings {
   smartApplyEnabled: boolean;
   templateDir: string;
   smartApplyTemperature: number;
+  smartApplyModel: string;
+  smartApplySuppressThinking: boolean;
+  smartApplyMaxTokens: number;
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
@@ -52,6 +55,9 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   smartApplyEnabled: false,
   templateDir: "Templates/",
   smartApplyTemperature: 0,
+  smartApplyModel: "",
+  smartApplySuppressThinking: false,
+  smartApplyMaxTokens: 2048,
 };
 
 type Caps = { vision: string; thinking: { support: string; confidence: string } };
@@ -139,6 +145,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildSmartApplyConnectionNote(new Setting(containerEl));
     this.buildTemplateDir(new Setting(containerEl));
     this.buildSmartApplyTemperature(new Setting(containerEl));
+    this.buildSmartApplyModel(new Setting(containerEl));
+    this.buildSmartApplySuppress(new Setting(containerEl));
+    this.buildSmartApplyMaxTokens(new Setting(containerEl));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
@@ -466,6 +475,36 @@ export class VaultRagSettingTab extends PluginSettingTab {
         .onChange(async (v: number) => {
           this.plugin.settings.smartApplyTemperature = v;
           s.setName(`Smart-Apply-Temperatur: ${v}`);
+          await this.plugin.saveSettings();
+        }));
+  }
+
+  private buildSmartApplyModel(s: Setting): void {
+    s.setName("Smart-Apply-Modell")
+      .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.')
+      .addText(t => t.setPlaceholder('leer = Chat-Modell').setValue(this.plugin.settings.smartApplyModel)
+        .onChange(async (v: string) => {
+          this.plugin.settings.smartApplyModel = v.trim();
+          await this.plugin.saveSettings();
+        }));
+  }
+
+  private buildSmartApplySuppress(s: Setting): void {
+    s.setName("Thinking unterdrücken (Smart Apply)")
+      .setDesc("Sendet Suppress-Hints fuer den Smart-Apply-Call — sinnvoll bei Thinking-Modellen, die auch strukturiert schreiben koennen.")
+      .addToggle(t => t.setValue(this.plugin.settings.smartApplySuppressThinking).onChange(async (v: boolean) => {
+        this.plugin.settings.smartApplySuppressThinking = v;
+        await this.plugin.saveSettings();
+      }));
+  }
+
+  private buildSmartApplyMaxTokens(s: Setting): void {
+    s.setName(`Smart-Apply-Max-Tokens: ${this.plugin.settings.smartApplyMaxTokens}`)
+      .setDesc("Maximale Anzahl generierter Tokens fuer den Umsortier-Call (256–8192).")
+      .addSlider(sl => sl.setLimits(256, 8192, 256).setValue(this.plugin.settings.smartApplyMaxTokens)
+        .onChange(async (v: number) => {
+          this.plugin.settings.smartApplyMaxTokens = v;
+          s.setName(`Smart-Apply-Max-Tokens: ${v}`);
           await this.plugin.saveSettings();
         }));
   }

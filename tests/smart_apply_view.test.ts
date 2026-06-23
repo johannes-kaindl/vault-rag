@@ -14,6 +14,12 @@ function all(el: any, cls: string): any[] {
 function hasClass(el: any, cls: string): boolean {
   return String(el?.className ?? "").split(" ").includes(cls);
 }
+function first(el: any, cls: string): any {
+  return all(el, cls)[0];
+}
+async function flush(n = 6): Promise<void> {
+  for (let i = 0; i < n; i++) await Promise.resolve();
+}
 
 function mkProposal(over: Partial<ApplyProposal> = {}): ApplyProposal {
   return {
@@ -47,6 +53,14 @@ function mkDeps(over: Partial<SmartApplyViewDeps> = {}): SmartApplyViewDeps {
     reroll: vi.fn(async (_p: ApplyProposal, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
     openPath: vi.fn(),
     abort: vi.fn(),
+    activeNotePath: vi.fn(() => "Inbox/roh.md"),
+    listModels: vi.fn(async () => ["fast-model", "smart-model"]),
+    getModel: vi.fn(() => "fast-model"),
+    setModel: vi.fn(),
+    listTemplates: vi.fn(async () => ["Templates/Buch.md", "Templates/Film.md"]),
+    getSuppress: vi.fn(() => false),
+    setSuppress: vi.fn(),
+    ping: vi.fn(async () => true),
     ...over,
   };
 }
@@ -59,7 +73,7 @@ function mkView(over: Partial<SmartApplyViewDeps> = {}) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("SmartApplyView", () => {
+describe("SmartApplyView — Cockpit", () => {
   it("getViewType ist VIEW_TYPE_SMART_APPLY, Icon wand-2", () => {
     const { view } = mkView();
     expect(view.getViewType()).toBe(VIEW_TYPE_SMART_APPLY);
@@ -67,218 +81,310 @@ describe("SmartApplyView", () => {
     expect(view.getDisplayText()).toBe("Smart Apply");
   });
 
-  it("run() rendert Header mit Notizname, Typ-Chip und Quelle-Badge", async () => {
+  // Step 1 — Header immer sichtbar
+  it("render() emittiert immer die Header-Elemente (Modell/Verbindung/💭/Template/Run/Stop)", async () => {
     const { view } = mkView();
     await view.onOpen();
-    await view.run("Inbox/roh.md");
-    expect(all(view.contentEl, "vault-rag-sa-note")[0].textContent).toContain("roh");
-    expect(all(view.contentEl, "vault-rag-sa-type-chip")[0].textContent).toContain("📖 Buch");
-    const badge = all(view.contentEl, "vault-rag-sa-source-badge")[0].textContent;
-    expect(badge).toContain("RAG");
+    expect(first(view.contentEl, "vault-rag-sa-model")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-conn")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-think")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-template")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-run")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-stop")).toBeTruthy();
   });
 
-  it("Quelle-Badge zeigt 'aus type:' für frontmatter-Quelle", async () => {
-    const { view } = mkView({
-      build: vi.fn(async () => mkProposal({ detection: { source: "frontmatter", confidence: "confirmed" } })),
-    });
+  it("Modell-Select füllt sich aus listModels und setzt setModel bei Wechsel", async () => {
+    const { view, deps } = mkView();
     await view.onOpen();
-    await view.run("Inbox/roh.md");
-    expect(all(view.contentEl, "vault-rag-sa-source-badge")[0].textContent).toContain("aus type:");
+    await flush();
+    const sel = first(view.contentEl, "vault-rag-sa-model");
+    expect(sel.children.length).toBe(2);
+    sel.value = "smart-model";
+    (sel._listeners?.change ?? []).forEach((cb: any) => cb());
+    expect(deps.setModel).toHaveBeenCalledWith("smart-model");
   });
 
-  it("run() zeigt grünes Guard-Banner wenn hardOk", async () => {
+  it("💭-Toggle ruft setSuppress (toggelt getSuppress)", async () => {
+    const { view, deps } = mkView({ getSuppress: vi.fn(() => false) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-think").click();
+    expect(deps.setSuppress).toHaveBeenCalledWith(true);
+  });
+
+  it("Verbindungspunkt spiegelt ping()=true als verbunden", async () => {
+    const { view } = mkView({ ping: vi.fn(async () => true) });
+    await view.onOpen();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-conn").textContent).toContain("verbunden");
+  });
+
+  it("Verbindungspunkt spiegelt ping()=false als offline", async () => {
+    const { view } = mkView({ ping: vi.fn(async () => false) });
+    await view.onOpen();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-conn").textContent).toContain("offline");
+  });
+
+  // Step 2 — idle body
+  it("idle-Body zeigt Platzhaltertext", async () => {
     const { view } = mkView();
     await view.onOpen();
-    await view.run("Inbox/roh.md");
-    const banner = all(view.contentEl, "vault-rag-sa-guard")[0];
+    expect(first(view.contentEl, "vault-rag-sa-idle")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-idle").textContent).toContain("Auf aktive Notiz anwenden");
+  });
+
+  // Step 3 — start() null path
+  it("start() ohne aktive Notiz zeigt Notice und bleibt idle", async () => {
+    const { view, deps } = mkView({ activeNotePath: vi.fn(() => null) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(deps.build).not.toHaveBeenCalled();
+    expect(first(view.contentEl, "vault-rag-sa-idle")).toBeTruthy();
+  });
+
+  // Step 4 — start() valid path → running
+  it("start() mit aktiver Notiz geht in running und ruft build mit dem Pfad", async () => {
+    let resolveBuild: (p: ApplyProposal) => void = () => {};
+    const build = vi.fn((_path: string) => new Promise<ApplyProposal>((res) => { resolveBuild = res; }));
+    const { view } = mkView({ build: build as unknown as SmartApplyViewDeps["build"] });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush(2);
+    expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(Function), expect.any(Function));
+    expect(first(view.contentEl, "vault-rag-sa-running")).toBeTruthy();
+    // Aufräumen: build auflösen, damit kein hängender Timer bleibt
+    resolveBuild(mkProposal());
+    await flush();
+  });
+
+  // Step 5 — onToken / onReasoning append
+  it("onToken/onReasoning hängen Live-Text in Roh-Stream-pre bzw. 💭-details an", async () => {
+    let tok: (t: string) => void = () => {};
+    let rsn: (t: string) => void = () => {};
+    const build = vi.fn((_path: string, onToken: (t: string) => void, onReasoning: (t: string) => void) =>
+      new Promise<ApplyProposal>(() => { tok = onToken; rsn = onReasoning; }));
+    const { view } = mkView({ build: build as unknown as SmartApplyViewDeps["build"] });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush(2);
+    tok("## Inhalt\n"); tok("alt");
+    rsn("denke nach…");
+    expect(first(view.contentEl, "vault-rag-sa-stream").textContent).toBe("## Inhalt\nalt");
+    expect(first(view.contentEl, "vault-rag-sa-reasoning-body").textContent).toContain("denke nach");
+  });
+
+  // Step 6 — build resolve → diff
+  it("build()-Resolve geht in den Diff-Zustand mit dem Proposal", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-diff")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-apply")).toBeTruthy();
+    // Zwei-Flächen-Diff zeigt original + proposed
+    expect(first(view.contentEl, "vault-rag-sa-orig")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-prop")).toBeTruthy();
+  });
+
+  it("Diff zeigt grünes Guard-Banner wenn hardOk", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const banner = first(view.contentEl, "vault-rag-sa-guard");
     expect(hasClass(banner, "is-ok")).toBe(true);
-    expect(banner.textContent).toContain("bestanden");
   });
 
-  it("Guard-Banner zeigt fehlgeschlagene Checks wenn hardOk false", async () => {
-    const { view } = mkView({
-      build: vi.fn(async () => mkProposal({
-        hardOk: false,
-        proposedText: "",
-        checks: [{ id: "permutation", ok: false, detail: "block_9 unbekannt" }],
-      })),
-    });
-    await view.onOpen();
-    await view.run("Inbox/roh.md");
-    const banner = all(view.contentEl, "vault-rag-sa-guard")[0];
-    expect(hasClass(banner, "is-error")).toBe(true);
-    expect(banner.textContent).toContain("fehlgeschlagen");
-    expect(all(banner, "vault-rag-sa-guard-fail").length).toBeGreaterThan(0);
-  });
-
-  it("Frontmatter-Diff rendert eine Reihe je Key in stabiler Reihenfolge mit Change-Klasse", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    await view.run("Inbox/roh.md");
-    const rows = all(view.contentEl, "vault-rag-sa-fm-row");
-    expect(rows.length).toBe(3);
-    expect(rows.map((r: any) => all(r, "vault-rag-sa-fm-key")[0].textContent)).toEqual(["type", "up", "tags"]);
-    expect(hasClass(rows[0], "is-neu")).toBe(true);
-    expect(hasClass(rows[1], "is-unveraendert")).toBe(true);
-    expect(hasClass(rows[2], "is-entfernt")).toBe(true);
-  });
-
-  it("Body-Diff rendert Sektions-Stack mit Herkunft und (noch leer)-Sentinel", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    await view.run("Inbox/roh.md");
-    const secs = all(view.contentEl, "vault-rag-sa-body-section");
-    expect(secs.length).toBe(2);
-    expect(all(secs[0], "vault-rag-sa-body-heading")[0].textContent).toContain("Inhalt");
-    expect(all(secs[0], "vault-rag-sa-provenance")[0].textContent).toContain("roh");
-    expect(all(secs[1], "vault-rag-sa-empty").length).toBe(1);
-    expect(all(secs[1], "vault-rag-sa-empty")[0].textContent).toContain("noch leer");
-  });
-
-  it("Übrig-Eimer listet unassigned-Blöcke", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    await view.run("Inbox/roh.md");
-    const bucket = all(view.contentEl, "vault-rag-sa-unassigned")[0];
-    expect(bucket.textContent).toContain("Übrig");
-    expect(all(bucket, "vault-rag-sa-unassigned-item").length).toBe(1);
-  });
-
-  it("onToken hängt Live-Tokens in die proposed pane an", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    await view.run("Inbox/roh.md");
-    view.onToken("## Inhalt\n");
-    view.onToken("alt");
-    expect(all(view.contentEl, "vault-rag-sa-body-pane")[0].textContent).toBe("## Inhalt\nalt");
-    // Sektions-Stack bleibt parallel bestehen (kein voller Re-Render durch onToken)
-    expect(all(view.contentEl, "vault-rag-sa-body-section").length).toBe(2);
-  });
-
-  it("Anwenden ist gesperrt (is-disabled) wenn hardOk false und ruft accept nicht", async () => {
+  // Step 7 — Anwenden disabled + guard banner
+  it("Diff: Anwenden ist gesperrt (is-disabled) und Guard listet fehlgeschlagene Checks wenn !hardOk", async () => {
     const { view, deps } = mkView({
       build: vi.fn(async () => mkProposal({
         hardOk: false,
-        proposedText: "",
-        checks: [{ id: "permutation", ok: false, detail: "block_9 unbekannt" }],
+        checks: [
+          { id: "permutation", ok: false, detail: "block_9 unbekannt" },
+          { id: "fm-roundtrip", ok: true },
+        ],
       })),
     });
     await view.onOpen();
-    await view.run("Inbox/roh.md");
-    const btn = all(view.contentEl, "vault-rag-sa-apply")[0];
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const btn = first(view.contentEl, "vault-rag-sa-apply");
     expect(hasClass(btn, "is-disabled")).toBe(true);
     btn.click();
+    await flush();
     expect(deps.accept).not.toHaveBeenCalled();
+    const banner = first(view.contentEl, "vault-rag-sa-guard");
+    expect(hasClass(banner, "is-error")).toBe(true);
+    expect(all(banner, "vault-rag-sa-guard-fail").length).toBe(1);
   });
 
-  it("Anwenden ruft deps.accept genau einmal wenn hardOk", async () => {
+  it("Diff: Anwenden ruft accept genau einmal wenn hardOk", async () => {
     const { view, deps } = mkView();
     await view.onOpen();
-    await view.run("Inbox/roh.md");
-    const btn = all(view.contentEl, "vault-rag-sa-apply")[0];
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const btn = first(view.contentEl, "vault-rag-sa-apply");
     expect(hasClass(btn, "is-disabled")).toBe(false);
     btn.click();
-    await Promise.resolve(); await Promise.resolve();
+    await flush();
     expect(deps.accept).toHaveBeenCalledTimes(1);
   });
 
-  it("Verwerfen schreibt nichts (accept/reroll ungerufen)", async () => {
-    const { view, deps } = mkView();
-    await view.onOpen();
-    await view.run("Inbox/roh.md");
-    all(view.contentEl, "vault-rag-sa-discard")[0].click();
-    expect(deps.accept).not.toHaveBeenCalled();
-    expect(deps.reroll).not.toHaveBeenCalled();
-  });
-
-  it("Erneut ruft deps.reroll", async () => {
-    const { view, deps } = mkView();
-    await view.onOpen();
-    await view.run("Inbox/roh.md");
-    all(view.contentEl, "vault-rag-sa-reroll")[0].click();
-    await Promise.resolve(); await Promise.resolve();
-    expect(deps.reroll).toHaveBeenCalledTimes(1);
-  });
-
-  it("Vorlage öffnen ruft openPath mit templatePath", async () => {
-    const { view, deps } = mkView();
-    await view.onOpen();
-    await view.run("Inbox/roh.md");
-    all(view.contentEl, "vault-rag-sa-open-tpl")[0].click();
-    expect(deps.openPath).toHaveBeenCalledWith("Templates/Buch.md");
-  });
-
-  it("nach Accept bleibt das Panel offen und zeigt 'angewendet' + Rückgängig", async () => {
+  // Step 8 — accept written:true → applied
+  it("accept{written:true} geht in applied mit Rückgängig-Button", async () => {
     const undo = vi.fn(async () => {});
     const { view } = mkView({ accept: vi.fn(async () => ({ written: true, undo })) });
     await view.onOpen();
-    await view.run("Inbox/roh.md");
-    all(view.contentEl, "vault-rag-sa-apply")[0].click();
-    // Flush microtask queue: async accept mock requires multiple ticks to complete
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-    expect(all(view.contentEl, "vault-rag-sa-applied")[0].textContent).toContain("angewendet");
-    const undoBtn = all(view.contentEl, "vault-rag-sa-undo")[0];
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    first(view.contentEl, "vault-rag-sa-apply").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-applied")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-applied").textContent).toContain("angewendet");
+    const undoBtn = first(view.contentEl, "vault-rag-sa-undo");
     expect(undoBtn).toBeTruthy();
     undoBtn.click();
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await flush();
     expect(undo).toHaveBeenCalledTimes(1);
-    // Action-Bar mit Anwenden ist im angewendeten Zustand weg
     expect(all(view.contentEl, "vault-rag-sa-apply").length).toBe(0);
   });
 
-  it("Accept mit written=false (stale) bleibt im Diff-Zustand, kein angewendet", async () => {
-    const { view } = mkView({ accept: vi.fn(async () => ({ written: false, reason: "stale" as const })) });
+  it("applied zeigt den Pfad der Notiz", async () => {
+    const { view } = mkView();
     await view.onOpen();
-    await view.run("Inbox/roh.md");
-    all(view.contentEl, "vault-rag-sa-apply")[0].click();
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-    expect(all(view.contentEl, "vault-rag-sa-applied").length).toBe(0);
-    expect(all(view.contentEl, "vault-rag-sa-apply").length).toBe(1);
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    first(view.contentEl, "vault-rag-sa-apply").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-applied").textContent).toContain("roh");
   });
 
-  it("accept-Fehler: running-Flag wird zurückgesetzt, Notice gezeigt, Anwenden-Button bleibt klickbar", async () => {
-    const { view, deps } = mkView({
-      accept: vi.fn(async () => { throw new Error("Schreibfehler"); }),
-    });
+  // Step 9 — accept written:false stale → stale state
+  it("accept{written:false,reason:'stale'} geht in stale mit Rebuild-Button", async () => {
+    const { view } = mkView({ accept: vi.fn(async () => ({ written: false, reason: "stale" as const })) });
     await view.onOpen();
-    await view.run("Inbox/roh.md");
-    all(view.contentEl, "vault-rag-sa-apply")[0].click();
-    // Flush microtask queue so the async onAccept handler completes
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-    // View must NOT be stuck in applied state
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    first(view.contentEl, "vault-rag-sa-apply").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-stale")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-stale").textContent).toContain("geändert");
+    expect(first(view.contentEl, "vault-rag-sa-rebuild")).toBeTruthy();
+    // nicht mehr im applied/diff
     expect(all(view.contentEl, "vault-rag-sa-applied").length).toBe(0);
-    // Apply button must still be present (running flag was reset, re-render happened)
+    expect(all(view.contentEl, "vault-rag-sa-apply").length).toBe(0);
+  });
+
+  it("'Neu erzeugen & anwenden' (stale) re-buildet gegen aktuellen Pfad und akzeptiert bei hardOk", async () => {
+    const accept = vi.fn()
+      .mockResolvedValueOnce({ written: false, reason: "stale" as const })
+      .mockResolvedValueOnce({ written: true, undo: vi.fn(async () => {}) });
+    const { view, deps } = mkView({ accept: accept as unknown as SmartApplyViewDeps["accept"] });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    first(view.contentEl, "vault-rag-sa-apply").click();
+    await flush();
+    // jetzt stale → rebuild
+    first(view.contentEl, "vault-rag-sa-rebuild").click();
+    await flush(10);
+    // build erneut aufgerufen (1× start + 1× rebuild)
+    expect((deps.build as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(2);
+    expect((deps.build as unknown as ReturnType<typeof vi.fn>).mock.calls[1][0]).toBe("Inbox/roh.md");
+    // zweites accept → written:true → applied
+    expect(accept).toHaveBeenCalledTimes(2);
+    expect(first(view.contentEl, "vault-rag-sa-applied")).toBeTruthy();
+  });
+
+  it("accept-Fehler: kein hängendes running-Flag, Anwenden bleibt klickbar (2. Klick erreicht accept)", async () => {
+    const { view, deps } = mkView({ accept: vi.fn(async () => { throw new Error("Schreibfehler"); }) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    first(view.contentEl, "vault-rag-sa-apply").click();
+    await flush();
+    expect(all(view.contentEl, "vault-rag-sa-applied").length).toBe(0);
     expect(all(view.contentEl, "vault-rag-sa-apply").length).toBe(1);
-    // A second click must reach deps.accept again (not short-circuited by running=true)
-    all(view.contentEl, "vault-rag-sa-apply")[0].click();
-    for (let i = 0; i < 5; i++) await Promise.resolve();
+    first(view.contentEl, "vault-rag-sa-apply").click();
+    await flush();
     expect(deps.accept).toHaveBeenCalledTimes(2);
   });
 
-  it("rendert einklappbaren Reasoning-Block (geschlossen)", async () => {
-    const { view } = mkView();
+  // Step 10 — Verwerfen → idle
+  it("Verwerfen geht zurück nach idle (kein Write)", async () => {
+    const { view, deps } = mkView();
     await view.onOpen();
-    await view.run("Inbox/roh.md");
-    const det = all(view.contentEl, "vault-rag-sa-reasoning");
-    expect(det.length).toBe(1);
-    expect(det[0].open).toBe(false);
-    expect(all(view.contentEl, "vault-rag-sa-reasoning-body")[0].textContent).toContain("weil X");
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    first(view.contentEl, "vault-rag-sa-discard").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-idle")).toBeTruthy();
+    expect(all(view.contentEl, "vault-rag-sa-diff").length).toBe(0);
+    expect(deps.accept).not.toHaveBeenCalled();
   });
 
+  // Step 11 — Reroll → new proposal, diff
+  it("'Neu würfeln' ruft reroll und rendert wieder Diff", async () => {
+    const { view, deps } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    first(view.contentEl, "vault-rag-sa-reroll").click();
+    await flush();
+    expect(deps.reroll).toHaveBeenCalledTimes(1);
+    expect(first(view.contentEl, "vault-rag-sa-diff")).toBeTruthy();
+  });
+
+  // Stop / abort
+  it("Stop ruft deps.abort", async () => {
+    const { view, deps } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-stop").click();
+    expect(deps.abort).toHaveBeenCalled();
+  });
+
+  // Error path
+  it("build wirft 'abgebrochen' → error-Zustand mit 'Verworfen', kein Throw", async () => {
+    const { view } = mkView({ build: vi.fn(async () => { throw new Error("abgebrochen"); }) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-error")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-error").textContent).toContain("Verworfen");
+  });
+
+  it("build wirft anderen Fehler → error-Zustand zeigt die Meldung, kein Throw", async () => {
+    const { view } = mkView({ build: vi.fn(async () => { throw new Error("Netzwerk-Timeout"); }) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-error")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-error").textContent).toContain("Netzwerk-Timeout");
+  });
+
+  // Reasoning details in diff
+  it("Diff rendert einklappbaren Reasoning-Block aus proposal.reasoning", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const body = first(view.contentEl, "vault-rag-sa-reasoning-body");
+    expect(body.textContent).toContain("weil X");
+  });
+
+  // Source-cleanliness
   it("Quelltext nutzt kein innerHTML", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
-    const src = fs.readFileSync(
-      path.resolve(__dirname, "../src/smart_apply_view.ts"),
-      "utf8",
-    );
+    const src = fs.readFileSync(path.resolve(__dirname, "../src/smart_apply_view.ts"), "utf8");
     expect(src).not.toContain("innerHTML");
   });
 
   it("setzt nirgends ein inline style-Attribut", async () => {
     const { view } = mkView();
     await view.onOpen();
-    // Spy auf setAttribute aller (zukünftigen) Elemente via createDiv-Kette: prüfe rekursiv
     const offenders: string[] = [];
     const walk = (n: any) => {
       const orig = n.setAttribute;
@@ -286,24 +392,8 @@ describe("SmartApplyView", () => {
       (n.children ?? []).forEach(walk);
     };
     walk(view.contentEl);
-    await view.run("Inbox/roh.md");
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
     expect(offenders).toEqual([]);
-  });
-
-  it("run() catch: 'abgebrochen' zeigt Verworfen-Notice, kein Throw", async () => {
-    const { view } = mkView({
-      build: vi.fn(async () => { throw new Error("abgebrochen"); }),
-    });
-    await view.onOpen();
-    // Muss ohne unhandled rejection durchlaufen
-    await expect(view.run("Inbox/roh.md")).resolves.toBeUndefined();
-  });
-
-  it("run() catch: anderer Fehler zeigt Notice mit Fehlermeldung, kein Throw", async () => {
-    const { view } = mkView({
-      build: vi.fn(async () => { throw new Error("Netzwerk-Timeout"); }),
-    });
-    await view.onOpen();
-    await expect(view.run("Inbox/roh.md")).resolves.toBeUndefined();
   });
 });

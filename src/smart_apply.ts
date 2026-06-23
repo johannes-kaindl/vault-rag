@@ -272,11 +272,10 @@ export class SmartApply {
 
     const originalText = proposal.originalText;
     const notePath = proposal.notePath;
-    const write = this.deps.write;
 
     return {
       written: true,
-      undo: () => write(notePath, originalText),
+      undo: () => this.deps.write(notePath, originalText),
     };
   }
 }

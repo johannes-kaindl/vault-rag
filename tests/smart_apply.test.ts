@@ -106,6 +106,9 @@ describe("SmartApply", () => {
     expect(proposal.proposedText).toContain("## Ergebnisse");
     expect(proposal.proposedText).toContain("Erste Ergebnisse hier.");
     expect(proposal.fmDiff.length).toBeGreaterThan(0);
+    // SEAM-VERTRAG (3): detection threaded from this.detect(), not hardcoded
+    expect(proposal.detection.source).toBe("frontmatter");
+    expect(proposal.detection.confidence).toBe("confirmed");
   });
 
   it("unbekannte Block-ID → hardOk false", async () => {
@@ -343,6 +346,41 @@ describe("SmartApply", () => {
     expect(agendaSection).toBeDefined();
     expect(agendaSection!.provenance).not.toMatch(/^block_\d+$/);
     expect(agendaSection!.provenance).toBe("## Agenda");
+  });
+
+  it("RAG-Zweig: detection.source === 'rag' wenn keine frontmatter-type aber embed/search/typeOf greifen", async () => {
+    // Note WITHOUT a frontmatter type: field
+    const noteWithoutType = `---
+title: Projekt-Kickoff
+---
+## Agenda
+
+Punkte für das Meeting.
+
+## Ergebnisse
+
+Erste Ergebnisse hier.
+`;
+    const ragDeps = makeDeps({
+      read: async (p) => {
+        if (p === TEMPLATE_PATH) return templateText;
+        return noteWithoutType;
+      },
+      // embed returns a non-zero vector so search is called
+      embed: async () => new Float32Array(3).fill(0.5),
+      // search returns a hit
+      search: () => [{ path: "Notes/SomeNote.md", score: 0.9 }],
+      // typeOf resolves to "Meeting" for that hit
+      typeOf: async () => "Meeting",
+      // listTemplates contains the matching template
+      listTemplates: async () => ["Templates/Meeting.md"],
+    });
+    const sa = new SmartApply(ragDeps, makeClient(validAssignmentJSON()));
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+
+    // SEAM-VERTRAG (3): RAG path threaded from this.detect()
+    expect(proposal.detection.source).toBe("rag");
+    expect(proposal.detection.confidence).toBe("likely");
   });
 
   it("onToken/onReasoning an Stream weitergeleitet", async () => {

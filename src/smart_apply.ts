@@ -20,6 +20,7 @@ import {
   permutationCheck,
   assembleBody,
   CheckResult,
+  SourceBlock,
 } from "./note_restructurer";
 import type { ChatClient } from "./chat_client";
 
@@ -36,24 +37,27 @@ export interface SmartApplyDeps {
 
 export interface SectionDiff {
   heading: string;
+  blockIds: string[];
   /** SEAM-VERTRAG: original heading/first-line text of assigned block(s), NOT raw block-id list */
-  provenance: string;
+  provenance: string | null;
 }
 
 export interface ApplyProposal {
   notePath: string;
   templatePath: string;
+  type: string;
   originalText: string;
   proposedText: string;
-  fmDiff: FmRow[];
+  fmRows: FmRow[];
   sectionDiff: SectionDiff[];
+  unassigned: SourceBlock[];
   detection: { source: SuggestionSource; confidence: "no" | "likely" | "confirmed" };
   checks: CheckResult[];
   hardOk: boolean;
   reasoning: string;
 }
 
-export interface PersistResult {
+export interface ApplyResult {
   written: boolean;
   reason?: "stale" | "blocked";
   undo?: () => Promise<void>;
@@ -133,10 +137,12 @@ export class SmartApply {
       return {
         notePath,
         templatePath,
+        type: tpl.type,
         originalText,
         proposedText: originalText,
-        fmDiff: [],
+        fmRows: [],
         sectionDiff: [],
+        unassigned: [],
         detection: { source: detection.source, confidence: detection.confidence },
         checks,
         hardOk: false,
@@ -190,10 +196,12 @@ export class SmartApply {
       return {
         notePath,
         templatePath,
+        type: tpl.type,
         originalText,
         proposedText: originalText,
-        fmDiff: [],
+        fmRows: [],
         sectionDiff: [],
+        unassigned: [],
         detection: { source: detection.source, confidence: detection.confidence },
         checks,
         hardOk: false,
@@ -215,15 +223,20 @@ export class SmartApply {
     const proposedText = serializeFrontmatter(mergedFm.data, mergedFm.order) + newBody;
 
     // Step 15: diff frontmatter
-    const fmDiff = diffFrontmatter(originalParsed, mergedFm);
+    const fmRows = diffFrontmatter(originalParsed, mergedFm);
 
     // Step 16: build sectionDiff — provenance = .text of first assigned block
     const blockById = new Map(blocks.map((b) => [b.id, b.text]));
     const sectionDiff: SectionDiff[] = cleanedAssignment.sections.map((sec) => {
       const firstId = sec.blocks[0];
-      const provenance = firstId !== undefined ? (blockById.get(firstId) ?? "") : "";
-      return { heading: sec.heading, provenance };
+      const provenance = firstId !== undefined ? (blockById.get(firstId) ?? null) : null;
+      return { heading: sec.heading, blockIds: sec.blocks, provenance };
     });
+
+    // Step 16b: resolve unassigned block ids to SourceBlocks
+    const unassigned: SourceBlock[] = cleanedAssignment.unassigned
+      .map((id) => blocks.find((b) => b.id === id))
+      .filter((b): b is SourceBlock => b !== undefined);
 
     // Step 17: collect checks
     const assembleCheck: CheckResult | null = assembleError !== null
@@ -240,10 +253,12 @@ export class SmartApply {
     return {
       notePath,
       templatePath,
+      type: tpl.type,
       originalText,
       proposedText: hardOk ? proposedText : originalText,
-      fmDiff,
+      fmRows,
       sectionDiff,
+      unassigned,
       detection: { source: detection.source, confidence: detection.confidence },
       checks,
       hardOk,
@@ -257,7 +272,7 @@ export class SmartApply {
    * If !proposal.hardOk → {written:false, reason:"blocked"}.
    * Else: single write call, return {written:true, undo: () => write(notePath, originalText)}.
    */
-  async persistApply(proposal: ApplyProposal): Promise<PersistResult> {
+  async persistApply(proposal: ApplyProposal): Promise<ApplyResult> {
     if (!proposal.hardOk) {
       return { written: false, reason: "blocked" };
     }

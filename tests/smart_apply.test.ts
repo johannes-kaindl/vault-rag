@@ -105,7 +105,7 @@ describe("SmartApply", () => {
     expect(proposal.proposedText).toContain("Punkte für das Meeting.");
     expect(proposal.proposedText).toContain("## Ergebnisse");
     expect(proposal.proposedText).toContain("Erste Ergebnisse hier.");
-    expect(proposal.fmDiff.length).toBeGreaterThan(0);
+    expect(proposal.fmRows.length).toBeGreaterThan(0);
     // SEAM-VERTRAG (3): detection threaded from this.detect(), not hardcoded
     expect(proposal.detection.source).toBe("frontmatter");
     expect(proposal.detection.confidence).toBe("confirmed");
@@ -165,7 +165,7 @@ describe("SmartApply", () => {
     // hardOk still true (fm-source is a soft check)
     expect(proposal.hardOk).toBe(true);
     // The title key should be empty or the original value (not the fabricated one)
-    const titleRow = proposal.fmDiff.find((r) => r.key === "title");
+    const titleRow = proposal.fmRows.find((r) => r.key === "title");
     expect(titleRow).toBeDefined();
     // Fabricated value must NOT appear in proposed text
     expect(proposal.proposedText).not.toContain("Komplett erfundener Titel XYZ");
@@ -327,7 +327,7 @@ describe("SmartApply", () => {
     // Second apply — re-run on the already-applied note with correct block IDs
     const proposal2 = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
     expect(proposal2.hardOk).toBe(true);
-    const changedRows = proposal2.fmDiff.filter((r) => r.change !== "unveraendert");
+    const changedRows = proposal2.fmRows.filter((r) => r.change !== "unveraendert");
     expect(changedRows.length).toBe(0);
   });
 

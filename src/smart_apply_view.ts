@@ -1,36 +1,10 @@
 import { ItemView, WorkspaceLeaf, setIcon, Notice } from "obsidian";
 import type { FmValue, FmChange } from "./frontmatter";
 import type { SuggestionSource } from "./template_matcher";
-import type { CheckId } from "./note_restructurer";
+import type { ApplyProposal, ApplyResult } from "./smart_apply";
 
-// ── Public types ─────────────────────────────────────────────────────────────
-
-export interface FmRow { key: string; original?: FmValue; proposed?: FmValue; change: FmChange }
-export interface SourceBlock { id: string; text: string }
-export interface CheckResult { id: CheckId; ok: boolean; detail?: string }
-
-export interface ApplyProposal {
-  notePath: string;
-  templatePath: string;
-  type: string;
-  originalText: string;
-  originalHash: number;
-  /** host-assembled proposed content; "" if a hard check failed */
-  proposedContent: string;
-  fmRows: FmRow[];
-  sectionDiff: { heading: string; blockIds: string[]; provenance: string | null }[];
-  unassigned: SourceBlock[];
-  checks: CheckResult[];
-  hardOk: boolean;
-  reasoning: string;
-  detection: { source: SuggestionSource; confidence: "no" | "likely" | "confirmed" };
-}
-
-export interface ApplyResult {
-  written: boolean;
-  reason?: "stale" | "blocked";
-  undo?: () => Promise<void>;
-}
+// Re-export for consumers (e.g. tests) that import from this module
+export type { ApplyProposal, ApplyResult, SectionDiff } from "./smart_apply";
 
 export interface SmartApplyViewDeps {
   build: (notePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;

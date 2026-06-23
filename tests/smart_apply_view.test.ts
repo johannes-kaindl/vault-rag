@@ -21,8 +21,7 @@ function mkProposal(over: Partial<ApplyProposal> = {}): ApplyProposal {
     templatePath: "Templates/Buch.md",
     type: "📖 Buch",
     originalText: "# roh\n\nalt",
-    originalHash: 123,
-    proposedContent: "---\ntype: 📖 Buch\n---\n## Inhalt\n\nalt\n",
+    proposedText: "---\ntype: 📖 Buch\n---\n## Inhalt\n\nalt\n",
     fmRows: [
       { key: "type", original: undefined, proposed: "📖 Buch", change: "neu" },
       { key: "up", original: "[[A]]", proposed: "[[A]]", change: "unveraendert" },
@@ -100,7 +99,7 @@ describe("SmartApplyView", () => {
     const { view } = mkView({
       build: vi.fn(async () => mkProposal({
         hardOk: false,
-        proposedContent: "",
+        proposedText: "",
         checks: [{ id: "permutation", ok: false, detail: "block_9 unbekannt" }],
       })),
     });
@@ -160,7 +159,7 @@ describe("SmartApplyView", () => {
     const { view, deps } = mkView({
       build: vi.fn(async () => mkProposal({
         hardOk: false,
-        proposedContent: "",
+        proposedText: "",
         checks: [{ id: "permutation", ok: false, detail: "block_9 unbekannt" }],
       })),
     });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_SETTINGS } from "../src/settings";
+import { DEFAULT_SETTINGS, VaultRagSettings } from "../src/settings";
 
 describe("settings", () => {
   it("hat sinnvolle Defaults", () => {
@@ -41,5 +41,29 @@ describe("settings", () => {
   it("hat UX-Politur-Defaults", () => {
     expect(DEFAULT_SETTINGS.suppressThinking).toBe(false);
     expect(DEFAULT_SETTINGS.enterSends).toBe(true);
+  });
+
+  it("hat Smart-Apply-Defaults", () => {
+    expect(DEFAULT_SETTINGS.smartApplyEnabled).toBe(false);
+    expect(DEFAULT_SETTINGS.templateDir).toBe("Templates/");
+    expect(DEFAULT_SETTINGS.smartApplyTemperature).toBe(0);
+  });
+
+  it("Default-Merge ergänzt fehlende Smart-Apply-Felder aus altem data.json (Backward-Compat)", () => {
+    // altes data.json — vor Smart Apply geschrieben, kennt die drei Felder nicht
+    const loaded: Partial<VaultRagSettings> = {
+      k: 30,
+      chatModel: "mein-altes-modell",
+      exclude: ["Archive/"],
+    };
+    const merged = Object.assign({}, DEFAULT_SETTINGS, loaded);
+    // bestehende Werte aus data.json gewinnen
+    expect(merged.k).toBe(30);
+    expect(merged.chatModel).toBe("mein-altes-modell");
+    expect(merged.exclude).toEqual(["Archive/"]);
+    // die drei neuen Felder fehlen im alten data.json → fallen auf die Defaults zurück
+    expect(merged.smartApplyEnabled).toBe(false);
+    expect(merged.templateDir).toBe("Templates/");
+    expect(merged.smartApplyTemperature).toBe(0);
   });
 });

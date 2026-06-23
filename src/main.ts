@@ -397,11 +397,13 @@ export default class VaultRagPlugin extends Plugin {
     const core = this.smartApply;
     if (!core) throw new Error("Smart Apply ist deaktiviert");
     // SEAM-VERTRAG (5): Vorauswahl = explizit (Erneut) oder erkannte Typ-Vorlage.
-    const pre = preselect ?? (await core.detect(notePath)).templatePath;
+    // detect() ONCE — avoid double embed+search sweep
+    const detection = await core.detect(notePath);
+    const pre = preselect ?? detection.templatePath;
     const tpl = await pickTemplate(this.app, this.settings.templateDir, pre);
     if (tpl === null) throw new Error("abgebrochen");
     // SEAM-VERTRAG (7): Live-Stream-Callbacks der View durchreichen (genau ein Stream in propose).
-    return core.propose(notePath, tpl, onToken, onReasoning);
+    return core.propose(notePath, tpl, onToken, onReasoning, undefined, detection);
   }
 
   // SEAM-VERTRAG (2): aktive Datei VOR setViewState ermitteln, Leaf öffnen, dann run() aufrufen.

@@ -482,4 +482,85 @@ Erste Ergebnisse hier.
 
     await expect(proposePromise).rejects.toThrow();
   });
+
+  it("Block unter unbekannter Überschrift landet in unassigned (kein stiller Verlust)", async () => {
+    // LLM puts block_3 under a non-template heading "Notizen" (not in template)
+    const badHeadingAssignment = JSON.stringify({
+      version: 1,
+      sections: [
+        { heading: "Agenda", blocks: ["block_0", "block_1"] },
+        { heading: "Ergebnisse", blocks: ["block_2"] },
+        { heading: "Notizen", blocks: ["block_3"] }, // not in template!
+      ],
+      unassigned: [],
+      frontmatter: {
+        title: { source: "content", value: "Projekt-Kickoff" },
+        datum: { source: "empty", value: "" },
+      },
+    });
+    const deps = makeDeps({
+      read: async (p) => {
+        if (p === TEMPLATE_PATH) return templateText;
+        return testNoteText;
+      },
+    });
+    const sa = new SmartApply(deps, makeClient(badHeadingAssignment), () => 0);
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+
+    // block_3 ("Erste Ergebnisse hier.") must be in unassigned
+    expect(proposal.unassigned.map(b => b.id)).toContain("block_3");
+    // block_3 must NOT be in the assembled body under "Notizen"
+    expect(proposal.proposedText).not.toContain("Notizen");
+    // hardOk = true (permutation check passes after reconcile)
+    expect(proposal.hardOk).toBe(true);
+  });
+
+  it("sectionDiff enthält alle Template-Sektionen in Template-Reihenfolge (auch LLM-ausgelassene)", async () => {
+    // LLM only returns one section, omits "Ergebnisse"
+    const partialAssignment = JSON.stringify({
+      version: 1,
+      sections: [
+        { heading: "Agenda", blocks: ["block_0", "block_1"] },
+      ],
+      unassigned: ["block_2", "block_3"],
+      frontmatter: {
+        title: { source: "content", value: "Projekt-Kickoff" },
+        datum: { source: "empty", value: "" },
+      },
+    });
+    const deps = makeDeps({
+      read: async (p) => {
+        if (p === TEMPLATE_PATH) return templateText;
+        return testNoteText;
+      },
+    });
+    const sa = new SmartApply(deps, makeClient(partialAssignment), () => 0);
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+
+    // sectionDiff must have both template sections
+    const headings = proposal.sectionDiff.map(s => s.heading);
+    expect(headings).toContain("Agenda");
+    expect(headings).toContain("Ergebnisse");
+    // Template order: Agenda first, then Ergebnisse
+    expect(headings.indexOf("Agenda")).toBeLessThan(headings.indexOf("Ergebnisse"));
+    // Ergebnisse was omitted by LLM → empty blockIds
+    const ergebnisse = proposal.sectionDiff.find(s => s.heading === "Ergebnisse");
+    expect(ergebnisse?.blockIds).toHaveLength(0);
+  });
+
+  it("propose() mit übergebener detection ruft detect() nicht erneut auf", async () => {
+    const detectSpy = vi.spyOn(SmartApply.prototype, "detect");
+    const deps = makeDeps({
+      read: async (p) => {
+        if (p === TEMPLATE_PATH) return templateText;
+        return testNoteText;
+      },
+    });
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => 0);
+    const preDetection = await sa.detect(NOTE_PATH); // call once explicitly
+    detectSpy.mockClear(); // reset call count
+    await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {}, undefined, preDetection);
+    expect(detectSpy).not.toHaveBeenCalled();
+    detectSpy.mockRestore();
+  });
 });

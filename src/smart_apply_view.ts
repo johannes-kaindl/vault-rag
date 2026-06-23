@@ -84,9 +84,9 @@ export class SmartApplyView extends ItemView {
     this.render();
   }
 
-  // ── Live token append (called from main.ts onToken closure) ────────────────
+  // ── Live token append (spinner-only in Slice 1; real streaming deferred) ────
 
-  onToken(t: string): void {
+  private onToken(t: string): void {
     this.bodyText += t;
     if (this.bodyPaneEl) {
       this.bodyPaneEl.setText(this.bodyText);

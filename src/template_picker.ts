@@ -39,7 +39,7 @@ export let _lastPicker: TemplatePicker | null = null;
 
 /**
  * Öffnet einen Fuzzy-Picker über templateDir/*.md; gewählter Pfad oder null (abgebrochen).
- * `preselect` seedet die Sucheingabe (setQuery) UND wird per "(Vorschlag)"-Label markiert.
+ * `preselect` seedet die Sucheingabe (inputEl.value) UND wird per "(Vorschlag)"-Label markiert.
  */
 export function pickTemplate(app: App, templateDir: string, preselect: string | null): Promise<string | null> {
   return new Promise(resolve => {

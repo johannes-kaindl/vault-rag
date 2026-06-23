@@ -5,6 +5,7 @@ import {
   permutationCheck,
   buildRestructurePrompt,
   parseAssignment,
+  reconcileAssignment,
   EMPTY_SECTION_SENTINEL,
   ANTI_FABRICATION,
   SourceBlock,
@@ -303,5 +304,56 @@ describe("buildRestructurePrompt", () => {
     // in der system-Nachricht UND in der user-Nachricht: exakter ANTI_FABRICATION-String
     expect(sys).toContain(ANTI_FABRICATION);
     expect(user).toContain(ANTI_FABRICATION);
+  });
+});
+
+describe("reconcileAssignment", () => {
+  it("bewegt Blöcke unter nicht-Template-Überschriften nach unassigned (dedup)", () => {
+    const tpl = spec(["Setup", "Ablauf"]);
+    const a = asg({
+      sections: [
+        { heading: "Setup", blocks: ["block_0"] },
+        { heading: "Unbekannt", blocks: ["block_1", "block_2"] }, // not in template
+      ],
+      unassigned: [],
+    });
+    const r = reconcileAssignment(tpl, a);
+    expect(r.sections.map(s => s.heading)).toEqual(["Setup"]);
+    expect(r.unassigned).toContain("block_1");
+    expect(r.unassigned).toContain("block_2");
+  });
+
+  it("dedupliziert: Blöcke schon in unassigned werden nicht doppelt hinzugefügt", () => {
+    const tpl = spec(["Setup"]);
+    const a = asg({
+      sections: [
+        { heading: "Fremd", blocks: ["block_0"] }, // not in template
+      ],
+      unassigned: ["block_0"], // already there
+    });
+    const r = reconcileAssignment(tpl, a);
+    expect(r.unassigned.filter(id => id === "block_0")).toHaveLength(1);
+  });
+
+  it("lässt korrekt zugeordnete Sektionen unverändert", () => {
+    const tpl = spec(["Setup", "Ablauf"]);
+    const a = asg({
+      sections: [
+        { heading: "Setup", blocks: ["block_0"] },
+        { heading: "Ablauf", blocks: ["block_1"] },
+      ],
+      unassigned: [],
+    });
+    const r = reconcileAssignment(tpl, a);
+    expect(r.sections).toEqual(a.sections);
+    expect(r.unassigned).toEqual([]);
+  });
+
+  it("version und frontmatter werden durchgereicht", () => {
+    const tpl = spec(["Setup"]);
+    const a = asg({ version: 2, frontmatter: { x: { source: "empty", value: "" } } });
+    const r = reconcileAssignment(tpl, a);
+    expect(r.version).toBe(2);
+    expect(r.frontmatter).toEqual(a.frontmatter);
   });
 });

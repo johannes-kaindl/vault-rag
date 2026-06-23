@@ -75,7 +75,7 @@ export function permutationCheck(allIds: string[], a: Assignment): CheckResult {
 
 // ── assembleBody ─────────────────────────────────────────────────────────────
 
-export const EMPTY_SECTION_SENTINEL = "*(noch leer)*";
+export const EMPTY_SECTION_SENTINEL = "(noch leer)";
 
 export function assembleBody(tpl: TemplateSpec, a: Assignment, blocks: SourceBlock[]): string {
   const byId = new Map(blocks.map(b => [b.id, b.text]));
@@ -148,6 +148,43 @@ export function parseAssignment(raw: string): Assignment | null {
     return null;
   }
   return isAssignmentShape(parsed) ? parsed : null;
+}
+
+// ── reconcileAssignment ──────────────────────────────────────────────────────
+
+/**
+ * Returns a new Assignment where any section whose heading is NOT in tpl.sections[].heading
+ * is removed, and ALL its block ids are appended to `unassigned` (dedup, preserve first-seen order).
+ * Sections with matching headings are kept as-is. version/frontmatter pass through.
+ * Guarantees: after reconcile, every block id is either under a real template heading or in
+ * unassigned — so permutationCheck coverage genuinely means "placed-or-visibly-unassigned".
+ */
+export function reconcileAssignment(tpl: TemplateSpec, a: Assignment): Assignment {
+  const tplHeadings = new Set(tpl.sections.map(s => s.heading));
+  const seenIds = new Set<string>(a.unassigned);
+  const newUnassigned: string[] = [...a.unassigned];
+
+  const newSections: { heading: string; blocks: string[] }[] = [];
+  for (const sec of a.sections) {
+    if (tplHeadings.has(sec.heading)) {
+      newSections.push(sec);
+    } else {
+      // stray heading: route all blocks to unassigned (dedup)
+      for (const id of sec.blocks) {
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          newUnassigned.push(id);
+        }
+      }
+    }
+  }
+
+  return {
+    version: a.version,
+    sections: newSections,
+    unassigned: newUnassigned,
+    frontmatter: a.frontmatter,
+  };
 }
 
 // ── buildRestructurePrompt ───────────────────────────────────────────────────

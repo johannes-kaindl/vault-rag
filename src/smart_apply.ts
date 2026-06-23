@@ -17,6 +17,7 @@ import {
   splitBlocks,
   buildRestructurePrompt,
   parseAssignment,
+  reconcileAssignment,
   permutationCheck,
   assembleBody,
   CheckResult,
@@ -108,6 +109,7 @@ export class SmartApply {
     onToken: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
+    preDetection?: TypeSuggestion,
   ): Promise<ApplyProposal> {
     this.controller = new AbortController();
     // If caller passed an external signal, forward its abort into our controller
@@ -115,8 +117,8 @@ export class SmartApply {
       signal.addEventListener("abort", () => this.controller?.abort(), { once: true });
     }
     try {
-    // Step 1: detection — real TypeSuggestion
-    const detection = await this.detect(notePath);
+    // Step 1: detection — real TypeSuggestion (use provided pre-detection or detect fresh)
+    const detection = preDetection ?? await this.detect(notePath);
 
     // Step 2: read original note
     const originalText = await this.deps.read(notePath);
@@ -169,8 +171,11 @@ export class SmartApply {
 
     const parseCheck: CheckResult = { id: "assignment-parse", ok: true };
 
+    // Step 8b: reconcile — move blocks under non-template headings to unassigned
+    const reconciled = reconcileAssignment(tpl, assignment);
+
     // Step 9: permutation check
-    const permCheck = permutationCheck(blocks.map((b) => b.id), assignment);
+    const permCheck = permutationCheck(blocks.map((b) => b.id), reconciled);
 
     // Step 10: soft check fm-source — gate fabricated values
     const bodyText = originalParsed.body;
@@ -178,7 +183,7 @@ export class SmartApply {
     const haystack = normalizeStr(bodyText + " " + existingFmValues);
 
     let fmSourceOk = true;
-    const gatedFm = { ...assignment.frontmatter };
+    const gatedFm = { ...reconciled.frontmatter };
     for (const key of Object.keys(gatedFm)) {
       const entry = gatedFm[key];
       if (entry.source === "content" && entry.value.trim() !== "") {
@@ -192,8 +197,8 @@ export class SmartApply {
 
     const fmSourceCheck: CheckResult = { id: "fm-source", ok: fmSourceOk };
 
-    // Update assignment with gated values
-    const cleanedAssignment = { ...assignment, frontmatter: gatedFm };
+    // Update reconciled assignment with gated values
+    const cleanedAssignment = { ...reconciled, frontmatter: gatedFm };
 
     // Step 11: merge frontmatter
     const mergedFm = mergeFrontmatter(tpl.keys, originalParsed, cleanedAssignment.frontmatter);
@@ -242,12 +247,14 @@ export class SmartApply {
     // Step 15: diff frontmatter
     const fmRows = diffFrontmatter(originalParsed, mergedFm);
 
-    // Step 16: build sectionDiff — provenance = .text of first assigned block
+    // Step 16: build sectionDiff — from template sections in template order
     const blockById = new Map(blocks.map((b) => [b.id, b.text]));
-    const sectionDiff: SectionDiff[] = cleanedAssignment.sections.map((sec) => {
-      const firstId = sec.blocks[0];
+    const cleanedByHeading = new Map(cleanedAssignment.sections.map((s) => [s.heading, s.blocks]));
+    const sectionDiff: SectionDiff[] = tpl.sections.map((sec) => {
+      const secBlocks = cleanedByHeading.get(sec.heading) ?? [];
+      const firstId = secBlocks[0];
       const provenance = firstId !== undefined ? (blockById.get(firstId) ?? null) : null;
-      return { heading: sec.heading, blockIds: sec.blocks, provenance };
+      return { heading: sec.heading, blockIds: secBlocks, provenance };
     });
 
     // Step 16b: resolve unassigned block ids to SourceBlocks

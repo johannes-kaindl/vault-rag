@@ -24,6 +24,23 @@ export class ItemView { app: any; contentEl: any; constructor(public leaf: any) 
 export class PluginSettingTab { app: any; plugin: any; containerEl: any; constructor(app: any, plugin: any) { this.app = app; this.plugin = plugin; this.containerEl = makeFakeEl(); } display() {} }
 export class Setting { constructor(public containerEl: any) {} setName(_: string) { return this; } setDesc(_: string) { return this; } addText(cb: any) { cb({ setValue: () => ({ onChange: () => {} }), setPlaceholder: () => ({}) }); return this; } addSlider(cb: any) { cb({ setLimits: () => ({ setValue: () => ({ onChange: () => {} }) }) }); return this; } }
 export class TFile { path = ""; basename = ""; extension = "md"; }
+export class WorkspaceLeaf { view: any = null; async setViewState(_s: any) {} getViewState() { return {}; } detach() {} }
+export class FuzzySuggestModal<T> {
+  app: any;
+  // Test-Affordanz: letzte konstruierte Instanz, damit ein Test choose/close treiben kann.
+  static __instance: any = null;
+  constructor(app: any) { this.app = app; (this.constructor as any).__instance = this; FuzzySuggestModal.__instance = this; }
+  setPlaceholder(_s: string): this { return this; }
+  setQuery(_s: string): void {}
+  getItems(): T[] { return []; }
+  getItemText(item: T): string { return String(item); }
+  onChooseItem(_item: T, _evt?: any): void {}
+  open(): void {}
+  onClose(): void {}
+  // Test-Affordanzen (nicht im echten Obsidian): simuliere Auswahl bzw. Verwerfen.
+  __choose(item: T): void { this.onChooseItem(item); }
+  __close(): void { this.onClose(); }
+}
 export function setIcon(_el: any, _name: string): void {}
 export class Notice { constructor(_message: string) {} }
 import { vi } from "vitest";

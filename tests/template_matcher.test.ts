@@ -167,13 +167,36 @@ describe("detectType", () => {
     expect(s).toEqual({ type: null, templatePath: null, source: "none", confidence: "no" });
   });
 
-  it("RAG-Treffer ohne auflösbares Template → source=none", async () => {
+  it("RAG-Treffer ohne auflösbares Template → type gesetzt, templatePath=null, source=rag", async () => {
     const deps = baseDeps({
       search: () => [{ path: "a.md", score: 0.9 }],
       typeOf: async () => "Aufgabe", // kein Template dafür
     });
     const s = await detectType("note.md", deps);
-    expect(s.source).toBe("none");
-    expect(s.type).toBeNull();
+    expect(s.source).toBe("rag");
+    expect(s.type).toBe("Aufgabe");
+    expect(s.templatePath).toBeNull();
+    expect(s.confidence).toBe("likely");
+  });
+
+  it("negativer RAG-Hit wird durch minSim-Filter ausgeschlossen und fließt nicht in den Vote", async () => {
+    let capturedMinSim: number | undefined;
+    const deps = baseDeps({
+      search: (vec, opts) => {
+        capturedMinSim = opts.minSim;
+        // Fake honors the minSim contract — same as the real index would do.
+        return [
+          { path: "a.md", score: 0.5 },
+          { path: "b.md", score: -0.3 },
+        ].filter(h => h.score >= opts.minSim);
+      },
+      typeOf: async (p) => (p === "a.md" ? "Buch" : "Coding"),
+    });
+    const s = await detectType("note.md", deps);
+    // minSim must be positive so negative-score hits are filtered out by the real index.
+    expect(capturedMinSim).toBeGreaterThan(0);
+    // Only "a.md" (Buch, score 0.5) enters the vote; "b.md" is excluded.
+    expect(s.type).toBe("Buch");
+    expect(s.source).toBe("rag");
   });
 });

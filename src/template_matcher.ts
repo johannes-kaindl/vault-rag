@@ -85,6 +85,7 @@ export interface DetectDeps {
 
 const NONE: TypeSuggestion = { type: null, templatePath: null, source: "none", confidence: "no" };
 const RAG_K = 8;
+const RAG_MIN_SIM = 0.2;
 
 /** Typ-Erkennung als Fallback-Kette (KEIN LLM): Frontmatter-type → RAG-Vote → none. */
 export async function detectType(notePath: string, deps: DetectDeps): Promise<TypeSuggestion> {
@@ -102,7 +103,7 @@ export async function detectType(notePath: string, deps: DetectDeps): Promise<Ty
   const body = text.replace(FRONTMATTER_RE, "");
   try {
     const vec = await deps.embed(body);
-    const hits = deps.search(vec, { k: RAG_K, minSim: 0, exclude: ["Templates/"] });
+    const hits = deps.search(vec, { k: RAG_K, minSim: RAG_MIN_SIM, exclude: ["Templates/"] });
     const votes = new Map<string, number>();
     for (const h of hits) {
       let t: string | null;
@@ -117,7 +118,7 @@ export async function detectType(notePath: string, deps: DetectDeps): Promise<Ty
     }
     if (bestType) {
       const tpl = resolveTemplateForType(bestType, templates);
-      if (tpl) return { type: bestType, templatePath: tpl, source: "rag", confidence: "likely" };
+      return { type: bestType, templatePath: tpl, source: "rag", confidence: "likely" };
     }
   } catch {
     // Embedder/Index offline → sauber auf none degradieren.

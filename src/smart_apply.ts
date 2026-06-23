@@ -1,0 +1,323 @@
+// smart_apply.ts — Orchestrator for the Smart Apply feature. Pure-core, no obsidian import.
+import {
+  parseFrontmatter,
+  serializeFrontmatter,
+  mergeFrontmatter,
+  diffFrontmatter,
+  assertParseable,
+  FmRow,
+} from "./frontmatter";
+import {
+  parseTemplate,
+  detectType,
+  SuggestionSource,
+  TypeSuggestion,
+} from "./template_matcher";
+import {
+  splitBlocks,
+  buildRestructurePrompt,
+  parseAssignment,
+  reconcileAssignment,
+  permutationCheck,
+  assembleBody,
+  CheckResult,
+  SourceBlock,
+} from "./note_restructurer";
+import type { ChatClient } from "./chat_client";
+
+// ── Public types ──────────────────────────────────────────────────────────────
+
+export interface SmartApplyDeps {
+  read: (path: string) => Promise<string>;
+  write: (path: string, text: string) => Promise<void>;
+  listTemplates: () => Promise<string[]>;
+  embed: (text: string) => Promise<Float32Array>;
+  search: (vec: Float32Array, opts: { k: number; minSim: number; exclude: string[] }) => { path: string; score: number }[];
+  typeOf: (path: string) => Promise<string | null>;
+}
+
+export interface SectionDiff {
+  heading: string;
+  blockIds: string[];
+  /** SEAM-VERTRAG: original heading/first-line text of assigned block(s), NOT raw block-id list */
+  provenance: string | null;
+}
+
+export interface ApplyProposal {
+  notePath: string;
+  templatePath: string;
+  type: string;
+  originalText: string;
+  proposedText: string;
+  fmRows: FmRow[];
+  sectionDiff: SectionDiff[];
+  unassigned: SourceBlock[];
+  detection: { source: SuggestionSource; confidence: "no" | "likely" | "confirmed" };
+  checks: CheckResult[];
+  hardOk: boolean;
+  reasoning: string;
+}
+
+export interface ApplyResult {
+  written: boolean;
+  reason?: "stale" | "blocked";
+  undo?: () => Promise<void>;
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+function djb2(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+function normalizeStr(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+// ── SmartApply class ──────────────────────────────────────────────────────────
+
+export class SmartApply {
+  private controller: AbortController | null = null;
+
+  constructor(
+    private deps: SmartApplyDeps,
+    private client: () => ChatClient,
+    private temperature: () => number = () => 0,
+  ) {}
+
+  /** Aborts any in-flight propose() call. */
+  abort(): void {
+    this.controller?.abort();
+  }
+
+  /** Detection: calls detectType() with the deps — real TypeSuggestion, never hardcoded */
+  async detect(notePath: string): Promise<TypeSuggestion> {
+    return detectType(notePath, this.deps);
+  }
+
+  /**
+   * Core orchestration method. Exactly ONE stream per call.
+   * SEAM-VERTRAG (7): onToken/onReasoning forwarded into the single client().stream() call
+   * SEAM-VERTRAG (3): detection = real TypeSuggestion from this.detect(notePath)
+   * SEAM-VERTRAG (4): sectionDiff[].provenance = original heading/first-line text of assigned block(s)
+   */
+  async propose(
+    notePath: string,
+    templatePath: string,
+    onToken: (t: string) => void,
+    onReasoning: (t: string) => void,
+    signal?: AbortSignal,
+    preDetection?: TypeSuggestion,
+  ): Promise<ApplyProposal> {
+    this.controller = new AbortController();
+    // If caller passed an external signal, forward its abort into our controller
+    if (signal) {
+      signal.addEventListener("abort", () => this.controller?.abort(), { once: true });
+    }
+    try {
+    // Step 1: detection — real TypeSuggestion (use provided pre-detection or detect fresh)
+    const detection = preDetection ?? await this.detect(notePath);
+
+    // Step 2: read original note
+    const originalText = await this.deps.read(notePath);
+
+    // Step 3: parse original
+    const originalParsed = parseFrontmatter(originalText);
+
+    // Step 4: read + parse template
+    const tplText = await this.deps.read(templatePath);
+    const tpl = parseTemplate(tplText);
+
+    // Step 5: split blocks
+    const blocks = splitBlocks(originalParsed.body);
+
+    // Step 6: build prompt
+    const messages = buildRestructurePrompt(tpl, blocks);
+
+    // Step 7: stream — exactly ONE stream call
+    const { content, reasoning } = await this.client().stream(
+      messages,
+      onToken,
+      onReasoning,
+      this.controller.signal,
+      { temperature: this.temperature() },
+    );
+
+    // Step 8: parse assignment
+    const assignment = parseAssignment(content);
+
+    if (!assignment) {
+      // Assignment parse failed → hardOk false, build minimal proposal
+      const checks: CheckResult[] = [
+        { id: "assignment-parse", ok: false, detail: "LLM-Antwort enthält kein gültiges Assignment-JSON" },
+      ];
+      return {
+        notePath,
+        templatePath,
+        type: tpl.type,
+        originalText,
+        proposedText: originalText,
+        fmRows: [],
+        sectionDiff: [],
+        unassigned: [],
+        detection: { source: detection.source, confidence: detection.confidence },
+        checks,
+        hardOk: false,
+        reasoning,
+      };
+    }
+
+    const parseCheck: CheckResult = { id: "assignment-parse", ok: true };
+
+    // Step 8b: reconcile — move blocks under non-template headings to unassigned
+    const reconciled = reconcileAssignment(tpl, assignment);
+
+    // Step 9: permutation check
+    const permCheck = permutationCheck(blocks.map((b) => b.id), reconciled);
+
+    // Step 10: soft check fm-source — gate fabricated values
+    const bodyText = originalParsed.body;
+    const existingFmValues = Object.values(originalParsed.data).flat().join(" ");
+    const haystack = normalizeStr(bodyText + " " + existingFmValues);
+
+    let fmSourceOk = true;
+    const gatedFm = { ...reconciled.frontmatter };
+    for (const key of Object.keys(gatedFm)) {
+      const entry = gatedFm[key];
+      if (entry.source === "content" && entry.value.trim() !== "") {
+        const needle = normalizeStr(entry.value);
+        if (!haystack.includes(needle)) {
+          gatedFm[key] = { source: "empty", value: "" };
+          fmSourceOk = false;
+        }
+      }
+    }
+
+    const fmSourceCheck: CheckResult = { id: "fm-source", ok: fmSourceOk };
+
+    // Update reconciled assignment with gated values
+    const cleanedAssignment = { ...reconciled, frontmatter: gatedFm };
+
+    // Step 11: merge frontmatter
+    const mergedFm = mergeFrontmatter(tpl.keys, originalParsed, cleanedAssignment.frontmatter);
+
+    // Step 12: assertParseable — throws on failure
+    let fmRoundtripCheck: CheckResult;
+    try {
+      assertParseable(mergedFm);
+      fmRoundtripCheck = { id: "fm-roundtrip", ok: true };
+    } catch (err) {
+      fmRoundtripCheck = {
+        id: "fm-roundtrip",
+        ok: false,
+        detail: err instanceof Error ? err.message : String(err),
+      };
+      const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck];
+      return {
+        notePath,
+        templatePath,
+        type: tpl.type,
+        originalText,
+        proposedText: originalText,
+        fmRows: [],
+        sectionDiff: [],
+        unassigned: [],
+        detection: { source: detection.source, confidence: detection.confidence },
+        checks,
+        hardOk: false,
+        reasoning,
+      };
+    }
+
+    // Step 13: assemble body
+    let newBody: string;
+    let assembleError: string | null = null;
+    try {
+      newBody = assembleBody(tpl, cleanedAssignment, blocks);
+    } catch (err) {
+      assembleError = err instanceof Error ? err.message : String(err);
+      newBody = originalParsed.body;
+    }
+
+    // Step 14: build proposed text
+    const proposedText = serializeFrontmatter(mergedFm.data, mergedFm.order) + newBody;
+
+    // Step 15: diff frontmatter
+    const fmRows = diffFrontmatter(originalParsed, mergedFm);
+
+    // Step 16: build sectionDiff — from template sections in template order
+    const blockById = new Map(blocks.map((b) => [b.id, b.text]));
+    const cleanedByHeading = new Map(cleanedAssignment.sections.map((s) => [s.heading, s.blocks]));
+    const sectionDiff: SectionDiff[] = tpl.sections.map((sec) => {
+      const secBlocks = cleanedByHeading.get(sec.heading) ?? [];
+      const firstId = secBlocks[0];
+      const provenance = firstId !== undefined ? (blockById.get(firstId) ?? null) : null;
+      return { heading: sec.heading, blockIds: secBlocks, provenance };
+    });
+
+    // Step 16b: resolve unassigned block ids to SourceBlocks
+    const unassigned: SourceBlock[] = cleanedAssignment.unassigned
+      .map((id) => blocks.find((b) => b.id === id))
+      .filter((b): b is SourceBlock => b !== undefined);
+
+    // Step 17: collect checks
+    const assembleCheck: CheckResult | null = assembleError !== null
+      ? { id: "assemble", ok: false, detail: `assembleBody: ${assembleError}` }
+      : null;
+    const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck];
+    if (assembleCheck !== null) {
+      checks.push(assembleCheck);
+    }
+
+    // Step 18: hardOk — true iff assignment-parse + permutation + fm-roundtrip + assemble all ok
+    const hardOk = parseCheck.ok && permCheck.ok && fmRoundtripCheck.ok && (assembleCheck === null || assembleCheck.ok);
+
+    return {
+      notePath,
+      templatePath,
+      type: tpl.type,
+      originalText,
+      proposedText: hardOk ? proposedText : originalText,
+      fmRows,
+      sectionDiff,
+      unassigned,
+      detection: { source: detection.source, confidence: detection.confidence },
+      checks,
+      hardOk,
+      reasoning,
+    };
+    } finally {
+      this.controller = null;
+    }
+  }
+
+  /**
+   * SOLE WRITER. Stale-hash guard: re-reads file, computes djb2 hash, compares to
+   * hash of proposal.originalText. Mismatch → {written:false, reason:"stale"}.
+   * If !proposal.hardOk → {written:false, reason:"blocked"}.
+   * Else: single write call, return {written:true, undo: () => write(notePath, originalText)}.
+   */
+  async persistApply(proposal: ApplyProposal): Promise<ApplyResult> {
+    if (!proposal.hardOk) {
+      return { written: false, reason: "blocked" };
+    }
+
+    // Stale-hash guard
+    const currentText = await this.deps.read(proposal.notePath);
+    if (djb2(currentText) !== djb2(proposal.originalText)) {
+      return { written: false, reason: "stale" };
+    }
+
+    await this.deps.write(proposal.notePath, proposal.proposedText);
+
+    const originalText = proposal.originalText;
+    const notePath = proposal.notePath;
+
+    return {
+      written: true,
+      undo: () => this.deps.write(notePath, originalText),
+    };
+  }
+}

@@ -22,6 +22,9 @@ export interface VaultRagSettings {
   chatInputPosition: "bottom" | "top";
   suppressThinking: boolean;
   enterSends: boolean;
+  smartApplyEnabled: boolean;
+  templateDir: string;
+  smartApplyTemperature: number;
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
@@ -46,6 +49,9 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   chatInputPosition: "bottom",
   suppressThinking: false,
   enterSends: true,
+  smartApplyEnabled: false,
+  templateDir: "Templates/",
+  smartApplyTemperature: 0,
 };
 
 type Caps = { vision: string; thinking: { support: string; confidence: string } };
@@ -128,6 +134,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildInputPos(new Setting(containerEl));
     this.buildThinking(new Setting(containerEl));
     this.buildEnter(new Setting(containerEl));
+    sec("Smart Apply");
+    this.buildSmartApplyEnabled(new Setting(containerEl));
+    this.buildSmartApplyConnectionNote(new Setting(containerEl));
+    this.buildTemplateDir(new Setting(containerEl));
+    this.buildSmartApplyTemperature(new Setting(containerEl));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
@@ -420,6 +431,43 @@ export class VaultRagSettingTab extends PluginSettingTab {
         this.plugin.settings.enterSends = v;
         await this.plugin.saveSettings();
       }));
+  }
+
+  // ── Builder: Smart Apply ──────────────────────────────────────────────
+  private buildSmartApplyEnabled(s: Setting): void {
+    s.setName("Smart Apply aktivieren")
+      .setDesc("Schaltet den Befehl, das Ribbon-Icon und das Panel frei: eine unstrukturierte Notiz hinter einem Diff-Gate in die Struktur einer Vorlage überführen. Greift beim nächsten Neuladen des Plugins.")
+      .addToggle(t => t.setValue(this.plugin.settings.smartApplyEnabled).onChange(async (v: boolean) => {
+        this.plugin.settings.smartApplyEnabled = v;
+        await this.plugin.saveSettings();
+      }));
+  }
+
+  /** Reiner Hinweis — Smart Apply nutzt die bestehende Chat-Verbindung; keine eigenen Endpoint-Felder. */
+  private buildSmartApplyConnectionNote(s: Setting): void {
+    s.setName("Verbindung")
+      .setDesc('Smart Apply nutzt die Chat-Verbindung (Endpoint, Modell) aus dem Abschnitt „Chat“ — kein eigener Endpoint nötig.');
+  }
+
+  private buildTemplateDir(s: Setting): void {
+    s.setName("Vorlagen-Ordner")
+      .setDesc('Ordner mit den Markdown-Vorlagen (z.B. Templates/). Sollte in „Ausschluss-Pfade" stehen, damit Vorlagen nicht eingebettet werden.')
+      .addText(t => t.setPlaceholder("Templates/").setValue(this.plugin.settings.templateDir)
+        .onChange(async (v: string) => {
+          this.plugin.settings.templateDir = v.trim();
+          await this.plugin.saveSettings();
+        }));
+  }
+
+  private buildSmartApplyTemperature(s: Setting): void {
+    s.setName(`Smart-Apply-Temperatur: ${this.plugin.settings.smartApplyTemperature}`)
+      .setDesc("Temperatur für den Umsortier-Call (0 = deterministisch — empfohlen für reproduzierbare Vorschläge).")
+      .addSlider(sl => sl.setLimits(0, 2, 0.1).setValue(this.plugin.settings.smartApplyTemperature)
+        .onChange(async (v: number) => {
+          this.plugin.settings.smartApplyTemperature = v;
+          s.setName(`Smart-Apply-Temperatur: ${v}`);
+          await this.plugin.saveSettings();
+        }));
   }
 
   /** Kompakte einzeilige Embedding-Status-Zeile (bei den Embedding-Settings): EIN konsistent

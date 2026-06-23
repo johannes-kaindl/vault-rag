@@ -27,11 +27,11 @@ export class TFile { path = ""; basename = ""; extension = "md"; }
 export class WorkspaceLeaf { view: any = null; async setViewState(_s: any) {} getViewState() { return {}; } detach() {} }
 export class FuzzySuggestModal<T> {
   app: any;
+  inputEl: { value: string } = { value: "" };
   // Test-Affordanz: letzte konstruierte Instanz, damit ein Test choose/close treiben kann.
   static __instance: any = null;
   constructor(app: any) { this.app = app; (this.constructor as any).__instance = this; FuzzySuggestModal.__instance = this; }
   setPlaceholder(_s: string): this { return this; }
-  setQuery(_s: string): void {}
   getItems(): T[] { return []; }
   getItemText(item: T): string { return String(item); }
   onChooseItem(_item: T, _evt?: any): void {}

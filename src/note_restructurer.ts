@@ -76,6 +76,8 @@ export function permutationCheck(allIds: string[], a: Assignment): CheckResult {
 // ── assembleBody ─────────────────────────────────────────────────────────────
 
 export const EMPTY_SECTION_SENTINEL = "(noch leer)";
+// Edge: if a template heading is literally "Übrig", that section and this catch-all will both appear. Unlikely; not engineered against.
+export const UEBRIG_HEADING = "## Übrig";
 
 export function assembleBody(tpl: TemplateSpec, a: Assignment, blocks: SourceBlock[]): string {
   const byId = new Map(blocks.map(b => [b.id, b.text]));
@@ -91,6 +93,16 @@ export function assembleBody(tpl: TemplateSpec, a: Assignment, blocks: SourceBlo
       throw new Error(`assembleBody: unbekannte Block-IDs: ${unknownIds.join(", ")}`);
     }
     parts.push(texts.length > 0 ? texts.join("\n\n") : EMPTY_SECTION_SENTINEL);
+  }
+  if (a.unassigned.length > 0) {
+    parts.push(UEBRIG_HEADING);
+    const uebrigTexts: string[] = [];
+    for (const id of a.unassigned) {
+      const text = byId.get(id);
+      if (text === undefined) throw new Error(`assembleBody: unbekannte Block-ID in unassigned: ${id}`);
+      uebrigTexts.push(text);
+    }
+    parts.push(uebrigTexts.join("\n\n"));
   }
   return parts.join("\n\n") + "\n";
 }

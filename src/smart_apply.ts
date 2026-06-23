@@ -201,7 +201,7 @@ export class SmartApply {
     const cleanedAssignment = { ...reconciled, frontmatter: gatedFm };
 
     // Step 11: merge frontmatter
-    const mergedFm = mergeFrontmatter(tpl.keys, originalParsed, cleanedAssignment.frontmatter);
+    const mergedFm = mergeFrontmatter(tpl.keys, tpl.fmDefaults, originalParsed, cleanedAssignment.frontmatter);
 
     // Step 12: assertParseable — throws on failure
     let fmRoundtripCheck: CheckResult;

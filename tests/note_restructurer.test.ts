@@ -7,6 +7,7 @@ import {
   parseAssignment,
   reconcileAssignment,
   EMPTY_SECTION_SENTINEL,
+  UEBRIG_HEADING,
   ANTI_FABRICATION,
   SourceBlock,
   Assignment,
@@ -175,6 +176,29 @@ describe("assembleBody", () => {
     const a = asg({ sections: [{ heading: "Setup", blocks: ["block_0", "block_99"] }] });
     expect(() => assembleBody(tpl, a, blocks)).toThrow(/block_99/);
   });
+  it("fügt ## Übrig-Sektion an wenn unassigned Blöcke vorhanden", () => {
+    const blocks: SourceBlock[] = [
+      { id: "block_0", text: "Inhalt für Setup." },
+      { id: "block_1", text: "Abseits-Absatz." },
+    ];
+    const tpl = spec(["Setup"]);
+    const a = asg({
+      sections: [{ heading: "Setup", blocks: ["block_0"] }],
+      unassigned: ["block_1"],
+    });
+    const body = assembleBody(tpl, a, blocks);
+    expect(body).toContain("## Übrig");
+    expect(body).toContain("Abseits-Absatz.");
+    // Übrig comes after the last template section
+    expect(body.indexOf("## Setup")).toBeLessThan(body.indexOf("## Übrig"));
+  });
+  it("keine ## Übrig-Sektion wenn keine unassigned Blöcke", () => {
+    const blocks: SourceBlock[] = [{ id: "block_0", text: "Inhalt." }];
+    const tpl = spec(["Setup"]);
+    const a = asg({ sections: [{ heading: "Setup", blocks: ["block_0"] }] });
+    const body = assembleBody(tpl, a, blocks);
+    expect(body).not.toContain("## Übrig");
+  });
 });
 
 describe("assembleBody Inhaltskonservierung (Property)", () => {
@@ -224,8 +248,8 @@ describe("assembleBody Inhaltskonservierung (Property)", () => {
 
       const assembled = assembleBody(tpl, a, blocks);
       const original = new Set(tokens(body));
-      // Host-injizierte Tokens (Überschriften + Sentinel-Wort) ausnehmen
-      const hostTokens = new Set([...tokens(headings.join(" ")), ...tokens(EMPTY_SECTION_SENTINEL)]);
+      // Host-injizierte Tokens (Überschriften + Sentinel-Wort + Übrig-Heading) ausnehmen
+      const hostTokens = new Set([...tokens(headings.join(" ")), ...tokens(EMPTY_SECTION_SENTINEL), ...tokens(UEBRIG_HEADING)]);
       for (const t of tokens(assembled)) {
         if (hostTokens.has(t)) continue;
         expect(original.has(t)).toBe(true);

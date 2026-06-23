@@ -102,6 +102,19 @@ describe("Round-Trip-Self-Check", () => {
   });
 });
 
+describe("parseInlineList – Kommas in gequoteten Listenelementen", () => {
+  it("serialize→parse Round-Trip für Listenelement mit Komma bleibt stabil und wirft nicht", () => {
+    const data = { tags: ["machine learning, ai", "obsidian"] };
+    const order = ["tags"];
+    const out = serializeFrontmatter(data, order);
+    const rt = parseFrontmatter(out + "Body\n");
+    expect(rt.data).toEqual(data);
+    expect(rt.order).toEqual(order);
+    const fm = { data, order };
+    expect(() => assertParseable(fm)).not.toThrow();
+  });
+});
+
 describe("Notiz ohne Frontmatter → sauber erzeugen", () => {
   it("erzeugt einen wohlgeformten Block mit genau einer Leerzeile vor dem Body", () => {
     const original = parseFrontmatter("Roher Body ohne Frontmatter.\n");

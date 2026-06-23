@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { SmartApply, SmartApplyDeps } from "../src/smart_apply";
 import type { ChatClient } from "../src/chat_client";
+import { parseFrontmatter } from "../src/frontmatter";
+import { splitBlocks } from "../src/note_restructurer";
 
 // ── Test data ────────────────────────────────────────────────────────────────
 
@@ -277,6 +279,7 @@ describe("SmartApply", () => {
   it("Idempotenz: erneute Anwendung auf bereits angewandte Notiz → leeres diff", async () => {
     const writeFn = vi.fn();
     let currentContent = testNoteText;
+    let clientJson = validAssignmentJSON();
     const deps = makeDeps({
       read: async (p) => {
         if (p === TEMPLATE_PATH) return templateText;
@@ -284,7 +287,7 @@ describe("SmartApply", () => {
       },
       write: writeFn,
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()));
+    const sa = new SmartApply(deps, () => makeClient(clientJson)());
 
     // First apply
     const proposal1 = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
@@ -293,8 +296,34 @@ describe("SmartApply", () => {
     // Update "stored" content to proposedText
     currentContent = proposal1.proposedText;
 
-    // Second apply — re-run on the already-applied note
+    // Discover actual block IDs in the applied note by splitting its body
+    const appliedParsed = parseFrontmatter(proposal1.proposedText);
+    const appliedBlocks = splitBlocks(appliedParsed.body);
+    // Partition blocks into their sections by heading boundaries
+    const agendaIdx = appliedBlocks.findIndex((b) => b.text.startsWith("## Agenda"));
+    const ergebnisseIdx = appliedBlocks.findIndex((b) => b.text.startsWith("## Ergebnisse"));
+    const secondAgendaIds = appliedBlocks
+      .slice(agendaIdx, ergebnisseIdx)
+      .map((b) => b.id);
+    const secondErgebnisseIds = appliedBlocks
+      .slice(ergebnisseIdx)
+      .map((b) => b.id);
+    clientJson = JSON.stringify({
+      version: 1,
+      sections: [
+        { heading: "Agenda", blocks: secondAgendaIds },
+        { heading: "Ergebnisse", blocks: secondErgebnisseIds },
+      ],
+      unassigned: [],
+      frontmatter: {
+        title: { source: "content", value: "Projekt-Kickoff" },
+        datum: { source: "empty", value: "" },
+      },
+    });
+
+    // Second apply — re-run on the already-applied note with correct block IDs
     const proposal2 = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    expect(proposal2.hardOk).toBe(true);
     const changedRows = proposal2.fmDiff.filter((r) => r.change !== "unveraendert");
     expect(changedRows.length).toBe(0);
   });

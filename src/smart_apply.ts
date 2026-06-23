@@ -226,13 +226,16 @@ export class SmartApply {
     });
 
     // Step 17: collect checks
+    const assembleCheck: CheckResult | null = assembleError !== null
+      ? { id: "assemble", ok: false, detail: `assembleBody: ${assembleError}` }
+      : null;
     const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck];
-    if (assembleError !== null) {
-      checks.push({ id: "permutation", ok: false, detail: assembleError });
+    if (assembleCheck !== null) {
+      checks.push(assembleCheck);
     }
 
-    // Step 18: hardOk — true iff assignment-parse + permutation + fm-roundtrip all ok
-    const hardOk = parseCheck.ok && permCheck.ok && fmRoundtripCheck.ok;
+    // Step 18: hardOk — true iff assignment-parse + permutation + fm-roundtrip + assemble all ok
+    const hardOk = parseCheck.ok && permCheck.ok && fmRoundtripCheck.ok && (assembleCheck === null || assembleCheck.ok);
 
     return {
       notePath,

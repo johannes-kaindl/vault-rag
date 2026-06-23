@@ -11,7 +11,7 @@ export interface Assignment {
   frontmatter: Record<string, FmAssignedValue>;
 }
 
-export type CheckId = "assignment-parse" | "permutation" | "fm-roundtrip" | "fm-source";
+export type CheckId = "assignment-parse" | "permutation" | "fm-roundtrip" | "fm-source" | "assemble";
 export interface CheckResult { id: CheckId; ok: boolean; detail?: string }
 
 // ── splitBlocks ──────────────────────────────────────────────────────────────

@@ -374,6 +374,52 @@ describe("SmartApplyView — Cockpit", () => {
     expect(body.textContent).toContain("weil X");
   });
 
+  // Step 12 — Dropdowns survive state transitions (regression for cache bug)
+  it("model + template selects behalten Optionen nach State-Übergang (idle→running→diff)", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    await flush(8);
+
+    // After onOpen + flush: selects should have options
+    const modelSelAfterOpen = first(view.contentEl, "vault-rag-sa-model");
+    const templateSelAfterOpen = first(view.contentEl, "vault-rag-sa-template");
+    expect(modelSelAfterOpen.children.length).toBeGreaterThan(0);
+    // template select has at least "automatisch erkennen" + the listed templates
+    expect(templateSelAfterOpen.children.length).toBeGreaterThan(1);
+    expect(templateSelAfterOpen.children[0].value).toBe("");
+    expect(templateSelAfterOpen.children[0].textContent).toContain("automatisch");
+
+    // Trigger state transition: idle → running → diff
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush(8);
+
+    // After diff state: selects must still have options
+    const modelSelAfterDiff = first(view.contentEl, "vault-rag-sa-model");
+    const templateSelAfterDiff = first(view.contentEl, "vault-rag-sa-template");
+    expect(modelSelAfterDiff.children.length).toBeGreaterThan(0);
+    expect(templateSelAfterDiff.children.length).toBeGreaterThan(1);
+    expect(templateSelAfterDiff.children[0].value).toBe("");
+  });
+
+  it("selectedTemplate bleibt über State-Übergang erhalten", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    await flush(8);
+
+    // Select a template
+    const templateSel = first(view.contentEl, "vault-rag-sa-template");
+    templateSel.value = "Templates/Buch.md";
+    (templateSel._listeners?.change ?? []).forEach((cb: any) => cb());
+
+    // Trigger state transition: idle → running → diff
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush(8);
+
+    // After diff state: template selection must still be preserved
+    const templateSelAfterDiff = first(view.contentEl, "vault-rag-sa-template");
+    expect(templateSelAfterDiff.value).toBe("Templates/Buch.md");
+  });
+
   // Source-cleanliness
   it("Quelltext nutzt kein innerHTML", async () => {
     const fs = await import("node:fs");

@@ -59,6 +59,12 @@ export class SmartApplyView extends ItemView {
   private connEl: HTMLElement | null = null;
   private thinkEl: HTMLElement | null = null;
 
+  // Dropdown / connection cache — populated by refresh* methods, filled synchronously on every render
+  private models: string[] = [];
+  private templates: string[] = [];
+  private connected: boolean | null = null;
+  private selectedTemplate = "";
+
   // Timer / guards
   private timer: ReturnType<typeof window.setInterval> | null = null;
   private workStart = 0;
@@ -113,13 +119,29 @@ export class SmartApplyView extends ItemView {
 
     const row1 = header.createDiv({ cls: "vault-rag-sa-header-row" });
     this.modelSel = row1.createEl("select", { cls: "vault-rag-sa-model dropdown" });
+    // Fill model select synchronously from cache
+    const cur = this.deps.getModel();
+    const modelList = this.models.length > 0
+      ? (this.models.includes(cur) ? this.models : [cur, ...this.models])
+      : [cur];
+    for (const m of modelList) { const o = this.modelSel.createEl("option", { text: m }); o.value = m; }
+    this.modelSel.value = cur;
     this.modelSel.addEventListener("change", () => {
       this.deps.setModel(this.modelSel?.value ?? "");
       this.renderThink();
     });
 
     this.connEl = row1.createDiv({ cls: "vault-rag-sa-conn" });
-    this.connEl.setText("● Smart-Apply-LLM: prüfe…");
+    // Reflect cached connection state synchronously
+    if (this.connected === null) {
+      this.connEl.setText("● Smart-Apply-LLM: prüfe…");
+    } else if (this.connected) {
+      this.connEl.setText("● Smart-Apply-LLM verbunden");
+      this.connEl.toggleClass("is-online", true);
+    } else {
+      this.connEl.setText("○ Smart-Apply-LLM offline — in den Settings prüfen");
+      this.connEl.toggleClass("is-offline", true);
+    }
     this.connEl.addEventListener("click", () => void this.refreshConn());
 
     this.thinkEl = row1.createEl("button", { cls: "vault-rag-sa-think clickable-icon" });
@@ -132,6 +154,17 @@ export class SmartApplyView extends ItemView {
 
     const row2 = header.createDiv({ cls: "vault-rag-sa-header-row" });
     this.templateSel = row2.createEl("select", { cls: "vault-rag-sa-template dropdown" });
+    // Fill template select synchronously from cache
+    const autoOpt = this.templateSel.createEl("option", { text: "automatisch erkennen" });
+    autoOpt.value = "";
+    for (const t of this.templates) {
+      const o = this.templateSel.createEl("option", { text: t.split("/").pop()?.replace(/\.md$/, "") ?? t });
+      o.value = t;
+    }
+    this.templateSel.value = this.selectedTemplate;
+    this.templateSel.addEventListener("change", () => {
+      this.selectedTemplate = this.templateSel?.value ?? "";
+    });
 
     const running = this.state === "running";
     const runBtn = row2.createEl("button", { cls: "vault-rag-sa-run mod-cta", text: "Auf aktive Notiz anwenden" });
@@ -162,35 +195,23 @@ export class SmartApplyView extends ItemView {
   }
 
   private async refreshModels(): Promise<void> {
-    const sel = this.modelSel; if (!sel) return;
-    const cur = this.deps.getModel();
     const models = await this.deps.listModels();
-    sel.empty();
-    const list = models.includes(cur) ? models : [cur, ...models];
-    for (const m of list) { const o = sel.createEl("option", { text: m }); o.value = m; }
-    sel.value = cur;
-    this.renderThink();
+    this.models = models;
+    this.render();
   }
 
   private async refreshTemplates(): Promise<void> {
-    const sel = this.templateSel; if (!sel) return;
     const templates = await this.deps.listTemplates();
-    sel.empty();
-    const autoOpt = sel.createEl("option", { text: "automatisch erkennen" });
-    autoOpt.value = "";
-    for (const t of templates) {
-      const o = sel.createEl("option", { text: t.split("/").pop()?.replace(/\.md$/, "") ?? t });
-      o.value = t;
-    }
+    this.templates = templates;
+    this.render();
   }
 
   private async refreshConn(): Promise<void> {
-    const el = this.connEl; if (!el) return;
-    el.setText("● Smart-Apply-LLM: prüfe…");
+    this.connected = null;
+    this.render();
     const ok = await this.deps.ping();
-    el.setText(ok ? "● Smart-Apply-LLM verbunden" : "○ Smart-Apply-LLM offline — in den Settings prüfen");
-    el.toggleClass("is-online", ok);
-    el.toggleClass("is-offline", !ok);
+    this.connected = ok;
+    this.render();
   }
 
   // ── Body: idle ──────────────────────────────────────────────────────────────
@@ -389,7 +410,7 @@ export class SmartApplyView extends ItemView {
       new Notice("Keine aktive Markdown-Notiz — öffne eine Notiz und versuche es erneut.");
       return;
     }
-    const templatePath = this.templateSel?.value ?? "";
+    const templatePath = this.selectedTemplate;
     await this.runBuild(() => this.deps.build(path, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
   }
 
@@ -452,7 +473,7 @@ export class SmartApplyView extends ItemView {
   }
 
   private async onReroll(p: ApplyProposal): Promise<void> {
-    const templatePath = this.templateSel?.value ?? p.templatePath;
+    const templatePath = this.selectedTemplate || p.templatePath;
     await this.runBuild(() => this.deps.reroll(p, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
   }
 
@@ -465,7 +486,7 @@ export class SmartApplyView extends ItemView {
       this.render();
       return;
     }
-    const templatePath = this.templateSel?.value ?? this.proposal?.templatePath ?? "";
+    const templatePath = this.selectedTemplate || (this.proposal?.templatePath ?? "");
     await this.runBuild(() => this.deps.build(path, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
     if (this.state === "diff" && this.proposal && this.proposal.hardOk) {
       await this.onAccept(this.proposal);

@@ -48,9 +48,9 @@ function mkProposal(over: Partial<ApplyProposal> = {}): ApplyProposal {
 
 function mkDeps(over: Partial<SmartApplyViewDeps> = {}): SmartApplyViewDeps {
   return {
-    build: vi.fn(async (_notePath: string, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
+    build: vi.fn(async (_notePath: string, _templatePath: string, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
     accept: vi.fn(async (): Promise<ApplyResult> => ({ written: true, undo: vi.fn(async () => {}) })),
-    reroll: vi.fn(async (_p: ApplyProposal, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
+    reroll: vi.fn(async (_p: ApplyProposal, _templatePath: string, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
     openPath: vi.fn(),
     abort: vi.fn(),
     activeNotePath: vi.fn(() => "Inbox/roh.md"),
@@ -146,12 +146,12 @@ describe("SmartApplyView — Cockpit", () => {
   // Step 4 — start() valid path → running
   it("start() mit aktiver Notiz geht in running und ruft build mit dem Pfad", async () => {
     let resolveBuild: (p: ApplyProposal) => void = () => {};
-    const build = vi.fn((_path: string) => new Promise<ApplyProposal>((res) => { resolveBuild = res; }));
+    const build = vi.fn((_path: string, _templatePath: string) => new Promise<ApplyProposal>((res) => { resolveBuild = res; }));
     const { view } = mkView({ build: build as unknown as SmartApplyViewDeps["build"] });
     await view.onOpen();
     first(view.contentEl, "vault-rag-sa-run").click();
     await flush(2);
-    expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(Function), expect.any(Function));
+    expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(String), expect.any(Function), expect.any(Function));
     expect(first(view.contentEl, "vault-rag-sa-running")).toBeTruthy();
     // Aufräumen: build auflösen, damit kein hängender Timer bleibt
     resolveBuild(mkProposal());
@@ -162,7 +162,7 @@ describe("SmartApplyView — Cockpit", () => {
   it("onToken/onReasoning hängen Live-Text in Roh-Stream-pre bzw. 💭-details an", async () => {
     let tok: (t: string) => void = () => {};
     let rsn: (t: string) => void = () => {};
-    const build = vi.fn((_path: string, onToken: (t: string) => void, onReasoning: (t: string) => void) =>
+    const build = vi.fn((_path: string, _templatePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) =>
       new Promise<ApplyProposal>(() => { tok = onToken; rsn = onReasoning; }));
     const { view } = mkView({ build: build as unknown as SmartApplyViewDeps["build"] });
     await view.onOpen();

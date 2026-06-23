@@ -9,9 +9,9 @@ export type { ApplyProposal, ApplyResult, SectionDiff } from "./smart_apply";
 // ── Deps ────────────────────────────────────────────────────────────────────
 
 export interface SmartApplyViewDeps {
-  build: (notePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
+  build: (notePath: string, templatePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
   accept: (p: ApplyProposal) => Promise<ApplyResult>;
-  reroll: (p: ApplyProposal, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
+  reroll: (p: ApplyProposal, templatePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
   openPath: (p: string) => void;
   abort: () => void;
   activeNotePath: () => string | null;
@@ -176,6 +176,8 @@ export class SmartApplyView extends ItemView {
     const sel = this.templateSel; if (!sel) return;
     const templates = await this.deps.listTemplates();
     sel.empty();
+    const autoOpt = sel.createEl("option", { text: "automatisch erkennen" });
+    autoOpt.value = "";
     for (const t of templates) {
       const o = sel.createEl("option", { text: t.split("/").pop()?.replace(/\.md$/, "") ?? t });
       o.value = t;
@@ -387,7 +389,8 @@ export class SmartApplyView extends ItemView {
       new Notice("Keine aktive Markdown-Notiz — öffne eine Notiz und versuche es erneut.");
       return;
     }
-    await this.runBuild(() => this.deps.build(path, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    const templatePath = this.templateSel?.value ?? "";
+    await this.runBuild(() => this.deps.build(path, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
   }
 
   /** Shared build→diff pipeline used by start(), reroll() and stale-rebuild. */
@@ -449,7 +452,8 @@ export class SmartApplyView extends ItemView {
   }
 
   private async onReroll(p: ApplyProposal): Promise<void> {
-    await this.runBuild(() => this.deps.reroll(p, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    const templatePath = this.templateSel?.value ?? p.templatePath;
+    await this.runBuild(() => this.deps.reroll(p, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
   }
 
   /** Stale rebuild: re-build against current note, accept again if hardOk. */
@@ -461,7 +465,8 @@ export class SmartApplyView extends ItemView {
       this.render();
       return;
     }
-    await this.runBuild(() => this.deps.build(path, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    const templatePath = this.templateSel?.value ?? this.proposal?.templatePath ?? "";
+    await this.runBuild(() => this.deps.build(path, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
     if (this.state === "diff" && this.proposal && this.proposal.hardOk) {
       await this.onAccept(this.proposal);
     }

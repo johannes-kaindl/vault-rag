@@ -16,7 +16,6 @@ import { ChatView, VIEW_TYPE_CHAT } from "./chat_view";
 import { SmartApply, type ApplyProposal } from "./smart_apply";
 import { SmartApplyView, VIEW_TYPE_SMART_APPLY } from "./smart_apply_view";
 import { extractType } from "./template_matcher";
-import { pickTemplate } from "./template_picker";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -153,15 +152,31 @@ export default class VaultRagPlugin extends Plugin {
           },
         },
         () => this.chatClient,
-        () => this.settings.smartApplyTemperature,
+        () => ({
+          model: this.settings.smartApplyModel || this.settings.chatModel,
+          temperature: this.settings.smartApplyTemperature,
+          suppressThinking: this.settings.smartApplySuppressThinking,
+          maxTokens: this.settings.smartApplyMaxTokens,
+        }),
       );
       this.registerView(VIEW_TYPE_SMART_APPLY, (leaf: WorkspaceLeaf) => new SmartApplyView(leaf, {
-        // SEAM-VERTRAG (7): build/reroll tragen die Live-Stream-Callbacks der View.
-        build: (notePath, onToken, onReasoning) => this.proposeSmartApply(notePath, null, onToken, onReasoning),
+        // SEAM-VERTRAG (7): build/reroll tragen templatePath + die Live-Stream-Callbacks der View.
+        build: (notePath, templatePath, onToken, onReasoning) => this.proposeSmartApply(notePath, templatePath, onToken, onReasoning),
         accept: (p) => this.smartApply!.persistApply(p),
-        reroll: (p, onToken, onReasoning) => this.proposeSmartApply(p.notePath, p.templatePath, onToken, onReasoning),
+        reroll: (p, templatePath, onToken, onReasoning) => this.proposeSmartApply(p.notePath, templatePath, onToken, onReasoning),
         openPath: this.openPath,
         abort: () => { this.smartApply?.abort(); },
+        activeNotePath: () => {
+          const f = this.app.workspace.getActiveFile();
+          return f instanceof TFile && f.extension === "md" ? f.path : null;
+        },
+        listModels: () => this.chatClient.listModels(),
+        ping: () => this.chatClient.ping(),
+        getModel: () => this.settings.smartApplyModel || this.settings.chatModel,
+        setModel: (m: string) => { this.settings.smartApplyModel = m; void this.saveSettings(); },
+        listTemplates: () => Promise.resolve(this.app.vault.getMarkdownFiles().map(f => f.path).filter(p => p.startsWith(this.settings.templateDir))),
+        getSuppress: () => this.settings.smartApplySuppressThinking,
+        setSuppress: (v: boolean) => { this.settings.smartApplySuppressThinking = v; void this.saveSettings(); },
       }));
       this.addRibbonIcon("wand-2", "Smart Apply", () => void this.activateSmartApplyView());
       this.addCommand({
@@ -386,40 +401,38 @@ export default class VaultRagPlugin extends Plugin {
     await leaf?.setViewState({ type: VIEW_TYPE_CHAT, active: true });
   }
 
-  // SEAM-VERTRAG (5): IMMER picken. Vorauswahl = explizit (Erneut: aktuelles Template),
-  // sonst erkannte Typ-Vorlage. Picker-Abbruch (null) → Fehler „abgebrochen" (View zeigt „Verworfen").
+  // SEAM-VERTRAG (5): templatePath="" → auto-detect; non-empty → direkt verwenden (Picker entfällt).
+  // Picker (pickTemplate) bleibt im Code, wird im Cockpit-Fluss nicht mehr aufgerufen.
   private async proposeSmartApply(
     notePath: string,
-    preselect: string | null,
+    templatePath: string,
     onToken: (t: string) => void,
     onReasoning: (t: string) => void,
   ): Promise<ApplyProposal> {
     const core = this.smartApply;
     if (!core) throw new Error("Smart Apply ist deaktiviert");
-    // SEAM-VERTRAG (5): Vorauswahl = explizit (Erneut) oder erkannte Typ-Vorlage.
-    // detect() ONCE — avoid double embed+search sweep
+    if (templatePath !== "") {
+      // Explizite Vorlage aus dem Cockpit-Dropdown — direkt verwenden, kein detect().
+      return core.propose(notePath, templatePath, onToken, onReasoning);
+    }
+    // Auto-detect: detect() ONCE — avoid double embed+search sweep.
     const detection = await core.detect(notePath);
-    const pre = preselect ?? detection.templatePath;
-    const tpl = await pickTemplate(this.app, this.settings.templateDir, pre);
-    if (tpl === null) throw new Error("abgebrochen");
+    const tpl = detection.templatePath;
+    if (!tpl) {
+      new Notice("Keine passende Vorlage — bitte im Cockpit wählen");
+      throw new Error("abgebrochen");
+    }
     // SEAM-VERTRAG (7): Live-Stream-Callbacks der View durchreichen (genau ein Stream in propose).
     return core.propose(notePath, tpl, onToken, onReasoning, undefined, detection);
   }
 
-  // SEAM-VERTRAG (2): aktive Datei VOR setViewState ermitteln, Leaf öffnen, dann run() aufrufen.
+  // Reveal-only: öffnet/enthüllt das Cockpit; Trigger läuft über den Cockpit-Button.
   async activateSmartApplyView(): Promise<void> {
-    const file = this.app.workspace.getActiveFile();
-    if (!(file instanceof TFile) || file.extension !== "md") {
-      new Notice("Smart Apply braucht eine aktive Markdown-Notiz");
-      return;
-    }
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SMART_APPLY);
     const leaf = existing.length ? existing[0] : this.app.workspace.getRightLeaf(false);
     if (!leaf) return;
     if (!existing.length) await leaf.setViewState({ type: VIEW_TYPE_SMART_APPLY, active: true });
     void this.app.workspace.revealLeaf(leaf);
-    // SEAM-VERTRAG (2): ohne diesen Aufruf bleibt die Pipeline tot.
-    await (leaf.view as SmartApplyView).run(file.path);
   }
 
   async saveSettings() { await this.saveData(this.settings); }

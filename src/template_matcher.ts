@@ -1,5 +1,8 @@
+import { parseFrontmatter } from "./frontmatter";
+import type { FmValue } from "./frontmatter";
+
 export interface TemplateSection { heading: string; level: number; placeholder: string }
-export interface TemplateSpec { type: string; keys: string[]; sections: TemplateSection[]; raw: string }
+export interface TemplateSpec { type: string; keys: string[]; fmDefaults: Record<string, FmValue>; sections: TemplateSection[]; raw: string }
 
 // Lokal — chunker.ts exportiert seine FRONTMATTER_RE nicht.
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?/;
@@ -23,15 +26,10 @@ export function extractType(noteText: string): string | null {
 
 /** Template-Datei → Schema: Frontmatter-Keys + geordnete Body-Überschriften (mit Platzhaltertext). */
 export function parseTemplate(text: string): TemplateSpec {
-  const fm = FRONTMATTER_RE.exec(text);
-  const keys: string[] = [];
-  if (fm) {
-    for (const line of fm[1].split("\n")) {
-      const km = /^([A-Za-z0-9_-]+):/.exec(line);
-      if (km) keys.push(km[1]);
-    }
-  }
-  const body = fm ? text.slice(fm[0].length) : text;
+  const parsed = parseFrontmatter(text);
+  const keys = parsed.order;
+  const fmDefaults = parsed.data;
+  const body = parsed.body;
   const lines = body.split("\n");
   const sections: TemplateSection[] = [];
   let cur: { heading: string; level: number; buf: string[] } | null = null;
@@ -48,7 +46,7 @@ export function parseTemplate(text: string): TemplateSpec {
     }
   }
   flush();
-  return { type: extractType(text) ?? "", keys, sections, raw: text };
+  return { type: extractType(text) ?? "", keys, fmDefaults, sections, raw: text };
 }
 
 /** Emoji + Whitespace raus, lowercase — für robusten Typ/Template-Vergleich. */

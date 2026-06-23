@@ -58,12 +58,53 @@ describe("mergeFrontmatter", () => {
       up: { source: "content", value: "[[Parent]]" },   // neu aus LLM
       tags: { source: "empty", value: "" },             // leer
     };
-    const merged = mergeFrontmatter(tplKeys, original, llm);
+    const merged = mergeFrontmatter(tplKeys, {}, original, llm);
     expect(merged.order).toEqual(["type", "up", "tags", "created"]);
     expect(merged.data.type).toBe("💻 Coding");   // bestehend gewinnt
     expect(merged.data.up).toBe("[[Parent]]");
     expect(merged.data.tags).toBe("");
     expect(merged.data.created).toBe("2026-01-01"); // preserve-unknown
+  });
+  it("Template-Default füllt auf wenn kein bestehender + kein gültiger LLM-Wert (type=Besprechung)", () => {
+    const tplKeys = ["type", "status"];
+    const tplDefaults = { type: "Besprechung", status: "offen" };
+    const original: ParsedFrontmatter = { data: {}, order: [], body: "" };
+    const llm: Record<string, FmAssignedValue> = {
+      type: { source: "empty", value: "" },
+      status: { source: "empty", value: "" },
+    };
+    const merged = mergeFrontmatter(tplKeys, tplDefaults, original, llm);
+    expect(merged.data["type"]).toBe("Besprechung");
+    expect(merged.data["status"]).toBe("offen");
+  });
+  it("gültiger LLM-content-Wert schlägt Template-Default", () => {
+    const tplKeys = ["status"];
+    const tplDefaults = { status: "offen" };
+    const original: ParsedFrontmatter = { data: {}, order: [], body: "" };
+    const llm: Record<string, FmAssignedValue> = {
+      status: { source: "content", value: "geschlossen" },
+    };
+    const merged = mergeFrontmatter(tplKeys, tplDefaults, original, llm);
+    expect(merged.data["status"]).toBe("geschlossen");
+  });
+  it("bestehender Notizverweis schlägt Template-Default und LLM-Wert", () => {
+    const tplKeys = ["type"];
+    const tplDefaults = { type: "Besprechung" };
+    const original: ParsedFrontmatter = { data: { type: "Retrospektive" }, order: ["type"], body: "" };
+    const llm: Record<string, FmAssignedValue> = {
+      type: { source: "content", value: "Planung" },
+    };
+    const merged = mergeFrontmatter(tplKeys, tplDefaults, original, llm);
+    expect(merged.data["type"]).toBe("Retrospektive");
+  });
+  it("preserve-unknown-keys bleibt erhalten (kein Template-Key am Tail)", () => {
+    const tplKeys = ["type"];
+    const tplDefaults = { type: "Besprechung" };
+    const original: ParsedFrontmatter = { data: { type: "", erstelltAm: "2026-01-01" }, order: ["type", "erstelltAm"], body: "" };
+    const llm: Record<string, FmAssignedValue> = {};
+    const merged = mergeFrontmatter(tplKeys, tplDefaults, original, llm);
+    expect(merged.data["erstelltAm"]).toBe("2026-01-01");
+    expect(merged.order).toContain("erstelltAm");
   });
 });
 
@@ -118,7 +159,7 @@ describe("parseInlineList – Kommas in gequoteten Listenelementen", () => {
 describe("Notiz ohne Frontmatter → sauber erzeugen", () => {
   it("erzeugt einen wohlgeformten Block mit genau einer Leerzeile vor dem Body", () => {
     const original = parseFrontmatter("Roher Body ohne Frontmatter.\n");
-    const merged = mergeFrontmatter(["type"], original, { type: { source: "content", value: "📓 Note" } });
+    const merged = mergeFrontmatter(["type"], {}, original, { type: { source: "content", value: "📓 Note" } });
     const fmBlock = serializeFrontmatter(merged.data, merged.order);
     const full = fmBlock + "\n" + original.body;
     expect(full).toBe('---\ntype: "📓 Note"\n---\n\nRoher Body ohne Frontmatter.\n');

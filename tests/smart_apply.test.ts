@@ -548,6 +548,90 @@ Erste Ergebnisse hier.
     expect(ergebnisse?.blockIds).toHaveLength(0);
   });
 
+  it("Template-Frontmatter-Default füllt auf wenn Note-Frontmatter fehlt (type=Besprechung)", async () => {
+    const besprechungTemplate = `---
+type: Besprechung
+status: offen
+---
+## Tagesordnung
+
+%% Was besprochen werden soll %%
+
+## Ergebnisse
+
+%% Ergebnisse der Besprechung %%
+`;
+    const noteWithoutType = `## Tagesordnung
+
+Punkt 1: Projektstand.
+
+## Ergebnisse
+
+Keine bisher.
+`;
+    // Blocks in noteWithoutType: block_0="## Tagesordnung", block_1="Punkt 1: Projektstand.", block_2="## Ergebnisse", block_3="Keine bisher."
+    const assignment = JSON.stringify({
+      version: 1,
+      sections: [
+        { heading: "Tagesordnung", blocks: ["block_0", "block_1"] },
+        { heading: "Ergebnisse", blocks: ["block_2", "block_3"] },
+      ],
+      unassigned: [],
+      frontmatter: {
+        type: { source: "empty", value: "" }, // LLM correctly marks as empty (not in body)
+        status: { source: "empty", value: "" },
+      },
+    });
+    const deps = makeDeps({
+      read: async (p: string) => {
+        if (p === "Templates/Besprechung.md") return besprechungTemplate;
+        return noteWithoutType;
+      },
+      listTemplates: async () => ["Templates/Besprechung.md"],
+    });
+    const sa = new SmartApply(deps, makeClient(assignment), () => 0);
+    const proposal = await sa.propose(NOTE_PATH, "Templates/Besprechung.md", () => {}, () => {});
+
+    expect(proposal.hardOk).toBe(true);
+    // type and status must come from template defaults
+    const parsedFm = parseFrontmatter(proposal.proposedText);
+    expect(parsedFm.data["type"]).toBe("Besprechung");
+    expect(parsedFm.data["status"]).toBe("offen");
+  });
+
+  it("unassigned Block erscheint in proposedText unter ## Übrig", async () => {
+    // Using testNoteText + templateText from the existing test setup
+    // Block that goes to unassigned: block_3 = "Erste Ergebnisse hier."
+    // (block_3 is put under non-template heading "Notizen" → reconcile moves to unassigned)
+    const assignmentWithUnassigned = JSON.stringify({
+      version: 1,
+      sections: [
+        { heading: "Agenda", blocks: ["block_0", "block_1"] },
+        { heading: "Ergebnisse", blocks: ["block_2"] },
+        { heading: "Notizen", blocks: ["block_3"] }, // non-template → reconcile → unassigned
+      ],
+      unassigned: [],
+      frontmatter: {
+        title: { source: "content", value: "Projekt-Kickoff" },
+        datum: { source: "empty", value: "" },
+      },
+    });
+    const deps = makeDeps({
+      read: async (p: string) => {
+        if (p === TEMPLATE_PATH) return templateText;
+        return testNoteText;
+      },
+    });
+    const sa = new SmartApply(deps, makeClient(assignmentWithUnassigned), () => 0);
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+
+    expect(proposal.hardOk).toBe(true);
+    expect(proposal.proposedText).toContain("## Übrig");
+    expect(proposal.proposedText).toContain("Erste Ergebnisse hier.");
+    // And unassigned is also in the proposal.unassigned array
+    expect(proposal.unassigned.map((b) => b.id)).toContain("block_3");
+  });
+
   it("propose() mit übergebener detection ruft detect() nicht erneut auf", async () => {
     const detectSpy = vi.spyOn(SmartApply.prototype, "detect");
     const deps = makeDeps({

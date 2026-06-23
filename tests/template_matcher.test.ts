@@ -71,6 +71,17 @@ describe("parseTemplate", () => {
     expect(spec.type).toBe("💻 Coding");
     expect(spec.raw).toBe(tpl);
   });
+  it("erfasst fmDefaults aus dem Template-Frontmatter", () => {
+    // Template with type: Besprechung + status: offen
+    const tpl2 = parseTemplate("---\ntype: Besprechung\nstatus: offen\n---\n## Tagesordnung\n");
+    expect(tpl2.fmDefaults["type"]).toBe("Besprechung");
+    expect(tpl2.fmDefaults["status"]).toBe("offen");
+    expect(tpl2.type).toBe("Besprechung");
+  });
+  it("keys-Reihenfolge folgt der Frontmatter-Reihenfolge", () => {
+    const tpl2 = parseTemplate("---\ntype: Besprechung\nstatus: offen\nteilnehmer:\n---\n## Tagesordnung\n");
+    expect(tpl2.keys).toEqual(["type", "status", "teilnehmer"]);
+  });
 });
 
 describe("resolveTemplateForType", () => {

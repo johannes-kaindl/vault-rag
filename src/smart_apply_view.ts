@@ -291,11 +291,16 @@ export class SmartApplyView extends ItemView {
   private async onAccept(p: ApplyProposal): Promise<void> {
     if (this.running) return;
     this.running = true;
-    const res = await this.deps.accept(p);
-    this.running = false;
-    if (res.written) {
-      this.applied = true;
-      this.lastUndo = res.undo ?? null;
+    try {
+      const res = await this.deps.accept(p);
+      if (res.written) {
+        this.applied = true;
+        this.lastUndo = res.undo ?? null;
+      }
+    } catch (e) {
+      new Notice(`Smart Apply: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      this.running = false;
     }
     this.render();
   }
@@ -330,7 +335,9 @@ export class SmartApplyView extends ItemView {
     const undo = this.lastUndo;
     if (!undo) return;
     await undo();
-    // Clear undo capability; stay in applied state (no apply button) so user can see the change was reverted.
+    // Intentional Slice-1 dead-end: after undo, the view stays in applied state with no re-apply path.
+    // The user must close and reopen the panel to run Smart Apply again.
+    // A revert→re-diff flow is deferred to a future slice.
     this.lastUndo = null;
     this.render();
   }

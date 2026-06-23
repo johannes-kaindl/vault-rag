@@ -236,6 +236,25 @@ describe("SmartApplyView", () => {
     expect(all(view.contentEl, "vault-rag-sa-apply").length).toBe(1);
   });
 
+  it("accept-Fehler: running-Flag wird zurückgesetzt, Notice gezeigt, Anwenden-Button bleibt klickbar", async () => {
+    const { view, deps } = mkView({
+      accept: vi.fn(async () => { throw new Error("Schreibfehler"); }),
+    });
+    await view.onOpen();
+    await view.run("Inbox/roh.md");
+    all(view.contentEl, "vault-rag-sa-apply")[0].click();
+    // Flush microtask queue so the async onAccept handler completes
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    // View must NOT be stuck in applied state
+    expect(all(view.contentEl, "vault-rag-sa-applied").length).toBe(0);
+    // Apply button must still be present (running flag was reset, re-render happened)
+    expect(all(view.contentEl, "vault-rag-sa-apply").length).toBe(1);
+    // A second click must reach deps.accept again (not short-circuited by running=true)
+    all(view.contentEl, "vault-rag-sa-apply")[0].click();
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(deps.accept).toHaveBeenCalledTimes(2);
+  });
+
   it("rendert einklappbaren Reasoning-Block (geschlossen)", async () => {
     const { view } = mkView();
     await view.onOpen();

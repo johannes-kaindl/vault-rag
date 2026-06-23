@@ -97,7 +97,7 @@ describe("SmartApply", () => {
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => 0);
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
@@ -131,7 +131,7 @@ describe("SmartApply", () => {
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(badAssignment));
+    const sa = new SmartApply(deps, makeClient(badAssignment), () => 0);
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
 
     expect(proposal.hardOk).toBe(false);
@@ -159,7 +159,7 @@ describe("SmartApply", () => {
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(fabricatedAssignment));
+    const sa = new SmartApply(deps, makeClient(fabricatedAssignment), () => 0);
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
 
     // hardOk still true (fm-source is a soft check)
@@ -178,7 +178,7 @@ describe("SmartApply", () => {
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient("Dies ist kein JSON und kann nicht geparst werden."));
+    const sa = new SmartApply(deps, makeClient("Dies ist kein JSON und kann nicht geparst werden."), () => 0);
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
 
     expect(proposal.hardOk).toBe(false);
@@ -208,7 +208,7 @@ describe("SmartApply", () => {
       }) as unknown as ChatClient;
 
     controller.abort();
-    const sa = new SmartApply(deps, abortingClient);
+    const sa = new SmartApply(deps, abortingClient, () => 0);
 
     await expect(
       sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {}, controller.signal),
@@ -225,7 +225,7 @@ describe("SmartApply", () => {
       },
       write: writeFn,
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => 0);
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
 
     // Simulate the file being modified externally
@@ -246,7 +246,7 @@ describe("SmartApply", () => {
       },
       write: writeFn,
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => 0);
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
@@ -266,7 +266,7 @@ describe("SmartApply", () => {
       },
       write: writeFn,
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => 0);
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
 
     const result = await sa.persistApply(proposal);
@@ -290,7 +290,7 @@ describe("SmartApply", () => {
       },
       write: writeFn,
     });
-    const sa = new SmartApply(deps, () => makeClient(clientJson)());
+    const sa = new SmartApply(deps, () => makeClient(clientJson)(), () => 0);
 
     // First apply
     const proposal1 = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
@@ -338,7 +338,7 @@ describe("SmartApply", () => {
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => 0);
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
 
     // provenance should be the block text (e.g. "## Agenda"), not "block_0"
@@ -375,7 +375,7 @@ Erste Ergebnisse hier.
       // listTemplates contains the matching template
       listTemplates: async () => ["Templates/Meeting.md"],
     });
-    const sa = new SmartApply(ragDeps, makeClient(validAssignmentJSON()));
+    const sa = new SmartApply(ragDeps, makeClient(validAssignmentJSON()), () => 0);
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
 
     // SEAM-VERTRAG (3): RAG path threaded from this.detect()
@@ -407,7 +407,7 @@ Erste Ergebnisse hier.
         },
       }) as unknown as ChatClient;
 
-    const sa = new SmartApply(deps, client);
+    const sa = new SmartApply(deps, client, () => 0);
     await sa.propose(
       NOTE_PATH,
       TEMPLATE_PATH,
@@ -418,5 +418,68 @@ Erste Ergebnisse hier.
     expect(tokens).toContain("tok1");
     expect(tokens).toContain("tok2");
     expect(reasonings).toContain("reason1");
+  });
+
+  it("temperature: konfigurierter Wert erreicht stream opts", async () => {
+    let capturedOpts: { temperature?: number } | undefined;
+    const deps = makeDeps({
+      read: async (p) => {
+        if (p === TEMPLATE_PATH) return templateText;
+        return testNoteText;
+      },
+    });
+    const client = () =>
+      ({
+        stream: async (
+          _msgs: unknown,
+          onToken: (t: string) => void,
+          _onReasoning: (t: string) => void,
+          _signal?: AbortSignal,
+          opts?: { temperature?: number },
+        ) => {
+          capturedOpts = opts;
+          onToken(validAssignmentJSON());
+          return { content: validAssignmentJSON(), reasoning: "" };
+        },
+      }) as unknown as ChatClient;
+
+    const sa = new SmartApply(deps, client, () => 0.7);
+    await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+
+    expect(capturedOpts?.temperature).toBe(0.7);
+  });
+
+  it("abort() bricht laufendes propose() ab", async () => {
+    let resolveStream!: () => void;
+    const streamStarted = new Promise<void>((res) => { resolveStream = res; });
+    const deps = makeDeps({
+      read: async (p) => {
+        if (p === TEMPLATE_PATH) return templateText;
+        return testNoteText;
+      },
+    });
+    const client = () =>
+      ({
+        stream: async (
+          _msgs: unknown,
+          _onToken: (t: string) => void,
+          _onReasoning: (t: string) => void,
+          signal?: AbortSignal,
+        ) => {
+          resolveStream();
+          // Wait for abort or a long timeout
+          await new Promise<void>((_, reject) => {
+            if (signal?.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
+            signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          });
+        },
+      }) as unknown as ChatClient;
+
+    const sa = new SmartApply(deps, client, () => 0);
+    const proposePromise = sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    await streamStarted;
+    sa.abort();
+
+    await expect(proposePromise).rejects.toThrow();
   });
 });

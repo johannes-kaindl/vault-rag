@@ -78,7 +78,18 @@ function normalizeStr(s: string): string {
 // ── SmartApply class ──────────────────────────────────────────────────────────
 
 export class SmartApply {
-  constructor(private deps: SmartApplyDeps, private client: () => ChatClient) {}
+  private controller: AbortController | null = null;
+
+  constructor(
+    private deps: SmartApplyDeps,
+    private client: () => ChatClient,
+    private temperature: () => number = () => 0,
+  ) {}
+
+  /** Aborts any in-flight propose() call. */
+  abort(): void {
+    this.controller?.abort();
+  }
 
   /** Detection: calls detectType() with the deps — real TypeSuggestion, never hardcoded */
   async detect(notePath: string): Promise<TypeSuggestion> {
@@ -98,6 +109,12 @@ export class SmartApply {
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
   ): Promise<ApplyProposal> {
+    this.controller = new AbortController();
+    // If caller passed an external signal, forward its abort into our controller
+    if (signal) {
+      signal.addEventListener("abort", () => this.controller?.abort(), { once: true });
+    }
+    try {
     // Step 1: detection — real TypeSuggestion
     const detection = await this.detect(notePath);
 
@@ -122,8 +139,8 @@ export class SmartApply {
       messages,
       onToken,
       onReasoning,
-      signal,
-      { temperature: 0 },
+      this.controller.signal,
+      { temperature: this.temperature() },
     );
 
     // Step 8: parse assignment
@@ -264,6 +281,9 @@ export class SmartApply {
       hardOk,
       reasoning,
     };
+    } finally {
+      this.controller = null;
+    }
   }
 
   /**

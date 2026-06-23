@@ -153,6 +153,7 @@ export default class VaultRagPlugin extends Plugin {
           },
         },
         () => this.chatClient,
+        () => this.settings.smartApplyTemperature,
       );
       this.registerView(VIEW_TYPE_SMART_APPLY, (leaf: WorkspaceLeaf) => new SmartApplyView(leaf, {
         // SEAM-VERTRAG (7): build/reroll tragen die Live-Stream-Callbacks der View.
@@ -160,7 +161,7 @@ export default class VaultRagPlugin extends Plugin {
         accept: (p) => this.smartApply!.persistApply(p),
         reroll: (p, onToken, onReasoning) => this.proposeSmartApply(p.notePath, p.templatePath, onToken, onReasoning),
         openPath: this.openPath,
-        abort: () => {},
+        abort: () => { this.smartApply?.abort(); },
       }));
       this.addRibbonIcon("wand-2", "Smart Apply", () => void this.activateSmartApplyView());
       this.addCommand({

@@ -23,14 +23,18 @@ export function splitBlocks(body: string): SourceBlock[] {
   const raw: string[] = [];
   let buf: string[] = [];
   const flush = (): void => {
-    const text = buf.join("\n").trim();
-    if (text) raw.push(text);
-    buf = [];
+    if (buf.length > 0) {
+      const text = buf.join("\n");
+      // Only emit if the buffer contains at least one non-whitespace character.
+      // We test for non-whitespace WITHOUT mutating the text we keep.
+      if (/\S/.test(text)) raw.push(text);
+      buf = [];
+    }
   };
   for (const line of lines) {
     if (HEADING_LINE_RE.test(line)) {
       flush();
-      raw.push(line.trim());
+      raw.push(line);          // preserve verbatim — no .trim()
     } else if (line.trim() === "") {
       flush();
     } else {
@@ -82,6 +86,10 @@ export function assembleBody(tpl: TemplateSpec, a: Assignment, blocks: SourceBlo
     parts.push(`${hashes} ${sec.heading}`);
     const ids = assignedFor.get(sec.heading) ?? [];
     const texts = ids.map(id => byId.get(id)).filter((t): t is string => typeof t === "string");
+    if (texts.length !== ids.length) {
+      const unknownIds = ids.filter(id => !byId.has(id));
+      throw new Error(`assembleBody: unbekannte Block-IDs: ${unknownIds.join(", ")}`);
+    }
     parts.push(texts.length > 0 ? texts.join("\n\n") : EMPTY_SECTION_SENTINEL);
   }
   return parts.join("\n\n") + "\n";
@@ -144,7 +152,7 @@ export function parseAssignment(raw: string): Assignment | null {
 
 // ── buildRestructurePrompt ───────────────────────────────────────────────────
 
-const ANTI_FABRICATION = [
+export const ANTI_FABRICATION = [
   "Du darfst KEINEN Text erfinden, umschreiben oder zusammenfassen.",
   "Du ordnest ausschließlich die nummerierten Block-IDs den Template-Überschriften zu.",
   "Jede Block-ID muss genau einmal vorkommen: entweder in einer Sektion oder in `unassigned`.",

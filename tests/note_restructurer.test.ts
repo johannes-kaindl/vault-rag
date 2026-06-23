@@ -6,6 +6,7 @@ import {
   buildRestructurePrompt,
   parseAssignment,
   EMPTY_SECTION_SENTINEL,
+  ANTI_FABRICATION,
   SourceBlock,
   Assignment,
 } from "../src/note_restructurer";
@@ -53,8 +54,22 @@ describe("splitBlocks", () => {
   it("erhält den Originaltext jedes Blocks byteweise (Round-Trip der Block-Texte)", () => {
     const body = "Absatz eins\nmit Umbruch.\n\n## Überschrift\n\nLetzter Absatz.";
     const blocks = splitBlocks(body);
-    // jeder Block-Text ist ein zusammenhängender Substring des Originals
-    for (const b of blocks) expect(body).toContain(b.text);
+    // Reconstruction: blocks joined by "\n\n" must reproduce the body exactly
+    // (splitBlocks drops blank-only lines between blocks; blanks become the separator)
+    const reconstructed = blocks.map(b => b.text).join("\n\n");
+    expect(reconstructed).toBe(body);
+  });
+
+  it("erhält führende Leerzeichen (Regression: eingerückte Liste und Code-Block)", () => {
+    // Indented list items and 4-space code blocks must survive verbatim
+    const body = "Normal paragraph.\n\n  - indented list item\n  - second item\n\nAnother paragraph.";
+    const blocks = splitBlocks(body);
+    // The indented list block must be preserved with its original leading whitespace
+    const listBlock = blocks.find(b => b.text.includes("- indented list item"));
+    expect(listBlock).toBeDefined();
+    expect(listBlock!.text).toBe("  - indented list item\n  - second item");
+    // Full round-trip
+    expect(blocks.map(b => b.text).join("\n\n")).toBe(body);
   });
 
   it("ignoriert reine Leerzeilen und liefert kein leeres Block", () => {
@@ -151,6 +166,13 @@ describe("assembleBody", () => {
     const a = asg({ sections: [{ heading: "Setup", blocks: ["block_0"] }] });
     const body = assembleBody(tpl, a, blocks);
     expect(body).toContain("EXAKTER ORIGINALTEXT");
+  });
+
+  it("wirft einen Fehler bei unbekannter Block-ID statt sie still zu verwerfen", () => {
+    const blocks: SourceBlock[] = [{ id: "block_0", text: "Inhalt." }];
+    const tpl = spec(["Setup"]);
+    const a = asg({ sections: [{ heading: "Setup", blocks: ["block_0", "block_99"] }] });
+    expect(() => assembleBody(tpl, a, blocks)).toThrow(/block_99/);
   });
 });
 
@@ -278,9 +300,8 @@ describe("buildRestructurePrompt", () => {
   it("wiederholt die Anti-Fabrikations-Klausel (nur Zuordnung, keine Prosa, nur JSON)", () => {
     const sys = buildRestructurePrompt(tpl, blocks)[0].content;
     const user = buildRestructurePrompt(tpl, blocks)[1].content;
-    // in der system-Nachricht UND in der user-Nachricht wiederholt
-    expect(sys).toMatch(/keinen.*Text.*erfinden|nichts erfinden|nur.*Block-IDs/i);
-    expect(sys).toMatch(/nur.*JSON|ausschließlich.*JSON/i);
-    expect(user).toMatch(/nur.*JSON|ausschließlich.*JSON/i);
+    // in der system-Nachricht UND in der user-Nachricht: exakter ANTI_FABRICATION-String
+    expect(sys).toContain(ANTI_FABRICATION);
+    expect(user).toContain(ANTI_FABRICATION);
   });
 });

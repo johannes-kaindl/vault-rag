@@ -27,6 +27,13 @@ import type { ChatClient } from "./chat_client";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
+export interface SmartApplyParams {
+  model: string;
+  temperature: number;
+  suppressThinking: boolean;
+  maxTokens: number;
+}
+
 export interface SmartApplyDeps {
   read: (path: string) => Promise<string>;
   write: (path: string, text: string) => Promise<void>;
@@ -84,7 +91,7 @@ export class SmartApply {
   constructor(
     private deps: SmartApplyDeps,
     private client: () => ChatClient,
-    private temperature: () => number = () => 0,
+    private params: () => SmartApplyParams = () => ({ model: '', temperature: 0, suppressThinking: false, maxTokens: 2048 }),
   ) {}
 
   /** Aborts any in-flight propose() call. */
@@ -137,12 +144,13 @@ export class SmartApply {
     const messages = buildRestructurePrompt(tpl, blocks);
 
     // Step 7: stream — exactly ONE stream call
+    const p = this.params();
     const { content, reasoning } = await this.client().stream(
       messages,
       onToken,
       onReasoning,
       this.controller.signal,
-      { temperature: this.temperature() },
+      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens },
     );
 
     // Step 8: parse assignment

@@ -486,7 +486,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   private buildTemplateDir(s: Setting): void {
     s.setName("Vorlagen-Ordner")
-      .setDesc('Ordner mit den Vorlagen — alle Markdown-Dateien darin und in Unterordnern werden berücksichtigt.')
+      .setDesc('Ordner mit den Vorlagen — Markdown-Dateien darin und in Unterordnern werden berücksichtigt. Ausgenommen sind Folder Notes (Datei trägt den Namen ihres Ordners, z.B. Projekt/Projekt.md).')
       .addText(t => {
         t.setPlaceholder("Templates/").setValue(this.plugin.settings.templateDir);
         const normalize = (v: string): string => {

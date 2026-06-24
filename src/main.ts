@@ -417,10 +417,17 @@ export default class VaultRagPlugin extends Plugin {
     }
     // Auto-detect: detect() ONCE — avoid double embed+search sweep.
     const detection = await core.detect(notePath);
-    const tpl = detection.templatePath;
+    let tpl = detection.templatePath;
     if (!tpl) {
-      new Notice("Keine passende Vorlage — bitte im Cockpit wählen");
-      throw new Error("abgebrochen");
+      const list = this.app.vault.getMarkdownFiles().map(f => f.path).filter(p => p.startsWith(this.settings.templateDir));
+      if (list.length === 1) {
+        tpl = list[0];
+      } else if (list.length === 0) {
+        new Notice("Keine Vorlage in " + this.settings.templateDir + " — lege eine an");
+        throw new Error("keine-vorlage");
+      } else {
+        throw new Error("vorlage-waehlen");
+      }
     }
     // SEAM-VERTRAG (7): Live-Stream-Callbacks der View durchreichen (genau ein Stream in propose).
     return core.propose(notePath, tpl, onToken, onReasoning, undefined, detection);

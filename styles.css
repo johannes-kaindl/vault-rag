@@ -57,7 +57,8 @@
 .vault-rag-sa-header-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .vault-rag-sa-model { flex: 1; min-width: 0; font-size: 12px; }
 .vault-rag-sa-template { flex: 1; min-width: 0; font-size: 12px; }
-.vault-rag-sa-conn { font-size: 11px; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; }
+.vault-rag-sa-conn { font-size: 11px; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; width: 100%; }
+.vault-rag-sa-conn-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vault-rag-sa-think { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
 .vault-rag-sa-think.is-disabled { opacity: 0.6; pointer-events: none; }
 .vault-rag-sa-think.is-off { opacity: 0.55; }

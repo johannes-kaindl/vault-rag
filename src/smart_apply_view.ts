@@ -124,6 +124,9 @@ export class SmartApplyView extends ItemView {
   private renderHeader(c: HTMLElement): void {
     const header = c.createDiv({ cls: "vault-rag-sa-header" });
 
+    // Verbindungsstatus zuerst, als eigene ruhige Zeile (gibt dem Modell-Dropdown darunter Platz).
+    this.renderConnStatus(header);
+
     const row1 = header.createDiv({ cls: "vault-rag-sa-header-row" });
     this.modelSel = row1.createEl("select", { cls: "vault-rag-sa-model dropdown" });
     // Fill model select synchronously from cache
@@ -137,33 +140,6 @@ export class SmartApplyView extends ItemView {
       this.deps.setModel(this.modelSel?.value ?? "");
       this.renderThink();
     });
-
-    this.connEl = row1.createDiv({ cls: "vault-rag-sa-conn" });
-    // Zustand synchron spiegeln. Die Form (Icon) trägt die Bedeutung; Farbe ist nur ein
-    // sekundärer, redundanter Hinweis — so bleibt der Status auch bei Farbsehschwäche lesbar (WCAG 1.4.1).
-    this.connEl.empty();
-    const dot = this.connEl.createSpan({ cls: "vault-rag-conn-dot" });
-    const label = this.connEl.createSpan();
-    if (this.connected === null) {
-      dot.toggleClass("is-checking", true);
-      setIcon(dot, "loader");
-      label.setText('Smart-Apply-LLM: prüfe…');
-    } else if (this.connected) {
-      dot.toggleClass("is-ok", true);
-      setIcon(dot, "circle-check");
-      label.setText('Smart-Apply-LLM verbunden');
-    } else {
-      dot.toggleClass("is-error", true);
-      setIcon(dot, "circle-x");
-      label.setText('Smart-Apply-LLM offline — in den Settings prüfen');
-    }
-    this.connEl.setAttribute("aria-label", "Smart-Apply-LLM-Verbindung erneut prüfen");
-    this.connEl.setAttribute("title", "Verbindung erneut prüfen");
-    this.connEl.addEventListener("click", () => void this.refreshConn());
-    const connRefresh = this.connEl.createSpan({ cls: "vault-rag-sa-conn-refresh clickable-icon" });
-    setIcon(connRefresh, "refresh-cw");
-    connRefresh.setAttribute("aria-label", "Verbindung erneut prüfen");
-    connRefresh.addEventListener("click", (e) => { e?.stopPropagation(); void this.refreshConn(); });
 
     this.thinkEl = row1.createEl("button", { cls: "vault-rag-sa-think clickable-icon" });
     this.thinkEl.addEventListener("click", () => {
@@ -264,6 +240,34 @@ export class SmartApplyView extends ItemView {
     this.selectedTemplate = path;
     this.userOverrodeTemplate = true;
     this.render();
+  }
+
+  /** Verbindungsstatus als eigene, ruhige Kopfzeile. Die Form (Icon) trägt die Bedeutung,
+   *  Farbe ist nur ein sekundärer Hinweis — lesbar auch bei Farbsehschwäche (WCAG 1.4.1). */
+  private renderConnStatus(parent: HTMLElement): void {
+    this.connEl = parent.createDiv({ cls: "vault-rag-sa-conn" });
+    const dot = this.connEl.createSpan({ cls: "vault-rag-conn-dot" });
+    const label = this.connEl.createSpan({ cls: "vault-rag-sa-conn-label" });
+    if (this.connected === null) {
+      dot.toggleClass("is-checking", true);
+      setIcon(dot, "loader");
+      label.setText("Smart-Apply-LLM: prüfe…");
+    } else if (this.connected) {
+      dot.toggleClass("is-ok", true);
+      setIcon(dot, "circle-check");
+      label.setText("Smart-Apply-LLM verbunden");
+    } else {
+      dot.toggleClass("is-error", true);
+      setIcon(dot, "circle-x");
+      label.setText("Smart-Apply-LLM offline — in den Settings prüfen");
+    }
+    this.connEl.setAttribute("aria-label", "Smart-Apply-LLM-Verbindung erneut prüfen");
+    this.connEl.setAttribute("title", "Verbindung erneut prüfen");
+    this.connEl.addEventListener("click", () => void this.refreshConn());
+    const refresh = this.connEl.createSpan({ cls: "vault-rag-sa-conn-refresh clickable-icon" });
+    setIcon(refresh, "refresh-cw");
+    refresh.setAttribute("aria-label", "Verbindung erneut prüfen");
+    refresh.addEventListener("click", (e) => { e?.stopPropagation(); void this.refreshConn(); });
   }
 
   private async refreshConn(): Promise<void> {

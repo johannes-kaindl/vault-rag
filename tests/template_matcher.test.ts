@@ -266,6 +266,11 @@ describe("isFolderNote", () => {
   it("nur der unmittelbare Ordner zählt (nicht ein gleichnamiger Großelternordner)", () => {
     expect(isFolderNote("Projekt/sub/Projekt.md")).toBe(false);
   });
+
+  it("erkennt case-insensitiv (wie Obsidian auf macOS/Windows)", () => {
+    expect(isFolderNote("Projekt/projekt.md")).toBe(true);
+    expect(isFolderNote("A/B/b.md")).toBe(true);
+  });
 });
 
 describe("parseTemplate %%-guidance", () => {

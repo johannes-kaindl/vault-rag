@@ -85,7 +85,7 @@ export function isFolderNote(path: string): boolean {
   if (parts.length < 2) return false; // keine Elternordner-Ebene
   const base = parts[parts.length - 1].replace(/\.md$/i, "");
   const parent = parts[parts.length - 2];
-  return base === parent;
+  return base.toLowerCase() === parent.toLowerCase(); // case-insensitiv wie Obsidian (macOS/Windows)
 }
 
 /** Alle Markdown-Pfade unter `dir` (inkl. Unterordnern), sibling-sicher. Folder Notes

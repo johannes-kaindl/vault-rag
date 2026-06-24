@@ -1,4 +1,5 @@
 import { App, FuzzySuggestModal, TFile } from "obsidian";
+import { templateFilesUnder } from "./template_matcher";
 
 class TemplatePicker extends FuzzySuggestModal<TFile> {
   private settled = false;
@@ -16,9 +17,12 @@ class TemplatePicker extends FuzzySuggestModal<TFile> {
     }
   }
   private settle(p: string | null): void { if (!this.settled) { this.settled = true; this.done(p); } }
-  // Nur Markdown-Dateien unter templateDir — die Template-Dateien sind die Struktur-Wahrheit.
+  // Markdown-Dateien unter templateDir — über templateFilesUnder, damit Folder Notes
+  // konsistent zum Ranking ausgeschlossen sind.
   getItems(): TFile[] {
-    return this.app.vault.getMarkdownFiles().filter(f => f.path.startsWith(this.templateDir));
+    const files = this.app.vault.getMarkdownFiles();
+    const allowed = new Set(templateFilesUnder(files.map(f => f.path), this.templateDir));
+    return files.filter(f => allowed.has(f.path));
   }
   getItemText(f: TFile): string {
     // (Vorschlag)-Marker ist das echte Signal: Obsidians Fuzzy-Ranking sortiert score-basiert

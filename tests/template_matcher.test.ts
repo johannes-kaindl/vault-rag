@@ -6,6 +6,7 @@ import {
   resolveTemplateForType,
   detectType,
   templateFilesUnder,
+  isFolderNote,
   extractAnnotations,
   type DetectDeps,
 } from "../src/template_matcher";
@@ -231,6 +232,39 @@ describe("templateFilesUnder", () => {
 
   it('dir mit nur Whitespace wird wie "" behandelt und liefert []', () => {
     expect(templateFilesUnder(paths, "   ")).toEqual([]);
+  });
+
+  it("schließt Folder Notes aus (Name === Elternordner), behält echte Vorlagen", () => {
+    const p = [
+      "Templates/Besprechung.md",            // echte Vorlage (Parent = Templates)
+      "Templates/Projekt/Projekt.md",        // Folder Note → raus
+      "Templates/Meetings/Standup.md",       // echte Vorlage
+      "Templates/Meetings/Meetings.md",      // Folder Note → raus
+    ];
+    expect(templateFilesUnder(p, "Templates")).toEqual([
+      "Templates/Besprechung.md",
+      "Templates/Meetings/Standup.md",
+    ]);
+  });
+});
+
+describe("isFolderNote", () => {
+  it("erkennt Folder Note (Basename === unmittelbarer Elternordner)", () => {
+    expect(isFolderNote("Templates/Projekt/Projekt.md")).toBe(true);
+    expect(isFolderNote("A/B/B.md")).toBe(true);
+  });
+
+  it("echte Vorlage in einem Ordner ist keine Folder Note", () => {
+    expect(isFolderNote("Templates/Besprechung.md")).toBe(false);
+    expect(isFolderNote("Templates/Meetings/Standup.md")).toBe(false);
+  });
+
+  it("Top-Level-Datei ohne Elternordner ist keine Folder Note", () => {
+    expect(isFolderNote("Projekt.md")).toBe(false);
+  });
+
+  it("nur der unmittelbare Ordner zählt (nicht ein gleichnamiger Großelternordner)", () => {
+    expect(isFolderNote("Projekt/sub/Projekt.md")).toBe(false);
   });
 });
 

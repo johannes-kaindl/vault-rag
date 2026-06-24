@@ -78,12 +78,23 @@ function normalizeType(s: string): string {
     .toLowerCase();
 }
 
-/** Alle Markdown-Pfade unter `dir` (inkl. Unterordnern), sibling-sicher. Leeres dir → []. */
+/** Eine Folder Note: eine Notiz, deren Dateiname (ohne .md) dem Namen ihres unmittelbaren
+ *  Elternordners entspricht (z.B. `Projekt/Projekt.md`). Top-Level-Dateien sind keine. */
+export function isFolderNote(path: string): boolean {
+  const parts = path.split("/");
+  if (parts.length < 2) return false; // keine Elternordner-Ebene
+  const base = parts[parts.length - 1].replace(/\.md$/i, "");
+  const parent = parts[parts.length - 2];
+  return base === parent;
+}
+
+/** Alle Markdown-Pfade unter `dir` (inkl. Unterordnern), sibling-sicher. Folder Notes
+ *  (Name === Elternordner) werden ausgeschlossen — sie sind keine Vorlagen. Leeres dir → []. */
 export function templateFilesUnder(mdPaths: string[], dir: string): string[] {
   const d = dir.trim();
   if (d === "") return [];
   const prefix = d.endsWith("/") ? d : d + "/";
-  return mdPaths.filter(p => p.startsWith(prefix));
+  return mdPaths.filter(p => p.startsWith(prefix) && !isFolderNote(p));
 }
 
 /** Findet das Template, dessen Basename (ohne Verzeichnis/.md) zum Typ passt — emoji/case-normalisiert. */

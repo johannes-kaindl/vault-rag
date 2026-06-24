@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-06-24
+
+### Added
+
+- **Smart Apply** *(opt-in)* — restructure a messy note into a chosen template's sections. A local LLM only emits a block-to-heading assignment; the body is rebuilt from your original bytes (never fabricated) behind a diff preview. Templates self-describe via `%%` guidance comments. A relevance-ranked template list preselects the best fit and recomputes live as you switch notes. Enable under **Settings → Smart Apply**.
+
+### Changed
+
+- Smart Apply ranking reuses the persisted note-level index vectors (`index.vectorFor`) instead of re-embedding each template — instant ranking, no embedder flood on large template folders.
+- Connection and model status indicators encode state by icon **shape** (check / x / loader), not colour alone (WCAG 1.4.1), with an accessible refresh control and a roomier header.
+
+### Fixed
+
+- Template ranking recomputes when a note is opened in the same tab, not only on a tab switch.
+- Folder notes (a note named after its parent folder) are excluded from template ranking and apply.
+- Changing the template folder re-ranks the open cockpit immediately, without a reload.
+
 ## [0.3.5] — 2026-06-22
 
 ### Changed

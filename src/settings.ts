@@ -70,6 +70,7 @@ export interface VaultRagPluginHost extends Plugin {
   embeddingProgress: { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number };
   saveSettings(): Promise<void>;
   refresh(): void;
+  refreshSmartApplyRanking(): void;
   reconnectEmbedder(): void;
   reconnectChat(): void;
   setStatusBarVisible(visible: boolean): void;
@@ -496,6 +497,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         const save = async (v: string): Promise<void> => {
           this.plugin.settings.templateDir = normalize(v);
           await this.plugin.saveSettings();
+          this.plugin.refreshSmartApplyRanking();   // offenes Cockpit sofort neu ranken (kein Reload)
         };
         t.onChange(save);
         new FolderSuggest(this.app, t.inputEl).onSelect(async (path: string) => {

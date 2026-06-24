@@ -350,6 +350,14 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
+  /** Offene Smart-Apply-Cockpits sofort neu ranken (z.B. nach Vorlagenpfad-Änderung). */
+  refreshSmartApplyRanking(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_SMART_APPLY)) {
+      const v = leaf.view;
+      if (v instanceof SmartApplyView) v.refreshRanking();
+    }
+  }
+
   private updateStatusBar(): void {
     if (!this.statusBarEl) return;
     const p = this.embeddingProgress;

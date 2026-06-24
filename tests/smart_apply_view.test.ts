@@ -552,4 +552,14 @@ describe("SmartApplyView Rangliste", () => {
     await flush();
     expect(rank).toHaveBeenCalled();
   });
+
+  it("refreshRanking() rankt sofort neu (z.B. nach Vorlagenpfad-Änderung in den Settings)", async () => {
+    const rank = vi.fn(async () => ranksFixture());
+    const { view } = mkView({ rankTemplates: rank });
+    await view.onOpen(); await flush();
+    rank.mockClear();
+    view.refreshRanking();
+    await flush();
+    expect(rank).toHaveBeenCalled();
+  });
 });

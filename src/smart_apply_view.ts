@@ -246,6 +246,11 @@ export class SmartApplyView extends ItemView {
     this.render();
   }
 
+  /** Von außen aufrufbar (z.B. nach Vorlagenpfad-Änderung in den Settings): sofort neu ranken. */
+  refreshRanking(): void {
+    void this.recomputeRanking(true);
+  }
+
   /** Verbindungsstatus als eigene, ruhige Kopfzeile. Die Form (Icon) trägt die Bedeutung,
    *  Farbe ist nur ein sekundärer Hinweis — lesbar auch bei Farbsehschwäche (WCAG 1.4.1). */
   private renderConnStatus(parent: HTMLElement): void {

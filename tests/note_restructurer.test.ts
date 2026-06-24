@@ -24,6 +24,7 @@ function spec(headings: string[]): TemplateSpec {
   return {
     type: "Test",
     keys: ["type", "tags"],
+    fmDefaults: {},
     sections,
     raw: "## " + headings.join("\n\n## "),
   };
@@ -309,10 +310,12 @@ describe("buildRestructurePrompt", () => {
     expect(msgs.map(m => m.role)).toEqual(["system", "user"]);
   });
 
-  it("enthält die Template-Struktur verbatim (raw)", () => {
+  it("enthält die strukturierte Vorlagen-Struktur mit Überschriften als Liste", () => {
     const msgs = buildRestructurePrompt(tpl, blocks);
     const all = msgs.map(m => m.content).join("\n");
-    expect(all).toContain(tpl.raw);
+    expect(all).toContain("## Vorlagen-Struktur");
+    expect(all).toContain("- Setup");
+    expect(all).toContain("- Ablauf");
   });
 
   it("nummeriert die Blöcke mit ihren IDs und Texten", () => {
@@ -329,6 +332,49 @@ describe("buildRestructurePrompt", () => {
     // in der system-Nachricht UND in der user-Nachricht: exakter ANTI_FABRICATION-String
     expect(sys).toContain(ANTI_FABRICATION);
     expect(user).toContain(ANTI_FABRICATION);
+  });
+});
+
+describe("buildRestructurePrompt %%-guidance", () => {
+  function tplWith(guidance: string): TemplateSpec {
+    return {
+      type: "Besprechung",
+      keys: ["type", "status"],
+      fmDefaults: { type: "Besprechung", status: "offen" },
+      sections: [
+        { heading: "Tagesordnung", level: 2, placeholder: "", guidance },
+        { heading: "Notizen", level: 2, placeholder: "", guidance: "" },
+      ],
+      raw: "egal",
+    };
+  }
+  const blocks: SourceBlock[] = [{ id: "block_0", text: "- Punkt A" }];
+
+  it("rendert Anleitung pro Überschrift, Beispiel pro Key und die kein-Inhalt-Instruktion", () => {
+    const [system, userMsg] = buildRestructurePrompt(tplWith("Stichpunkte zur Agenda hierher"), blocks);
+    expect(userMsg.content).toContain("Tagesordnung — Anleitung: Stichpunkte zur Agenda hierher");
+    expect(userMsg.content).toContain("- Notizen");
+    expect(userMsg.content).not.toContain("Notizen — Anleitung:");
+    expect(userMsg.content).toContain("status (Beispiel: offen)");
+    expect(userMsg.content).toContain("Geordnete Überschriften: Tagesordnung, Notizen");
+    expect(system.content).toContain("KEIN zuzuordnender Inhalt");
+  });
+
+  it("Vorlage ohne %% bleibt rückwärtskompatibel (Überschriften + Keys, keine Anleitung-Zeile)", () => {
+    const [, userMsg] = buildRestructurePrompt(tplWith(""), blocks);
+    expect(userMsg.content).not.toContain("Anleitung:");
+    expect(userMsg.content).toContain("- Tagesordnung");
+    expect(userMsg.content).toContain("## Original-Body in nummerierten Blöcken");
+  });
+
+  it("Guidance-Text landet nie im assembleBody-Output", () => {
+    const tpl: TemplateSpec = {
+      type: "X", keys: [], fmDefaults: {},
+      sections: [{ heading: "A", level: 2, placeholder: "", guidance: "GEHEIM" }], raw: "egal",
+    };
+    const out = assembleBody(tpl, asg({ sections: [{ heading: "A", blocks: ["block_0"] }] }), [{ id: "block_0", text: "echter inhalt" }]);
+    expect(out).not.toContain("GEHEIM");
+    expect(out).toContain("echter inhalt");
   });
 });
 

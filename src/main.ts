@@ -165,6 +165,9 @@ export default class VaultRagPlugin extends Plugin {
         stat: async (p) => { const s = await this.app.vault.adapter.stat(p); return { mtime: s?.mtime ?? 0 }; },
         listTemplates: async () =>
           templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir),
+        // Persistierter Vault-Vektor (note-level) — wie der RAG-Retriever; spart das Neu-Einbetten
+        // indexierter Vorlagen/Notizen komplett.
+        indexVector: (p) => this.index?.vectorFor(p) ?? null,
         embed: async (t) => {
           const index = this.index;
           if (!index) throw new Error("kein Index");

@@ -6,6 +6,7 @@ function deps(over: Partial<RankDeps> = {}): RankDeps {
     read: async (p) => (p.startsWith("Templates/") ? p : "Body"),
     stat: async () => ({ mtime: 1 }),
     listTemplates: async () => ["Templates/Besprechung.md", "Templates/Buch.md"],
+    indexVector: () => null,            // Default: nicht indexiert → Embed-Fallback
     embed: async () => new Float32Array([1, 0]),
     ...over,
   };
@@ -69,5 +70,54 @@ describe("TemplateRanker", () => {
     mtime = 2;
     await r.rank("note.md");                        // query(1) + re-embed(1)
     expect(embedCalls).toBe(5);
+  });
+});
+
+describe("TemplateRanker — Index-Reuse", () => {
+  it("nutzt persistierte Index-Vektoren statt neu zu embedden (kein embed-Call)", async () => {
+    const vecs: Record<string, Float32Array> = {
+      "note.md": new Float32Array([1, 0]),
+      "Templates/Besprechung.md": new Float32Array([0.9, 0.436]),
+      "Templates/Buch.md": new Float32Array([0.1, 0.995]),
+    };
+    let embedCalls = 0;
+    const r = new TemplateRanker(deps({
+      indexVector: (p) => vecs[p] ?? null,
+      embed: async () => { embedCalls++; return new Float32Array([1, 0]); },
+    }));
+    const out = await r.rank("note.md");
+    expect(embedCalls).toBe(0);                                   // alles aus dem Index
+    expect(out.map(x => x.templatePath)).toEqual(["Templates/Besprechung.md", "Templates/Buch.md"]);
+    expect(out[0].score).toBeGreaterThan(out[1].score);
+  });
+
+  it("embeddet nur bei Index-Miss (Fallback für nicht-indexierte Datei)", async () => {
+    const vecs: Record<string, Float32Array> = {
+      "note.md": new Float32Array([1, 0]),
+      "Templates/Besprechung.md": new Float32Array([1, 0]),
+      // Buch.md fehlt im Index → Fallback embed
+    };
+    let embedCalls = 0;
+    const r = new TemplateRanker(deps({
+      indexVector: (p) => vecs[p] ?? null,
+      embed: async () => { embedCalls++; return new Float32Array([0, 1]); },
+    }));
+    const out = await r.rank("note.md");
+    expect(embedCalls).toBe(1);                                   // nur Buch.md
+    expect(out.find(x => x.templatePath === "Templates/Buch.md")?.source).toBe("match");
+  });
+
+  it("Query-Vektor kommt aus dem Index, wenn die aktive Notiz indexiert ist", async () => {
+    const vecs: Record<string, Float32Array> = {
+      "note.md": new Float32Array([0, 1]),                        // Query betont Dim 2
+      "Templates/Besprechung.md": new Float32Array([1, 0]),
+      "Templates/Buch.md": new Float32Array([0, 1]),
+    };
+    const r = new TemplateRanker(deps({
+      indexVector: (p) => vecs[p] ?? null,
+      embed: async () => { throw new Error("sollte nicht aufgerufen werden"); },
+    }));
+    const out = await r.rank("note.md");
+    expect(out[0].templatePath).toBe("Templates/Buch.md");        // Query≈Buch
   });
 });

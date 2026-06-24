@@ -13,7 +13,10 @@ export interface RankDeps {
   read: (path: string) => Promise<string>;
   stat: (path: string) => Promise<{ mtime: number }>;
   listTemplates: () => Promise<string[]>;
-  /** text → unit-norm reduzierter Vektor (im Wiring: toIndexVector(embedder.embed([t]), index.dim)). */
+  /** Persistierter Vault-Vektor zu einem Pfad (index.vectorFor) oder null, wenn nicht indexiert. */
+  indexVector: (path: string) => Float32Array | null;
+  /** Fallback für nicht-indexierte Dateien: text → unit-norm reduzierter Vektor
+   *  (im Wiring: toIndexVector(embedder.embed([t]), index.dim)). */
   embed: (text: string) => Promise<Float32Array>;
 }
 
@@ -43,12 +46,16 @@ export class TemplateRanker {
     const fmType = extractType(noteText);
     const pinnedPath = fmType ? resolveTemplateForType(fmType, templates) : null;
 
-    let queryVec: Float32Array | null = null;
-    try {
-      const vec = await this.deps.embed(parseFrontmatter(noteText).body);
-      queryVec = vec.length > 0 ? vec : null;
-    } catch {
-      queryVec = null; // Embedder/Index offline → sauber degradieren.
+    // Query-Vektor bevorzugt aus dem persistierten Index (wie der RAG-Retriever); nur bei
+    // Miss (nicht-indexierte/neue Notiz) on-the-fly embedden.
+    let queryVec: Float32Array | null = this.deps.indexVector(notePath);
+    if (queryVec === null || queryVec.length === 0) {
+      try {
+        const vec = await this.deps.embed(parseFrontmatter(noteText).body);
+        queryVec = vec.length > 0 ? vec : null;
+      } catch {
+        queryVec = null; // Embedder/Index offline → sauber degradieren.
+      }
     }
 
     const ranks: TemplateRank[] = [];
@@ -79,6 +86,10 @@ export class TemplateRanker {
   }
 
   private async templateVec(path: string): Promise<Float32Array> {
+    // Bevorzugt der persistierte Index-Vektor (kostenlos, sessionübergreifend) — wie beim Query.
+    const fromIndex = this.deps.indexVector(path);
+    if (fromIndex !== null && fromIndex.length > 0) return fromIndex;
+    // Fallback: nicht-indexierte Vorlage on-the-fly embedden, per mtime in-memory cachen.
     const { mtime } = await this.deps.stat(path);
     const cached = this.cache.get(path);
     if (cached && cached.mtime === mtime) return cached.vec;

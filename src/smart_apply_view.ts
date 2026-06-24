@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf, setIcon, Notice } from "obsidian";
 import type { FmValue, FmChange } from "./frontmatter";
 import type { ApplyProposal, ApplyResult } from "./smart_apply";
+import type { TemplateRank } from "./template_ranker";
 import { isAlwaysOnThinker } from "./reasoning";
 
 // Re-export for consumers (e.g. tests) that import from this module
@@ -19,6 +20,7 @@ export interface SmartApplyViewDeps {
   getModel: () => string;
   setModel: (m: string) => void;
   listTemplates: () => Promise<string[]>;
+  rankTemplates: (notePath: string) => Promise<TemplateRank[]>;
   getSuppress: () => boolean;
   setSuppress: (v: boolean) => void;
   ping: () => Promise<boolean>;

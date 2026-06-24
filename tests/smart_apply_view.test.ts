@@ -364,6 +364,18 @@ describe("SmartApplyView — Cockpit", () => {
     expect(first(view.contentEl, "vault-rag-sa-error").textContent).toContain("Netzwerk-Timeout");
   });
 
+  it('build() wirft vorlage-waehlen → Zustand idle + Hinweis, kein Fehler-Panel, accept nicht aufgerufen', async () => {
+    const build = vi.fn(async () => { throw new Error('vorlage-waehlen'); });
+    const { view, deps } = mkView({ build: build as unknown as SmartApplyViewDeps['build'] });
+    await view.onOpen();
+    first(view.contentEl, 'vault-rag-sa-run').click();
+    await flush();
+    expect(first(view.contentEl, 'vault-rag-sa-idle')).toBeTruthy();
+    expect(first(view.contentEl, 'vault-rag-sa-error')).toBeFalsy();
+    expect(first(view.contentEl, 'vault-rag-sa-template-hint')).toBeTruthy();
+    expect(deps.accept).not.toHaveBeenCalled();
+  });
+
   // Reasoning details in diff
   it("Diff rendert einklappbaren Reasoning-Block aus proposal.reasoning", async () => {
     const { view } = mkView();

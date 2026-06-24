@@ -1,10 +1,11 @@
 export function makeFakeEl(): any {
   const children: any[] = [];
+  let _ownText = "";
   const el: any = {
-    children, empty: () => { children.length = 0; },
+    children, empty: () => { children.length = 0; _ownText = ""; },
     createDiv: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; children.push(c); return c; },
     createEl: (t: string, o?: any) => { const c = makeFakeEl(); c.tagName = t.toUpperCase(); if (o?.text) c.textContent = o.text; if (o?.cls) c.className = o.cls; children.push(c); return c; },
-    setText: (t: string) => { el.textContent = t; }, addClass: () => {}, removeClass: () => {},
+    setText: (t: string) => { _ownText = t; }, addClass: () => {}, removeClass: () => {},
     createSpan: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; children.push(c); return c; },
     toggleClass: (cls: string, on: boolean) => {
       const parts = String(el.className ?? "").split(" ").filter(Boolean).filter((p: string) => p !== cls);
@@ -17,6 +18,15 @@ export function makeFakeEl(): any {
     addEventListener: (event: string, cb: Function) => { if (!el._listeners[event]) el._listeners[event] = []; el._listeners[event].push(cb); },
     click: () => { (el._listeners["click"] ?? []).forEach((cb: Function) => cb()); },
   };
+  Object.defineProperty(el, "textContent", {
+    get: () => {
+      const childText = children.map((c: any) => c.textContent ?? "").join("");
+      return _ownText + childText;
+    },
+    set: (v: string) => { _ownText = v; },
+    enumerable: true,
+    configurable: true,
+  });
   return el;
 }
 export class Plugin { app: any; manifest: any; constructor(app: any, m: any) { this.app = app; this.manifest = m; } async loadData() { return {}; } async saveData(_: any) {} addCommand(_: any) {} registerView(_: string, __: any) {} registerEvent(_: any) {} addSettingTab(_: any) {} addRibbonIcon(_: string, __: string, ___: any) { return makeFakeEl(); } }

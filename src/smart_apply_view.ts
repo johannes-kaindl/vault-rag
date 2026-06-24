@@ -45,6 +45,7 @@ export class SmartApplyView extends ItemView {
   private proposal: ApplyProposal | null = null;
   private lastUndo: (() => Promise<void>) | null = null;
   private errorText = "";
+  private templateHint = "";
 
   // Live stream buffers (the running body re-uses these on re-render)
   private streamText = "";
@@ -133,14 +134,17 @@ export class SmartApplyView extends ItemView {
 
     this.connEl = row1.createDiv({ cls: "vault-rag-sa-conn" });
     // Reflect cached connection state synchronously
+    this.connEl.empty();
+    const dot = this.connEl.createSpan({ cls: "vault-rag-conn-dot" });
+    const label = this.connEl.createSpan();
     if (this.connected === null) {
-      this.connEl.setText("● Smart-Apply-LLM: prüfe…");
+      label.setText('Smart-Apply-LLM: prüfe…');
     } else if (this.connected) {
-      this.connEl.setText("● Smart-Apply-LLM verbunden");
-      this.connEl.toggleClass("is-online", true);
+      dot.toggleClass("is-ok", true);
+      label.setText('Smart-Apply-LLM verbunden');
     } else {
-      this.connEl.setText("○ Smart-Apply-LLM offline — in den Settings prüfen");
-      this.connEl.toggleClass("is-offline", true);
+      dot.toggleClass("is-error", true);
+      label.setText('Smart-Apply-LLM offline — in den Settings prüfen');
     }
     this.connEl.addEventListener("click", () => void this.refreshConn());
 
@@ -221,6 +225,9 @@ export class SmartApplyView extends ItemView {
       cls: "vault-rag-sa-idle",
       text: "Wähle eine Notiz und drücke 'Auf aktive Notiz anwenden'.",
     });
+    if (this.templateHint) {
+      c.createDiv({ cls: "vault-rag-sa-template-hint", text: this.templateHint });
+    }
   }
 
   // ── Body: running ─────────────────────────────────────────────────────────────
@@ -418,6 +425,7 @@ export class SmartApplyView extends ItemView {
   private async runBuild(builder: () => Promise<ApplyProposal>): Promise<void> {
     this.streamText = "";
     this.reasoningText = "";
+    this.templateHint = "";
     this.proposal = null;
     this.lastUndo = null;
     this.state = "running";
@@ -431,11 +439,16 @@ export class SmartApplyView extends ItemView {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "abgebrochen") {
         this.errorText = "Verworfen";
+        this.state = "error";
+      } else if (msg === "vorlage-waehlen" || msg === "keine-vorlage") {
+        this.state = "idle";
+        this.errorText = "";
+        this.templateHint = 'Konnte den Typ nicht automatisch zuordnen — bitte Vorlage oben wählen';
       } else {
         this.errorText = msg;
         new Notice(`Smart Apply: ${msg}`);
+        this.state = "error";
       }
-      this.state = "error";
     } finally {
       this.stopTimer();
     }
@@ -468,6 +481,7 @@ export class SmartApplyView extends ItemView {
     this.streamText = "";
     this.reasoningText = "";
     this.errorText = "";
+    this.templateHint = "";
     this.state = "idle";
     this.render();
   }

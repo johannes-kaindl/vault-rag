@@ -139,20 +139,31 @@ export class SmartApplyView extends ItemView {
     });
 
     this.connEl = row1.createDiv({ cls: "vault-rag-sa-conn" });
-    // Reflect cached connection state synchronously
+    // Zustand synchron spiegeln. Die Form (Icon) trägt die Bedeutung; Farbe ist nur ein
+    // sekundärer, redundanter Hinweis — so bleibt der Status auch bei Farbsehschwäche lesbar (WCAG 1.4.1).
     this.connEl.empty();
     const dot = this.connEl.createSpan({ cls: "vault-rag-conn-dot" });
     const label = this.connEl.createSpan();
     if (this.connected === null) {
+      dot.toggleClass("is-checking", true);
+      setIcon(dot, "loader");
       label.setText('Smart-Apply-LLM: prüfe…');
     } else if (this.connected) {
       dot.toggleClass("is-ok", true);
+      setIcon(dot, "circle-check");
       label.setText('Smart-Apply-LLM verbunden');
     } else {
       dot.toggleClass("is-error", true);
+      setIcon(dot, "circle-x");
       label.setText('Smart-Apply-LLM offline — in den Settings prüfen');
     }
+    this.connEl.setAttribute("aria-label", "Smart-Apply-LLM-Verbindung erneut prüfen");
+    this.connEl.setAttribute("title", "Verbindung erneut prüfen");
     this.connEl.addEventListener("click", () => void this.refreshConn());
+    const connRefresh = this.connEl.createSpan({ cls: "vault-rag-sa-conn-refresh clickable-icon" });
+    setIcon(connRefresh, "refresh-cw");
+    connRefresh.setAttribute("aria-label", "Verbindung erneut prüfen");
+    connRefresh.addEventListener("click", (e) => { e?.stopPropagation(); void this.refreshConn(); });
 
     this.thinkEl = row1.createEl("button", { cls: "vault-rag-sa-think clickable-icon" });
     this.thinkEl.addEventListener("click", () => {
@@ -380,7 +391,7 @@ export class SmartApplyView extends ItemView {
     bar.createEl("button", { cls: "vault-rag-sa-discard", text: "Verwerfen" })
       .addEventListener("click", () => this.onDiscard());
 
-    bar.createEl("button", { cls: "vault-rag-sa-reroll", text: "Neu würfeln" })
+    bar.createEl("button", { cls: "vault-rag-sa-reroll", text: "Neu generieren" })
       .addEventListener("click", () => void this.onReroll(p));
 
     bar.createEl("button", { cls: "vault-rag-sa-open-tpl", text: "Vorlage öffnen" })

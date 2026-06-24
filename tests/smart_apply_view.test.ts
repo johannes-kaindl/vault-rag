@@ -133,6 +133,36 @@ describe("SmartApplyView — Cockpit", () => {
     expect(first(view.contentEl, "vault-rag-sa-conn").textContent).toContain("offline");
   });
 
+  it("Verbindungs-Icon unterscheidet sich je Zustand per Form (nicht nur Farbe)", async () => {
+    const okView = mkView({ ping: vi.fn(async () => true) });
+    await okView.view.onOpen(); await flush();
+    const okIcon = first(okView.view.contentEl, "vault-rag-conn-dot").getAttribute("data-icon");
+
+    const offView = mkView({ ping: vi.fn(async () => false) });
+    await offView.view.onOpen(); await flush();
+    const offIcon = first(offView.view.contentEl, "vault-rag-conn-dot").getAttribute("data-icon");
+
+    expect(okIcon).toBeTruthy();
+    expect(offIcon).toBeTruthy();
+    expect(okIcon).not.toBe(offIcon);   // verbunden vs. offline: distinkte Icon-Form, farbunabhängig lesbar
+  });
+
+  it("Verbindungszeile trägt ein barrierefreies aria-label zum erneuten Prüfen", async () => {
+    const { view } = mkView({ ping: vi.fn(async () => true) });
+    await view.onOpen(); await flush();
+    expect(first(view.contentEl, "vault-rag-sa-conn").getAttribute("aria-label")).toBeTruthy();
+  });
+
+  it("Verbindungszeile hat einen Refresh-Button, der ping erneut auslöst", async () => {
+    const ping = vi.fn(async () => true);
+    const { view } = mkView({ ping });
+    await view.onOpen(); await flush();
+    ping.mockClear();
+    first(view.contentEl, "vault-rag-sa-conn-refresh").click();
+    await flush();
+    expect(ping).toHaveBeenCalledTimes(1);
+  });
+
   // Step 2 — idle body
   it("idle-Body zeigt Platzhaltertext", async () => {
     const { view } = mkView();
@@ -334,7 +364,7 @@ describe("SmartApplyView — Cockpit", () => {
   });
 
   // Step 11 — Reroll → new proposal, diff
-  it("'Neu würfeln' ruft reroll und rendert wieder Diff", async () => {
+  it("'Neu generieren' ruft reroll und rendert wieder Diff", async () => {
     const { view, deps } = mkView();
     await view.onOpen();
     first(view.contentEl, "vault-rag-sa-run").click();

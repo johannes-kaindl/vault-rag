@@ -555,8 +555,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const text = val.createSpan();
     let connected: boolean | null = null;
     const render = (): void => {
+      dot.toggleClass("is-checking", connected === null);
       dot.toggleClass("is-ok", connected === true);
       dot.toggleClass("is-error", connected === false);
+      // Form (Icon) trägt den Status, Farbe nur sekundär — lesbar auch bei Farbsehschwäche (WCAG 1.4.1).
+      setIcon(dot, connected === null ? "loader" : connected ? "circle-check" : "circle-x");
       const conn = connected === null ? "prüfe…" : connected ? "Verbunden" : "Offline";
       const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
       const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet · ${p.pendingNotes.toLocaleString("de-DE")} ausstehend` : "";

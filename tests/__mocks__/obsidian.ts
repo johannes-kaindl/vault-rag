@@ -1,10 +1,11 @@
 export function makeFakeEl(): any {
   const children: any[] = [];
+  const attrs: Record<string, string> = {};
   let _ownText = "";
   const el: any = {
     children, empty: () => { children.length = 0; _ownText = ""; },
     createDiv: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; children.push(c); return c; },
-    createEl: (t: string, o?: any) => { const c = makeFakeEl(); c.tagName = t.toUpperCase(); if (o?.text) c.textContent = o.text; if (o?.cls) c.className = o.cls; children.push(c); return c; },
+    createEl: (t: string, o?: any) => { const c = makeFakeEl(); c.tagName = t.toUpperCase(); if (o?.text) c.textContent = o.text; if (o?.cls) c.className = o.cls; if (o?.attr) for (const k of Object.keys(o.attr)) attrs[k] = String(o.attr[k]); children.push(c); return c; },
     setText: (t: string) => { _ownText = t; }, addClass: () => {}, removeClass: () => {},
     createSpan: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; children.push(c); return c; },
     toggleClass: (cls: string, on: boolean) => {
@@ -12,7 +13,8 @@ export function makeFakeEl(): any {
       if (on) parts.push(cls);
       el.className = parts.join(" ");
     },
-    setAttribute: (_k: string, _v: string) => {},
+    setAttribute: (k: string, v: string) => { attrs[k] = String(v); },
+    getAttribute: (k: string) => (k in attrs ? attrs[k] : null),
     style: { setProperty: (_prop: string, _val: string) => {} },
     setCssStyles: (_s: any) => {},
     _listeners: {} as Record<string, Function[]>,
@@ -64,7 +66,7 @@ export class FuzzySuggestModal<T> {
   __choose(item: T): void { this.onChooseItem(item); }
   __close(): void { this.onClose(); }
 }
-export function setIcon(_el: any, _name: string): void {}
+export function setIcon(el: any, name: string): void { el?.setAttribute?.("data-icon", name); }
 export class Notice { constructor(_message: string) {} }
 import { vi } from "vitest";
 

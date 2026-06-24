@@ -15,7 +15,7 @@ import { ChatSession } from "./chat_session";
 import { ChatView, VIEW_TYPE_CHAT } from "./chat_view";
 import { SmartApply, type ApplyProposal } from "./smart_apply";
 import { SmartApplyView, VIEW_TYPE_SMART_APPLY } from "./smart_apply_view";
-import { extractType } from "./template_matcher";
+import { extractType, templateFilesUnder } from "./template_matcher";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -135,9 +135,7 @@ export default class VaultRagPlugin extends Plugin {
           read: (p) => this.app.vault.adapter.read(p),
           write: (p, data) => this.app.vault.adapter.write(p, data),
           listTemplates: async () =>
-            this.app.vault.getMarkdownFiles()
-              .map(f => f.path)
-              .filter(p => p.startsWith(this.settings.templateDir)),
+            templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir),
           typeOf: async (p) => extractType(await this.app.vault.adapter.read(p)),
           embed: async (t) => {
             const index = this.index;
@@ -174,7 +172,7 @@ export default class VaultRagPlugin extends Plugin {
         ping: () => this.chatClient.ping(),
         getModel: () => this.settings.smartApplyModel || this.settings.chatModel,
         setModel: (m: string) => { this.settings.smartApplyModel = m; void this.saveSettings(); },
-        listTemplates: () => Promise.resolve(this.app.vault.getMarkdownFiles().map(f => f.path).filter(p => p.startsWith(this.settings.templateDir))),
+        listTemplates: () => Promise.resolve(templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir)),
         getSuppress: () => this.settings.smartApplySuppressThinking,
         setSuppress: (v: boolean) => { this.settings.smartApplySuppressThinking = v; void this.saveSettings(); },
       }));
@@ -419,7 +417,7 @@ export default class VaultRagPlugin extends Plugin {
     const detection = await core.detect(notePath);
     let tpl = detection.templatePath;
     if (!tpl) {
-      const list = this.app.vault.getMarkdownFiles().map(f => f.path).filter(p => p.startsWith(this.settings.templateDir));
+      const list = templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir);
       if (list.length === 1) {
         tpl = list[0];
       } else if (list.length === 0) {

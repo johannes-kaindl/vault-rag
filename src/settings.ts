@@ -1,4 +1,4 @@
-import { App, ButtonComponent, Notice, Plugin, PluginSettingTab, Setting, setIcon } from "obsidian";
+import { AbstractInputSuggest, App, ButtonComponent, Notice, Plugin, PluginSettingTab, Setting, TFolder, setIcon } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
@@ -73,6 +73,31 @@ export interface VaultRagPluginHost extends Plugin {
   reconnectEmbedder(): void;
   reconnectChat(): void;
   setStatusBarVisible(visible: boolean): void;
+}
+
+/** Autocomplete-Suggest für Vault-Ordner in einem Text-Input-Feld. */
+class FolderSuggest extends AbstractInputSuggest<string> {
+  constructor(app: App, private textInputEl: HTMLInputElement) {
+    super(app, textInputEl);
+  }
+
+  getSuggestions(query: string): string[] {
+    const q = query.toLowerCase();
+    return this.app.vault.getAllFolders()
+      .map((f: TFolder) => f.path)
+      .filter((p: string) => p.toLowerCase().includes(q))
+      .slice(0, 20);
+  }
+
+  renderSuggestion(path: string, el: HTMLElement): void {
+    el.setText(path);
+  }
+
+  selectSuggestion(path: string, _evt: MouseEvent | KeyboardEvent): void {
+    this.setValue(path);
+    this.textInputEl.dispatchEvent(new Event("input"));
+    this.close();
+  }
 }
 
 /**
@@ -460,12 +485,24 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   private buildTemplateDir(s: Setting): void {
     s.setName("Vorlagen-Ordner")
-      .setDesc('Ordner mit den Markdown-Vorlagen (z.B. Templates/). Sollte in „Ausschluss-Pfade" stehen, damit Vorlagen nicht eingebettet werden.')
-      .addText(t => t.setPlaceholder("Templates/").setValue(this.plugin.settings.templateDir)
-        .onChange(async (v: string) => {
-          this.plugin.settings.templateDir = v.trim();
+      .setDesc('Ordner mit den Vorlagen — alle Markdown-Dateien darin und in Unterordnern werden berücksichtigt.')
+      .addText(t => {
+        t.setPlaceholder("Templates/").setValue(this.plugin.settings.templateDir);
+        const normalize = (v: string): string => {
+          const trimmed = v.trim();
+          if (trimmed === "") return "";
+          return trimmed.endsWith("/") ? trimmed : trimmed + "/";
+        };
+        const save = async (v: string): Promise<void> => {
+          this.plugin.settings.templateDir = normalize(v);
           await this.plugin.saveSettings();
-        }));
+        };
+        t.onChange(save);
+        new FolderSuggest(this.app, t.inputEl).onSelect(async (path: string) => {
+          t.setValue(normalize(path));
+          await save(path);
+        });
+      });
   }
 
   private buildSmartApplyTemperature(s: Setting): void {

@@ -57,6 +57,14 @@ function normalizeType(s: string): string {
     .toLowerCase();
 }
 
+/** Alle Markdown-Pfade unter `dir` (inkl. Unterordnern), sibling-sicher. Leeres dir → []. */
+export function templateFilesUnder(mdPaths: string[], dir: string): string[] {
+  const d = dir.trim();
+  if (d === "") return [];
+  const prefix = d.endsWith("/") ? d : d + "/";
+  return mdPaths.filter(p => p.startsWith(prefix));
+}
+
 /** Findet das Template, dessen Basename (ohne Verzeichnis/.md) zum Typ passt — emoji/case-normalisiert. */
 export function resolveTemplateForType(type: string, templates: string[]): string | null {
   const want = normalizeType(type);

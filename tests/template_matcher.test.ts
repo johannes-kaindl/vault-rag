@@ -5,6 +5,7 @@ import {
   parseTemplate,
   resolveTemplateForType,
   detectType,
+  templateFilesUnder,
   type DetectDeps,
 } from "../src/template_matcher";
 
@@ -209,5 +210,25 @@ describe("detectType", () => {
     // Only "a.md" (Buch, score 0.5) enters the vote; "b.md" is excluded.
     expect(s.type).toBe("Buch");
     expect(s.source).toBe("rag");
+  });
+});
+
+describe("templateFilesUnder", () => {
+  const paths = ["A/x.md", "A/sub/deep/y.md", "AB/z.md", "B/q.md"];
+
+  it('dir "A" liefert Pfade unter A/ (rekursiv) und schließt AB/ aus (sibling-safety)', () => {
+    expect(templateFilesUnder(paths, "A")).toEqual(["A/x.md", "A/sub/deep/y.md"]);
+  });
+
+  it('dir "A/" (mit trailing slash) liefert dasselbe Ergebnis wie "A"', () => {
+    expect(templateFilesUnder(paths, "A/")).toEqual(["A/x.md", "A/sub/deep/y.md"]);
+  });
+
+  it('leeres dir "" liefert []', () => {
+    expect(templateFilesUnder(paths, "")).toEqual([]);
+  });
+
+  it('dir mit nur Whitespace wird wie "" behandelt und liefert []', () => {
+    expect(templateFilesUnder(paths, "   ")).toEqual([]);
   });
 });

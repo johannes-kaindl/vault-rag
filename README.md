@@ -17,6 +17,7 @@ Vault Retrieval turns your notes into a searchable knowledge base without sendin
 - **Visible thinking, with an off switch** — for reasoning models, the live "💭 thinking" stream appears in a collapsible block above the answer and folds away once it arrives (and is never sent back into the conversation history). A toggle suppresses thinking when you want faster answers — via cross-server-portable hints — and a settings test tells you whether your model actually honours it.
 - **Model capability hints** — settings show, best-effort, whether the selected chat model supports vision and/or thinking, so you can pick the right one. Each endpoint has an inline connection test, and the model pickers populate from the server.
 - **Live indexing** — notes are re-embedded on save; edits made offline queue up and catch up automatically on reconnect.
+- **Smart Apply — restructure a note into a template** *(opt-in)* — pick a template and a local LLM reorganises a messy note into its sections, routing your *original* blocks under the right headings. It never invents content — a diff gate shows exactly what moves where before you apply, and the body is rebuilt from your own bytes. Templates self-describe through `%%` guidance comments, and a relevance-ranked template list (cosine over the same index — reusing the stored vectors, no re-embedding) preselects the best fit and updates live as you switch notes. Enable it under **Settings → Smart Apply**.
 
 ## Requirements
 
@@ -53,6 +54,7 @@ npm run build      # → main.js
 1. Enable the plugin and open a note. The **Related notes** panel (ribbon: 🔍) populates automatically.
 2. Open **Semantic search** (ribbon: 🔭) to query the vault by meaning.
 3. Open **Vault Chat** (ribbon: 💬), point the chat endpoint at your local LLM in settings, and ask away. Edit the live-context list to control which notes ground the answer.
+4. *(Optional)* Enable **Smart Apply** in settings, then open its cockpit (ribbon: 🪄). Pick a template from the relevance-ranked list and apply it to the active note — review the diff, then accept, re-generate, or pick another template.
 
 ### Configuration
 

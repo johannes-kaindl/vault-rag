@@ -425,6 +425,7 @@ export class SmartApplyView extends ItemView {
   private async runBuild(builder: () => Promise<ApplyProposal>): Promise<void> {
     this.streamText = "";
     this.reasoningText = "";
+    this.templateHint = "";
     this.proposal = null;
     this.lastUndo = null;
     this.state = "running";

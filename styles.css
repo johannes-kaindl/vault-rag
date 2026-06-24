@@ -59,8 +59,6 @@
 .vault-rag-sa-think-icon { display: inline-flex; }
 .vault-rag-sa-think-icon svg { width: 14px; height: 14px; }
 .vault-rag-sa-think-label { font-size: 12px; }
-.vault-rag-sa-run { }
-.vault-rag-sa-stop { }
 .vault-rag-sa-idle { color: var(--text-muted); }
 .vault-rag-sa-template-hint { color: var(--text-muted); font-size: 12px; font-style: italic; margin-top: 4px; }
 .vault-rag-sa-elapsed { font-size: 11px; color: var(--text-accent); }
@@ -69,8 +67,7 @@
 .vault-rag-sa-reasoning-body { color: var(--text-faint); white-space: pre-wrap; font-style: italic; padding: 4px 0 4px 12px; border-left: 2px solid var(--background-modifier-border); }
 .vault-rag-sa-stream-wrap { font-size: 11px; }
 .vault-rag-sa-stream-sum { color: var(--text-muted); cursor: pointer; font-size: 11px; }
-.vault-rag-sa-raw { font-size: 11px; color: var(--text-faint); white-space: pre-wrap; max-height: 160px; overflow-y: auto; background: var(--background-secondary); border-radius: 6px; padding: 6px; margin: 0; }
-.vault-rag-sa-stream { font-size: 11px; color: var(--text-faint); white-space: pre-wrap; max-height: 160px; overflow-y: auto; background: var(--background-secondary); border-radius: 6px; padding: 6px; margin: 0; }
+.vault-rag-sa-raw, .vault-rag-sa-stream { font-size: 11px; color: var(--text-faint); white-space: pre-wrap; max-height: 160px; overflow-y: auto; background: var(--background-secondary); border-radius: 6px; padding: 6px; margin: 0; }
 .vault-rag-sa-guard { padding: 4px 6px; border-radius: 4px; font-size: 12px; }
 .vault-rag-sa-guard.is-ok { color: var(--text-success); }
 .vault-rag-sa-guard.is-error { color: var(--text-error); }

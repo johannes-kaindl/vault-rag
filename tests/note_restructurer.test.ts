@@ -19,6 +19,7 @@ function spec(headings: string[]): TemplateSpec {
     heading: h,
     level: 2,
     placeholder: `ph${i}`,
+    guidance: "",
   }));
   return {
     type: "Test",

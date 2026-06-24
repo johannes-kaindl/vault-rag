@@ -1,7 +1,7 @@
 import { parseFrontmatter } from "./frontmatter";
 import type { FmValue } from "./frontmatter";
 
-export interface TemplateSection { heading: string; level: number; placeholder: string }
+export interface TemplateSection { heading: string; level: number; placeholder: string; guidance: string }
 export interface TemplateSpec { type: string; keys: string[]; fmDefaults: Record<string, FmValue>; sections: TemplateSection[]; raw: string }
 
 // Lokal — chunker.ts exportiert seine FRONTMATTER_RE nicht.
@@ -12,6 +12,19 @@ const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?/;
 export function stripAnnotations(text: string): string {
   const stripped = text.replace(/%%[\s\S]*?%%/g, "");
   return stripped.replace(/^[^\S\n]+$/gm, "");
+}
+
+/** Sammelt den Inhalt aller %% … %%-Annotationen (Marker entfernt), zu einem Hinweis verbunden.
+ *  Unbalancierte/halboffene %% werden ignoriert (kein Match). */
+export function extractAnnotations(text: string): string {
+  const out: string[] = [];
+  const re = /%%([\s\S]*?)%%/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const inner = m[1].trim();
+    if (inner) out.push(inner);
+  }
+  return out.join(" ");
 }
 
 /** type: aus dem Frontmatter-Block. null wenn kein Frontmatter oder kein type-Key. */
@@ -34,7 +47,15 @@ export function parseTemplate(text: string): TemplateSpec {
   const sections: TemplateSection[] = [];
   let cur: { heading: string; level: number; buf: string[] } | null = null;
   const flush = (): void => {
-    if (cur) sections.push({ heading: cur.heading, level: cur.level, placeholder: cur.buf.join("\n").trim() });
+    if (cur) {
+      const buf = cur.buf.join("\n");
+      sections.push({
+        heading: cur.heading,
+        level: cur.level,
+        placeholder: stripAnnotations(buf).trim(),
+        guidance: extractAnnotations(buf),
+      });
+    }
   };
   for (const line of lines) {
     const hm = /^(#{1,6})\s+(.+?)\s*$/.exec(line);

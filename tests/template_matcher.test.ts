@@ -6,6 +6,7 @@ import {
   resolveTemplateForType,
   detectType,
   templateFilesUnder,
+  extractAnnotations,
   type DetectDeps,
 } from "../src/template_matcher";
 
@@ -230,5 +231,32 @@ describe("templateFilesUnder", () => {
 
   it('dir mit nur Whitespace wird wie "" behandelt und liefert []', () => {
     expect(templateFilesUnder(paths, "   ")).toEqual([]);
+  });
+});
+
+describe("parseTemplate %%-guidance", () => {
+  it("extrahiert %%-Annotation als guidance und hält placeholder sauber", () => {
+    const tpl = parseTemplate("## Tagesordnung\n%% Stichpunkte zur Agenda hierher %%\n- Beispiel\n");
+    const sec = tpl.sections[0];
+    expect(sec.heading).toBe("Tagesordnung");
+    expect(sec.guidance).toBe("Stichpunkte zur Agenda hierher");
+    expect(sec.placeholder).not.toContain("%%");
+    expect(sec.placeholder).toContain("- Beispiel");
+  });
+
+  it("Section ohne %% → guidance leer", () => {
+    const tpl = parseTemplate("## Notizen\n- frei\n");
+    expect(tpl.sections[0].guidance).toBe("");
+  });
+
+  it("mehrere %%-Blöcke einer Section werden zusammengefügt", () => {
+    const tpl = parseTemplate("## A\n%% eins %%\nText\n%% zwei %%\n");
+    expect(tpl.sections[0].guidance).toBe("eins zwei");
+  });
+
+  it("unbalanciertes %% crasht nicht und liefert guidance leer", () => {
+    const tpl = parseTemplate("## X\n%% offen ohne Ende\n- y\n");
+    expect(tpl.sections[0].guidance).toBe("");
+    expect(tpl.sections[0].heading).toBe("X");
   });
 });

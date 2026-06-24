@@ -1,6 +1,7 @@
 import { ItemView, WorkspaceLeaf, setIcon, Notice } from "obsidian";
 import type { FmValue, FmChange } from "./frontmatter";
 import type { ApplyProposal, ApplyResult } from "./smart_apply";
+import type { TemplateRank } from "./template_ranker";
 import { isAlwaysOnThinker } from "./reasoning";
 
 // Re-export for consumers (e.g. tests) that import from this module
@@ -18,7 +19,7 @@ export interface SmartApplyViewDeps {
   listModels: () => Promise<string[]>;
   getModel: () => string;
   setModel: (m: string) => void;
-  listTemplates: () => Promise<string[]>;
+  rankTemplates: (notePath: string) => Promise<TemplateRank[]>;
   getSuppress: () => boolean;
   setSuppress: (v: boolean) => void;
   ping: () => Promise<boolean>;
@@ -56,13 +57,16 @@ export class SmartApplyView extends ItemView {
 
   // Header refs
   private modelSel: HTMLSelectElement | null = null;
-  private templateSel: HTMLSelectElement | null = null;
   private connEl: HTMLElement | null = null;
   private thinkEl: HTMLElement | null = null;
 
   // Dropdown / connection cache — populated by refresh* methods, filled synchronously on every render
   private models: string[] = [];
-  private templates: string[] = [];
+  private ranking: TemplateRank[] = [];
+  private expandedRanks = false;
+  private userOverrodeTemplate = false;
+  private rankGen = 0;
+  private rankTimer: ReturnType<typeof window.setTimeout> | null = null;
   private connected: boolean | null = null;
   private selectedTemplate = "";
 
@@ -83,13 +87,19 @@ export class SmartApplyView extends ItemView {
     this.contentEl.addClass("vault-rag-sa-root");
     this.render();
     await this.refreshModels();
-    await this.refreshTemplates();
     await this.refreshConn();
+    await this.recomputeRanking();
+    // Beide Events nötig: active-leaf-change beim Wechsel zwischen Tabs/Panes, file-open beim
+    // Öffnen einer anderen Notiz im selben Tab (dort feuert active-leaf-change nicht).
+    // Der Debounce in scheduleRecompute dedupliziert, wenn beide gemeinsam feuern.
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.scheduleRecompute()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.scheduleRecompute()));
   }
 
   async onClose(): Promise<void> {
     this.contentEl.removeClass("vault-rag-sa-root");
     this.stopTimer();
+    if (this.rankTimer !== null) { window.clearTimeout(this.rankTimer); this.rankTimer = null; }
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -118,6 +128,9 @@ export class SmartApplyView extends ItemView {
   private renderHeader(c: HTMLElement): void {
     const header = c.createDiv({ cls: "vault-rag-sa-header" });
 
+    // Verbindungsstatus zuerst, als eigene ruhige Zeile (gibt dem Modell-Dropdown darunter Platz).
+    this.renderConnStatus(header);
+
     const row1 = header.createDiv({ cls: "vault-rag-sa-header-row" });
     this.modelSel = row1.createEl("select", { cls: "vault-rag-sa-model dropdown" });
     // Fill model select synchronously from cache
@@ -132,22 +145,6 @@ export class SmartApplyView extends ItemView {
       this.renderThink();
     });
 
-    this.connEl = row1.createDiv({ cls: "vault-rag-sa-conn" });
-    // Reflect cached connection state synchronously
-    this.connEl.empty();
-    const dot = this.connEl.createSpan({ cls: "vault-rag-conn-dot" });
-    const label = this.connEl.createSpan();
-    if (this.connected === null) {
-      label.setText('Smart-Apply-LLM: prüfe…');
-    } else if (this.connected) {
-      dot.toggleClass("is-ok", true);
-      label.setText('Smart-Apply-LLM verbunden');
-    } else {
-      dot.toggleClass("is-error", true);
-      label.setText('Smart-Apply-LLM offline — in den Settings prüfen');
-    }
-    this.connEl.addEventListener("click", () => void this.refreshConn());
-
     this.thinkEl = row1.createEl("button", { cls: "vault-rag-sa-think clickable-icon" });
     this.thinkEl.addEventListener("click", () => {
       if (isAlwaysOnThinker(this.deps.getModel())) return;   // nicht abschaltbar
@@ -157,18 +154,6 @@ export class SmartApplyView extends ItemView {
     this.renderThink();
 
     const row2 = header.createDiv({ cls: "vault-rag-sa-header-row" });
-    this.templateSel = row2.createEl("select", { cls: "vault-rag-sa-template dropdown" });
-    // Fill template select synchronously from cache
-    const autoOpt = this.templateSel.createEl("option", { text: "automatisch erkennen" });
-    autoOpt.value = "";
-    for (const t of this.templates) {
-      const o = this.templateSel.createEl("option", { text: t.split("/").pop()?.replace(/\.md$/, "") ?? t });
-      o.value = t;
-    }
-    this.templateSel.value = this.selectedTemplate;
-    this.templateSel.addEventListener("change", () => {
-      this.selectedTemplate = this.templateSel?.value ?? "";
-    });
 
     const running = this.state === "running";
     const runBtn = row2.createEl("button", { cls: "vault-rag-sa-run mod-cta", text: "Auf aktive Notiz anwenden" });
@@ -178,6 +163,38 @@ export class SmartApplyView extends ItemView {
     const stopBtn = row2.createEl("button", { cls: "vault-rag-sa-stop", text: "Stop" });
     stopBtn.toggleClass("is-disabled", !running);
     stopBtn.addEventListener("click", () => this.deps.abort());
+
+    this.renderRankList(header);
+  }
+
+  private renderRankList(header: HTMLElement): void {
+    const wrap = header.createDiv({ cls: "vault-rag-sa-ranklist" });
+    if (this.ranking.length === 0) {
+      wrap.createDiv({ cls: "vault-rag-sa-rank-empty", text: "Keine Vorlage erkannt — Vorlagen-Ordner in den Einstellungen prüfen." });
+      return;
+    }
+    if (this.ranking.every(r => r.source === "fallback")) {
+      wrap.createDiv({ cls: "vault-rag-sa-rank-note", text: "offline — Ranking nicht verfügbar, Vorlage manuell wählen" });
+    }
+    const maxScore = Math.max(0, ...this.ranking.map(r => r.score));
+    const TOP_N = 5;
+    const visible = this.expandedRanks ? this.ranking : this.ranking.slice(0, TOP_N);
+    for (const r of visible) {
+      const row = wrap.createDiv({ cls: "vault-rag-sa-rank-row" });
+      const selected = r.templatePath === this.selectedTemplate;
+      row.toggleClass("is-selected", selected);
+      row.addEventListener("click", () => this.selectTemplate(r.templatePath));
+      row.createSpan({ cls: "vault-rag-sa-rank-radio", text: selected ? "◉" : "○" });
+      row.createSpan({ cls: "vault-rag-sa-rank-name", text: r.type });
+      const pct = r.source === "confirmed" ? 100 : (maxScore > 0 ? Math.round((r.score / maxScore) * 100) : 0);
+      const bar = row.createDiv({ cls: "vault-rag-sa-rank-bar" });
+      bar.style.setProperty("--vault-rag-sa-rank-pct", `${pct}%`);
+      row.createSpan({ cls: "vault-rag-sa-rank-pct", text: r.source === "confirmed" ? "Frontmatter-Typ" : `${pct}%` });
+    }
+    if (this.ranking.length > TOP_N && !this.expandedRanks) {
+      const more = wrap.createDiv({ cls: "vault-rag-sa-rank-more", text: `weitere ${this.ranking.length - TOP_N} ▾` });
+      more.addEventListener("click", () => { this.expandedRanks = true; this.render(); });
+    }
   }
 
   private renderThink(): void {
@@ -204,10 +221,62 @@ export class SmartApplyView extends ItemView {
     this.render();
   }
 
-  private async refreshTemplates(): Promise<void> {
-    const templates = await this.deps.listTemplates();
-    this.templates = templates;
+  private scheduleRecompute(): void {
+    if (this.rankTimer !== null) window.clearTimeout(this.rankTimer);
+    this.rankTimer = window.setTimeout(() => { this.rankTimer = null; void this.recomputeRanking(true); }, 400);
+  }
+
+  /** Rankt für die aktive Notiz neu. noteChanged=true (Notizwechsel) verwirft eine manuelle Auswahl. */
+  private async recomputeRanking(noteChanged = false): Promise<void> {
+    if (noteChanged) { this.userOverrodeTemplate = false; this.expandedRanks = false; }
+    const path = this.deps.activeNotePath();
+    if (path === null) { this.ranking = []; this.render(); return; }
+    const gen = ++this.rankGen;
+    let ranks: TemplateRank[] = [];
+    try { ranks = await this.deps.rankTemplates(path); } catch { ranks = []; }
+    if (gen !== this.rankGen) return; // veraltet — neuerer Lauf gewinnt
+    this.ranking = ranks;
+    if (!this.userOverrodeTemplate) this.selectedTemplate = ranks[0]?.templatePath ?? "";
     this.render();
+  }
+
+  private selectTemplate(path: string): void {
+    this.selectedTemplate = path;
+    this.userOverrodeTemplate = true;
+    this.render();
+  }
+
+  /** Von außen aufrufbar (z.B. nach Vorlagenpfad-Änderung in den Settings): sofort neu ranken. */
+  refreshRanking(): void {
+    void this.recomputeRanking(true);
+  }
+
+  /** Verbindungsstatus als eigene, ruhige Kopfzeile. Die Form (Icon) trägt die Bedeutung,
+   *  Farbe ist nur ein sekundärer Hinweis — lesbar auch bei Farbsehschwäche (WCAG 1.4.1). */
+  private renderConnStatus(parent: HTMLElement): void {
+    this.connEl = parent.createDiv({ cls: "vault-rag-sa-conn" });
+    const dot = this.connEl.createSpan({ cls: "vault-rag-conn-dot" });
+    const label = this.connEl.createSpan({ cls: "vault-rag-sa-conn-label" });
+    if (this.connected === null) {
+      dot.toggleClass("is-checking", true);
+      setIcon(dot, "loader");
+      label.setText("Smart-Apply-LLM: prüfe…");
+    } else if (this.connected) {
+      dot.toggleClass("is-ok", true);
+      setIcon(dot, "circle-check");
+      label.setText("Smart-Apply-LLM verbunden");
+    } else {
+      dot.toggleClass("is-error", true);
+      setIcon(dot, "circle-x");
+      label.setText("Smart-Apply-LLM offline — in den Settings prüfen");
+    }
+    this.connEl.setAttribute("aria-label", "Smart-Apply-LLM-Verbindung erneut prüfen");
+    this.connEl.setAttribute("title", "Verbindung erneut prüfen");
+    this.connEl.addEventListener("click", () => void this.refreshConn());
+    const refresh = this.connEl.createSpan({ cls: "vault-rag-sa-conn-refresh clickable-icon" });
+    setIcon(refresh, "refresh-cw");
+    refresh.setAttribute("aria-label", "Verbindung erneut prüfen");
+    refresh.addEventListener("click", (e) => { e?.stopPropagation(); void this.refreshConn(); });
   }
 
   private async refreshConn(): Promise<void> {
@@ -335,7 +404,7 @@ export class SmartApplyView extends ItemView {
     bar.createEl("button", { cls: "vault-rag-sa-discard", text: "Verwerfen" })
       .addEventListener("click", () => this.onDiscard());
 
-    bar.createEl("button", { cls: "vault-rag-sa-reroll", text: "Neu würfeln" })
+    bar.createEl("button", { cls: "vault-rag-sa-reroll", text: "Neu generieren" })
       .addEventListener("click", () => void this.onReroll(p));
 
     bar.createEl("button", { cls: "vault-rag-sa-open-tpl", text: "Vorlage öffnen" })

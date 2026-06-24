@@ -70,6 +70,7 @@ export interface VaultRagPluginHost extends Plugin {
   embeddingProgress: { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number };
   saveSettings(): Promise<void>;
   refresh(): void;
+  refreshSmartApplyRanking(): void;
   reconnectEmbedder(): void;
   reconnectChat(): void;
   setStatusBarVisible(visible: boolean): void;
@@ -485,7 +486,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   private buildTemplateDir(s: Setting): void {
     s.setName("Vorlagen-Ordner")
-      .setDesc('Ordner mit den Vorlagen — alle Markdown-Dateien darin und in Unterordnern werden berücksichtigt.')
+      .setDesc('Ordner mit den Vorlagen — Markdown-Dateien darin und in Unterordnern werden berücksichtigt. Ausgenommen sind Folder Notes (Datei trägt den Namen ihres Ordners, z.B. Projekt/Projekt.md).')
       .addText(t => {
         t.setPlaceholder("Templates/").setValue(this.plugin.settings.templateDir);
         const normalize = (v: string): string => {
@@ -496,6 +497,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         const save = async (v: string): Promise<void> => {
           this.plugin.settings.templateDir = normalize(v);
           await this.plugin.saveSettings();
+          this.plugin.refreshSmartApplyRanking();   // offenes Cockpit sofort neu ranken (kein Reload)
         };
         t.onChange(save);
         new FolderSuggest(this.app, t.inputEl).onSelect(async (path: string) => {
@@ -555,8 +557,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const text = val.createSpan();
     let connected: boolean | null = null;
     const render = (): void => {
+      dot.toggleClass("is-checking", connected === null);
       dot.toggleClass("is-ok", connected === true);
       dot.toggleClass("is-error", connected === false);
+      // Form (Icon) trägt den Status, Farbe nur sekundär — lesbar auch bei Farbsehschwäche (WCAG 1.4.1).
+      setIcon(dot, connected === null ? "loader" : connected ? "circle-check" : "circle-x");
       const conn = connected === null ? "prüfe…" : connected ? "Verbunden" : "Offline";
       const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
       const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet · ${p.pendingNotes.toLocaleString("de-DE")} ausstehend` : "";

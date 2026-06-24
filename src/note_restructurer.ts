@@ -208,24 +208,41 @@ export const ANTI_FABRICATION = [
   "Du gibst AUSSCHLIESSLICH ein einzelnes JSON-Objekt zurück, keinen Fließtext, keine Erklärung.",
 ].join(" ");
 
+/** Vorlagen-Beispielwert als String (Selbst-Dokumentation, nie Inhalt). Leer → "". */
+function fmExample(v: unknown): string {
+  if (v === undefined || v === null) return "";
+  if (Array.isArray(v)) return v.length ? v.map(x => String(x)).join(", ") : "";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v).trim();
+  return "";
+}
+
 export function buildRestructurePrompt(tpl: TemplateSpec, blocks: SourceBlock[]): ChatMessage[] {
   const numbered = blocks.map(b => `${b.id}:\n${b.text}`).join("\n\n");
-  const keys = tpl.keys.join(", ");
   const headings = tpl.sections.map(s => s.heading).join(", ");
+
+  const sectionLines = tpl.sections
+    .map(s => (s.guidance ? `- ${s.heading} — Anleitung: ${s.guidance}` : `- ${s.heading}`))
+    .join("\n");
+  const keyLines = tpl.keys
+    .map(k => { const ex = fmExample(tpl.fmDefaults[k]); return ex ? `- ${k} (Beispiel: ${ex})` : `- ${k}`; })
+    .join("\n");
 
   const system = [
     "Du bist ein strukturierender Assistent für Obsidian-Notizen.",
     ANTI_FABRICATION,
+    "Die `Anleitung:`-Zeilen und `(Beispiel: …)`-Angaben der Vorlage sind VORGABEN — sie sagen dir, welche Original-Blöcke unter welche Überschrift gehören und was in ein Frontmatter-Feld passt. Sie sind KEIN zuzuordnender Inhalt; übernimm ihren Text niemals in den Output.",
     'Schema: { "version": 1, "sections": [{ "heading": "<Überschrift>", "blocks": ["block_3"] }],',
     '"unassigned": ["block_7"], "frontmatter": { "<key>": { "source": "content"|"empty", "value": "<wert>" } } }',
     'Frontmatter mit source="content" muss wörtlich aus den Blöcken stammen; sonst source="empty".',
   ].join("\n");
 
   const user = [
-    "## Template-Struktur (verbatim)",
-    tpl.raw,
+    "## Vorlagen-Struktur (Überschriften + Anleitung)",
+    sectionLines,
     "",
-    `Frontmatter-Keys: ${keys}`,
+    "## Frontmatter-Keys",
+    keyLines,
+    "",
     `Geordnete Überschriften: ${headings}`,
     "",
     "## Original-Body in nummerierten Blöcken",

@@ -16,6 +16,8 @@ import { ChatView, VIEW_TYPE_CHAT } from "./chat_view";
 import { SmartApply, type ApplyProposal } from "./smart_apply";
 import { SmartApplyView, VIEW_TYPE_SMART_APPLY } from "./smart_apply_view";
 import { extractType, templateFilesUnder } from "./template_matcher";
+import { TemplateRanker } from "./template_ranker";
+import type { TemplateRank } from "./template_ranker";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -31,6 +33,7 @@ export default class VaultRagPlugin extends Plugin {
   embedder!: EmbeddingClient;
   chatClient!: ChatClient;
   private smartApply: SmartApply | null = null;
+  private templateRanker?: TemplateRanker;
   private liveIndexer!: LiveIndexer;
   private pendingQueue!: PendingQueue;
   private debounceTimers = new Map<string, ReturnType<typeof window.setTimeout>>();
@@ -157,6 +160,22 @@ export default class VaultRagPlugin extends Plugin {
           maxTokens: this.settings.smartApplyMaxTokens,
         }),
       );
+      this.templateRanker = new TemplateRanker({
+        read: (p) => this.app.vault.adapter.read(p),
+        stat: async (p) => { const s = await this.app.vault.adapter.stat(p); return { mtime: s?.mtime ?? 0 }; },
+        listTemplates: async () =>
+          templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir),
+        // Persistierter Vault-Vektor (note-level) — wie der RAG-Retriever; spart das Neu-Einbetten
+        // indexierter Vorlagen/Notizen komplett.
+        indexVector: (p) => this.index?.vectorFor(p) ?? null,
+        embed: async (t) => {
+          const index = this.index;
+          if (!index) throw new Error("kein Index");
+          const vecs = await this.embedder.embed([t]);
+          if (vecs.length === 0) throw new Error("embed: leere Antwort");
+          return toIndexVector(vecs, index.dim);
+        },
+      });
       this.registerView(VIEW_TYPE_SMART_APPLY, (leaf: WorkspaceLeaf) => new SmartApplyView(leaf, {
         // SEAM-VERTRAG (7): build/reroll tragen templatePath + die Live-Stream-Callbacks der View.
         build: (notePath, templatePath, onToken, onReasoning) => this.proposeSmartApply(notePath, templatePath, onToken, onReasoning),
@@ -172,7 +191,7 @@ export default class VaultRagPlugin extends Plugin {
         ping: () => this.chatClient.ping(),
         getModel: () => this.settings.smartApplyModel || this.settings.chatModel,
         setModel: (m: string) => { this.settings.smartApplyModel = m; void this.saveSettings(); },
-        listTemplates: () => Promise.resolve(templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir)),
+        rankTemplates: (notePath: string): Promise<TemplateRank[]> => this.templateRanker!.rank(notePath),
         getSuppress: () => this.settings.smartApplySuppressThinking,
         setSuppress: (v: boolean) => { this.settings.smartApplySuppressThinking = v; void this.saveSettings(); },
       }));
@@ -328,6 +347,14 @@ export default class VaultRagPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_RELATED)) {
       const v = leaf.view as RelatedNotesView;
       v.render?.();
+    }
+  }
+
+  /** Offene Smart-Apply-Cockpits sofort neu ranken (z.B. nach Vorlagenpfad-Änderung). */
+  refreshSmartApplyRanking(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_SMART_APPLY)) {
+      const v = leaf.view;
+      if (v instanceof SmartApplyView) v.refreshRanking();
     }
   }
 

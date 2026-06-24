@@ -89,7 +89,11 @@ export class SmartApplyView extends ItemView {
     await this.refreshModels();
     await this.refreshConn();
     await this.recomputeRanking();
+    // Beide Events nötig: active-leaf-change beim Wechsel zwischen Tabs/Panes, file-open beim
+    // Öffnen einer anderen Notiz im selben Tab (dort feuert active-leaf-change nicht).
+    // Der Debounce in scheduleRecompute dedupliziert, wenn beide gemeinsam feuern.
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.scheduleRecompute()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.scheduleRecompute()));
   }
 
   async onClose(): Promise<void> {

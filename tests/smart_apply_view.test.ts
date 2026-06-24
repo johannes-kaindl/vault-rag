@@ -529,4 +529,27 @@ describe("SmartApplyView Rangliste", () => {
     await view.onOpen(); await flush();
     expect(app.workspace.on).toHaveBeenCalledWith("active-leaf-change", expect.any(Function));
   });
+
+  it("registriert file-open beim Öffnen (Notizwechsel im selben Tab rankt neu)", async () => {
+    const app = makeFakeApp();
+    const view = new SmartApplyView({ app } as any, mkDeps());
+    await view.onOpen(); await flush();
+    // active-leaf-change feuert NICHT, wenn man eine andere Notiz im selben Leaf öffnet —
+    // dafür ist file-open zuständig. Ohne diese Registrierung bliebe die Rangliste stehen.
+    expect(app.workspace.on).toHaveBeenCalledWith("file-open", expect.any(Function));
+  });
+
+  it("der file-open-Handler löst einen Recompute aus (rankt neu)", async () => {
+    const app = makeFakeApp();
+    const rank = vi.fn(async () => ranksFixture());
+    const view = new SmartApplyView({ app } as any, mkDeps({ rankTemplates: rank }));
+    await view.onOpen(); await flush();
+    rank.mockClear();
+    const handler = app.workspace.on.mock.calls.find((c: any[]) => c[0] === "file-open")?.[1];
+    expect(handler).toBeTruthy();
+    handler();                                   // simuliert: neue Notiz geöffnet
+    await new Promise((r) => setTimeout(r, 450)); // Debounce (400ms) ablaufen lassen
+    await flush();
+    expect(rank).toHaveBeenCalled();
+  });
 });

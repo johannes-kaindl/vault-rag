@@ -34,6 +34,18 @@ export class ItemView { app: any; contentEl: any; constructor(public leaf: any) 
 export class PluginSettingTab { app: any; plugin: any; containerEl: any; constructor(app: any, plugin: any) { this.app = app; this.plugin = plugin; this.containerEl = makeFakeEl(); } display() {} }
 export class Setting { constructor(public containerEl: any) {} setName(_: string) { return this; } setDesc(_: string) { return this; } addText(cb: any) { cb({ setValue: () => ({ onChange: () => {} }), setPlaceholder: () => ({}) }); return this; } addSlider(cb: any) { cb({ setLimits: () => ({ setValue: () => ({ onChange: () => {} }) }) }); return this; } }
 export class TFile { path = ""; basename = ""; extension = "md"; }
+export class TFolder { path = ""; }
+export abstract class AbstractInputSuggest<T> {
+  constructor(protected app: any, protected inputEl: HTMLInputElement) {}
+  abstract getSuggestions(query: string): T[] | Promise<T[]>;
+  abstract renderSuggestion(value: T, el: HTMLElement): void;
+  selectSuggestion(_value: T, _evt?: any): void { this.close(); }
+  setValue(_v: string): void {}
+  getValue(): string { return ""; }
+  onSelect(_cb: (value: T, evt?: any) => any): this { return this; }
+  open(): void {}
+  close(): void {}
+}
 export class WorkspaceLeaf { view: any = null; async setViewState(_s: any) {} getViewState() { return {}; } detach() {} }
 export class FuzzySuggestModal<T> {
   app: any;

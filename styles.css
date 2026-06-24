@@ -89,3 +89,15 @@
 .vault-rag-sa-applied { color: var(--text-success); display: flex; align-items: center; gap: 4px; }
 .vault-rag-sa-stale { color: var(--text-muted); }
 .vault-rag-sa-error { color: var(--text-error); }
+/* Smart Apply v2 — Relevanz-Rangliste */
+.vault-rag-sa-ranklist { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.vault-rag-sa-rank-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+.vault-rag-sa-rank-row:hover { background: var(--background-modifier-hover); }
+.vault-rag-sa-rank-row.is-selected { background: var(--background-modifier-active-hover); }
+.vault-rag-sa-rank-radio { color: var(--text-accent); }
+.vault-rag-sa-rank-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-rag-sa-rank-bar { flex: 0 0 80px; height: 6px; border-radius: 3px; background: var(--background-modifier-border); position: relative; overflow: hidden; }
+.vault-rag-sa-rank-bar::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--vault-rag-sa-rank-pct, 0%); background: var(--text-accent); }
+.vault-rag-sa-rank-pct { flex: 0 0 auto; font-size: var(--font-smallest); color: var(--text-muted); min-width: 3.5em; text-align: right; }
+.vault-rag-sa-rank-note, .vault-rag-sa-rank-empty { font-size: var(--font-smallest); color: var(--text-muted); padding: 2px 6px; }
+.vault-rag-sa-rank-more { font-size: var(--font-smallest); color: var(--text-accent); cursor: pointer; padding: 2px 6px; }

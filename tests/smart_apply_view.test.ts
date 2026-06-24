@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { SmartApplyView, VIEW_TYPE_SMART_APPLY, SmartApplyViewDeps } from "../src/smart_apply_view";
 import type { ApplyProposal, ApplyResult } from "../src/smart_apply_view";
+import type { TemplateRank } from "../src/template_ranker";
 import { makeFakeApp } from "./__mocks__/obsidian";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ function mkDeps(over: Partial<SmartApplyViewDeps> = {}): SmartApplyViewDeps {
     listModels: vi.fn(async () => ["fast-model", "smart-model"]),
     getModel: vi.fn(() => "fast-model"),
     setModel: vi.fn(),
-    listTemplates: vi.fn(async () => ["Templates/Buch.md", "Templates/Film.md"]),
+    rankTemplates: vi.fn(async (_notePath: string): Promise<TemplateRank[]> => ranksFixture()),
     getSuppress: vi.fn(() => false),
     setSuppress: vi.fn(),
     ping: vi.fn(async () => true),
@@ -71,6 +72,13 @@ function mkView(over: Partial<SmartApplyViewDeps> = {}) {
   return { view, deps };
 }
 
+function ranksFixture(): TemplateRank[] {
+  return [
+    { templatePath: "Templates/Besprechung.md", type: "Besprechung", score: 0.9, source: "match" },
+    { templatePath: "Templates/Buch.md", type: "Buch", score: 0.4, source: "match" },
+  ];
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("SmartApplyView — Cockpit", () => {
@@ -82,13 +90,13 @@ describe("SmartApplyView — Cockpit", () => {
   });
 
   // Step 1 — Header immer sichtbar
-  it("render() emittiert immer die Header-Elemente (Modell/Verbindung/💭/Template/Run/Stop)", async () => {
+  it("render() emittiert immer die Header-Elemente (Modell/Verbindung/💭/Rangliste/Run/Stop)", async () => {
     const { view } = mkView();
     await view.onOpen();
     expect(first(view.contentEl, "vault-rag-sa-model")).toBeTruthy();
     expect(first(view.contentEl, "vault-rag-sa-conn")).toBeTruthy();
     expect(first(view.contentEl, "vault-rag-sa-think")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-template")).toBeTruthy();
+    expect(first(view.contentEl, "vault-rag-sa-ranklist")).toBeTruthy();
     expect(first(view.contentEl, "vault-rag-sa-run")).toBeTruthy();
     expect(first(view.contentEl, "vault-rag-sa-stop")).toBeTruthy();
   });
@@ -386,50 +394,44 @@ describe("SmartApplyView — Cockpit", () => {
     expect(body.textContent).toContain("weil X");
   });
 
-  // Step 12 — Dropdowns survive state transitions (regression for cache bug)
-  it("model + template selects behalten Optionen nach State-Übergang (idle→running→diff)", async () => {
+  // Step 12 — Dropdowns / ranklist survive state transitions (regression for cache bug)
+  it("model-select + Rangliste bleiben nach State-Übergang (idle→running→diff) sichtbar", async () => {
     const { view } = mkView();
     await view.onOpen();
     await flush(8);
 
-    // After onOpen + flush: selects should have options
+    // After onOpen + flush: model select and ranklist should be present
     const modelSelAfterOpen = first(view.contentEl, "vault-rag-sa-model");
-    const templateSelAfterOpen = first(view.contentEl, "vault-rag-sa-template");
+    const ranklistAfterOpen = first(view.contentEl, "vault-rag-sa-ranklist");
     expect(modelSelAfterOpen.children.length).toBeGreaterThan(0);
-    // template select has at least "automatisch erkennen" + the listed templates
-    expect(templateSelAfterOpen.children.length).toBeGreaterThan(1);
-    expect(templateSelAfterOpen.children[0].value).toBe("");
-    expect(templateSelAfterOpen.children[0].textContent).toContain("automatisch");
+    expect(ranklistAfterOpen).toBeTruthy();
 
     // Trigger state transition: idle → running → diff
     first(view.contentEl, "vault-rag-sa-run").click();
     await flush(8);
 
-    // After diff state: selects must still have options
+    // After diff state: model select and ranklist must still be present
     const modelSelAfterDiff = first(view.contentEl, "vault-rag-sa-model");
-    const templateSelAfterDiff = first(view.contentEl, "vault-rag-sa-template");
+    const ranklistAfterDiff = first(view.contentEl, "vault-rag-sa-ranklist");
     expect(modelSelAfterDiff.children.length).toBeGreaterThan(0);
-    expect(templateSelAfterDiff.children.length).toBeGreaterThan(1);
-    expect(templateSelAfterDiff.children[0].value).toBe("");
+    expect(ranklistAfterDiff).toBeTruthy();
   });
 
-  it("selectedTemplate bleibt über State-Übergang erhalten", async () => {
+  it("selectedTemplate bleibt über State-Übergang erhalten (via selectTemplate + userOverride)", async () => {
     const { view } = mkView();
     await view.onOpen();
     await flush(8);
 
-    // Select a template
-    const templateSel = first(view.contentEl, "vault-rag-sa-template");
-    templateSel.value = "Templates/Buch.md";
-    (templateSel._listeners?.change ?? []).forEach((cb: any) => cb());
+    // Select a non-top template via selectTemplate (simulates user click in ranklist)
+    (view as any).selectTemplate("Templates/Buch.md");
+    expect((view as any).selectedTemplate).toBe("Templates/Buch.md");
 
     // Trigger state transition: idle → running → diff
     first(view.contentEl, "vault-rag-sa-run").click();
     await flush(8);
 
-    // After diff state: template selection must still be preserved
-    const templateSelAfterDiff = first(view.contentEl, "vault-rag-sa-template");
-    expect(templateSelAfterDiff.value).toBe("Templates/Buch.md");
+    // After diff state: template selection must still be preserved (userOverride active)
+    expect((view as any).selectedTemplate).toBe("Templates/Buch.md");
   });
 
   // Source-cleanliness
@@ -453,5 +455,48 @@ describe("SmartApplyView — Cockpit", () => {
     first(view.contentEl, "vault-rag-sa-run").click();
     await flush();
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("SmartApplyView Rangliste", () => {
+  it("rendert die Rangliste sortiert und wählt die oberste vor", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    await flush();
+    const rows = all(view.contentEl, "vault-rag-sa-rank-row");
+    expect(rows.length).toBe(2);
+    expect((view as any).selectedTemplate).toBe("Templates/Besprechung.md");
+    expect(hasClass(rows[0], "is-selected")).toBe(true);
+  });
+
+  it("selectTemplate setzt Auswahl + userOverride und übersteht Recompute ohne Notizwechsel", async () => {
+    const { view } = mkView();
+    await view.onOpen(); await flush();
+    (view as any).selectTemplate("Templates/Buch.md");
+    expect((view as any).selectedTemplate).toBe("Templates/Buch.md");
+    await (view as any).recomputeRanking(false);
+    expect((view as any).selectedTemplate).toBe("Templates/Buch.md");
+  });
+
+  it("Notizwechsel-Recompute setzt Override zurück und wählt die neue Top-Vorlage", async () => {
+    const { view } = mkView();
+    await view.onOpen(); await flush();
+    (view as any).selectTemplate("Templates/Buch.md");
+    await (view as any).recomputeRanking(true);
+    expect((view as any).selectedTemplate).toBe("Templates/Besprechung.md");
+  });
+
+  it("offline (alle source=fallback) zeigt einen Offline-Hinweis", async () => {
+    const fb: TemplateRank[] = [{ templatePath: "Templates/A.md", type: "A", score: 0, source: "fallback" }];
+    const { view } = mkView({ rankTemplates: vi.fn(async () => fb) });
+    await view.onOpen(); await flush();
+    expect(first(view.contentEl, "vault-rag-sa-rank-note")).toBeTruthy();
+  });
+
+  it("registriert active-leaf-change beim Öffnen", async () => {
+    const app = makeFakeApp();
+    const view = new SmartApplyView({ app } as any, mkDeps());
+    await view.onOpen(); await flush();
+    expect(app.workspace.on).toHaveBeenCalledWith("active-leaf-change", expect.any(Function));
   });
 });

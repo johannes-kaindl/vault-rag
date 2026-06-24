@@ -188,7 +188,6 @@ export default class VaultRagPlugin extends Plugin {
         ping: () => this.chatClient.ping(),
         getModel: () => this.settings.smartApplyModel || this.settings.chatModel,
         setModel: (m: string) => { this.settings.smartApplyModel = m; void this.saveSettings(); },
-        listTemplates: () => Promise.resolve(templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir)),
         rankTemplates: (notePath: string): Promise<TemplateRank[]> => this.templateRanker!.rank(notePath),
         getSuppress: () => this.settings.smartApplySuppressThinking,
         setSuppress: (v: boolean) => { this.settings.smartApplySuppressThinking = v; void this.saveSettings(); },

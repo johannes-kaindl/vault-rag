@@ -35,6 +35,16 @@ describe("pickTemplate", () => {
     await p; // Promise abräumen, kein Hänger
   });
 
+  it("getItems schließt Folder Notes aus (Name === Ordner)", async () => {
+    const app = appWith(["Templates/Buch.md", "Templates/Projekt/Projekt.md", "Templates/Projekt/Standup.md"]);
+    const p = pickTemplate(app, "Templates/", null);
+    const picker = _lastPicker!;
+    expect(picker.getItems().map(f => f.path)).toEqual(["Templates/Buch.md", "Templates/Projekt/Standup.md"]);
+    picker.onChooseItem(picker.getItems()[0]);
+    picker.onClose();
+    await p;
+  });
+
   it("preselect wird per (Vorschlag)-Label markiert", async () => {
     const app = appWith(["Templates/Buch.md", "Templates/Coding.md"]);
     const p = pickTemplate(app, "Templates/", "Templates/Coding.md");

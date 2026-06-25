@@ -30,6 +30,16 @@ export function makeFakeEl(): any {
     enumerable: true,
     configurable: true,
   });
+  Object.defineProperty(el, "innerHTML", {
+    get: () => {
+      const tag = (el.tagName ?? "div").toLowerCase();
+      const cls = el.className ? ` class="${el.className}"` : "";
+      const inner = children.map((c: any) => c.innerHTML ?? "").join("");
+      return `<${tag}${cls}>${_ownText}${inner}</${tag}>`;
+    },
+    enumerable: true,
+    configurable: true,
+  });
   return el;
 }
 export class Plugin { app: any; manifest: any; constructor(app: any, m: any) { this.app = app; this.manifest = m; } async loadData() { return {}; } async saveData(_: any) {} addCommand(_: any) {} registerView(_: string, __: any) {} registerEvent(_: any) {} addSettingTab(_: any) {} addRibbonIcon(_: string, __: string, ___: any) { return makeFakeEl(); } }

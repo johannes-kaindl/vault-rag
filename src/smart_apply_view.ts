@@ -337,9 +337,9 @@ export class SmartApplyView extends ItemView {
     const wrap = c.createDiv({ cls: "vault-rag-sa-diff" });
 
     this.renderGuardScan(wrap, p);
-    this.renderTwoSurface(wrap, p);
     this.renderFrontmatter(wrap, p);
     this.renderReflow(wrap, p);
+    this.renderRawDetails(wrap, p);
     this.renderActions(wrap, p);
     this.renderReasoning(wrap, p.reasoning);
   }
@@ -430,8 +430,10 @@ export class SmartApplyView extends ItemView {
     }
   }
 
-  private renderTwoSurface(c: HTMLElement, p: ApplyProposal): void {
-    const surfaces = c.createDiv({ cls: "vault-rag-sa-surfaces" });
+  private renderRawDetails(c: HTMLElement, p: ApplyProposal): void {
+    const det = c.createEl("details", { cls: "vault-rag-sa-raw" });
+    det.createEl("summary", { cls: "vault-rag-sa-raw-sum", text: "Rohtext anzeigen (Original / Vorschlag)" });
+    const surfaces = det.createDiv({ cls: "vault-rag-sa-surfaces" });
 
     const origCol = surfaces.createDiv({ cls: "vault-rag-sa-surface" });
     origCol.createDiv({ cls: "vault-rag-sa-surface-title", text: "Original" });

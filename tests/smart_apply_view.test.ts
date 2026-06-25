@@ -629,6 +629,23 @@ describe("SmartApplyView Scan-Kopf", () => {
   });
 });
 
+describe("SmartApplyView Task 4 — Rohtext on-demand & Diff-Reihenfolge", () => {
+  it("Rohtext liegt in einem ausklappbaren <details>, FM steht vor Reflow vor Rohtext", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const raw = first(view.contentEl, "vault-rag-sa-raw");
+    expect(raw.tagName.toLowerCase()).toBe("details");
+    expect(first(raw, "vault-rag-sa-orig")).toBeTruthy();
+    expect(first(raw, "vault-rag-sa-prop")).toBeTruthy();
+    // Reihenfolge im Diff: Frontmatter < Reflow < Rohtext
+    const html = first(view.contentEl, "vault-rag-sa-diff").innerHTML;
+    expect(html.indexOf("vault-rag-sa-fm")).toBeLessThan(html.indexOf("vault-rag-sa-reflow"));
+    expect(html.indexOf("vault-rag-sa-reflow")).toBeLessThan(html.indexOf("vault-rag-sa-raw"));
+  });
+});
+
 describe("SmartApplyView Frontmatter-Entrauschung", () => {
   it("Frontmatter: gesetzte/geänderte/entfernte Felder prominent, leere+unveränderte im Detail", async () => {
     const { view } = mkView();   // mkProposal: type=neu(gefüllt), up=unveraendert, tags=entfernt

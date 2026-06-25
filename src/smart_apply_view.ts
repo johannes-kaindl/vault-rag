@@ -1,5 +1,5 @@
 import { ItemView, WorkspaceLeaf, setIcon, Notice } from "obsidian";
-import type { FmValue, FmChange } from "./frontmatter";
+import type { FmValue, FmChange, FmRow } from "./frontmatter";
 import type { ApplyProposal, ApplyResult } from "./smart_apply";
 import type { TemplateRank } from "./template_ranker";
 import { isAlwaysOnThinker } from "./reasoning";
@@ -422,19 +422,46 @@ export class SmartApplyView extends ItemView {
     return Array.isArray(v) ? v.join(", ") : v;
   }
 
+  private hasValue(v: FmValue | undefined): boolean {
+    if (v === undefined) return false;
+    return Array.isArray(v) ? v.length > 0 : v.trim() !== "";
+  }
+
+  /** Zurückhaltend (ausklappbar): unverändert ODER neu-aber-leer. Alles andere ist „gesetzt". */
+  private isMutedRow(row: FmRow): boolean {
+    return row.change === "unveraendert" || (row.change === "neu" && !this.hasValue(row.proposed));
+  }
+
+  private renderFmRow(parent: HTMLElement, row: FmRow): void {
+    const r = parent.createDiv({ cls: "vault-rag-sa-fm-row" });
+    r.toggleClass(`is-${row.change}`, true);
+    const icon = r.createSpan({ cls: "vault-rag-sa-fm-icon" });
+    setIcon(icon, CHANGE_ICON[row.change] ?? "minus");
+    r.createSpan({ cls: "vault-rag-sa-fm-key", text: row.key });
+    r.createSpan({ cls: "vault-rag-sa-fm-orig", text: this.fmCell(row.original) });
+    r.createSpan({ cls: "vault-rag-sa-fm-prop", text: this.fmCell(row.proposed) });
+  }
+
   private renderFrontmatter(c: HTMLElement, p: ApplyProposal): void {
     if (p.fmRows.length === 0) return;
     const sec = c.createDiv({ cls: "vault-rag-sa-fm" });
     sec.createDiv({ cls: "vault-rag-sa-section-title", text: "Frontmatter" });
-    const table = sec.createDiv({ cls: "vault-rag-sa-fm-table" });
-    for (const row of p.fmRows) {
-      const r = table.createDiv({ cls: "vault-rag-sa-fm-row" });
-      r.toggleClass(`is-${row.change}`, true);
-      const icon = r.createSpan({ cls: "vault-rag-sa-fm-icon" });
-      setIcon(icon, CHANGE_ICON[row.change] ?? "minus");
-      r.createSpan({ cls: "vault-rag-sa-fm-key", text: row.key });
-      r.createSpan({ cls: "vault-rag-sa-fm-orig", text: this.fmCell(row.original) });
-      r.createSpan({ cls: "vault-rag-sa-fm-prop", text: this.fmCell(row.proposed) });
+
+    const setRows = p.fmRows.filter((row) => !this.isMutedRow(row));
+    const mutedRows = p.fmRows.filter((row) => this.isMutedRow(row));
+
+    const setBox = sec.createDiv({ cls: "vault-rag-sa-fm-set" });
+    for (const row of setRows) this.renderFmRow(setBox, row);
+
+    if (mutedRows.length > 0) {
+      const empty = mutedRows.filter((row) => row.change === "neu").length;
+      const unchanged = mutedRows.length - empty;
+      const det = sec.createEl("details", { cls: "vault-rag-sa-fm-muted" });
+      const parts: string[] = [];
+      if (empty > 0) parts.push(`${empty} leere`);
+      if (unchanged > 0) parts.push(`${unchanged} unveränderte`);
+      det.createEl("summary", { cls: "vault-rag-sa-fm-muted-sum", text: `${parts.join(" · ")} Felder` });
+      for (const row of mutedRows) this.renderFmRow(det, row);
     }
   }
 

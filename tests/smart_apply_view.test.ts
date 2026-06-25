@@ -596,3 +596,33 @@ describe("SmartApplyView Rangliste", () => {
     expect(rank).toHaveBeenCalled();
   });
 });
+
+describe("SmartApplyView Frontmatter-Entrauschung", () => {
+  it("Frontmatter: gesetzte/geänderte/entfernte Felder prominent, leere+unveränderte im Detail", async () => {
+    const { view } = mkView();   // mkProposal: type=neu(gefüllt), up=unveraendert, tags=entfernt
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const prominent = first(view.contentEl, "vault-rag-sa-fm-set");
+    expect(prominent.textContent).toContain("type");      // neu + Wert
+    expect(prominent.textContent).toContain("tags");      // entfernt
+    expect(prominent.textContent).not.toContain("up");    // unveraendert → nicht prominent
+    const muted = first(view.contentEl, "vault-rag-sa-fm-muted");
+    expect(muted.textContent).toContain("up");            // unveraendert → Detail
+  });
+
+  it("Frontmatter: neues aber leeres Feld landet im Detail, nicht prominent", async () => {
+    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+      fmRows: [
+        { key: "type", original: undefined, proposed: "📖 Buch", change: "neu" },
+        { key: "datum", original: undefined, proposed: "", change: "neu" },
+      ],
+    })) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-fm-set").textContent).toContain("type");
+    expect(first(view.contentEl, "vault-rag-sa-fm-set").textContent).not.toContain("datum");
+    expect(first(view.contentEl, "vault-rag-sa-fm-muted").textContent).toContain("datum");
+  });
+});

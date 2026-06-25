@@ -182,6 +182,11 @@ describe("parseFrontmatter #-Kommentare", () => {
     expect(r.data.status).toBe("✅ Abgeschlossen");
     expect(r.comments?.status).toBe("Geplant | Archiv");
   });
+  it("Kommentar an einem Block-Listen-Key: Kommentar gesammelt, Items bleiben Liste", () => {
+    const r = parseFrontmatter("---\nteilnehmer:  # jede genannte Person\n  - \"[[Dr. Berger]]\"\n  - \"[[Anna Klein]]\"\n---\n");
+    expect(r.comments?.teilnehmer).toBe("jede genannte Person");
+    expect(r.data.teilnehmer).toEqual(["[[Dr. Berger]]", "[[Anna Klein]]"]);
+  });
 });
 
 describe("Notiz ohne Frontmatter → sauber erzeugen", () => {

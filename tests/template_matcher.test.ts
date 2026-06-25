@@ -273,6 +273,17 @@ describe("isFolderNote", () => {
   });
 });
 
+describe("parseTemplate FM-guidance (#-Kommentare)", () => {
+  it("übernimmt #-Kommentare der Frontmatter-Keys als fmGuidance", () => {
+    const tpl = parseTemplate('---\ntype: "🗣️ Gespräch"\nart:  # Meeting | Telefonat\n---\n## A\n');
+    expect(tpl.fmGuidance?.art).toBe("Meeting | Telefonat");
+  });
+  it("Key ohne Kommentar → kein fmGuidance-Eintrag", () => {
+    const tpl = parseTemplate("---\ntype: X\n---\n## A\n");
+    expect(tpl.fmGuidance?.type ?? "").toBe("");
+  });
+});
+
 describe("parseTemplate %%-guidance", () => {
   it("extrahiert %%-Annotation als guidance und hält placeholder sauber", () => {
     const tpl = parseTemplate("## Tagesordnung\n%% Stichpunkte zur Agenda hierher %%\n- Beispiel\n");

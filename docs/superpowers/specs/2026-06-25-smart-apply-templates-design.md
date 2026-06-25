@@ -110,3 +110,15 @@ Vorlagen sind aus den `(FM)`/`(body)`-Splits abgeleitet → bei Templater-Schema
 - `templateDir`-Umstellung: nur in der laufenden `data.json` (in-place, git-ignored, vault-spezifisch) oder auch als neuer DEFAULT_SETTINGS-Wert? Vermutlich nur lokal.
 - Smoke-Notiz: echte Gesprächsnotiz aus dem Vault oder synthetisches Fixture? (Synthetik ist reproduzierbar + teilbar.)
 - MLX-Modell + Endpoint-URL für den Smoke (aus `data.json` ableitbar).
+
+## Smoke-Ergebnis (2026-06-25)
+
+MLX-Smoke (`gemma-4-26b-a4b-qat`, `suppressThinking`, localhost) gegen eine synthetische Gesprächsnotiz (Telefonat Dr. Berger / Solarpark Nord), zwei Läufe (ohne/mit FM-Hints, sonst identisch):
+
+- **Body-Routing 4/4 perfekt** in beiden Läufen — die `%%`-Anleitung trägt; das ist der Hauptnutzen, bestätigt.
+- **FM-`#`-Hints helfen klar:** roher Lauf füllte nur `projekt` (`Solarpark Nord`, ohne Wikilink); mit Hints → `projekt` `[[Solarpark Nord]]` + `follow_up_bis` `2026-07-15` (von A komplett verpasst).
+- **Direktive Hints schlagen Optionslisten:** `art`/`teilnehmer` (wörtlich im Text) wurden erst extrahiert, nachdem die Hints von bloßer Optionsliste auf Anweisung umgestellt wurden (`jede im Text namentlich genannte Person als [[Name]]`) → `art` `Telefonat`, `teilnehmer` `[[Dr. Berger]]`. Ergebnis: 4/4 wörtliche Felder, korrekt formatiert.
+- **Non-Fabrication intakt:** `bereich` (Inferenz „Arbeit", nicht wörtlich im Text) bleibt korrekt leer.
+- **Reasoning-Fallstrick bestätigt:** Ohne `suppressParams` lieferte das Thinking-Modell leeren `content` (Reasoning fraß den `max_tokens`-Cap). Der echte Plugin-Pfad (`smartApplySuppressThinking=true`) löst das — Smoke daran angeglichen.
+
+**Gate: POSITIV → Phase B (Parser-Erweiterung) bauen.** Lehre für den Batch (Task 6): FM-Hints **direktiv** formulieren, nicht als bloße Optionsliste. Bonus: Der `parseFmRaw`-Prototyp im Smoke validierte die geplante `splitComment`-Logik (Task 2) vorab.

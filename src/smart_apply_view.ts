@@ -336,7 +336,7 @@ export class SmartApplyView extends ItemView {
     if (!p) { this.renderIdle(c); return; }
     const wrap = c.createDiv({ cls: "vault-rag-sa-diff" });
 
-    this.renderGuard(wrap, p);
+    this.renderGuardScan(wrap, p);
     this.renderTwoSurface(wrap, p);
     this.renderFrontmatter(wrap, p);
     this.renderReflow(wrap, p);
@@ -387,21 +387,46 @@ export class SmartApplyView extends ItemView {
     }
   }
 
-  private renderGuard(c: HTMLElement, p: ApplyProposal): void {
+  private detectionLabel(d: ApplyProposal["detection"]): string {
+    if (d.confidence === "confirmed") return "Typ aus Frontmatter";
+    if (d.source === "rag") return "automatisch erkannt";
+    return "manuell gewählt";
+  }
+
+  private renderGuardScan(c: HTMLElement, p: ApplyProposal): void {
     const banner = c.createDiv({ cls: "vault-rag-sa-guard" });
     banner.toggleClass("is-ok", p.hardOk);
     banner.toggleClass("is-error", !p.hardOk);
-    if (p.hardOk) {
-      banner.setText("✓ alle Prüfungen bestanden");
-      return;
-    }
-    banner.setText("Prüfungen fehlgeschlagen — Anwenden gesperrt:");
-    const list = banner.createDiv({ cls: "vault-rag-sa-guard-list" });
-    for (const ch of p.checks.filter((x) => !x.ok)) {
-      list.createDiv({
-        cls: "vault-rag-sa-guard-fail",
-        text: `${ch.id}${ch.detail ? ": " + ch.detail : ""}`,
-      });
+
+    const status = banner.createDiv({ cls: "vault-rag-sa-scan-status" });
+    const sIcon = status.createSpan({ cls: "vault-rag-sa-scan-status-icon" });
+    setIcon(sIcon, p.hardOk ? "circle-check" : "circle-x");
+    status.createSpan({
+      cls: "vault-rag-sa-scan-status-label",
+      text: p.hardOk ? "Bereit zum Anwenden" : "Anwenden gesperrt",
+    });
+
+    banner.createDiv({
+      cls: "vault-rag-sa-scan-tpl",
+      text: `Vorlage: ${p.type} · ${this.detectionLabel(p.detection)}`,
+    });
+
+    const assigned = p.sectionDiff.reduce((sum, sd) => sum + sd.blockIds.length, 0);
+    const total = assigned + p.unassigned.length;
+    const setCount = p.fmRows.filter((row) => !this.isMutedRow(row)).length;
+    banner.createDiv({
+      cls: "vault-rag-sa-scan-stats",
+      text: `${assigned}/${total} Blöcke zugeordnet · ${p.unassigned.length} übrig · ${setCount} Felder gesetzt`,
+    });
+
+    if (!p.hardOk) {
+      const list = banner.createDiv({ cls: "vault-rag-sa-guard-list" });
+      for (const ch of p.checks.filter((x) => !x.ok)) {
+        list.createDiv({
+          cls: "vault-rag-sa-guard-fail",
+          text: `${ch.id}${ch.detail ? ": " + ch.detail : ""}`,
+        });
+      }
     }
   }
 

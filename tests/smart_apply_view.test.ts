@@ -597,6 +597,38 @@ describe("SmartApplyView Rangliste", () => {
   });
 });
 
+describe("SmartApplyView Scan-Kopf", () => {
+  it("Scan-Kopf: Status mit Form (circle-check) + Text, Vorlage+Detection, Stat-Chips", async () => {
+    const { view } = mkView();   // mkProposal: hardOk, type=📖 Buch, detection=likely, 1 zugeordnet, 1 übrig
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-check");
+    const scan = first(view.contentEl, "vault-rag-sa-guard");
+    expect(scan.textContent).toContain("Bereit zum Anwenden");
+    expect(scan.textContent).toContain("📖 Buch");
+    expect(scan.textContent).toContain("automatisch erkannt");  // detection likely
+    const stats = first(view.contentEl, "vault-rag-sa-scan-stats");
+    expect(stats.textContent).toContain("1/2");   // 1 von 2 Blöcken zugeordnet
+    expect(stats.textContent).toContain("1 übrig");
+    expect(stats.textContent).toContain("2 Felder gesetzt");  // type + tags(entfernt) prominent
+  });
+
+  it("Scan-Kopf bei !hardOk: Form circle-x + gesperrt-Text + Fehl-Checks", async () => {
+    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+      hardOk: false,
+      checks: [{ id: "permutation", ok: false, detail: "block_9 unbekannt" }],
+    })) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-x");
+    const scan = first(view.contentEl, "vault-rag-sa-guard");
+    expect(hasClass(scan, "is-error")).toBe(true);
+    expect(all(scan, "vault-rag-sa-guard-fail").length).toBe(1);
+  });
+});
+
 describe("SmartApplyView Frontmatter-Entrauschung", () => {
   it("Frontmatter: gesetzte/geänderte/entfernte Felder prominent, leere+unveränderte im Detail", async () => {
     const { view } = mkView();   // mkProposal: type=neu(gefüllt), up=unveraendert, tags=entfernt

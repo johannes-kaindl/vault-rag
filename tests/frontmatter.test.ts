@@ -156,6 +156,34 @@ describe("parseInlineList – Kommas in gequoteten Listenelementen", () => {
   });
 });
 
+describe("parseFrontmatter #-Kommentare", () => {
+  it("trennt nachgestellten #-Kommentar vom Wert und sammelt ihn in comments", () => {
+    const r = parseFrontmatter("---\nart: Gespräch  # Meeting | Telefonat\n---\nBody\n");
+    expect(r.data.art).toBe("Gespräch");
+    expect(r.comments?.art).toBe("Meeting | Telefonat");
+  });
+  it("leerer Wert mit Kommentar → Wert leer, Kommentar gesammelt", () => {
+    const r = parseFrontmatter("---\nbereich:  # Arbeit | Privat\n---\n");
+    expect(r.data.bereich).toBe("");
+    expect(r.comments?.bereich).toBe("Arbeit | Privat");
+  });
+  it("gequotetes # bleibt Teil des Werts (kein Kommentar)", () => {
+    const r = parseFrontmatter('---\nnote: "C# und #tag"\n---\n');
+    expect(r.data.note).toBe("C# und #tag");
+    expect(r.comments?.note ?? "").toBe("");
+  });
+  it("# ohne führenden Whitespace ist kein Kommentar", () => {
+    const r = parseFrontmatter("---\nslug: foo#bar\n---\n");
+    expect(r.data.slug).toBe("foo#bar");
+    expect(r.comments?.slug ?? "").toBe("");
+  });
+  it("gequoteter Wert mit nachgestelltem Kommentar wird sauber getrennt", () => {
+    const r = parseFrontmatter('---\nstatus: "✅ Abgeschlossen"   # Geplant | Archiv\n---\n');
+    expect(r.data.status).toBe("✅ Abgeschlossen");
+    expect(r.comments?.status).toBe("Geplant | Archiv");
+  });
+});
+
 describe("Notiz ohne Frontmatter → sauber erzeugen", () => {
   it("erzeugt einen wohlgeformten Block mit genau einer Leerzeile vor dem Body", () => {
     const original = parseFrontmatter("Roher Body ohne Frontmatter.\n");

@@ -70,6 +70,7 @@ function splitComment(rest: string): { value: string; comment: string } {
   let inS = false, inD = false;
   for (let i = 0; i < rest.length; i++) {
     const c = rest[i];
+    if (inD && c === "\\" && i + 1 < rest.length) { i++; continue; }
     if (c === '"' && !inS) inD = !inD;
     else if (c === "'" && !inD) inS = !inS;
     else if (c === "#" && !inS && !inD && (i === 0 || /\s/.test(rest[i - 1]))) {
@@ -79,7 +80,8 @@ function splitComment(rest: string): { value: string; comment: string } {
   return { value: rest, comment: "" };
 }
 
-export function parseFrontmatter(text: string): ParsedFrontmatter {
+export function parseFrontmatter(text: string, opts?: { comments?: boolean }): ParsedFrontmatter {
+  const extractComments = opts?.comments ?? false;
   const m = DELIM_RE.exec(text);
   if (!m) return { data: {}, order: [], body: text };
   const block = m[1];
@@ -94,8 +96,12 @@ export function parseFrontmatter(text: string): ParsedFrontmatter {
     const kv = /^([A-Za-z0-9_][\w .-]*?):[ \t]*(.*)$/.exec(line);
     if (!kv) { i++; continue; }
     const key = kv[1].trim();
-    const { value: rest, comment } = splitComment(kv[2]);
-    if (comment) comments[key] = comment;
+    let rest = kv[2];
+    if (extractComments) {
+      const split = splitComment(kv[2]);
+      rest = split.value;
+      if (split.comment) comments[key] = split.comment;
+    }
     if (rest.trim().startsWith("[") && rest.trim().endsWith("]")) {
       data[key] = parseInlineList(rest);
       order.push(key);

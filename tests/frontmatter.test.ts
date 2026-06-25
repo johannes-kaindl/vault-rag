@@ -158,34 +158,58 @@ describe("parseInlineList – Kommas in gequoteten Listenelementen", () => {
 
 describe("parseFrontmatter #-Kommentare", () => {
   it("trennt nachgestellten #-Kommentar vom Wert und sammelt ihn in comments", () => {
-    const r = parseFrontmatter("---\nart: Gespräch  # Meeting | Telefonat\n---\nBody\n");
+    const r = parseFrontmatter("---\nart: Gespräch  # Meeting | Telefonat\n---\nBody\n", { comments: true });
     expect(r.data.art).toBe("Gespräch");
     expect(r.comments?.art).toBe("Meeting | Telefonat");
   });
   it("leerer Wert mit Kommentar → Wert leer, Kommentar gesammelt", () => {
-    const r = parseFrontmatter("---\nbereich:  # Arbeit | Privat\n---\n");
+    const r = parseFrontmatter("---\nbereich:  # Arbeit | Privat\n---\n", { comments: true });
     expect(r.data.bereich).toBe("");
     expect(r.comments?.bereich).toBe("Arbeit | Privat");
   });
   it("gequotetes # bleibt Teil des Werts (kein Kommentar)", () => {
-    const r = parseFrontmatter('---\nnote: "C# und #tag"\n---\n');
+    const r = parseFrontmatter('---\nnote: "C# und #tag"\n---\n', { comments: true });
     expect(r.data.note).toBe("C# und #tag");
     expect(r.comments?.note ?? "").toBe("");
   });
   it("# ohne führenden Whitespace ist kein Kommentar", () => {
-    const r = parseFrontmatter("---\nslug: foo#bar\n---\n");
+    const r = parseFrontmatter("---\nslug: foo#bar\n---\n", { comments: true });
     expect(r.data.slug).toBe("foo#bar");
     expect(r.comments?.slug ?? "").toBe("");
   });
   it("gequoteter Wert mit nachgestelltem Kommentar wird sauber getrennt", () => {
-    const r = parseFrontmatter('---\nstatus: "✅ Abgeschlossen"   # Geplant | Archiv\n---\n');
+    const r = parseFrontmatter('---\nstatus: "✅ Abgeschlossen"   # Geplant | Archiv\n---\n', { comments: true });
     expect(r.data.status).toBe("✅ Abgeschlossen");
     expect(r.comments?.status).toBe("Geplant | Archiv");
   });
   it("Kommentar an einem Block-Listen-Key: Kommentar gesammelt, Items bleiben Liste", () => {
-    const r = parseFrontmatter("---\nteilnehmer:  # jede genannte Person\n  - \"[[Dr. Berger]]\"\n  - \"[[Anna Klein]]\"\n---\n");
+    const r = parseFrontmatter("---\nteilnehmer:  # jede genannte Person\n  - \"[[Dr. Berger]]\"\n  - \"[[Anna Klein]]\"\n---\n", { comments: true });
     expect(r.comments?.teilnehmer).toBe("jede genannte Person");
     expect(r.data.teilnehmer).toEqual(["[[Dr. Berger]]", "[[Anna Klein]]"]);
+  });
+});
+
+describe("parseFrontmatter opt-in #-Kommentar-Flag (Datenverlust-Regression)", () => {
+  it("OHNE comments-Flag bleibt ein unquoted #-Wert unverändert (kein Datenverlust)", () => {
+    const r = parseFrontmatter("---\nnote: some text # detail\n---\n");
+    expect(r.data.note).toBe("some text # detail");
+    expect(r.comments?.note ?? "").toBe("");
+  });
+  it("MIT comments-Flag wird der #-Kommentar getrennt", () => {
+    const r = parseFrontmatter("---\nnote: some text # detail\n---\n", { comments: true });
+    expect(r.data.note).toBe("some text");
+    expect(r.comments?.note).toBe("detail");
+  });
+  it("escaped \\\" im double-quoted Wert truncatet nicht (comments-Flag)", () => {
+    const r = parseFrontmatter('---\nk: "a \\" b # c"\n---\n', { comments: true });
+    expect(r.data.k).toBe('a " b # c');
+    expect(r.comments?.k ?? "").toBe("");
+  });
+  it("Round-trip: unquoted #-Wert übersteht parse→merge→serialize ohne Flag", () => {
+    const original = parseFrontmatter("---\nnote: some text # detail\n---\n");
+    const merged = mergeFrontmatter([], {}, original, {});
+    const out = serializeFrontmatter(merged.data, merged.order);
+    expect(out).toContain("some text # detail");
   });
 });
 

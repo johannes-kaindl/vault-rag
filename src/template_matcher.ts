@@ -39,7 +39,7 @@ export function extractType(noteText: string): string | null {
 
 /** Template-Datei → Schema: Frontmatter-Keys + geordnete Body-Überschriften (mit Platzhaltertext). */
 export function parseTemplate(text: string): TemplateSpec {
-  const parsed = parseFrontmatter(text);
+  const parsed = parseFrontmatter(text, { comments: true });
   const keys = parsed.order;
   const fmDefaults = parsed.data;
   const fmGuidance = parsed.comments ?? {};

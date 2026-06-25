@@ -223,8 +223,16 @@ export function buildRestructurePrompt(tpl: TemplateSpec, blocks: SourceBlock[])
   const sectionLines = tpl.sections
     .map(s => (s.guidance ? `- ${s.heading} — Anleitung: ${s.guidance}` : `- ${s.heading}`))
     .join("\n");
+  const fmG = tpl.fmGuidance ?? {};
   const keyLines = tpl.keys
-    .map(k => { const ex = fmExample(tpl.fmDefaults[k]); return ex ? `- ${k} (Beispiel: ${ex})` : `- ${k}`; })
+    .map(k => {
+      const ex = fmExample(tpl.fmDefaults[k]);
+      const hint = (fmG[k] ?? "").trim();
+      const parts: string[] = [];
+      if (ex) parts.push(`Beispiel: ${ex}`);
+      if (hint) parts.push(`Hinweis: ${hint}`);
+      return parts.length ? `- ${k} (${parts.join("; ")})` : `- ${k}`;
+    })
     .join("\n");
 
   const system = [

@@ -477,8 +477,10 @@ export class SmartApplyView extends ItemView {
     const setRows = p.fmRows.filter((row) => !this.isMutedRow(row));
     const mutedRows = p.fmRows.filter((row) => this.isMutedRow(row));
 
-    const setBox = sec.createDiv({ cls: "vault-rag-sa-fm-set" });
-    for (const row of setRows) this.renderFmRow(setBox, row);
+    if (setRows.length > 0) {
+      const setBox = sec.createDiv({ cls: "vault-rag-sa-fm-set" });
+      for (const row of setRows) this.renderFmRow(setBox, row);
+    }
 
     if (mutedRows.length > 0) {
       const empty = mutedRows.filter((row) => row.change === "neu").length;

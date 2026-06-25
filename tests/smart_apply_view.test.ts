@@ -639,10 +639,13 @@ describe("SmartApplyView Task 4 — Rohtext on-demand & Diff-Reihenfolge", () =>
     expect(raw.tagName.toLowerCase()).toBe("details");
     expect(first(raw, "vault-rag-sa-orig")).toBeTruthy();
     expect(first(raw, "vault-rag-sa-prop")).toBeTruthy();
-    // Reihenfolge im Diff: Frontmatter < Reflow < Rohtext
-    const html = first(view.contentEl, "vault-rag-sa-diff").innerHTML;
-    expect(html.indexOf("vault-rag-sa-fm")).toBeLessThan(html.indexOf("vault-rag-sa-reflow"));
-    expect(html.indexOf("vault-rag-sa-reflow")).toBeLessThan(html.indexOf("vault-rag-sa-raw"));
+    // Reihenfolge im Diff: Frontmatter < Reflow < Rohtext — direkte Kinder des diff-Wrappers
+    const diff = first(view.contentEl, "vault-rag-sa-diff");
+    const order = (diff.children as any[]).map((c: any) => String(c.className ?? ""));
+    const idx = (cls: string) => order.findIndex((c: string) => c.includes(cls));
+    expect(idx("vault-rag-sa-fm")).toBeGreaterThanOrEqual(0);
+    expect(idx("vault-rag-sa-fm")).toBeLessThan(idx("vault-rag-sa-reflow"));
+    expect(idx("vault-rag-sa-reflow")).toBeLessThan(idx("vault-rag-sa-raw"));
   });
 });
 
@@ -673,5 +676,15 @@ describe("SmartApplyView Frontmatter-Entrauschung", () => {
     expect(first(view.contentEl, "vault-rag-sa-fm-set").textContent).toContain("type");
     expect(first(view.contentEl, "vault-rag-sa-fm-set").textContent).not.toContain("datum");
     expect(first(view.contentEl, "vault-rag-sa-fm-muted").textContent).toContain("datum");
+  });
+
+  it("alle Felder unverändert → kein leeres vault-rag-sa-fm-set", async () => {
+    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+      fmRows: [{ key: "up", original: "[[A]]", proposed: "[[A]]", change: "unveraendert" }],
+    })) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(all(view.contentEl, "vault-rag-sa-fm-set").length).toBe(0);
   });
 });

@@ -339,8 +339,52 @@ export class SmartApplyView extends ItemView {
     this.renderGuard(wrap, p);
     this.renderTwoSurface(wrap, p);
     this.renderFrontmatter(wrap, p);
+    this.renderReflow(wrap, p);
     this.renderActions(wrap, p);
     this.renderReasoning(wrap, p.reasoning);
+  }
+
+  private truncate(s: string, max: number): string {
+    const t = s.replace(/\s+/g, " ").trim();
+    return t.length > max ? t.slice(0, max - 1) + "…" : t;
+  }
+
+  private renderReflow(c: HTMLElement, p: ApplyProposal): void {
+    const sec = c.createDiv({ cls: "vault-rag-sa-reflow" });
+    sec.createDiv({ cls: "vault-rag-sa-section-title", text: "Body-Reflow" });
+    for (const sd of p.sectionDiff) {
+      const row = sec.createDiv({ cls: "vault-rag-sa-reflow-row" });
+      row.toggleClass("is-empty", sd.blockIds.length === 0);
+      const head = row.createDiv({ cls: "vault-rag-sa-reflow-head" });
+      head.createSpan({ cls: "vault-rag-sa-reflow-heading", text: sd.heading.replace(/^#+\s*/, "") });
+      const n = sd.blockIds.length;
+      head.createSpan({
+        cls: "vault-rag-sa-reflow-count",
+        text: n === 0 ? "—" : `${n} ${n === 1 ? "Block" : "Blöcke"}`,
+      });
+      if (sd.provenance) {
+        row.createDiv({ cls: "vault-rag-sa-reflow-prov", text: this.truncate(sd.provenance, 80) });
+      }
+    }
+    const left = sec.createDiv({ cls: "vault-rag-sa-leftover" });
+    const icon = left.createSpan({ cls: "vault-rag-sa-leftover-icon" });
+    if (p.unassigned.length === 0) {
+      left.toggleClass("is-ok", true);
+      setIcon(icon, "circle-check");
+      left.createSpan({ cls: "vault-rag-sa-leftover-label", text: "Übrig: nichts verloren" });
+    } else {
+      left.toggleClass("is-warn", true);
+      setIcon(icon, "alert-triangle");
+      const n = p.unassigned.length;
+      left.createSpan({
+        cls: "vault-rag-sa-leftover-label",
+        text: `${n} ${n === 1 ? "Block" : "Blöcke"} nicht zugeordnet`,
+      });
+      const list = sec.createDiv({ cls: "vault-rag-sa-leftover-list" });
+      for (const b of p.unassigned) {
+        list.createDiv({ cls: "vault-rag-sa-leftover-item", text: this.truncate(b.text, 80) });
+      }
+    }
   }
 
   private renderGuard(c: HTMLElement, p: ApplyProposal): void {

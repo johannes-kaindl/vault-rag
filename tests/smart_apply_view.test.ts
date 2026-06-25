@@ -464,6 +464,39 @@ describe("SmartApplyView — Cockpit", () => {
     expect((view as any).selectedTemplate).toBe("Templates/Buch.md");
   });
 
+  // Task 1 — Body-Reflow
+  it("Reflow: pro sectionDiff Heading, Block-Zahl und Provenance; leere Sektion gedimmt", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const reflow = first(view.contentEl, "vault-rag-sa-reflow");
+    expect(reflow.textContent).toContain("Inhalt");
+    expect(reflow.textContent).toContain("1 Block");
+    expect(reflow.textContent).toContain("# roh");   // provenance
+    expect(reflow.textContent).toContain("Notizen");
+    expect(reflow.textContent).toContain("—");        // leere Notizen-Sektion
+  });
+
+  it("Übrig nicht leer → Warn-Form (alert-triangle) + gelistete Block-Texte", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const icon = first(view.contentEl, "vault-rag-sa-leftover-icon").getAttribute("data-icon");
+    expect(icon).toBe("alert-triangle");
+    expect(all(view.contentEl, "vault-rag-sa-leftover-item")[0].textContent).toContain("übriger Absatz");
+  });
+
+  it("Übrig leer → Success-Form (circle-check) ohne Liste", async () => {
+    const { view } = mkView({ build: vi.fn(async () => mkProposal({ unassigned: [] })) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-leftover-icon").getAttribute("data-icon")).toBe("circle-check");
+    expect(all(view.contentEl, "vault-rag-sa-leftover-item").length).toBe(0);
+  });
+
   // Source-cleanliness
   it("Quelltext nutzt kein innerHTML", async () => {
     const fs = await import("node:fs");

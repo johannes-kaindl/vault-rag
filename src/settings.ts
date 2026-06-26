@@ -77,6 +77,8 @@ export interface VaultRagPluginHost extends Plugin {
   reconnectChat(): void;
   setStatusBarVisible(visible: boolean): void;
   reindexVault(): Promise<void>;
+  refreshIndexFolderHiding(): void;
+  changeIndexDir(newDir: string): Promise<void>;
 }
 
 /** Autocomplete-Suggest für Vault-Ordner in einem Text-Input-Feld. */

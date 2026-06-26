@@ -637,8 +637,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
         try {
           await this.plugin.changeIndexDir(norm);
           new Notice(`Index verschoben nach „${norm}".`);
-          this.display();
         } finally { b.setButtonText("Übernehmen"); b.setDisabled(false); }
+        this.display();
       }));
   }
 

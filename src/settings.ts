@@ -1,4 +1,4 @@
-import { AbstractInputSuggest, App, ButtonComponent, Notice, Plugin, PluginSettingTab, Setting, TFolder, setIcon } from "obsidian";
+import { AbstractInputSuggest, App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, TFolder, setIcon } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
@@ -74,6 +74,7 @@ export interface VaultRagPluginHost extends Plugin {
   reconnectEmbedder(): void;
   reconnectChat(): void;
   setStatusBarVisible(visible: boolean): void;
+  reindexVault(): Promise<void>;
 }
 
 /** Autocomplete-Suggest für Vault-Ordner in einem Text-Input-Feld. */
@@ -98,6 +99,32 @@ class FolderSuggest extends AbstractInputSuggest<string> {
     this.setValue(path);
     this.textInputEl.dispatchEvent(new Event("input"));
     this.close();
+  }
+}
+
+class ReindexConfirmModal extends Modal {
+  constructor(app: App, private onConfirm: () => void) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.createEl("h2", { text: "Vault neu indizieren?" });
+    contentEl.createEl("p", {
+      text: "Alle Notizen werden neu eingebettet — das kann dauern. Dein bestehender Index bleibt erhalten, bis die Indizierung vollständig durchläuft.",
+    });
+    const btnRow = contentEl.createDiv({ cls: "modal-button-container" });
+    new ButtonComponent(btnRow)
+      .setButtonText("Abbrechen")
+      .onClick(() => this.close());
+    new ButtonComponent(btnRow)
+      .setButtonText("Neu indizieren")
+      .setClass("mod-warning")
+      .onClick(() => { this.close(); this.onConfirm(); });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }
 
@@ -154,6 +181,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildEmbeddingStatus(new Setting(containerEl));
     this.buildDebounce(new Setting(containerEl));
     this.buildStatusBar(new Setting(containerEl));
+    sec("Index");
+    this.buildReindexButton(new Setting(containerEl));
     sec("Chat");
     this.buildChatEndpoint(new Setting(containerEl));
     this.buildChatModel(new Setting(containerEl));
@@ -582,5 +611,15 @@ export class VaultRagSettingTab extends PluginSettingTab {
         await this.plugin.saveSettings();
         this.plugin.setStatusBarVisible(v);
       }));
+  }
+
+  private buildReindexButton(s: Setting): void {
+    s.setName("Vault neu indizieren")
+      .setDesc("Bettet alle Notizen neu ein. Das kann je nach Vault-Größe mehrere Minuten dauern. Der bestehende Index bleibt bis zum Abschluss erhalten.")
+      .addButton(b => b
+        .setButtonText("Vault neu indizieren")
+        .onClick(() => {
+          new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open();
+        }));
   }
 }

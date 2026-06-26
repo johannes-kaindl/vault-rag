@@ -151,12 +151,44 @@ describe("LiveIndexer", () => {
       expect(idx.paths).toEqual(["a.md", "b.md", "c.md"]);
     });
 
-    it("ruft onProgress als (1,N)…(N,N) auf", async () => {
+    it("ruft onProgress als (done,indexed,total) auf — (1,1,N)…(N,N,N)", async () => {
       const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
-      const progress: Array<[number, number]> = [];
+      const progress: Array<[number, number, number]> = [];
       const read = vi.fn(async (p: string) => `# ${p}\nInhalt`);
-      await indexer.reindexAll(["x.md", "y.md", "z.md"], read, (done, total) => { progress.push([done, total]); });
-      expect(progress).toEqual([[1, 3], [2, 3], [3, 3]]);
+      await indexer.reindexAll(["x.md", "y.md", "z.md"], read, (done, indexed, total) => { progress.push([done, indexed, total]); });
+      expect(progress).toEqual([[1, 1, 3], [2, 2, 3], [3, 3, 3]]);
+    });
+
+    it("reindexAll ersetzt den Index erst am Ende — vorheriger Index bleibt bis zum Abschluss abrufbar (kein Datenverlust bei Abbruch)", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      // init with 3-note full index
+      const idx0 = (() => {
+        const manifest = { schema_version: 1, embedding_model: "qwen3-embedding:8b", index_dim: DIM, scale: SCALE, count: 3, granularity: "note", quant: "int8" };
+        const i8 = new Int8Array(3 * DIM);
+        i8[0] = SCALE; i8[DIM] = SCALE; i8[2 * DIM] = SCALE;
+        return parseIndex(manifest, ["a.md", "b.md", "c.md"], i8.buffer);
+      })();
+      indexer.init(idx0);
+      expect(indexer.noteCount).toBe(3);
+
+      // capture snapshot of live noteVectors during first read() call
+      let snapshotPaths: string[] = [];
+      let firstRead = true;
+      const read = vi.fn(async (p: string) => {
+        if (firstRead) {
+          firstRead = false;
+          // At this point reindexAll is mid-flight — old index must still be visible
+          snapshotPaths = indexer.buildIndex().paths;
+        }
+        return `# ${p}\nInhalt`;
+      });
+
+      await indexer.reindexAll(["neu1.md", "neu2.md"], read);
+
+      // During reindexAll: old 3-note index was still intact
+      expect(snapshotPaths).toEqual(["a.md", "b.md", "c.md"]);
+      // After reindexAll: new 2-note index
+      expect(indexer.buildIndex().paths).toEqual(["neu1.md", "neu2.md"]);
     });
 
     it("überspringt eine Notiz deren read wirft, andere werden trotzdem indiziert", async () => {

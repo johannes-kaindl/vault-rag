@@ -49,6 +49,7 @@ export abstract class AbstractInputSuggest<T> {
   open(): void {}
   close(): void {}
 }
+export class Modal { app: any; contentEl: any; constructor(app: any) { this.app = app; this.contentEl = makeFakeEl(); } open(): void {} close(): void {} onOpen(): void {} onClose(): void {} }
 export class WorkspaceLeaf { view: any = null; async setViewState(_s: any) {} getViewState() { return {}; } detach() {} }
 export class FuzzySuggestModal<T> {
   app: any;

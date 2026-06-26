@@ -343,7 +343,7 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
-  private async reindexVault(): Promise<void> {
+  async reindexVault(): Promise<void> {
     if (!(await this.embedder.ping())) {
       new Notice("Embedding-Endpoint nicht erreichbar — Vault-Indizierung abgebrochen.");
       return;
@@ -357,18 +357,22 @@ export default class VaultRagPlugin extends Plugin {
     const total = allPaths.length;
     const notice = new Notice(`Indiziere Vault… 0/${total}`, 0);
     this.embeddingProgress.isEmbedding = true;
+    let lastIndexed = 0;
     try {
       await this.liveIndexer.reindexAll(
         allPaths,
         (p) => this.app.vault.adapter.read(p),
-        (done, tot) => { notice.setMessage(`Indiziere Vault… ${done}/${tot}`); },
+        (done, indexed, tot) => {
+          lastIndexed = indexed;
+          notice.setMessage(`Indiziere Vault… ${done}/${tot} (${indexed} indiziert)`);
+        },
       );
       this.index = this.liveIndexer.buildIndex();
       this.retriever = new Retriever(this.index);
       await this.liveIndexer.persist();
       this.syncProgress();
       this.refresh();
-      notice.setMessage(`Vault indiziert: ${this.liveIndexer.noteCount} Notizen.`);
+      notice.setMessage(`Vault indiziert: ${lastIndexed} von ${total} Notizen.`);
     } catch (e) {
       console.warn("vault-rag: reindexVault failed", e);
       notice.setMessage("Vault-Indizierung fehlgeschlagen.");

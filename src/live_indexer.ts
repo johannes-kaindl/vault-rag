@@ -26,12 +26,16 @@ export class LiveIndexer {
     }
   }
 
-  async update(path: string, content: string): Promise<void> {
+  private async embedNote(content: string): Promise<Float32Array | null> {
     const chunks = chunkMarkdown(content);
-    if (chunks.length === 0) { this.noteVectors.delete(path); return; }
-
+    if (chunks.length === 0) return null;
     const vecs = await this.embedder.embed(chunks.map(c => c.text));
-    this.noteVectors.set(path, toIndexVector(vecs, INDEX_DIM));
+    return toIndexVector(vecs, INDEX_DIM);
+  }
+
+  async update(path: string, content: string): Promise<void> {
+    const v = await this.embedNote(content);
+    if (v) this.noteVectors.set(path, v); else this.noteVectors.delete(path);
   }
 
   remove(path: string): void { this.noteVectors.delete(path); }
@@ -46,16 +50,18 @@ export class LiveIndexer {
   async reindexAll(
     paths: string[],
     read: (p: string) => Promise<string>,
-    onProgress?: (done: number, total: number) => void,
+    onProgress?: (done: number, indexed: number, total: number) => void,
   ): Promise<void> {
-    this.noteVectors.clear();
+    const fresh = new Map<string, Float32Array>();
+    let indexed = 0;
     for (let i = 0; i < paths.length; i++) {
       try {
-        const content = await read(paths[i]);
-        await this.update(paths[i], content);
-      } catch { /* unlesbare Notiz überspringen */ }
-      onProgress?.(i + 1, paths.length);
+        const v = await this.embedNote(await read(paths[i]));
+        if (v) { fresh.set(paths[i], v); indexed++; }
+      } catch { /* unlesbar/Embed-Fehler überspringen */ }
+      onProgress?.(i + 1, indexed, paths.length);
     }
+    this.noteVectors = fresh;
   }
 
   buildIndex(): VaultIndex {

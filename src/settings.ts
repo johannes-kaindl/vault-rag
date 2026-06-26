@@ -57,7 +57,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   smartApplyTemperature: 0,
   smartApplyModel: "",
   smartApplySuppressThinking: false,
-  smartApplyMaxTokens: 2048,
+  smartApplyMaxTokens: 4096,
 };
 
 type Caps = { vision: string; thinking: { support: string; confidence: string } };
@@ -539,8 +539,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   private buildSmartApplyMaxTokens(s: Setting): void {
     s.setName(`Smart-Apply-Max-Tokens: ${this.plugin.settings.smartApplyMaxTokens}`)
-      .setDesc("Maximale Anzahl generierter Tokens fuer den Umsortier-Call (256–8192).")
-      .addSlider(sl => sl.setLimits(256, 8192, 256).setValue(this.plugin.settings.smartApplyMaxTokens)
+      .setDesc("Maximale Anzahl generierter Tokens fuer den Umsortier-Call (512–16384). Hoeher = sicher fuer grosse Notizen mit vielen Bloecken.")
+      .addSlider(sl => sl.setLimits(512, 16384, 512).setValue(this.plugin.settings.smartApplyMaxTokens)
         .onChange(async (v: number) => {
           this.plugin.settings.smartApplyMaxTokens = v;
           s.setName(`Smart-Apply-Max-Tokens: ${v}`);

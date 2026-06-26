@@ -70,13 +70,13 @@ describe("settings", () => {
   it("hat Smart-Apply-Dashboard-Defaults", () => {
     expect(DEFAULT_SETTINGS.smartApplyModel).toBe("");
     expect(DEFAULT_SETTINGS.smartApplySuppressThinking).toBe(false);
-    expect(DEFAULT_SETTINGS.smartApplyMaxTokens).toBe(2048);
+    expect(DEFAULT_SETTINGS.smartApplyMaxTokens).toBe(4096);
   });
 
   it("Default-Merge ergänzt fehlende Dashboard-Felder (Backward-Compat)", () => {
     const merged = Object.assign({}, DEFAULT_SETTINGS, { smartApplyEnabled: true } as Partial<VaultRagSettings>);
     expect(merged.smartApplyModel).toBe("");
     expect(merged.smartApplySuppressThinking).toBe(false);
-    expect(merged.smartApplyMaxTokens).toBe(2048);
+    expect(merged.smartApplyMaxTokens).toBe(4096);
   });
 });

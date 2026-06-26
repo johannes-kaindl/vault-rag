@@ -79,4 +79,13 @@ describe("settings", () => {
     expect(merged.smartApplySuppressThinking).toBe(false);
     expect(merged.smartApplyMaxTokens).toBe(4096);
   });
+
+  it("hideIndexFolder-Default ist true", () => {
+    expect(DEFAULT_SETTINGS.hideIndexFolder).toBe(true);
+  });
+
+  it("Default-Merge ergänzt fehlendes hideIndexFolder aus altem data.json (Backward-Compat)", () => {
+    const merged = Object.assign({}, DEFAULT_SETTINGS, { k: 30 } as Partial<VaultRagSettings>);
+    expect(merged.hideIndexFolder).toBe(true);
+  });
 });

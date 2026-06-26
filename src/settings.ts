@@ -8,6 +8,7 @@ export interface VaultRagSettings {
   k: number;
   minSim: number;
   indexDir: string;
+  hideIndexFolder: boolean;
   exclude: string[];
   embeddingEndpoint: string;
   embeddingModel: string;
@@ -38,6 +39,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
   minSim: 0.3,
   indexDir: "_vaultrag",
+  hideIndexFolder: true,
   exclude: ["Templates/", "Archive/"],
   embeddingEndpoint: "http://localhost:11434",
   embeddingModel: "qwen3-embedding:8b",

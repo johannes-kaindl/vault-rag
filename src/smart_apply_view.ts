@@ -350,6 +350,9 @@ export class SmartApplyView extends ItemView {
   }
 
   private renderReflow(c: HTMLElement, p: ApplyProposal): void {
+    // Kein Routing (z.B. assignment-parse-Fehler) → weder Reflow-Zeilen noch ein
+    // irreführendes „nichts verloren". Der Scan-Kopf zeigt den Fehler.
+    if (p.sectionDiff.length === 0 && p.unassigned.length === 0) return;
     const sec = c.createDiv({ cls: "vault-rag-sa-reflow" });
     sec.createDiv({ cls: "vault-rag-sa-section-title", text: "Body-Reflow" });
     for (const sd of p.sectionDiff) {

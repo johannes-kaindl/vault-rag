@@ -497,6 +497,20 @@ describe("SmartApplyView — Cockpit", () => {
     expect(all(view.contentEl, "vault-rag-sa-leftover-item").length).toBe(0);
   });
 
+  it("kein Routing (assignment-parse-Fehler) → kein Reflow, kein irreführendes 'nichts verloren'", async () => {
+    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+      hardOk: false, sectionDiff: [], unassigned: [],
+      checks: [{ id: "assignment-parse", ok: false, detail: "kein gültiges JSON" }],
+    })) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(all(view.contentEl, "vault-rag-sa-reflow").length).toBe(0);
+    expect(all(view.contentEl, "vault-rag-sa-leftover").length).toBe(0);
+    // Scan-Kopf zeigt den Fehler weiterhin
+    expect(hasClass(first(view.contentEl, "vault-rag-sa-guard"), "is-error")).toBe(true);
+  });
+
   // Source-cleanliness
   it("Quelltext nutzt kein innerHTML", async () => {
     const fs = await import("node:fs");

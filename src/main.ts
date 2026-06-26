@@ -369,9 +369,12 @@ export default class VaultRagPlugin extends Plugin {
       this.syncProgress();
       this.refresh();
       notice.setMessage(`Vault indiziert: ${this.liveIndexer.noteCount} Notizen.`);
-      window.setTimeout(() => notice.hide(), 4000);
+    } catch (e) {
+      console.warn("vault-rag: reindexVault failed", e);
+      notice.setMessage("Vault-Indizierung fehlgeschlagen.");
     } finally {
       this.embeddingProgress.isEmbedding = false;
+      window.setTimeout(() => notice.hide(), 4000);
     }
   }
 

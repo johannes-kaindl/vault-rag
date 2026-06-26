@@ -3,11 +3,13 @@ import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
+import { normalizeIndexDir, isDotPath } from "./index_dir";
 
 export interface VaultRagSettings {
   k: number;
   minSim: number;
   indexDir: string;
+  hideIndexFolder: boolean;
   exclude: string[];
   embeddingEndpoint: string;
   embeddingModel: string;
@@ -38,6 +40,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
   minSim: 0.3,
   indexDir: "_vaultrag",
+  hideIndexFolder: true,
   exclude: ["Templates/", "Archive/"],
   embeddingEndpoint: "http://localhost:11434",
   embeddingModel: "qwen3-embedding:8b",
@@ -75,6 +78,8 @@ export interface VaultRagPluginHost extends Plugin {
   reconnectChat(): void;
   setStatusBarVisible(visible: boolean): void;
   reindexVault(): Promise<void>;
+  refreshIndexFolderHiding(): void;
+  changeIndexDir(newDir: string): Promise<void>;
 }
 
 /** Autocomplete-Suggest für Vault-Ordner in einem Text-Input-Feld. */
@@ -182,6 +187,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildDebounce(new Setting(containerEl));
     this.buildStatusBar(new Setting(containerEl));
     sec("Index");
+    this.buildIndexDir(new Setting(containerEl));
+    this.buildHideIndexFolder(new Setting(containerEl));
     this.buildReindexButton(new Setting(containerEl));
     sec("Chat");
     this.buildChatEndpoint(new Setting(containerEl));
@@ -610,6 +617,38 @@ export class VaultRagSettingTab extends PluginSettingTab {
         this.plugin.settings.showStatusBar = v;
         await this.plugin.saveSettings();
         this.plugin.setStatusBarVisible(v);
+      }));
+  }
+
+  private buildIndexDir(s: Setting): void {
+    let typed = this.plugin.settings.indexDir;
+    s.setName("Index-Ordner")
+      .setDesc('Wo der Vektor-Index gespeichert wird. Synct cross-device (inkl. iPhone) nur mit der Obsidian-Sync-Option „Sync all other types". Ein Pfad mit „." am Anfang wird von Obsidian Sync ignoriert.')
+      .addText(t => {
+        t.setPlaceholder("_vaultrag").setValue(this.plugin.settings.indexDir);
+        t.onChange((v: string) => { typed = v; });
+        new FolderSuggest(this.app, t.inputEl).onSelect((path: string) => { typed = path; t.setValue(path); });
+      })
+      .addButton(b => b.setButtonText("Übernehmen").onClick(async () => {
+        const norm = normalizeIndexDir(typed);
+        if (norm === "" || norm === normalizeIndexDir(this.plugin.settings.indexDir)) return;
+        if (isDotPath(norm)) new Notice('Index-Ordner beginnt mit „." — synct dann nicht cross-device (auch nicht aufs iPhone).');
+        b.setButtonText("Verschiebe…"); b.setDisabled(true);
+        try {
+          await this.plugin.changeIndexDir(norm);
+          new Notice(`Index verschoben nach „${norm}".`);
+        } finally { b.setButtonText("Übernehmen"); b.setDisabled(false); }
+        this.display();
+      }));
+  }
+
+  private buildHideIndexFolder(s: Setting): void {
+    s.setName("Index-Ordner im Datei-Explorer ausblenden")
+      .setDesc("Versteckt den Index-Ordner kosmetisch im Datei-Explorer. Daten, Sync und Suche bleiben unberührt. Standardmäßig an.")
+      .addToggle(t => t.setValue(this.plugin.settings.hideIndexFolder).onChange(async (v: boolean) => {
+        this.plugin.settings.hideIndexFolder = v;
+        await this.plugin.saveSettings();
+        this.plugin.refreshIndexFolderHiding();
       }));
   }
 

@@ -234,18 +234,25 @@ export default class VaultRagPlugin extends Plugin {
     this.chatClient = new ChatClient(this.settings.chatEndpoint, this.settings.chatModel);
   }
 
-  /** CSS-Regel, die den Index-Ordner im Datei-Explorer aus-/einblendet. Idempotent. */
+  /** CSS-Regel, die den Index-Ordner im Datei-Explorer aus-/einblendet. Idempotent.
+   *  Nutzt Constructable Stylesheets (kein <style>-Element — Lint-Regel no-forbidden-elements).
+   *  Diese API gibt es erst ab Safari/iOS 16.4 — auf älteren Mobile-WebViews still überspringen
+   *  (Ordner bleibt sichtbar, aber das Plugin lädt normal weiter; KEIN Crash). */
   refreshIndexFolderHiding(): void {
-    if (!this.hideStyleSheet) {
-      // Constructable Stylesheet (kein <style>-Element); Cleanup bei Plugin-Unload.
-      this.hideStyleSheet = new CSSStyleSheet();
-      activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.hideStyleSheet];
-      this.register(() => {
-        activeDocument.adoptedStyleSheets = activeDocument.adoptedStyleSheets.filter(s => s !== this.hideStyleSheet);
-        this.hideStyleSheet = null;
-      });
+    if (!("replaceSync" in CSSStyleSheet.prototype) || !("adoptedStyleSheets" in activeDocument)) return;
+    try {
+      if (!this.hideStyleSheet) {
+        this.hideStyleSheet = new CSSStyleSheet();
+        activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.hideStyleSheet];
+        this.register(() => {
+          activeDocument.adoptedStyleSheets = activeDocument.adoptedStyleSheets.filter(s => s !== this.hideStyleSheet);
+          this.hideStyleSheet = null;
+        });
+      }
+      this.hideStyleSheet.replaceSync(buildHideCss(this.settings.indexDir, this.settings.hideIndexFolder));
+    } catch (e) {
+      console.warn("vault-rag: Index-Ordner-Ausblenden auf dieser Plattform nicht unterstützt", e);
     }
-    void this.hideStyleSheet.replace(buildHideCss(this.settings.indexDir, this.settings.hideIndexFolder));
   }
 
   /**
@@ -258,6 +265,12 @@ export default class VaultRagPlugin extends Plugin {
     const target = normalizeIndexDir(newDir);
     if (target === "" || target === oldDir) return;
     await migrateIndex(this.app.vault.adapter, oldDir, target);
+    // Datenverlust-Schutz (B-vor-A): hatte der alte Ordner einen vollständigen Index, MUSS der
+    // neue ihn nach der Migration auch haben — sonst nichts umstellen, nichts persistieren, nichts löschen.
+    if ((await this.indexComplete(oldDir)) && !(await this.indexComplete(target))) {
+      new Notice(`Index-Verlegung nach „${target}" unvollständig — nichts geändert, „${oldDir}" bleibt aktiv.`);
+      return;
+    }
     this.settings.indexDir = target;
     await this.saveSettings();
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.embedder, this.settings.embeddingModel);
@@ -266,6 +279,14 @@ export default class VaultRagPlugin extends Plugin {
     await this.loadIndex();
     this.refreshIndexFolderHiding();
     await this.cleanupIndexDir(oldDir);
+  }
+
+  /** True, wenn alle zum Laden nötigen Index-Dateien in `dir` existieren (pending.json ist optional). */
+  private async indexComplete(dir: string): Promise<boolean> {
+    for (const f of ["notes.i8", "paths.json", "manifest.json"]) {
+      if (!(await this.app.vault.adapter.exists(`${dir}/${f}`))) return false;
+    }
+    return true;
   }
 
   /** Löscht den alten Index-Ordner — nur wenn er ausschließlich unsere Index-Dateien enthält. */
@@ -280,6 +301,7 @@ export default class VaultRagPlugin extends Plugin {
       await this.app.vault.adapter.rmdir(dir, false);
     } catch (e) {
       console.warn("vault-rag: cleanupIndexDir failed", e);
+      new Notice(`Alter Index-Ordner „${dir}" konnte nicht entfernt werden — bitte manuell prüfen.`);
     }
   }
 

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Index folder is now configurable (setting "Index folder") and is hidden by default in the file explorer (setting "Hide index folder in file explorer", default on).
+
+### Changed
+
+- **Note for existing users:** the previously visible `_vaultrag` folder is now hidden in the file explorer after the update (cosmetic only; always configurable via setting; data and sync are unaffected).
+
 ## [0.5.0] — 2026-06-26
 
 ### Added

@@ -62,7 +62,8 @@ npm run build      # → main.js
 |---|---|---|
 | Embedding endpoint / model | Re-embeds notes on save | `http://localhost:11434` · `qwen3-embedding:8b` |
 | Chat endpoint / model | LLM for RAG chat | `http://localhost:8080` · `qwen3` |
-| Index directory | Where the synced index lives | `_vaultrag` |
+| Index folder | Where the synced index lives. Cross-device sync (including iPhone) requires the Obsidian Sync option "Sync all other file types" | `_vaultrag` |
+| Hide index folder in file explorer | Hides the index folder from the file explorer for a cleaner workspace (cosmetic; data and sync are unaffected) | on |
 | Similarity / top-k | Retrieval thresholds | tunable |
 | Excluded folders | Paths skipped by indexing | `Templates/`, `Archive/` |
 | Context budget | Max characters fed as context (ceiling follows the model window) | `12000` |

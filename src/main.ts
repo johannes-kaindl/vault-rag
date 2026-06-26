@@ -23,6 +23,8 @@ export interface EmbeddingProgress {
   isEmbedding: boolean;
   embeddedNotes: number;
   pendingNotes: number;
+  /** Während eines Voll-Reindex: Fortschritt durch die Notiz-Liste; sonst null. */
+  reindex: { done: number; total: number } | null;
 }
 
 export default class VaultRagPlugin extends Plugin {
@@ -41,6 +43,7 @@ export default class VaultRagPlugin extends Plugin {
     isEmbedding: false,
     embeddedNotes: 0,
     pendingNotes: 0,
+    reindex: null,
   };
   private statusBarEl: HTMLElement | null = null;
 
@@ -356,7 +359,13 @@ export default class VaultRagPlugin extends Plugin {
     });
     const total = allPaths.length;
     const notice = new Notice(`Indiziere Vault… 0/${total}`, 0);
+    // Statusleiste fürs Reindex einblenden (falls aus), damit man die Notice wegklicken kann
+    // und den Fortschritt unten weiterverfolgt; am Ende auf das Setting zurücksetzen.
+    const statusReveal = !this.statusBarEl;
+    if (statusReveal) this.setStatusBarVisible(true);
     this.embeddingProgress.isEmbedding = true;
+    this.embeddingProgress.reindex = { done: 0, total };
+    this.updateStatusBar();
     let lastIndexed = 0;
     try {
       await this.liveIndexer.reindexAll(
@@ -364,20 +373,24 @@ export default class VaultRagPlugin extends Plugin {
         (p) => this.app.vault.adapter.read(p),
         (done, indexed, tot) => {
           lastIndexed = indexed;
-          notice.setMessage(`Indiziere Vault… ${done}/${tot} (${indexed} indiziert)`);
+          this.embeddingProgress.reindex = { done, total: tot };
+          this.updateStatusBar();
+          notice.setMessage(`Indiziere Vault… ${done}/${tot}`);
         },
       );
       this.index = this.liveIndexer.buildIndex();
       this.retriever = new Retriever(this.index);
       await this.liveIndexer.persist();
-      this.syncProgress();
       this.refresh();
-      notice.setMessage(`Vault indiziert: ${lastIndexed} von ${total} Notizen.`);
+      notice.setMessage(`Vault indiziert: ${lastIndexed} Notizen.`);
     } catch (e) {
       console.warn("vault-rag: reindexVault failed", e);
       notice.setMessage("Vault-Indizierung fehlgeschlagen.");
     } finally {
+      this.embeddingProgress.reindex = null;
       this.embeddingProgress.isEmbedding = false;
+      this.syncProgress();
+      if (statusReveal) this.setStatusBarVisible(this.settings.showStatusBar);
       window.setTimeout(() => notice.hide(), 4000);
     }
   }
@@ -406,7 +419,9 @@ export default class VaultRagPlugin extends Plugin {
   private updateStatusBar(): void {
     if (!this.statusBarEl) return;
     const p = this.embeddingProgress;
-    if (p.isEmbedding) {
+    if (p.reindex) {
+      this.statusBarEl.setText(`↻ Indiziere ${p.reindex.done.toLocaleString("de-DE")}/${p.reindex.total.toLocaleString("de-DE")}`);
+    } else if (p.isEmbedding) {
       this.statusBarEl.setText("↻ embedding…");
     } else if (p.pendingNotes > 0) {
       this.statusBarEl.setText(`● ${p.embeddedNotes.toLocaleString("de-DE")} | ⏳ ${p.pendingNotes}`);

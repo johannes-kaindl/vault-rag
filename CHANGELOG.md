@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-06-26
+
+### Added
+
+- **Self-contained indexing** — a *Vault neu indizieren* command (and a confirmed button under **Settings → Index**) builds the full embedding index from every note via your configured endpoint, with live progress in the notice and status bar. The plugin no longer needs an external (HyperForge) export to bootstrap — anyone with an embedding endpoint can use it from scratch. The rebuild is atomic: aborting it never corrupts your existing index.
+- **Frontmatter guidance for Smart Apply templates** — `#`-comments on a template's frontmatter keys steer the LLM (e.g. `art: # Meeting | Telefonat | …`) without becoming literal values. Together with `%%` body guidance, even weak / non-thinking local models route reliably.
+- Smart Apply max-tokens is configurable (default 4096, up to 16384) for large notes with many blocks.
+
+### Changed
+
+- **Smart Apply diff-gate redesigned** into a semantic three-level view: a scan header (check status by icon *shape* + template/detection + stat chips), a decluttered frontmatter block (only set/changed fields prominent; empty/unchanged collapsed, with an `Original / Vorschlag` column label), a body-reflow view (which original block lands under which heading, plus an *Übrig* leftover-safety indicator), and the raw text on-demand. WCAG 1.4.1 throughout.
+
+### Fixed
+
+- `parseFrontmatter` strips `#`-comments only when explicitly requested (template parsing), so note-write paths never lose `#`-bearing values.
+- The reflow view no longer shows a misleading "nothing lost" when the LLM assignment failed to parse.
+
 ## [0.4.0] — 2026-06-24
 
 ### Added

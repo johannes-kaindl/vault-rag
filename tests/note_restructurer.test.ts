@@ -378,6 +378,34 @@ describe("buildRestructurePrompt %%-guidance", () => {
   });
 });
 
+describe("buildRestructurePrompt FM-#-guidance", () => {
+  function tplWith(fmGuidance: Record<string, string>): TemplateSpec {
+    return {
+      type: "Gespräch",
+      keys: ["type", "art"],
+      fmDefaults: { type: "🗣️ Gespräch", art: "" },
+      fmGuidance,
+      sections: [{ heading: "Themen", level: 2, placeholder: "", guidance: "" }],
+      raw: "egal",
+    };
+  }
+  const blocks: SourceBlock[] = [{ id: "block_0", text: "- x" }];
+
+  it("rendert Hinweis pro FM-Key mit Kommentar", () => {
+    const [, userMsg] = buildRestructurePrompt(tplWith({ art: "Meeting | Telefonat" }), blocks);
+    expect(userMsg.content).toContain("art (Hinweis: Meeting | Telefonat)");
+  });
+  it("kombiniert Beispiel + Hinweis bei Key mit Default und Kommentar", () => {
+    const [, userMsg] = buildRestructurePrompt(tplWith({ type: "Gesprächstyp mit Emoji" }), blocks);
+    expect(userMsg.content).toContain("type (Beispiel: 🗣️ Gespräch; Hinweis: Gesprächstyp mit Emoji)");
+  });
+  it("ohne fmGuidance bleibt rückwärtskompatibel (nackter Key, kein Hinweis)", () => {
+    const [, userMsg] = buildRestructurePrompt(tplWith({}), blocks);
+    expect(userMsg.content).toContain("- art");
+    expect(userMsg.content).not.toContain("Hinweis:");
+  });
+});
+
 describe("reconcileAssignment", () => {
   it("bewegt Blöcke unter nicht-Template-Überschriften nach unassigned (dedup)", () => {
     const tpl = spec(["Setup", "Ablauf"]);

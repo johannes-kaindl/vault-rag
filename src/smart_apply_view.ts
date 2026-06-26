@@ -1,5 +1,5 @@
 import { ItemView, WorkspaceLeaf, setIcon, Notice } from "obsidian";
-import type { FmValue, FmChange } from "./frontmatter";
+import type { FmValue, FmChange, FmRow } from "./frontmatter";
 import type { ApplyProposal, ApplyResult } from "./smart_apply";
 import type { TemplateRank } from "./template_ranker";
 import { isAlwaysOnThinker } from "./reasoning";
@@ -336,33 +336,107 @@ export class SmartApplyView extends ItemView {
     if (!p) { this.renderIdle(c); return; }
     const wrap = c.createDiv({ cls: "vault-rag-sa-diff" });
 
-    this.renderGuard(wrap, p);
-    this.renderTwoSurface(wrap, p);
+    this.renderGuardScan(wrap, p);
     this.renderFrontmatter(wrap, p);
+    this.renderReflow(wrap, p);
+    this.renderRawDetails(wrap, p);
     this.renderActions(wrap, p);
     this.renderReasoning(wrap, p.reasoning);
   }
 
-  private renderGuard(c: HTMLElement, p: ApplyProposal): void {
-    const banner = c.createDiv({ cls: "vault-rag-sa-guard" });
-    banner.toggleClass("is-ok", p.hardOk);
-    banner.toggleClass("is-error", !p.hardOk);
-    if (p.hardOk) {
-      banner.setText("✓ alle Prüfungen bestanden");
-      return;
-    }
-    banner.setText("Prüfungen fehlgeschlagen — Anwenden gesperrt:");
-    const list = banner.createDiv({ cls: "vault-rag-sa-guard-list" });
-    for (const ch of p.checks.filter((x) => !x.ok)) {
-      list.createDiv({
-        cls: "vault-rag-sa-guard-fail",
-        text: `${ch.id}${ch.detail ? ": " + ch.detail : ""}`,
+  private truncate(s: string, max: number): string {
+    const t = s.replace(/\s+/g, " ").trim();
+    return t.length > max ? t.slice(0, max - 1) + "…" : t;
+  }
+
+  private renderReflow(c: HTMLElement, p: ApplyProposal): void {
+    // Kein Routing (z.B. assignment-parse-Fehler) → weder Reflow-Zeilen noch ein
+    // irreführendes „nichts verloren". Der Scan-Kopf zeigt den Fehler.
+    if (p.sectionDiff.length === 0 && p.unassigned.length === 0) return;
+    const sec = c.createDiv({ cls: "vault-rag-sa-reflow" });
+    sec.createDiv({ cls: "vault-rag-sa-section-title", text: "Body-Reflow" });
+    for (const sd of p.sectionDiff) {
+      const row = sec.createDiv({ cls: "vault-rag-sa-reflow-row" });
+      row.toggleClass("is-empty", sd.blockIds.length === 0);
+      const head = row.createDiv({ cls: "vault-rag-sa-reflow-head" });
+      head.createSpan({ cls: "vault-rag-sa-reflow-heading", text: sd.heading.replace(/^#+\s*/, "") });
+      const n = sd.blockIds.length;
+      head.createSpan({
+        cls: "vault-rag-sa-reflow-count",
+        text: n === 0 ? "—" : `${n} ${n === 1 ? "Block" : "Blöcke"}`,
       });
+      if (sd.provenance) {
+        row.createDiv({ cls: "vault-rag-sa-reflow-prov", text: this.truncate(sd.provenance, 80) });
+      }
+    }
+    const left = sec.createDiv({ cls: "vault-rag-sa-leftover" });
+    const icon = left.createSpan({ cls: "vault-rag-sa-leftover-icon" });
+    if (p.unassigned.length === 0) {
+      left.toggleClass("is-ok", true);
+      setIcon(icon, "circle-check");
+      left.createSpan({ cls: "vault-rag-sa-leftover-label", text: "Übrig: nichts verloren" });
+    } else {
+      left.toggleClass("is-warn", true);
+      setIcon(icon, "alert-triangle");
+      const n = p.unassigned.length;
+      left.createSpan({
+        cls: "vault-rag-sa-leftover-label",
+        text: `${n} ${n === 1 ? "Block" : "Blöcke"} nicht zugeordnet`,
+      });
+      const list = sec.createDiv({ cls: "vault-rag-sa-leftover-list" });
+      for (const b of p.unassigned) {
+        list.createDiv({ cls: "vault-rag-sa-leftover-item", text: this.truncate(b.text, 80) });
+      }
     }
   }
 
-  private renderTwoSurface(c: HTMLElement, p: ApplyProposal): void {
-    const surfaces = c.createDiv({ cls: "vault-rag-sa-surfaces" });
+  private detectionLabel(d: ApplyProposal["detection"]): string {
+    if (d.confidence === "confirmed") return "Typ aus Frontmatter";
+    if (d.source === "rag") return "automatisch erkannt";
+    return "manuell gewählt";
+  }
+
+  private renderGuardScan(c: HTMLElement, p: ApplyProposal): void {
+    const banner = c.createDiv({ cls: "vault-rag-sa-guard" });
+    banner.toggleClass("is-ok", p.hardOk);
+    banner.toggleClass("is-error", !p.hardOk);
+
+    const status = banner.createDiv({ cls: "vault-rag-sa-scan-status" });
+    const sIcon = status.createSpan({ cls: "vault-rag-sa-scan-status-icon" });
+    setIcon(sIcon, p.hardOk ? "circle-check" : "circle-x");
+    status.createSpan({
+      cls: "vault-rag-sa-scan-status-label",
+      text: p.hardOk ? "Bereit zum Anwenden" : "Anwenden gesperrt",
+    });
+
+    banner.createDiv({
+      cls: "vault-rag-sa-scan-tpl",
+      text: `Vorlage: ${p.type} · ${this.detectionLabel(p.detection)}`,
+    });
+
+    const assigned = p.sectionDiff.reduce((sum, sd) => sum + sd.blockIds.length, 0);
+    const total = assigned + p.unassigned.length;
+    const setCount = p.fmRows.filter((row) => !this.isMutedRow(row)).length;
+    banner.createDiv({
+      cls: "vault-rag-sa-scan-stats",
+      text: `${assigned}/${total} Blöcke zugeordnet · ${p.unassigned.length} übrig · ${setCount} Felder gesetzt`,
+    });
+
+    if (!p.hardOk) {
+      const list = banner.createDiv({ cls: "vault-rag-sa-guard-list" });
+      for (const ch of p.checks.filter((x) => !x.ok)) {
+        list.createDiv({
+          cls: "vault-rag-sa-guard-fail",
+          text: `${ch.id}${ch.detail ? ": " + ch.detail : ""}`,
+        });
+      }
+    }
+  }
+
+  private renderRawDetails(c: HTMLElement, p: ApplyProposal): void {
+    const det = c.createEl("details", { cls: "vault-rag-sa-raw" });
+    det.createEl("summary", { cls: "vault-rag-sa-raw-sum", text: "Rohtext anzeigen (Original / Vorschlag)" });
+    const surfaces = det.createDiv({ cls: "vault-rag-sa-surfaces" });
 
     const origCol = surfaces.createDiv({ cls: "vault-rag-sa-surface" });
     origCol.createDiv({ cls: "vault-rag-sa-surface-title", text: "Original" });
@@ -378,19 +452,53 @@ export class SmartApplyView extends ItemView {
     return Array.isArray(v) ? v.join(", ") : v;
   }
 
+  private hasValue(v: FmValue | undefined): boolean {
+    if (v === undefined) return false;
+    return Array.isArray(v) ? v.length > 0 : v.trim() !== "";
+  }
+
+  /** Zurückhaltend (ausklappbar): unverändert ODER neu-aber-leer. Alles andere ist „gesetzt". */
+  private isMutedRow(row: FmRow): boolean {
+    return row.change === "unveraendert" || (row.change === "neu" && !this.hasValue(row.proposed));
+  }
+
+  private renderFmRow(parent: HTMLElement, row: FmRow): void {
+    const r = parent.createDiv({ cls: "vault-rag-sa-fm-row" });
+    r.toggleClass(`is-${row.change}`, true);
+    const icon = r.createSpan({ cls: "vault-rag-sa-fm-icon" });
+    setIcon(icon, CHANGE_ICON[row.change] ?? "minus");
+    r.createSpan({ cls: "vault-rag-sa-fm-key", text: row.key });
+    r.createSpan({ cls: "vault-rag-sa-fm-orig", text: this.fmCell(row.original) });
+    r.createSpan({ cls: "vault-rag-sa-fm-prop", text: this.fmCell(row.proposed) });
+  }
+
   private renderFrontmatter(c: HTMLElement, p: ApplyProposal): void {
     if (p.fmRows.length === 0) return;
     const sec = c.createDiv({ cls: "vault-rag-sa-fm" });
     sec.createDiv({ cls: "vault-rag-sa-section-title", text: "Frontmatter" });
-    const table = sec.createDiv({ cls: "vault-rag-sa-fm-table" });
-    for (const row of p.fmRows) {
-      const r = table.createDiv({ cls: "vault-rag-sa-fm-row" });
-      r.toggleClass(`is-${row.change}`, true);
-      const icon = r.createSpan({ cls: "vault-rag-sa-fm-icon" });
-      setIcon(icon, CHANGE_ICON[row.change] ?? "minus");
-      r.createSpan({ cls: "vault-rag-sa-fm-key", text: row.key });
-      r.createSpan({ cls: "vault-rag-sa-fm-orig", text: this.fmCell(row.original) });
-      r.createSpan({ cls: "vault-rag-sa-fm-prop", text: this.fmCell(row.proposed) });
+
+    const setRows = p.fmRows.filter((row) => !this.isMutedRow(row));
+    const mutedRows = p.fmRows.filter((row) => this.isMutedRow(row));
+
+    if (setRows.length > 0) {
+      const setBox = sec.createDiv({ cls: "vault-rag-sa-fm-set" });
+      const head = setBox.createDiv({ cls: "vault-rag-sa-fm-head" });
+      head.createSpan({ cls: "vault-rag-sa-fm-icon" });
+      head.createSpan({ cls: "vault-rag-sa-fm-key" });
+      head.createSpan({ cls: "vault-rag-sa-fm-orig", text: "Original" });
+      head.createSpan({ cls: "vault-rag-sa-fm-prop", text: "Vorschlag" });
+      for (const row of setRows) this.renderFmRow(setBox, row);
+    }
+
+    if (mutedRows.length > 0) {
+      const empty = mutedRows.filter((row) => row.change === "neu").length;
+      const unchanged = mutedRows.length - empty;
+      const det = sec.createEl("details", { cls: "vault-rag-sa-fm-muted" });
+      const parts: string[] = [];
+      if (empty > 0) parts.push(`${empty} leere`);
+      if (unchanged > 0) parts.push(`${unchanged} unveränderte`);
+      det.createEl("summary", { cls: "vault-rag-sa-fm-muted-sum", text: `${parts.join(" · ")} Felder` });
+      for (const row of mutedRows) this.renderFmRow(det, row);
     }
   }
 

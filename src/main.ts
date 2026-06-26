@@ -23,6 +23,8 @@ export interface EmbeddingProgress {
   isEmbedding: boolean;
   embeddedNotes: number;
   pendingNotes: number;
+  /** Während eines Voll-Reindex: Fortschritt durch die Notiz-Liste; sonst null. */
+  reindex: { done: number; total: number } | null;
 }
 
 export default class VaultRagPlugin extends Plugin {
@@ -41,6 +43,7 @@ export default class VaultRagPlugin extends Plugin {
     isEmbedding: false,
     embeddedNotes: 0,
     pendingNotes: 0,
+    reindex: null,
   };
   private statusBarEl: HTMLElement | null = null;
 
@@ -208,6 +211,12 @@ export default class VaultRagPlugin extends Plugin {
       });
     }
 
+    this.addCommand({
+      id: "reindex-vault",
+      name: "Vault neu indizieren",
+      callback: () => void this.reindexVault(),
+    });
+
     if (this.settings.showStatusBar) this.setStatusBarVisible(true);
   }
 
@@ -337,6 +346,55 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
+  async reindexVault(): Promise<void> {
+    if (!(await this.embedder.ping())) {
+      new Notice("Embedding-Endpoint nicht erreichbar — Vault-Indizierung abgebrochen.");
+      return;
+    }
+    const allPaths = this.app.vault.getMarkdownFiles().map(f => f.path).filter(p => {
+      if (p.startsWith(".")) return false;
+      if (this.settings.exclude.some(e => p.startsWith(e))) return false;
+      if (p.startsWith(this.settings.indexDir + "/")) return false;
+      return true;
+    });
+    const total = allPaths.length;
+    const notice = new Notice(`Indiziere Vault… 0/${total}`, 0);
+    // Statusleiste fürs Reindex einblenden (falls aus), damit man die Notice wegklicken kann
+    // und den Fortschritt unten weiterverfolgt; am Ende auf das Setting zurücksetzen.
+    const statusReveal = !this.statusBarEl;
+    if (statusReveal) this.setStatusBarVisible(true);
+    this.embeddingProgress.isEmbedding = true;
+    this.embeddingProgress.reindex = { done: 0, total };
+    this.updateStatusBar();
+    let lastIndexed = 0;
+    try {
+      await this.liveIndexer.reindexAll(
+        allPaths,
+        (p) => this.app.vault.adapter.read(p),
+        (done, indexed, tot) => {
+          lastIndexed = indexed;
+          this.embeddingProgress.reindex = { done, total: tot };
+          this.updateStatusBar();
+          notice.setMessage(`Indiziere Vault… ${done}/${tot}`);
+        },
+      );
+      this.index = this.liveIndexer.buildIndex();
+      this.retriever = new Retriever(this.index);
+      await this.liveIndexer.persist();
+      this.refresh();
+      notice.setMessage(`Vault indiziert: ${lastIndexed} Notizen.`);
+    } catch (e) {
+      console.warn("vault-rag: reindexVault failed", e);
+      notice.setMessage("Vault-Indizierung fehlgeschlagen.");
+    } finally {
+      this.embeddingProgress.reindex = null;
+      this.embeddingProgress.isEmbedding = false;
+      this.syncProgress();
+      if (statusReveal) this.setStatusBarVisible(this.settings.showStatusBar);
+      window.setTimeout(() => notice.hide(), 4000);
+    }
+  }
+
   currentHits(): Hit[] {
     const f = this.app.workspace.getActiveFile();
     if (!f || !this.retriever) return [];
@@ -361,7 +419,9 @@ export default class VaultRagPlugin extends Plugin {
   private updateStatusBar(): void {
     if (!this.statusBarEl) return;
     const p = this.embeddingProgress;
-    if (p.isEmbedding) {
+    if (p.reindex) {
+      this.statusBarEl.setText(`↻ Indiziere ${p.reindex.done.toLocaleString("de-DE")}/${p.reindex.total.toLocaleString("de-DE")}`);
+    } else if (p.isEmbedding) {
       this.statusBarEl.setText("↻ embedding…");
     } else if (p.pendingNotes > 0) {
       this.statusBarEl.setText(`● ${p.embeddedNotes.toLocaleString("de-DE")} | ⏳ ${p.pendingNotes}`);

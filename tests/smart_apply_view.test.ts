@@ -464,6 +464,53 @@ describe("SmartApplyView — Cockpit", () => {
     expect((view as any).selectedTemplate).toBe("Templates/Buch.md");
   });
 
+  // Task 1 — Body-Reflow
+  it("Reflow: pro sectionDiff Heading, Block-Zahl und Provenance; leere Sektion gedimmt", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const reflow = first(view.contentEl, "vault-rag-sa-reflow");
+    expect(reflow.textContent).toContain("Inhalt");
+    expect(reflow.textContent).toContain("1 Block");
+    expect(reflow.textContent).toContain("# roh");   // provenance
+    expect(reflow.textContent).toContain("Notizen");
+    expect(reflow.textContent).toContain("—");        // leere Notizen-Sektion
+  });
+
+  it("Übrig nicht leer → Warn-Form (alert-triangle) + gelistete Block-Texte", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const icon = first(view.contentEl, "vault-rag-sa-leftover-icon").getAttribute("data-icon");
+    expect(icon).toBe("alert-triangle");
+    expect(all(view.contentEl, "vault-rag-sa-leftover-item")[0].textContent).toContain("übriger Absatz");
+  });
+
+  it("Übrig leer → Success-Form (circle-check) ohne Liste", async () => {
+    const { view } = mkView({ build: vi.fn(async () => mkProposal({ unassigned: [] })) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-leftover-icon").getAttribute("data-icon")).toBe("circle-check");
+    expect(all(view.contentEl, "vault-rag-sa-leftover-item").length).toBe(0);
+  });
+
+  it("kein Routing (assignment-parse-Fehler) → kein Reflow, kein irreführendes 'nichts verloren'", async () => {
+    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+      hardOk: false, sectionDiff: [], unassigned: [],
+      checks: [{ id: "assignment-parse", ok: false, detail: "kein gültiges JSON" }],
+    })) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(all(view.contentEl, "vault-rag-sa-reflow").length).toBe(0);
+    expect(all(view.contentEl, "vault-rag-sa-leftover").length).toBe(0);
+    // Scan-Kopf zeigt den Fehler weiterhin
+    expect(hasClass(first(view.contentEl, "vault-rag-sa-guard"), "is-error")).toBe(true);
+  });
+
   // Source-cleanliness
   it("Quelltext nutzt kein innerHTML", async () => {
     const fs = await import("node:fs");
@@ -561,5 +608,107 @@ describe("SmartApplyView Rangliste", () => {
     view.refreshRanking();
     await flush();
     expect(rank).toHaveBeenCalled();
+  });
+});
+
+describe("SmartApplyView Scan-Kopf", () => {
+  it("Scan-Kopf: Status mit Form (circle-check) + Text, Vorlage+Detection, Stat-Chips", async () => {
+    const { view } = mkView();   // mkProposal: hardOk, type=📖 Buch, detection=likely, 1 zugeordnet, 1 übrig
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-check");
+    const scan = first(view.contentEl, "vault-rag-sa-guard");
+    expect(scan.textContent).toContain("Bereit zum Anwenden");
+    expect(scan.textContent).toContain("📖 Buch");
+    expect(scan.textContent).toContain("automatisch erkannt");  // detection likely
+    const stats = first(view.contentEl, "vault-rag-sa-scan-stats");
+    expect(stats.textContent).toContain("1/2");   // 1 von 2 Blöcken zugeordnet
+    expect(stats.textContent).toContain("1 übrig");
+    expect(stats.textContent).toContain("2 Felder gesetzt");  // type + tags(entfernt) prominent
+  });
+
+  it("Scan-Kopf bei !hardOk: Form circle-x + gesperrt-Text + Fehl-Checks", async () => {
+    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+      hardOk: false,
+      checks: [{ id: "permutation", ok: false, detail: "block_9 unbekannt" }],
+    })) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-x");
+    const scan = first(view.contentEl, "vault-rag-sa-guard");
+    expect(hasClass(scan, "is-error")).toBe(true);
+    expect(all(scan, "vault-rag-sa-guard-fail").length).toBe(1);
+  });
+});
+
+describe("SmartApplyView Task 4 — Rohtext on-demand & Diff-Reihenfolge", () => {
+  it("Rohtext liegt in einem ausklappbaren <details>, FM steht vor Reflow vor Rohtext", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const raw = first(view.contentEl, "vault-rag-sa-raw");
+    expect(raw.tagName.toLowerCase()).toBe("details");
+    expect(first(raw, "vault-rag-sa-orig")).toBeTruthy();
+    expect(first(raw, "vault-rag-sa-prop")).toBeTruthy();
+    // Reihenfolge im Diff: Frontmatter < Reflow < Rohtext — direkte Kinder des diff-Wrappers
+    const diff = first(view.contentEl, "vault-rag-sa-diff");
+    const order = (diff.children as any[]).map((c: any) => String(c.className ?? ""));
+    const idx = (cls: string) => order.findIndex((c: string) => c.includes(cls));
+    expect(idx("vault-rag-sa-fm")).toBeGreaterThanOrEqual(0);
+    expect(idx("vault-rag-sa-fm")).toBeLessThan(idx("vault-rag-sa-reflow"));
+    expect(idx("vault-rag-sa-reflow")).toBeLessThan(idx("vault-rag-sa-raw"));
+  });
+});
+
+describe("SmartApplyView Frontmatter-Entrauschung", () => {
+  it("Frontmatter: gesetzte/geänderte/entfernte Felder prominent, leere+unveränderte im Detail", async () => {
+    const { view } = mkView();   // mkProposal: type=neu(gefüllt), up=unveraendert, tags=entfernt
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const prominent = first(view.contentEl, "vault-rag-sa-fm-set");
+    expect(prominent.textContent).toContain("type");      // neu + Wert
+    expect(prominent.textContent).toContain("tags");      // entfernt
+    expect(prominent.textContent).not.toContain("up");    // unveraendert → nicht prominent
+    const muted = first(view.contentEl, "vault-rag-sa-fm-muted");
+    expect(muted.textContent).toContain("up");            // unveraendert → Detail
+  });
+
+  it("Frontmatter: neues aber leeres Feld landet im Detail, nicht prominent", async () => {
+    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+      fmRows: [
+        { key: "type", original: undefined, proposed: "📖 Buch", change: "neu" },
+        { key: "datum", original: undefined, proposed: "", change: "neu" },
+      ],
+    })) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(first(view.contentEl, "vault-rag-sa-fm-set").textContent).toContain("type");
+    expect(first(view.contentEl, "vault-rag-sa-fm-set").textContent).not.toContain("datum");
+    expect(first(view.contentEl, "vault-rag-sa-fm-muted").textContent).toContain("datum");
+  });
+
+  it("alle Felder unverändert → kein leeres vault-rag-sa-fm-set", async () => {
+    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+      fmRows: [{ key: "up", original: "[[A]]", proposed: "[[A]]", change: "unveraendert" }],
+    })) });
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    expect(all(view.contentEl, "vault-rag-sa-fm-set").length).toBe(0);
+  });
+
+  it("Spalten-Header Original/Vorschlag über den gesetzten Feldern", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const head = first(view.contentEl, "vault-rag-sa-fm-head");
+    expect(head.textContent).toContain("Original");
+    expect(head.textContent).toContain("Vorschlag");
   });
 });

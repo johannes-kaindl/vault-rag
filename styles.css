@@ -31,6 +31,12 @@
 .vault-rag-conn-dot.is-ok { color: var(--text-success); }
 .vault-rag-conn-dot.is-error { color: var(--text-error); }
 .vault-rag-conn-dot.is-checking { color: var(--text-muted); }
+/* Pro-Zeile-Status der Endpunkt-Fallback-Liste: Form trägt die Bedeutung, Farbe sekundär (WCAG 1.4.1). */
+.vault-rag-ep-status { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-muted); }
+.vault-rag-ep-status svg { width: 14px; height: 14px; }
+.vault-rag-ep-status.is-ok { color: var(--text-success); }
+.vault-rag-ep-status.is-error { color: var(--text-error); }
+.vault-rag-ep-status.is-active { font-weight: var(--font-bold); }
 .vault-rag-sa-conn-refresh { margin-left: 6px; display: inline-flex; align-items: center; }
 .vault-rag-sa-conn-refresh svg { width: 14px; height: 14px; }
 .vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; flex: 0 0 auto; }

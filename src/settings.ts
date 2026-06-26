@@ -4,6 +4,25 @@ import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
+import { normalizeEndpoint } from "./endpoint";
+
+/** Migriert alte Einzel-Endpoint-Settings auf eine Liste. Reiner Helfer. */
+export function migrateEndpointList(single: string | undefined, list: string[] | undefined): string[] {
+  if (list && list.length) return list.filter(e => e && e.trim());
+  if (single && single.trim()) return [single.trim()];
+  return [];
+}
+
+/** Wendet die Bearbeitung EINES Endpoint-Felds auf die Liste an (bei blur, nicht pro Tastendruck).
+ *  isAdder=true: nicht-leerer Wert wird angehängt. isAdder=false: Index setzen (leer → entfernen). Getrimmt+leer-gefiltert. */
+export function applyEndpointEdit(endpoints: string[], index: number, value: string, isAdder: boolean): string[] {
+  const v = value.trim();
+  const next = [...endpoints];
+  if (isAdder) { if (v) next.push(v); }
+  else if (v) { next[index] = v; }
+  else { next.splice(index, 1); }
+  return next.map(e => e.trim()).filter(e => e);
+}
 
 export interface VaultRagSettings {
   k: number;
@@ -11,11 +30,11 @@ export interface VaultRagSettings {
   indexDir: string;
   hideIndexFolder: boolean;
   exclude: string[];
-  embeddingEndpoint: string;
+  embeddingEndpoints: string[];
   embeddingModel: string;
   showStatusBar: boolean;
   debounceMs: number;
-  chatEndpoint: string;
+  chatEndpoints: string[];
   chatModel: string;
   chatK: number;
   contextCharBudget: number;
@@ -42,11 +61,11 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   indexDir: "_vaultrag",
   hideIndexFolder: true,
   exclude: ["Templates/", "Archive/"],
-  embeddingEndpoint: "http://localhost:11434",
+  embeddingEndpoints: ["http://localhost:11434"],
   embeddingModel: "qwen3-embedding:8b",
   showStatusBar: false,
   debounceMs: 3000,
-  chatEndpoint: "http://localhost:8080",
+  chatEndpoints: ["http://localhost:8080"],
   chatModel: "qwen3",
   chatK: 5,
   contextCharBudget: 12000,
@@ -70,12 +89,15 @@ export interface VaultRagPluginHost extends Plugin {
   settings: VaultRagSettings;
   embedder: EmbeddingClient;
   chatClient: ChatClient;
+  activeEmbeddingEndpoint: string | null;
+  activeChatEndpoint: string | null;
   embeddingProgress: { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number };
   saveSettings(): Promise<void>;
   refresh(): void;
   refreshSmartApplyRanking(): void;
-  reconnectEmbedder(): void;
-  reconnectChat(): void;
+  resolveAndReconnectEmbedder(): Promise<void>;
+  resolveAndReconnectChat(): Promise<void>;
+  embedderReady(): Promise<boolean>;
   setStatusBarVisible(visible: boolean): void;
   reindexVault(): Promise<void>;
   refreshIndexFolderHiding(): void;
@@ -144,11 +166,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private updateBudgetMax: (maxChars: number) => void = () => {};
   private infoValue: HTMLElement | null = null;
   private capSetting: Setting | null = null;
+  // Endpunkte nur beim ECHTEN Tab-Öffnen auflösen, nicht bei jedem Re-Render: blur/Trash/
+  // „Verbindung prüfen"/rerender rufen display() direkt, und die Edit-Handler reconnecten
+  // bereits explizit — sonst 3 Resolves pro Edit (verbreitert das liveIndexer-Race-Fenster).
+  private resolvedOnOpen = false;
 
   constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
 
   hide(): void {
     this.clearInterval();
+    this.resolvedOnOpen = false;
     super.hide();
   }
 
@@ -175,13 +202,20 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     this.resetRenderState();
+    // Verbindungs-Moment NUR beim Tab-Öffnen (nicht bei Re-Renders): aktive Endpunkte aus den
+    // Fallback-Listen auflösen (fire-and-forget; Status-Icons + Status-Poll spiegeln das Ergebnis).
+    if (!this.resolvedOnOpen) {
+      this.resolvedOnOpen = true;
+      void this.plugin.resolveAndReconnectEmbedder();
+      void this.plugin.resolveAndReconnectChat();
+    }
     const sec = (name: string): void => { new Setting(containerEl).setName(name).setHeading(); };
     sec("Suche");
     this.buildK(new Setting(containerEl));
     this.buildMinSim(new Setting(containerEl));
     this.buildExclude(new Setting(containerEl));
     sec("Live-Embedding");
-    this.buildEmbeddingEndpoint(new Setting(containerEl));
+    this.buildEmbeddingEndpointList();
     this.buildEmbeddingModel(new Setting(containerEl));
     this.buildEmbeddingStatus(new Setting(containerEl));
     this.buildDebounce(new Setting(containerEl));
@@ -191,7 +225,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildHideIndexFolder(new Setting(containerEl));
     this.buildReindexButton(new Setting(containerEl));
     sec("Chat");
-    this.buildChatEndpoint(new Setting(containerEl));
+    this.buildChatEndpointList();
     this.buildChatModel(new Setting(containerEl));
     this.buildModelDetails(new Setting(containerEl));
     this.buildCaps(new Setting(containerEl));
@@ -214,13 +248,95 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  /** Verbindungstest meldet per Notice — kein nachgestelltes Status-Element in der controlEl
-   *  (das bräche die einheitliche rechte Kante; siehe _docs PROF-OBS-06). */
-  private async testEndpoint(b: ButtonComponent, label: string, ping?: () => Promise<boolean>): Promise<void> {
-    b.setButtonText("Teste…"); b.setDisabled(true);
-    const ok = await ping?.();
-    new Notice(ok ? `${label} verbunden` : `${label} offline`);
-    b.setButtonText("Testen"); b.setDisabled(false);
+  /** Geordneter Endpunkt-Fallback-Listen-Editor (für Embedding wie Chat identisch).
+   *  Rendert `[...endpoints, ""]` (leeres Add-Feld), Label/Desc nur in Zeile 0. Mutation NUR
+   *  bei blur (nicht pro Tastendruck), via applyEndpointEdit → saveSettings → reconnect → Re-Render.
+   *  Pro echtem Eintrag: Status-Icon (loader → check/x, aktiver Endpunkt markiert) + Mülleimer. */
+  private buildEndpointList(opts: {
+    containerEl: HTMLElement;
+    label: string; desc: string; placeholder: string;
+    get: () => string[]; set: (eps: string[]) => void;
+    active: () => string | null;
+    ping: (ep: string) => Promise<boolean>;
+    reconnect: () => Promise<void>;
+  }): void {
+    const eps = opts.get();
+    const rows = [...eps, ""];   // leeres Zusatzfeld am Ende
+    rows.forEach((value, i) => {
+      const isAdder = i >= eps.length;
+      const s = new Setting(opts.containerEl);
+      if (i === 0) s.setName(opts.label).setDesc(opts.desc);
+      const statusIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-status" });
+      s.addText(tx => {
+        tx.setPlaceholder(isAdder ? "Weiteren Endpunkt hinzufügen…" : opts.placeholder).setValue(value);
+        // Listen-Mutation NUR bei blur, NICHT in onChange: onChange feuert pro Tastendruck und
+        // würde im Add-Feld jeden Zwischenstand (h, ht, htt, …) als eigenen Eintrag anhängen.
+        tx.inputEl.addEventListener("blur", () => {
+          const before = opts.get();
+          const updated = applyEndpointEdit(before, i, tx.getValue(), isAdder);
+          if (updated.length === before.length && updated.every((e, k) => e === before[k])) return;   // unverändert → kein Re-Render
+          opts.set(updated);
+          void this.plugin.saveSettings()
+            .then(() => opts.reconnect())
+            .then(() => this.display());
+        });
+      });
+      // Löschen: expliziter Mülleimer-Button (nicht am leeren Add-Feld). Das Status-Icon links
+      // ist nur Erreichbarkeits-Anzeige, kein Lösch-Button.
+      if (!isAdder) {
+        s.addExtraButton(b => b
+          .setIcon("trash-2")
+          .setTooltip("Endpunkt entfernen")
+          .onClick(() => {
+            opts.set(applyEndpointEdit(opts.get(), i, "", false));
+            void this.plugin.saveSettings()
+              .then(() => opts.reconnect())
+              .then(() => this.display());
+          }));
+      }
+      // Pro-Feld-Status in A11y-Form (Form + Text + Farbe): loader → check/x, aktiver markiert.
+      const ep = value.trim();
+      if (!isAdder && ep) {
+        setIcon(statusIcon, "loader"); statusIcon.setAttribute("title", "prüfe…");
+        void opts.ping(ep).then(ok => {
+          statusIcon.empty();
+          setIcon(statusIcon, ok ? "circle-check" : "circle-x");
+          statusIcon.toggleClass("is-ok", ok); statusIcon.toggleClass("is-error", !ok);
+          const isActive = normalizeEndpoint(ep) === (opts.active() ?? "");
+          statusIcon.toggleClass("is-active", isActive);
+          statusIcon.setAttribute("title", (ok ? "verbunden" : "offline") + (isActive ? " · aktiv" : ""));
+        });
+      }
+    });
+    new Setting(opts.containerEl).addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.display()));
+  }
+
+  private buildEmbeddingEndpointList(): void {
+    this.buildEndpointList({
+      containerEl: this.containerEl,
+      label: "Embedding-Endpunkte",
+      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Ollama- oder MLX-Server-URLs (Desktop oder LAN/VPN-erreichbar).",
+      placeholder: "http://localhost:11434",
+      get: () => this.plugin.settings.embeddingEndpoints,
+      set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
+      active: () => this.plugin.activeEmbeddingEndpoint,
+      ping: (ep) => new EmbeddingClient(ep, this.plugin.settings.embeddingModel).ping(),
+      reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
+    });
+  }
+
+  private buildChatEndpointList(): void {
+    this.buildEndpointList({
+      containerEl: this.containerEl,
+      label: "Chat-Endpunkte",
+      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. OpenAI-kompatible LLM-Server (MLX/LM-Studio), getrennt von den Embedding-Endpunkten.",
+      placeholder: "http://localhost:8080",
+      get: () => this.plugin.settings.chatEndpoints,
+      set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
+      active: () => this.plugin.activeChatEndpoint,
+      ping: (ep) => new ChatClient(ep, this.plugin.settings.chatModel).ping(),
+      reconnect: () => this.plugin.resolveAndReconnectChat(),
+    });
   }
 
   /** Capability-Chips (Lucide-Icons) in die controlEl der Fähigkeiten-Zeile. */
@@ -298,18 +414,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   // ── Builder: Live-Embedding ───────────────────────────────────────────
-  private buildEmbeddingEndpoint(s: Setting): void {
-    s.setName("Embedding-Endpoint")
-      .setDesc("Ollama- oder MLX-Server-URL — Desktop oder VPN-erreichbar")
-      .addText(t => t.setPlaceholder("http://localhost:11434").setValue(this.plugin.settings.embeddingEndpoint)
-        .onChange(async (v: string) => {
-          this.plugin.settings.embeddingEndpoint = v.trim();
-          await this.plugin.saveSettings();
-          this.plugin.reconnectEmbedder?.();
-        }))
-      .addButton(b => b.setButtonText("Testen").onClick(() => this.testEndpoint(b, "Embedding-Endpoint", () => this.plugin.embedder?.ping())));
-  }
-
   private buildEmbeddingModel(s: Setting): void {
     s.setName("Embedding-Modell").setDesc("Modellname wie auf dem Endpoint verfügbar");
     void this.plugin.embedder?.listModels().then((models: string[]) => {
@@ -321,14 +425,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
           d.setValue(cur).onChange((v: string) => {
             this.plugin.settings.embeddingModel = v;
             void this.plugin.saveSettings();
-            this.plugin.reconnectEmbedder();
+            void this.plugin.resolveAndReconnectEmbedder();
           });
         });
       } else {
         s.addText(t => t.setPlaceholder("qwen3-embedding:8b").setValue(cur).onChange(async (v: string) => {
           this.plugin.settings.embeddingModel = v.trim();
           await this.plugin.saveSettings();
-          this.plugin.reconnectEmbedder?.();
+          void this.plugin.resolveAndReconnectEmbedder();
         }));
         s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.rerender()));
       }
@@ -346,18 +450,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   // ── Builder: Chat ─────────────────────────────────────────────────────
-  private buildChatEndpoint(s: Setting): void {
-    s.setName("Chat-Endpoint")
-      .setDesc("OpenAI-kompatibler LLM-Server (MLX/LM-Studio) — getrennt vom Embedding-Endpoint")
-      .addText(t => t.setPlaceholder("http://localhost:8080").setValue(this.plugin.settings.chatEndpoint)
-        .onChange(async (v: string) => {
-          this.plugin.settings.chatEndpoint = v.trim();
-          await this.plugin.saveSettings();
-          this.plugin.reconnectChat?.();
-        }))
-      .addButton(b => b.setButtonText("Testen").onClick(() => this.testEndpoint(b, "Chat-Endpoint", () => this.plugin.chatClient?.ping())));
-  }
-
   private buildChatModel(s: Setting): void {
     s.setName("Chat-Modell").setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
     void this.plugin.chatClient?.listModels().then((models: string[]) => {
@@ -369,7 +461,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           d.setValue(cur).onChange((v: string) => {
             this.plugin.settings.chatModel = v;
             void this.plugin.saveSettings();
-            this.plugin.reconnectChat();
+            void this.plugin.resolveAndReconnectChat();
             this.showInfo(v);
             this.showCaps(v);
           });
@@ -380,7 +472,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           .onChange(async (v: string) => {
             this.plugin.settings.chatModel = v.trim();
             await this.plugin.saveSettings();
-            this.plugin.reconnectChat?.();
+            void this.plugin.resolveAndReconnectChat();
           }));
         s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.rerender()));
       }
@@ -585,7 +677,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   /** Kompakte einzeilige Embedding-Status-Zeile (bei den Embedding-Settings): EIN konsistent
-   *  gefärbter Verbindungspunkt + Zähler, live aktualisiert. Kein Control → Wert in controlEl ok. */
+   *  gefärbter Verbindungspunkt + aktiver Endpunkt + Zähler, live aktualisiert. Kein Control → Wert in controlEl ok. */
   private buildEmbeddingStatus(s: Setting): void {
     s.setName("Embedding-Status");
     const val = s.controlEl.createSpan({ cls: "vault-rag-info-value" });
@@ -598,14 +690,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
       dot.toggleClass("is-error", connected === false);
       // Form (Icon) trägt den Status, Farbe nur sekundär — lesbar auch bei Farbsehschwäche (WCAG 1.4.1).
       setIcon(dot, connected === null ? "loader" : connected ? "circle-check" : "circle-x");
-      const conn = connected === null ? "prüfe…" : connected ? "Verbunden" : "Offline";
+      const active = this.plugin.activeEmbeddingEndpoint;
+      const conn = connected === null ? "prüfe…" : connected ? (active ? `verbunden via ${active}` : "verbunden") : "offline";
       const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
       const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet · ${p.pendingNotes.toLocaleString("de-DE")} ausstehend` : "";
       const act = p?.isEmbedding ? "Embedding läuft" : "";
       text.setText([conn, act, counts].filter(Boolean).join(" · "));
     };
     render();
-    void this.plugin.embedder?.ping().then((ok: boolean) => { connected = ok; render(); });
+    // Status-Poll stützt sich auf dieselbe Reachability-Logik wie main.ts (ping → Re-Resolve → ping).
+    void this.plugin.embedderReady().then((ok: boolean) => { connected = ok; render(); });
     this.clearInterval();
     this.refreshInterval = window.setInterval(render, 2000);
   }

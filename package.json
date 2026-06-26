@@ -13,6 +13,9 @@
     "local-first"
   ],
   "type": "module",
+  "dependencies": {
+    "obsidian-kit": "git+https://codeberg.org/jkaindl/obsidian-kit.git#0.2.0"
+  },
   "scripts": {
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",

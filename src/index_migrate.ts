@@ -8,6 +8,9 @@ const INDEX_TEXT_FILES = ["paths.json", "pending.json", "manifest.json"];
 /** Alle Index-Dateien als Basenames — für Migration und Cleanup-Sicherheitscheck. */
 export const INDEX_ALL_FILES: string[] = [...INDEX_BINARY_FILES, ...INDEX_TEXT_FILES];
 
+/** Zum LADEN nötige Index-Dateien (pending.json ist optional). */
+export const INDEX_REQUIRED_FILES = ["notes.i8", "paths.json", "manifest.json"];
+
 /**
  * Kopiert die Index-Dateien von `from` nach `to` (Copy, kein Move) — kein Reindex,
  * kein In-Memory-Risiko. Fehlende Dateien werden still übersprungen.

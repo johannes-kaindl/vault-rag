@@ -19,7 +19,7 @@ import { extractType, templateFilesUnder } from "./template_matcher";
 import { TemplateRanker } from "./template_ranker";
 import type { TemplateRank } from "./template_ranker";
 import { buildHideCss, normalizeIndexDir } from "./index_dir";
-import { migrateIndex, onlyContainsIndexFiles } from "./index_migrate";
+import { migrateIndex, onlyContainsIndexFiles, INDEX_REQUIRED_FILES } from "./index_migrate";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -49,6 +49,7 @@ export default class VaultRagPlugin extends Plugin {
   };
   private statusBarEl: HTMLElement | null = null;
   private hideStyleSheet: CSSStyleSheet | null = null;
+  private isSwitchingIndexDir = false;
 
   private openPath = (p: string): void => {
     const f = this.app.vault.getAbstractFileByPath(p);
@@ -264,26 +265,37 @@ export default class VaultRagPlugin extends Plugin {
     const oldDir = normalizeIndexDir(this.settings.indexDir);
     const target = normalizeIndexDir(newDir);
     if (target === "" || target === oldDir) return;
-    await migrateIndex(this.app.vault.adapter, oldDir, target);
-    // Datenverlust-Schutz (B-vor-A): hatte der alte Ordner einen vollständigen Index, MUSS der
-    // neue ihn nach der Migration auch haben — sonst nichts umstellen, nichts persistieren, nichts löschen.
-    if ((await this.indexComplete(oldDir)) && !(await this.indexComplete(target))) {
-      new Notice(`Index-Verlegung nach „${target}" unvollständig — nichts geändert, „${oldDir}" bleibt aktiv.`);
-      return;
+    this.isSwitchingIndexDir = true;
+    try {
+      await migrateIndex(this.app.vault.adapter, oldDir, target);
+      // Datenverlust-Schutz (B-vor-A): hatte der alte Ordner einen vollständigen Index, MUSS der
+      // neue ihn nach der Migration auch haben — sonst nichts umstellen, nichts persistieren, nichts löschen.
+      if ((await this.indexComplete(oldDir)) && !(await this.indexComplete(target))) {
+        new Notice(`Index-Verlegung nach „${target}" unvollständig — nichts geändert, „${oldDir}" bleibt aktiv.`);
+        return;
+      }
+      this.settings.indexDir = target;
+      await this.saveSettings();
+      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.embedder, this.settings.embeddingModel);
+      this.pendingQueue = new PendingQueue(this.app.vault.adapter, target);
+      await this.pendingQueue.load();
+      await this.loadIndex();
+      this.refreshIndexFolderHiding();
+      // Fix 2: alten Ordner NUR löschen, wenn der neue Index wirklich geladen werden konnte
+      // (indexComplete prüft nur Existenz, nicht Parsebarkeit — loadIndex schluckt Parse-Fehler still).
+      if (this.index) {
+        await this.cleanupIndexDir(oldDir);
+      } else {
+        new Notice(`Neuer Index unter „${target}" nicht ladbar — alter Ordner „${oldDir}" bleibt als Sicherung erhalten.`);
+      }
+    } finally {
+      this.isSwitchingIndexDir = false;
     }
-    this.settings.indexDir = target;
-    await this.saveSettings();
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.embedder, this.settings.embeddingModel);
-    this.pendingQueue = new PendingQueue(this.app.vault.adapter, target);
-    await this.pendingQueue.load();
-    await this.loadIndex();
-    this.refreshIndexFolderHiding();
-    await this.cleanupIndexDir(oldDir);
   }
 
   /** True, wenn alle zum Laden nötigen Index-Dateien in `dir` existieren (pending.json ist optional). */
   private async indexComplete(dir: string): Promise<boolean> {
-    for (const f of ["notes.i8", "paths.json", "manifest.json"]) {
+    for (const f of INDEX_REQUIRED_FILES) {
       if (!(await this.app.vault.adapter.exists(`${dir}/${f}`))) return false;
     }
     return true;
@@ -321,6 +333,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   async maybeReload() {
+    if (this.isSwitchingIndexDir) return;
     try {
       const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/manifest.json`);
       if (st && st.mtime !== this.lastMtime) { this.lastMtime = st.mtime; await this.loadIndex(); }
@@ -338,6 +351,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async handleModify(path: string): Promise<void> {
+    if (this.isSwitchingIndexDir) return;
     if (path.startsWith(".")) return;
     if (this.settings.exclude.some(e => path.startsWith(e))) return;
     if (path.startsWith(this.settings.indexDir + "/")) return;
@@ -366,6 +380,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async handleDelete(path: string): Promise<void> {
+    if (this.isSwitchingIndexDir) return;
     if (path.startsWith(".")) return;
     if (!(await this.embedder.ping())) return;
     this.liveIndexer.remove(path);
@@ -377,6 +392,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async handleRename(newPath: string, oldPath: string): Promise<void> {
+    if (this.isSwitchingIndexDir) return;
     if (newPath.startsWith(".") || oldPath.startsWith(".")) return;
     if (await this.embedder.ping()) {
       this.liveIndexer.rename(oldPath, newPath);
@@ -392,6 +408,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async maybeDrainPending(): Promise<void> {
+    if (this.isSwitchingIndexDir) return;
     if (this.pendingQueue.size === 0) return;
     if (!(await this.embedder.ping())) return;
     await this.drainPending();

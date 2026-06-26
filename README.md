@@ -22,7 +22,7 @@ Vault Retrieval turns your notes into a searchable knowledge base without sendin
 ## Requirements
 
 - **Obsidian 1.4+** (desktop or mobile).
-- An **embedding index** in `<vault>/_vaultrag/` — produced by your indexing backend and synced with the vault. The related-notes panel and semantic search need only this index; no running server.
+- An **embedding index** in `<vault>/_vaultrag/` (default path; configurable in settings and hidden in the file explorer by default) — produced by your indexing backend and synced with the vault. The related-notes panel and semantic search need only this index; no running server.
 - For **chat** (and live re-indexing): an **OpenAI-compatible local LLM endpoint** ([Ollama](https://ollama.com) for embeddings, [LM Studio](https://lmstudio.ai) for chat). New to local LLMs? The **[local LLM setup guide](https://uplink.jkaindl.de/llm-setup)** walks you through it. Configurable in settings; nothing leaves your machine.
 
 ## Install

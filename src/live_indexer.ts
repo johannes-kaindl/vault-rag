@@ -43,6 +43,21 @@ export class LiveIndexer {
 
   get noteCount(): number { return this.noteVectors.size; }
 
+  async reindexAll(
+    paths: string[],
+    read: (p: string) => Promise<string>,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<void> {
+    this.noteVectors.clear();
+    for (let i = 0; i < paths.length; i++) {
+      try {
+        const content = await read(paths[i]);
+        await this.update(paths[i], content);
+      } catch { /* unlesbare Notiz überspringen */ }
+      onProgress?.(i + 1, paths.length);
+    }
+  }
+
   buildIndex(): VaultIndex {
     const paths = [...this.noteVectors.keys()].sort();
     const n = paths.length;

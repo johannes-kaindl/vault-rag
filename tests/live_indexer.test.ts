@@ -140,4 +140,55 @@ describe("LiveIndexer", () => {
     indexer.remove("a.md");
     expect(indexer.noteCount).toBe(0);
   });
+
+  describe("reindexAll", () => {
+    it("indiziert alle übergebenen Pfade und buildIndex enthält genau diese Pfade", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      const read = vi.fn(async (p: string) => `# ${p}\nInhalt`);
+      await indexer.reindexAll(["a.md", "b.md", "c.md"], read);
+      expect(indexer.noteCount).toBe(3);
+      const idx = indexer.buildIndex();
+      expect(idx.paths).toEqual(["a.md", "b.md", "c.md"]);
+    });
+
+    it("ruft onProgress als (1,N)…(N,N) auf", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      const progress: Array<[number, number]> = [];
+      const read = vi.fn(async (p: string) => `# ${p}\nInhalt`);
+      await indexer.reindexAll(["x.md", "y.md", "z.md"], read, (done, total) => { progress.push([done, total]); });
+      expect(progress).toEqual([[1, 3], [2, 3], [3, 3]]);
+    });
+
+    it("überspringt eine Notiz deren read wirft, andere werden trotzdem indiziert", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      const read = vi.fn(async (p: string) => {
+        if (p === "fehler.md") throw new Error("unlesbar");
+        return `# ${p}\nInhalt`;
+      });
+      await indexer.reindexAll(["a.md", "fehler.md", "c.md"], read);
+      expect(indexer.noteCount).toBe(2);
+      const idx = indexer.buildIndex();
+      expect(idx.paths).toEqual(["a.md", "c.md"]);
+    });
+
+    it("löscht noteVectors vor dem Neuindizieren (veralteter Pfad wird entfernt)", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      // Alten Stand per init laden
+      indexer.init(oneNoteIndex("alt.md"));
+      expect(indexer.noteCount).toBe(1);
+      const read = vi.fn(async (p: string) => `# ${p}\nInhalt`);
+      await indexer.reindexAll(["neu.md"], read);
+      expect(indexer.noteCount).toBe(1);
+      const idx = indexer.buildIndex();
+      expect(idx.paths).toEqual(["neu.md"]);
+    });
+
+    it("leere Notiz wird übersprungen (kein Chunk → noteVectors bleibt leer)", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      // nur Frontmatter, kein Body → chunkMarkdown liefert []
+      const read = vi.fn(async () => "---\ntitle: leer\n---\n   ");
+      await indexer.reindexAll(["leer.md"], read);
+      expect(indexer.noteCount).toBe(0);
+    });
+  });
 });

@@ -52,7 +52,7 @@ export class SemanticSearchView extends ItemView {
 
   renderResult(result: SearchResult): void {
     if (result.kind === "offline") return this.renderState("Embedder nicht erreichbar (lokal/VPN).");
-    if (result.kind === "no-index") return this.renderState("Kein Index — HyperForge-Export nötig.");
+    if (result.kind === "no-index") return this.renderState('Kein Index — über den Befehl „Vault neu indizieren“ erstellen.');
     if (result.hits.length === 0) return this.renderState("Keine Treffer über der Schwelle.");
     const el = this.resultsEl!; el.empty();
     renderHits(el, result.hits, this.deps.openPath);

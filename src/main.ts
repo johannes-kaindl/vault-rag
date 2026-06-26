@@ -208,6 +208,12 @@ export default class VaultRagPlugin extends Plugin {
       });
     }
 
+    this.addCommand({
+      id: "reindex-vault",
+      name: "Vault neu indizieren",
+      callback: () => void this.reindexVault(),
+    });
+
     if (this.settings.showStatusBar) this.setStatusBarVisible(true);
   }
 
@@ -332,6 +338,38 @@ export default class VaultRagPlugin extends Plugin {
       this.refresh();
     } catch {
       this.syncProgress();
+    } finally {
+      this.embeddingProgress.isEmbedding = false;
+    }
+  }
+
+  private async reindexVault(): Promise<void> {
+    if (!(await this.embedder.ping())) {
+      new Notice("Embedding-Endpoint nicht erreichbar — Vault-Indizierung abgebrochen.");
+      return;
+    }
+    const allPaths = this.app.vault.getMarkdownFiles().map(f => f.path).filter(p => {
+      if (p.startsWith(".")) return false;
+      if (this.settings.exclude.some(e => p.startsWith(e))) return false;
+      if (p.startsWith(this.settings.indexDir + "/")) return false;
+      return true;
+    });
+    const total = allPaths.length;
+    const notice = new Notice(`Indiziere Vault… 0/${total}`, 0);
+    this.embeddingProgress.isEmbedding = true;
+    try {
+      await this.liveIndexer.reindexAll(
+        allPaths,
+        (p) => this.app.vault.adapter.read(p),
+        (done, tot) => { notice.setMessage(`Indiziere Vault… ${done}/${tot}`); },
+      );
+      this.index = this.liveIndexer.buildIndex();
+      this.retriever = new Retriever(this.index);
+      await this.liveIndexer.persist();
+      this.syncProgress();
+      this.refresh();
+      notice.setMessage(`Vault indiziert: ${this.liveIndexer.noteCount} Notizen.`);
+      window.setTimeout(() => notice.hide(), 4000);
     } finally {
       this.embeddingProgress.isEmbedding = false;
     }

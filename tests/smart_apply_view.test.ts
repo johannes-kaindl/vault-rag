@@ -687,4 +687,14 @@ describe("SmartApplyView Frontmatter-Entrauschung", () => {
     await flush();
     expect(all(view.contentEl, "vault-rag-sa-fm-set").length).toBe(0);
   });
+
+  it("Spalten-Header Original/Vorschlag über den gesetzten Feldern", async () => {
+    const { view } = mkView();
+    await view.onOpen();
+    first(view.contentEl, "vault-rag-sa-run").click();
+    await flush();
+    const head = first(view.contentEl, "vault-rag-sa-fm-head");
+    expect(head.textContent).toContain("Original");
+    expect(head.textContent).toContain("Vorschlag");
+  });
 });

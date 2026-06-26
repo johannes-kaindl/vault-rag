@@ -479,6 +479,11 @@ export class SmartApplyView extends ItemView {
 
     if (setRows.length > 0) {
       const setBox = sec.createDiv({ cls: "vault-rag-sa-fm-set" });
+      const head = setBox.createDiv({ cls: "vault-rag-sa-fm-head" });
+      head.createSpan({ cls: "vault-rag-sa-fm-icon" });
+      head.createSpan({ cls: "vault-rag-sa-fm-key" });
+      head.createSpan({ cls: "vault-rag-sa-fm-orig", text: "Original" });
+      head.createSpan({ cls: "vault-rag-sa-fm-prop", text: "Vorschlag" });
       for (const row of setRows) this.renderFmRow(setBox, row);
     }
 

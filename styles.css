@@ -91,6 +91,8 @@
 
 /* Frontmatter */
 .vault-rag-sa-fm-set { display: flex; flex-direction: column; gap: 3px; }
+.vault-rag-sa-fm-head { display: flex; align-items: center; gap: 6px; font-size: var(--font-ui-smaller); margin-bottom: 1px; }
+.vault-rag-sa-fm-head span { color: var(--text-muted); }
 .vault-rag-sa-fm-row { display: flex; align-items: center; gap: 6px; }
 .vault-rag-sa-fm-icon { display: inline-flex; color: var(--text-muted); }
 .vault-rag-sa-fm-row.is-neu .vault-rag-sa-fm-icon { color: var(--text-success); }

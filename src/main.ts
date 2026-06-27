@@ -2,7 +2,8 @@ import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Retriever, Hit } from "./retriever";
 import { RelatedNotesView, VIEW_TYPE_RELATED } from "./view";
-import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab } from "./settings";
+import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList } from "./settings";
+import { resolveActiveEndpoint } from "./endpoint";
 import { EmbeddingClient } from "./embedder";
 import { LiveIndexer } from "./live_indexer";
 import { PendingQueue } from "./pending_queue";
@@ -36,6 +37,8 @@ export default class VaultRagPlugin extends Plugin {
   private lastMtime = 0;
   embedder!: EmbeddingClient;
   chatClient!: ChatClient;
+  activeEmbeddingEndpoint: string | null = null;
+  activeChatEndpoint: string | null = null;
   private smartApply: SmartApply | null = null;
   private templateRanker?: TemplateRanker;
   private liveIndexer!: LiveIndexer;
@@ -57,9 +60,17 @@ export default class VaultRagPlugin extends Plugin {
   };
 
   async onload() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<VaultRagSettings>);
-    this.embedder = new EmbeddingClient(this.settings.embeddingEndpoint, this.settings.embeddingModel);
-    this.chatClient = new ChatClient(this.settings.chatEndpoint, this.settings.chatModel);
+    const loaded = await this.loadData() as (Partial<VaultRagSettings> & { embeddingEndpoint?: string; chatEndpoint?: string }) | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+    // Migration: alte Einzel-Endpoint-Settings → geordnete Fallback-Listen.
+    this.settings.embeddingEndpoints = migrateEndpointList(loaded?.embeddingEndpoint, loaded?.embeddingEndpoints);
+    this.settings.chatEndpoints = migrateEndpointList(loaded?.chatEndpoint, loaded?.chatEndpoints);
+    if (!this.settings.embeddingEndpoints.length) this.settings.embeddingEndpoints = [...DEFAULT_SETTINGS.embeddingEndpoints];
+    if (!this.settings.chatEndpoints.length) this.settings.chatEndpoints = [...DEFAULT_SETTINGS.chatEndpoints];
+    // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
+    // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
+    this.embedder = new EmbeddingClient(this.settings.embeddingEndpoints[0] ?? "", this.settings.embeddingModel);
+    this.chatClient = new ChatClient(this.settings.chatEndpoints[0] ?? "", this.settings.chatModel);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
 
@@ -88,7 +99,7 @@ export default class VaultRagPlugin extends Plugin {
       }),
       openPath: this.openPath,
       copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },
-      ping: () => this.chatClient.ping(),
+      ping: () => this.chatReady(),
       listModels: () => this.chatClient.listModels(),
       getModel: () => this.settings.chatModel,
       setModel: (m: string) => { this.settings.chatModel = m; void this.saveSettings(); },
@@ -195,7 +206,7 @@ export default class VaultRagPlugin extends Plugin {
           return f instanceof TFile && f.extension === "md" ? f.path : null;
         },
         listModels: () => this.chatClient.listModels(),
-        ping: () => this.chatClient.ping(),
+        ping: () => this.chatReady(),
         getModel: () => this.settings.smartApplyModel || this.settings.chatModel,
         setModel: (m: string) => { this.settings.smartApplyModel = m; void this.saveSettings(); },
         rankTemplates: (notePath: string): Promise<TemplateRank[]> => this.templateRanker!.rank(notePath),
@@ -223,16 +234,47 @@ export default class VaultRagPlugin extends Plugin {
 
     if (this.settings.showStatusBar) this.setStatusBarVisible(true);
     this.refreshIndexFolderHiding();
+
+    // Aktiven Endpoint aus den Fallback-Listen auflösen (erster erreichbarer gewinnt).
+    void this.resolveAndReconnectEmbedder();
+    void this.resolveAndReconnectChat();
   }
 
-  reconnectEmbedder(): void {
-    this.embedder = new EmbeddingClient(this.settings.embeddingEndpoint, this.settings.embeddingModel);
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
+  /** Aktiven Embedding-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
+   *  und embedder + liveIndexer darauf neu verdrahten. Behält die liveIndexer-Verdrahtung. */
+  async resolveAndReconnectEmbedder(): Promise<void> {
+    const m = this.settings.embeddingModel;
+    const active = await resolveActiveEndpoint(this.settings.embeddingEndpoints, ep => new EmbeddingClient(ep, m).ping());
+    this.activeEmbeddingEndpoint = active;
+    const ep = active ?? this.settings.embeddingEndpoints[0] ?? "";
+    this.embedder = new EmbeddingClient(ep, m);
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m);
     if (this.index) this.liveIndexer.init(this.index);
   }
 
-  reconnectChat(): void {
-    this.chatClient = new ChatClient(this.settings.chatEndpoint, this.settings.chatModel);
+  /** Aktiven Chat-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
+   *  und chatClient darauf neu verdrahten. */
+  async resolveAndReconnectChat(): Promise<void> {
+    const active = await resolveActiveEndpoint(this.settings.chatEndpoints, ep => new ChatClient(ep, this.settings.chatModel).ping());
+    this.activeChatEndpoint = active;
+    const ep = active ?? this.settings.chatEndpoints[0] ?? "";
+    this.chatClient = new ChatClient(ep, this.settings.chatModel);
+  }
+
+  /** Embedder-Reachability mit EINEM Re-Resolve-Retry: aktiven pingen; schlägt fehl,
+   *  einmal die Fallback-Liste neu auflösen und erneut pingen. Kein Loop.
+   *  Public, weil der Settings-Tab denselben Check nutzt (keine Logik-Dopplung). */
+  async embedderReady(): Promise<boolean> {
+    if (await this.embedder.ping()) return true;
+    await this.resolveAndReconnectEmbedder();
+    return this.embedder.ping();
+  }
+
+  /** Chat-Reachability mit EINEM Re-Resolve-Retry, analog embedderReady. */
+  private async chatReady(): Promise<boolean> {
+    if (await this.chatClient.ping()) return true;
+    await this.resolveAndReconnectChat();
+    return this.chatClient.ping();
   }
 
   /** CSS-Regel, die den Index-Ordner im Datei-Explorer aus-/einblendet. Idempotent.
@@ -358,13 +400,17 @@ export default class VaultRagPlugin extends Plugin {
     let content: string;
     try { content = await this.app.vault.adapter.read(path); } catch { return; }
 
-    if (await this.embedder.ping()) {
+    if (await this.embedderReady()) {
+      // liveIndexer snapshotten: ein paralleles fire-and-forget resolveAndReconnectEmbedder()
+      // könnte this.liveIndexer über die awaits hinweg neu zuweisen → Update auf alter Instanz,
+      // buildIndex/persist auf neuer = stiller Verlust. Eine Instanz durchgängig nutzen (vgl. runSearch).
+      const li = this.liveIndexer;
       this.embeddingProgress.isEmbedding = true;
       try {
-        await this.liveIndexer.update(path, content);
-        this.index = this.liveIndexer.buildIndex();
+        await li.update(path, content);
+        this.index = li.buildIndex();
         this.retriever = new Retriever(this.index);
-        await this.liveIndexer.persist();
+        await li.persist();
         this.syncProgress();
         this.refresh();
       } catch {
@@ -382,7 +428,7 @@ export default class VaultRagPlugin extends Plugin {
   private async handleDelete(path: string): Promise<void> {
     if (this.isSwitchingIndexDir) return;
     if (path.startsWith(".")) return;
-    if (!(await this.embedder.ping())) return;
+    if (!(await this.embedderReady())) return;
     this.liveIndexer.remove(path);
     this.index = this.liveIndexer.buildIndex();
     this.retriever = new Retriever(this.index);
@@ -394,7 +440,7 @@ export default class VaultRagPlugin extends Plugin {
   private async handleRename(newPath: string, oldPath: string): Promise<void> {
     if (this.isSwitchingIndexDir) return;
     if (newPath.startsWith(".") || oldPath.startsWith(".")) return;
-    if (await this.embedder.ping()) {
+    if (await this.embedderReady()) {
       this.liveIndexer.rename(oldPath, newPath);
       this.index = this.liveIndexer.buildIndex();
       this.retriever = new Retriever(this.index);
@@ -410,25 +456,29 @@ export default class VaultRagPlugin extends Plugin {
   private async maybeDrainPending(): Promise<void> {
     if (this.isSwitchingIndexDir) return;
     if (this.pendingQueue.size === 0) return;
-    if (!(await this.embedder.ping())) return;
+    if (!(await this.embedderReady())) return;
     await this.drainPending();
   }
 
   private async drainPending(): Promise<void> {
+    // liveIndexer einmal snapshotten (vor dem ersten await darauf) — ein paralleles
+    // resolveAndReconnectEmbedder() könnte this.liveIndexer sonst über die awaits hinweg
+    // neu zuweisen → Update auf alter, buildIndex/persist auf neuer Instanz = stiller Verlust.
+    const li = this.liveIndexer;
     const paths = this.pendingQueue.drain();
     try {
       this.embeddingProgress.isEmbedding = true;
       for (const path of paths) {
         try {
           const content = await this.app.vault.adapter.read(path);
-          await this.liveIndexer.update(path, content);
+          await li.update(path, content);
         } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
       }
       // drain() hat in-memory bereits geleert; clear() nicht aufrufen —
       // sonst gehen Paths verloren die während des await-Loops neu reinkamen.
-      this.index = this.liveIndexer.buildIndex();
+      this.index = li.buildIndex();
       this.retriever = new Retriever(this.index);
-      await this.liveIndexer.persist();
+      await li.persist();
       this.syncProgress();
       this.refresh();
     } catch {
@@ -439,7 +489,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   async reindexVault(): Promise<void> {
-    if (!(await this.embedder.ping())) {
+    if (!(await this.embedderReady())) {
       new Notice("Embedding-Endpoint nicht erreichbar — Vault-Indizierung abgebrochen.");
       return;
     }
@@ -550,7 +600,7 @@ export default class VaultRagPlugin extends Plugin {
     const retriever = this.retriever;
     const index = this.index;
     if (!retriever || !index) return { kind: "no-index" };
-    if (!(await this.embedder.ping())) return { kind: "offline" };
+    if (!(await this.embedderReady())) return { kind: "offline" };
     try {
       const vecs = await this.embedder.embed([query]);
       if (vecs.length === 0) throw new Error("embed: leere Antwort");

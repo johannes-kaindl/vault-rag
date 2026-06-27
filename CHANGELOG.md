@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (without a `v` prefix).
 
+## [0.7.0] — 2026-06-27
+
+### Added
+
+- **Endpoint fallback lists** — both the embedding and the chat endpoint now accept an *ordered list* of URLs instead of a single one; the first reachable endpoint wins. This covers a local LLM server that changes with the network (e.g. `localhost` on the host machine vs. a LAN/VPN address when you are away) from a single synced config. The active endpoint is cached and re-resolved automatically — with exactly one retry — when a connection drops, and each endpoint shows a live reachability status in settings.
+
+### Changed
+
+- Existing single-endpoint settings migrate automatically to one-element lists — no action needed.
+- `normalizeEndpoint` and the endpoint resolver are now sourced from the shared `obsidian-kit` library (de-duplicated across plugins).
+
 ## [0.6.0] — 2026-06-26
 
 ### Added

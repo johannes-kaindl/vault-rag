@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_SETTINGS, VaultRagSettings } from "../src/settings";
+import { DEFAULT_SETTINGS, VaultRagSettings, migrateEndpointList, applyEndpointEdit } from "../src/settings";
 
 describe("settings", () => {
   it("hat sinnvolle Defaults", () => {
@@ -9,8 +9,8 @@ describe("settings", () => {
     expect(DEFAULT_SETTINGS.exclude).toContain("Templates/");
   });
 
-  it("hat embeddingEndpoint-Default", () => {
-    expect(DEFAULT_SETTINGS.embeddingEndpoint).toBe("http://localhost:11434");
+  it("hat embeddingEndpoints-Default (Liste)", () => {
+    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual(["http://localhost:11434"]);
   });
 
   it("hat embeddingModel-Default", () => {
@@ -26,7 +26,7 @@ describe("settings", () => {
   });
 
   it("hat Chat-Defaults", () => {
-    expect(DEFAULT_SETTINGS.chatEndpoint).toBe("http://localhost:8080");
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual(["http://localhost:8080"]);
     expect(DEFAULT_SETTINGS.chatModel).toBe("qwen3");
     expect(DEFAULT_SETTINGS.chatK).toBe(5);
     expect(DEFAULT_SETTINGS.contextCharBudget).toBe(12000);
@@ -87,5 +87,50 @@ describe("settings", () => {
   it("Default-Merge ergänzt fehlendes hideIndexFolder aus altem data.json (Backward-Compat)", () => {
     const merged = Object.assign({}, DEFAULT_SETTINGS, { k: 30 } as Partial<VaultRagSettings>);
     expect(merged.hideIndexFolder).toBe(true);
+  });
+});
+
+describe("migrateEndpointList", () => {
+  it("migriert ein altes Einzel-Setting auf eine 1-Element-Liste", () => {
+    expect(migrateEndpointList("http://x", undefined)).toEqual(["http://x"]);
+  });
+
+  it("trimmt den migrierten Einzel-Endpunkt", () => {
+    expect(migrateEndpointList("  http://x  ", undefined)).toEqual(["http://x"]);
+  });
+
+  it("lässt eine vorhandene Liste unverändert (gewinnt über das Einzelfeld)", () => {
+    expect(migrateEndpointList("http://alt", ["http://a", "http://b"])).toEqual(["http://a", "http://b"]);
+  });
+
+  it("filtert leere Einträge aus einer vorhandenen Liste", () => {
+    expect(migrateEndpointList(undefined, ["http://a", "", "  "])).toEqual(["http://a"]);
+  });
+
+  it("gibt [] bei fehlenden/leeren Eingaben zurück (Aufrufer fällt auf Default)", () => {
+    expect(migrateEndpointList(undefined, undefined)).toEqual([]);
+    expect(migrateEndpointList("   ", [])).toEqual([]);
+  });
+});
+
+describe("applyEndpointEdit", () => {
+  it("hängt einen nicht-leeren Adder-Wert an", () => {
+    expect(applyEndpointEdit(["http://a"], 1, "http://b", true)).toEqual(["http://a", "http://b"]);
+  });
+
+  it("ignoriert einen leeren Adder-Wert", () => {
+    expect(applyEndpointEdit(["http://a"], 1, "   ", true)).toEqual(["http://a"]);
+  });
+
+  it("setzt einen vorhandenen Index auf einen neuen Wert (Edit)", () => {
+    expect(applyEndpointEdit(["http://a", "http://b"], 0, "http://c", false)).toEqual(["http://c", "http://b"]);
+  });
+
+  it("entfernt den Eintrag, wenn ein Nicht-Adder-Feld geleert wird", () => {
+    expect(applyEndpointEdit(["http://a", "http://b"], 0, "", false)).toEqual(["http://b"]);
+  });
+
+  it("trimmt und filtert leere Einträge im Ergebnis", () => {
+    expect(applyEndpointEdit(["  http://a  ", "http://b"], 1, "  http://c  ", false)).toEqual(["http://a", "http://c"]);
   });
 });

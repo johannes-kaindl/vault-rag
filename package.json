@@ -1,6 +1,6 @@
 {
   "name": "vault-retrieval",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Local, offline retrieval over your vault: related notes, semantic search, and grounded chat with a local LLM.",
   "keywords": [
     "obsidian",
@@ -13,6 +13,9 @@
     "local-first"
   ],
   "type": "module",
+  "dependencies": {
+    "obsidian-kit": "git+https://codeberg.org/jkaindl/obsidian-kit.git#0.2.0"
+  },
   "scripts": {
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",

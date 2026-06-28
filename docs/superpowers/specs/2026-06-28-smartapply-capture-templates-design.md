@@ -134,7 +134,7 @@ bereich:   # Lebensbereich, dem das Konzept zugehört. Übernimm genau einen Wer
 %% Blöcke, die die Idee stützen oder begründen: Belege, Daten, Argumente, Beispiele, Herleitungen. %%
 
 ## ⚡ Implikationen
-%% Blöcke, die beschreiben, was aus der Idee folgt — praktische Konsequenzen, Anwendungen, Auswirkungen. %%
+%% Blöcke, die beschreiben, was aus der Idee FOLGT — Konsequenzen, Anwendungen, Auswirkungen (erkennbar an „daraus folgt", „das führt zu", „in der Praxis bedeutet das"). Reine Belege oder Beispiele gehören in 🔍 Evidenz & Argumentation. %%
 
 ## 📝 Weitere Notizen
 %% Alles Übrige: lose Gedanken, offene Fragen, Nebenbemerkungen. Dies ist der Auffang — jeder Block, der zu keiner der obigen Überschriften eindeutig passt, kommt hierher. %%
@@ -161,7 +161,7 @@ bereich:   # Lebensbereich, dem die Quelle zugehört. Übernimm genau einen Wert
 %% Die wichtigsten Aussagen und Gedanken aus der Quelle — die zentralen Punkte, je als eigener Block. %%
 
 ## 🔑 Schlüsselzitate
-%% Wörtliche Zitate oder besonders prägnante Passagen aus der Quelle. %%
+%% Nur wörtliche Zitate aus der Quelle — erkennbar an Anführungszeichen oder klarer Zuschreibung. Paraphrasierte Kernaussagen gehören in 💡 Kernideen, nicht hierher. %%
 
 ## 📝 Laufende Notizen
 %% Eigene Gedanken, Reaktionen, Ableitungen und alles Übrige. Dies ist der Auffang — jeder Block, der zu keiner der obigen Überschriften eindeutig passt, kommt hierher. %%
@@ -183,13 +183,13 @@ bereich:   # Lebensbereich, dem das Dokument zugehört. Übernimm genau einen We
 ---
 
 ## 📄 Inhalt
-%% Hierher kommt, was das Dokument regelt, feststellt oder beantragt — der inhaltliche Kern. Auch ein einleitender Satz, der benennt, um welches Dokument es geht, gehört hierher. %%
+%% Hierher kommt, was das Dokument regelt, feststellt oder beantragt — der inhaltliche Kern, einschließlich wichtiger Klauseln und Passagen. Auch ein einleitender Satz, der benennt, um welches Dokument es geht, gehört hierher. %%
 
 ## ⚠️ Fristen & Handlungsbedarf
-%% Blöcke, die beschreiben, was bis wann getan werden muss — Fristen, geforderte Reaktionen, To-dos. %%
+%% Blöcke mit einer konkreten, bereits jetzt fälligen Frist oder Aufgabe — was bis wann getan werden muss. Bloß erwähnte, künftige oder ausdrücklich noch nicht fällige Schritte gehören NICHT hierher, sondern in den Auffang. %%
 
 ## 📝 Weiteres
-%% Wichtige Klauseln, Zusammenhänge, Nebenaspekte und alles Übrige. Dies ist der Auffang — jeder Block, der zu keiner der obigen Überschriften eindeutig passt, kommt hierher. %%
+%% Nebenaspekte, lose Verweise, Randnotizen und alles Übrige. Dies ist der Auffang — jeder Block, der nicht der inhaltliche Kern (📄 Inhalt) und keine konkrete Frist oder Aufgabe ist, kommt hierher. %%
 ```
 
 ### 4.5 `Kommunikation.md`

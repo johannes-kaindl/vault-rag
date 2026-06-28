@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseTemplate } from "../src/template_matcher";
+import { parseTemplate, resolveTemplateForType } from "../src/template_matcher";
 import type { TemplateSpec } from "../src/template_matcher";
 import { buildRestructurePrompt, splitBlocks } from "../src/note_restructurer";
 
@@ -42,10 +42,16 @@ describe.skipIf(!HAS_VAULT)("Smart-Apply Capture-Vorlagen (Vault)", () => {
         expect(tpl.type).toBe(s.type);
       });
 
+      it("Dateiname resolvt emoji/case-normalisiert zum Typ", () => {
+        const path = join(TPL_DIR, s.file);
+        expect(resolveTemplateForType(s.type, [path])).toBe(path);
+      });
+
       it("alle geführten Keys haben einen nicht-leeren Hinweis (Einzeilen-Constraint)", () => {
         for (const k of s.guidedKeys) {
           expect(tpl.keys, `Key ${k} fehlt im Frontmatter`).toContain(k);
           expect((tpl.fmGuidance?.[k] ?? "").trim().length, `Key ${k} ohne Hinweis`).toBeGreaterThan(0);
+          expect((tpl.fmGuidance?.[k] ?? "").trim(), `Hinweis für ${k} endet nicht mit Punkt — Zeilenumbruch verschluckt?`).toMatch(/\.$/);
         }
       });
 
@@ -73,6 +79,7 @@ describe.skipIf(!HAS_VAULT)("Smart-Apply Capture-Vorlagen (Vault)", () => {
         for (const k of s.guidedKeys) {
           expect(user, `Hinweis-Zeile für ${k} fehlt`).toMatch(new RegExp(`- ${k} \\(.*Hinweis:`));
         }
+        expect(user, "type-Beispielzeile fehlt im Prompt").toMatch(/- type \(.*Beispiel:/);
         for (const sec of tpl.sections) {
           expect(user).toContain(`${sec.heading} — Anleitung:`);
         }

@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Removed the `obsidian-kit` git dependency by vendoring the two endpoint helpers it provided (`normalizeEndpoint`, `resolveActiveEndpoint`) back into the plugin. The self-hosted `git+https` dependency could not be resolved by Obsidian's automated plugin review, which then treated the entire Obsidian type surface as untyped. No runtime or behavior change.
+
 ## [0.7.0] — 2026-06-27
 
 ### Added

@@ -4,6 +4,7 @@ import { Retriever, Hit } from "./retriever";
 import { RelatedNotesView, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList } from "./settings";
 import { resolveActiveEndpoint } from "./vendor/kit/endpoint";
+import { mergeSettings } from "./vendor/kit/settings";
 import { EmbeddingClient } from "./embedder";
 import { LiveIndexer } from "./live_indexer";
 import { PendingQueue } from "./pending_queue";
@@ -61,7 +62,7 @@ export default class VaultRagPlugin extends Plugin {
 
   async onload() {
     const loaded = await this.loadData() as (Partial<VaultRagSettings> & { embeddingEndpoint?: string; chatEndpoint?: string }) | null;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+    this.settings = mergeSettings(DEFAULT_SETTINGS, loaded);
     // Migration: alte Einzel-Endpoint-Settings → geordnete Fallback-Listen.
     this.settings.embeddingEndpoints = migrateEndpointList(loaded?.embeddingEndpoint, loaded?.embeddingEndpoints);
     this.settings.chatEndpoints = migrateEndpointList(loaded?.chatEndpoint, loaded?.chatEndpoints);

@@ -58,7 +58,7 @@ describe("buildContext", () => {
 });
 ```
 
-- [ ] **Step 2: FAIL** — `cd /Users/Shared/code/vault-rag && npx vitest run tests/context_source.test.ts 2>&1 | tail -6` → `buildContext` fehlt.
+- [ ] **Step 2: FAIL** — `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/context_source.test.ts 2>&1 | tail -6` → `buildContext` fehlt.
 
 - [ ] **Step 3: Implementierung** — in `src/context_source.ts` ergänzen (bestehendes vorerst belassen):
 ```typescript

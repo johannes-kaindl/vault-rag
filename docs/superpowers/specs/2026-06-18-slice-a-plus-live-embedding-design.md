@@ -1,7 +1,7 @@
 # Spec: Vault RAG Slice A+ — Live-Embedding via Ollama-Endpoint
 
 **Datum:** 2026-06-18  
-**Repo:** `/Users/Shared/code/vault-rag`  
+**Repo:** `/Users/Shared/code/obsidian-plugins/vault-rag`  
 **Status:** approved
 
 ---

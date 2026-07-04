@@ -22,7 +22,7 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
   über lokale LLMs. Das Panel selbst braucht **keinen** Daemon, kein VPN, kein On-Device-LLM.
 - **Slices statt Monolith:** **A Related-Notes** (✅ gebaut + live) · **B Chat** · **C Inline-Composer**.
 - **IMG→MD ausgegliedert (2026-06-21):** Bild-Transkription ist kein RAG → eigenständiges
-  Plugin [`image-to-markdown`](https://codeberg.org/jkaindl/vault-rag) (`/Users/Shared/code/image-to-markdown`).
+  Plugin [`image-to-markdown`](https://codeberg.org/jkaindl/vault-rag) (`/Users/Shared/code/obsidian-plugins/image-to-markdown`).
   vault-rag bleibt der schlanke RAG-Kern. Der SSE-Transport (`sse.ts`/`think_splitter.ts`) ist in beide
   Plugins kopiert, nicht geteilt.
 - **Offline-first & cross-device:** HyperForge exportiert beim Reindex einen note-level
@@ -176,3 +176,10 @@ Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich release
   bewusst unverändert — unsichtbar, ein Umbenennen wäre nur Risiko.
 - **PROF-OBS-02** — kein `deploy`-Script. *Grund:* aktuell manueller Plugin-Deploy; env-gesteuertes
   `npm run deploy` (`cp main.js manifest.json styles.css "$OBSIDIAN_PLUGIN_DIR"/`) nachzuziehen.
+
+## Dach-Kontext (obsidian-plugins)
+
+Dieses Repo liegt unter dem Koordinations-Dach `/Users/Shared/code/obsidian-plugins/`.
+**Vor dem Lösen eines Problems:** `../AGENTS.md` (Kit-first-Regel) und `../REGISTRY.md`
+(Lösungs-Registry) prüfen — viele Probleme sind in Nachbar-Plugins oder im
+`obsidian-kit` bereits gelöst.

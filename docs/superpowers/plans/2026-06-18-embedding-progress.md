@@ -54,7 +54,7 @@ it("noteCount gibt die Anzahl der bekannten Notizen zurück", async () => {
 - [ ] **Step 2: Test ausführen — erwartet FAIL**
 
 ```bash
-cd /Users/Shared/code/vault-rag && npx vitest run tests/live_indexer.test.ts 2>&1 | tail -10
+cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/live_indexer.test.ts 2>&1 | tail -10
 ```
 Erwartet: Fehler wegen `noteCount` nicht vorhanden.
 
@@ -79,7 +79,7 @@ it("showStatusBar-Default ist false", () => {
 - [ ] **Step 5: Test ausführen — erwartet FAIL**
 
 ```bash
-cd /Users/Shared/code/vault-rag && npx vitest run tests/settings.test.ts 2>&1 | tail -10
+cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/settings.test.ts 2>&1 | tail -10
 ```
 
 - [ ] **Step 6: `showStatusBar` in Interface + Default ergänzen**
@@ -113,14 +113,14 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
 - [ ] **Step 7: Alle Tests grün**
 
 ```bash
-cd /Users/Shared/code/vault-rag && npx vitest run 2>&1 | tail -15
+cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run 2>&1 | tail -15
 ```
 Erwartet: alle Tests PASS.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /Users/Shared/code/vault-rag && git add src/live_indexer.ts src/settings.ts tests/live_indexer.test.ts tests/settings.test.ts && git commit -m "feat(progress): noteCount-Getter + showStatusBar-Setting"
+cd /Users/Shared/code/obsidian-plugins/vault-rag && git add src/live_indexer.ts src/settings.ts tests/live_indexer.test.ts tests/settings.test.ts && git commit -m "feat(progress): noteCount-Getter + showStatusBar-Setting"
 ```
 
 ---
@@ -272,20 +272,20 @@ this.syncProgress();
 - [ ] **Step 7: TypeScript-Build**
 
 ```bash
-cd /Users/Shared/code/vault-rag && npm run build 2>&1 | tail -20
+cd /Users/Shared/code/obsidian-plugins/vault-rag && npm run build 2>&1 | tail -20
 ```
 Erwartet: Build erfolgreich, keine TS-Fehler.
 
 - [ ] **Step 8: Alle Tests grün**
 
 ```bash
-cd /Users/Shared/code/vault-rag && npx vitest run 2>&1 | tail -15
+cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run 2>&1 | tail -15
 ```
 
 - [ ] **Step 9: Commit**
 
 ```bash
-cd /Users/Shared/code/vault-rag && git add src/main.ts && git commit -m "feat(progress): EmbeddingProgress-State + syncProgress in Plugin"
+cd /Users/Shared/code/obsidian-plugins/vault-rag && git add src/main.ts && git commit -m "feat(progress): EmbeddingProgress-State + syncProgress in Plugin"
 ```
 
 ---
@@ -365,19 +365,19 @@ new Setting(containerEl)
 - [ ] **Step 5: Build**
 
 ```bash
-cd /Users/Shared/code/vault-rag && npm run build 2>&1 | tail -20
+cd /Users/Shared/code/obsidian-plugins/vault-rag && npm run build 2>&1 | tail -20
 ```
 
 - [ ] **Step 6: Alle Tests grün**
 
 ```bash
-cd /Users/Shared/code/vault-rag && npx vitest run 2>&1 | tail -15
+cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run 2>&1 | tail -15
 ```
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/Shared/code/vault-rag && git add src/settings.ts && git commit -m "feat(progress): Progress-Sektion + Statusleisten-Toggle in Settings"
+cd /Users/Shared/code/obsidian-plugins/vault-rag && git add src/settings.ts && git commit -m "feat(progress): Progress-Sektion + Statusleisten-Toggle in Settings"
 ```
 
 ---
@@ -455,19 +455,19 @@ if (this.settings.showStatusBar) this.setStatusBarVisible(true);
 - [ ] **Step 6: Build**
 
 ```bash
-cd /Users/Shared/code/vault-rag && npm run build 2>&1 | tail -20
+cd /Users/Shared/code/obsidian-plugins/vault-rag && npm run build 2>&1 | tail -20
 ```
 
 - [ ] **Step 7: Alle Tests grün**
 
 ```bash
-cd /Users/Shared/code/vault-rag && npx vitest run 2>&1 | tail -15
+cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run 2>&1 | tail -15
 ```
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /Users/Shared/code/vault-rag && git add src/main.ts && git commit -m "feat(progress): Statusleisten-Item + setStatusBarVisible"
+cd /Users/Shared/code/obsidian-plugins/vault-rag && git add src/main.ts && git commit -m "feat(progress): Statusleisten-Item + setStatusBarVisible"
 ```
 
 ---

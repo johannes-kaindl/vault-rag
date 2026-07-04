@@ -87,10 +87,10 @@ Schreibe `<scratchpad>/smoke.ts`. Importiert die echten pure-core-Funktionen üb
 
 ```ts
 import { readFileSync } from "node:fs";
-import { parseTemplate } from "/Users/Shared/code/vault-rag/src/template_matcher";
-import { splitBlocks, buildRestructurePrompt } from "/Users/Shared/code/vault-rag/src/note_restructurer";
+import { parseTemplate } from "/Users/Shared/code/obsidian-plugins/vault-rag/src/template_matcher";
+import { splitBlocks, buildRestructurePrompt } from "/Users/Shared/code/obsidian-plugins/vault-rag/src/note_restructurer";
 
-const REPO = "/Users/Shared/code/vault-rag";
+const REPO = "/Users/Shared/code/obsidian-plugins/vault-rag";
 const VAULT = "/Users/Shared/10_ObsidianVaults/10_Pallas";
 const SCRATCH = "/private/tmp/claude-502/-Users-Shared-code-vault-rag/e41b9c95-a038-4ba2-8752-d608d0e414f0/scratchpad";
 const tplPath = `${VAULT}/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply/Gespräch.md`;
@@ -167,7 +167,7 @@ main().catch(e => { console.error(e); process.exit(1); });
 
 Run:
 ```bash
-cd /Users/Shared/code/vault-rag
+cd /Users/Shared/code/obsidian-plugins/vault-rag
 npx esbuild "<scratchpad>/smoke.ts" --bundle --platform=node --format=cjs --outfile="<scratchpad>/smoke.cjs"
 ```
 Expected: `smoke.cjs` wird geschrieben, keine Resolve-Fehler. (Schlägt der `.ts`-Import fehl, liegt es an Pfad-Tippfehlern — absolute Pfade prüfen.)

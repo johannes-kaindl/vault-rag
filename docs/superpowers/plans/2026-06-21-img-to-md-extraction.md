@@ -4,7 +4,7 @@
 
 **Goal:** IMG→MD vollständig aus vault-rag in ein neues, eigenständiges Plugin `image-to-markdown` verlagern; vault-rag auf den RAG-Kern zurückschneiden; beide Repos grün.
 
-**Architecture:** Neues Obsidian-Plugin-Repo `/Users/Shared/code/image-to-markdown` (Scaffold gespiegelt von vault-rag). IMG→MD-Module wandern verbatim; der SSE-Transport (`sse.ts` + `think_splitter.ts`) wird **kopiert** (bleibt auch in vault-rag, da `ChatClient` ihn braucht); die generischen `ping`/`listModels`-Helfer ziehen aus `ChatClient` schlank an `VisionClient`. vault-rag wird danach von aller IMG→MD-Verdrahtung befreit.
+**Architecture:** Neues Obsidian-Plugin-Repo `/Users/Shared/code/obsidian-plugins/image-to-markdown` (Scaffold gespiegelt von vault-rag). IMG→MD-Module wandern verbatim; der SSE-Transport (`sse.ts` + `think_splitter.ts`) wird **kopiert** (bleibt auch in vault-rag, da `ChatClient` ihn braucht); die generischen `ping`/`listModels`-Helfer ziehen aus `ChatClient` schlank an `VisionClient`. vault-rag wird danach von aller IMG→MD-Verdrahtung befreit.
 
 **Tech Stack:** TypeScript (strict, noImplicitAny) · esbuild · vitest + happy-dom · Obsidian Plugin API.
 
@@ -30,7 +30,7 @@
 **Interfaces:**
 - Produces: lauffähige `npm test` / `npm run build` / `npx tsc --noEmit`-Toolchain im neuen Repo.
 
-- [ ] **Step 1: Repo + git init.** `mkdir -p /Users/Shared/code/image-to-markdown && git -C /Users/Shared/code/image-to-markdown init`.
+- [ ] **Step 1: Repo + git init.** `mkdir -p /Users/Shared/code/obsidian-plugins/image-to-markdown && git -C /Users/Shared/code/obsidian-plugins/image-to-markdown init`.
 - [ ] **Step 2: Konfig spiegeln.** `package.json` (name `image-to-markdown`, version `0.1.0`, description „Bilder einer Notiz per lokalem Vision-LLM nach Markdown transkribieren.", scripts `dev`/`build`/`test` wie vault-rag, devDeps verbatim aus vault-rag), `esbuild.config.mjs`, `tsconfig.json`, `vitest.config.ts`, `.gitignore` (inkl. `main.js`, `node_modules`, `data.json`) — alle aus vault-rag kopiert, nur `package.json`-name/description geändert.
 - [ ] **Step 3: manifest.json + versions.json.** `manifest.json`: `id: "image-to-markdown"`, `name: "Image to Markdown"`, `version: "0.1.0"`, `minAppVersion` von vault-rag, `description`, `author`/`authorUrl` von vault-rag, `isDesktopOnly: false`. `versions.json`: `{ "0.1.0": "<minAppVersion>" }`.
 - [ ] **Step 4: Mock + Scaffold-Test kopieren.** `tests/__mocks__/obsidian.ts` aus vault-rag verbatim; `tests/scaffold.test.ts` aus vault-rag verbatim.

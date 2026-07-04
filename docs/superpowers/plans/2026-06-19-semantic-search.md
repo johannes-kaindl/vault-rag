@@ -63,7 +63,7 @@ describe("toIndexVector", () => {
 
 - [ ] **Step 2: Test ausführen — erwartet FAIL**
 
-Run: `cd /Users/Shared/code/vault-rag && npx vitest run tests/embed_vector.test.ts 2>&1 | tail -10`
+Run: `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/embed_vector.test.ts 2>&1 | tail -10`
 Expected: FAIL — `toIndexVector` nicht gefunden.
 
 - [ ] **Step 3: Implementierung**
@@ -87,13 +87,13 @@ export function toIndexVector(vecs: Float32Array[], dim = 256): Float32Array {
 
 - [ ] **Step 4: Test ausführen — erwartet PASS**
 
-Run: `cd /Users/Shared/code/vault-rag && npx vitest run tests/embed_vector.test.ts 2>&1 | tail -10`
+Run: `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/embed_vector.test.ts 2>&1 | tail -10`
 Expected: PASS (4 Tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/Shared/code/vault-rag && git add src/embed_vector.ts tests/embed_vector.test.ts && git commit -m "feat(search): toIndexVector — geteilte Embedding→Vektor-Transformation
+cd /Users/Shared/code/obsidian-plugins/vault-rag && git add src/embed_vector.ts tests/embed_vector.test.ts && git commit -m "feat(search): toIndexVector — geteilte Embedding→Vektor-Transformation
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -110,7 +110,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Bestehende Tests als Sicherheitsnetz laufen**
 
-Run: `cd /Users/Shared/code/vault-rag && npx vitest run tests/live_indexer.test.ts 2>&1 | tail -10`
+Run: `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/live_indexer.test.ts 2>&1 | tail -10`
 Expected: PASS (Baseline grün vor dem Refactor).
 
 - [ ] **Step 2: Import ergänzen**
@@ -145,13 +145,13 @@ ersetzen durch:
 
 - [ ] **Step 4: Tests grün (verhaltensgleich)**
 
-Run: `cd /Users/Shared/code/vault-rag && npx vitest run tests/live_indexer.test.ts 2>&1 | tail -10`
+Run: `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/live_indexer.test.ts 2>&1 | tail -10`
 Expected: PASS (unverändert).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/Shared/code/vault-rag && git add src/live_indexer.ts && git commit -m "refactor(indexer): update() nutzt toIndexVector (DRY)
+cd /Users/Shared/code/obsidian-plugins/vault-rag && git add src/live_indexer.ts && git commit -m "refactor(indexer): update() nutzt toIndexVector (DRY)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -188,7 +188,7 @@ In `tests/retriever.test.ts` ans Ende der `describe`-Suite ergänzen:
 
 - [ ] **Step 2: Test ausführen — erwartet FAIL**
 
-Run: `cd /Users/Shared/code/vault-rag && npx vitest run tests/retriever.test.ts 2>&1 | tail -10`
+Run: `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/retriever.test.ts 2>&1 | tail -10`
 Expected: FAIL — `search` nicht vorhanden.
 
 - [ ] **Step 3: `retriever.ts` refactoren**
@@ -227,13 +227,13 @@ export class Retriever {
 
 - [ ] **Step 4: Tests grün (neue + bestehende `related`-Tests)**
 
-Run: `cd /Users/Shared/code/vault-rag && npx vitest run tests/retriever.test.ts 2>&1 | tail -10`
+Run: `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/retriever.test.ts 2>&1 | tail -10`
 Expected: PASS (alle, inkl. bestehender `related`-Tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/Shared/code/vault-rag && git add src/retriever.ts tests/retriever.test.ts && git commit -m "feat(search): Retriever.search(queryVec) + privates rank()
+cd /Users/Shared/code/obsidian-plugins/vault-rag && git add src/retriever.ts tests/retriever.test.ts && git commit -m "feat(search): Retriever.search(queryVec) + privates rank()
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -272,7 +272,7 @@ describe("renderHits", () => {
 
 - [ ] **Step 2: Test ausführen — erwartet FAIL**
 
-Run: `cd /Users/Shared/code/vault-rag && npx vitest run tests/view.test.ts 2>&1 | tail -10`
+Run: `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/view.test.ts 2>&1 | tail -10`
 Expected: FAIL — `renderHits` nicht exportiert.
 
 - [ ] **Step 3: `view.ts` refactoren**
@@ -301,13 +301,13 @@ Und `RelatedNotesView.render()` ersetzen durch:
 
 - [ ] **Step 4: Tests grün (neue + bestehende View-Tests)**
 
-Run: `cd /Users/Shared/code/vault-rag && npx vitest run tests/view.test.ts 2>&1 | tail -10`
+Run: `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/view.test.ts 2>&1 | tail -10`
 Expected: PASS (alle).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/Shared/code/vault-rag && git add src/view.ts tests/view.test.ts && git commit -m "refactor(view): renderHits extrahieren (geteilt mit Such-Panel)
+cd /Users/Shared/code/obsidian-plugins/vault-rag && git add src/view.ts tests/view.test.ts && git commit -m "refactor(view): renderHits extrahieren (geteilt mit Such-Panel)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -380,7 +380,7 @@ describe("SemanticSearchView", () => {
 
 - [ ] **Step 2: Test ausführen — erwartet FAIL**
 
-Run: `cd /Users/Shared/code/vault-rag && npx vitest run tests/search_view.test.ts 2>&1 | tail -10`
+Run: `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/search_view.test.ts 2>&1 | tail -10`
 Expected: FAIL — Modul `search_view` fehlt.
 
 - [ ] **Step 3: Implementierung**
@@ -460,13 +460,13 @@ export class SemanticSearchView extends ItemView {
 
 - [ ] **Step 4: Test ausführen — erwartet PASS**
 
-Run: `cd /Users/Shared/code/vault-rag && npx vitest run tests/search_view.test.ts 2>&1 | tail -10`
+Run: `cd /Users/Shared/code/obsidian-plugins/vault-rag && npx vitest run tests/search_view.test.ts 2>&1 | tail -10`
 Expected: PASS (6 Tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/Shared/code/vault-rag && git add src/search_view.ts tests/search_view.test.ts && git commit -m "feat(search): SemanticSearchView (Sidebar-Panel, Zustände)
+cd /Users/Shared/code/obsidian-plugins/vault-rag && git add src/search_view.ts tests/search_view.test.ts && git commit -m "feat(search): SemanticSearchView (Sidebar-Panel, Zustände)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -553,14 +553,14 @@ In `styles.css` ergänzen:
 
 Run:
 ```bash
-cd /Users/Shared/code/vault-rag && npm run build 2>&1 | tail -8 && npx vitest run 2>&1 | tail -12
+cd /Users/Shared/code/obsidian-plugins/vault-rag && npm run build 2>&1 | tail -8 && npx vitest run 2>&1 | tail -12
 ```
 Expected: Build ohne TS-Fehler; alle Tests grün (45 bestehende + ~14 neue).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/Shared/code/vault-rag && git add src/main.ts styles.css && git commit -m "feat(search): Such-Panel verdrahten (View, Ribbon, Command, runSearch)
+cd /Users/Shared/code/obsidian-plugins/vault-rag && git add src/main.ts styles.css && git commit -m "feat(search): Such-Panel verdrahten (View, Ribbon, Command, runSearch)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```

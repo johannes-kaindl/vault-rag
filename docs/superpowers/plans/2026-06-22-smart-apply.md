@@ -582,8 +582,8 @@ Expected output: all test files pass, including the new `tests/frontmatter.test.
 - [ ] **Step 16: Commit (only the two touched files)**
 
 ```bash
-git -C /Users/Shared/code/vault-rag add src/frontmatter.ts tests/frontmatter.test.ts
-git -C /Users/Shared/code/vault-rag commit -m "$(cat <<'EOF'
+git -C /Users/Shared/code/obsidian-plugins/vault-rag add src/frontmatter.ts tests/frontmatter.test.ts
+git -C /Users/Shared/code/obsidian-plugins/vault-rag commit -m "$(cat <<'EOF'
 feat(smart-apply): yaml_lite frontmatter core (parse/serialize/merge/diff + Self-Check)
 
 parsebares-YAML-Garantie (Quoten von :/#/Emoji/[[Links]]), preserve-existing
@@ -2513,8 +2513,8 @@ Expected: all test files green (including `tests/smart_apply.test.ts`), `tsc` ex
 - [ ] **Step 14: Commit (only the two touched files).**
 
 ```bash
-git -C /Users/Shared/code/vault-rag add src/smart_apply.ts tests/smart_apply.test.ts
-git -C /Users/Shared/code/vault-rag commit -m "$(cat <<'EOF'
+git -C /Users/Shared/code/obsidian-plugins/vault-rag add src/smart_apply.ts tests/smart_apply.test.ts
+git -C /Users/Shared/code/obsidian-plugins/vault-rag commit -m "$(cat <<'EOF'
 feat(smart-apply): Orchestrator + einziger Writer (propose/persistApply/abort)
 
 Reiner Kern ohne obsidian-Import: detect delegiert an detectType; propose
@@ -2642,7 +2642,7 @@ EOF
 ```
 Expected output: one commit created touching only `tests/__mocks__/obsidian.ts`.
 
-Relevant file paths: `/Users/Shared/code/vault-rag/tests/__mocks__/obsidian.ts` (modified), pattern source `/Users/Shared/code/vault-rag/src/note_picker.ts`, house-style reference `/Users/Shared/code/vault-rag/tests/chat_view.test.ts`.
+Relevant file paths: `/Users/Shared/code/obsidian-plugins/vault-rag/tests/__mocks__/obsidian.ts` (modified), pattern source `/Users/Shared/code/obsidian-plugins/vault-rag/src/note_picker.ts`, house-style reference `/Users/Shared/code/obsidian-plugins/vault-rag/tests/chat_view.test.ts`.
 
 ---
 
@@ -3688,8 +3688,8 @@ Expected: one commit created on the current branch with exactly `src/smart_apply
 
 - [ ] **Step 16: Commit (stage only the two touched files)**
   ```bash
-  git -C /Users/Shared/code/vault-rag add src/settings.ts tests/settings.test.ts
-  git -C /Users/Shared/code/vault-rag commit -m "feat(settings): Smart-Apply-Sektion (smartApplyEnabled/templateDir/smartApplyTemperature) + Backward-Compat-Defaults
+  git -C /Users/Shared/code/obsidian-plugins/vault-rag add src/settings.ts tests/settings.test.ts
+  git -C /Users/Shared/code/obsidian-plugins/vault-rag commit -m "feat(settings): Smart-Apply-Sektion (smartApplyEnabled/templateDir/smartApplyTemperature) + Backward-Compat-Defaults
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
   ```

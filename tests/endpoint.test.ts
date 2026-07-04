@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeEndpoint } from "../src/endpoint";
+import { normalizeEndpoint } from "../src/vendor/kit/endpoint";
 
 describe("normalizeEndpoint", () => {
   it("lässt einen sauberen Endpoint unverändert", () => {

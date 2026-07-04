@@ -1,4 +1,4 @@
-import { normalizeEndpoint } from "./endpoint";
+import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
 import { httpJson } from "./http";
 

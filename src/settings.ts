@@ -4,7 +4,7 @@ import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
-import { normalizeEndpoint } from "./endpoint";
+import { normalizeEndpoint } from "./vendor/kit/endpoint";
 
 /** Migriert alte Einzel-Endpoint-Settings auf eine Liste. Reiner Helfer. */
 export function migrateEndpointList(single: string | undefined, list: string[] | undefined): string[] {

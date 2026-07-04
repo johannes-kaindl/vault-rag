@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { parseSSE, streamSSE } from "../src/sse";
+import { streamSSE } from "../src/sse";
+import { parseSSE } from "../src/vendor/kit/sse";
 import { installFakeXHR } from "./fake_xhr";
 
 const init = { method: "POST", headers: {}, body: "" };

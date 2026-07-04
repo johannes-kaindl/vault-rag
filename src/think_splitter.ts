@@ -1,3 +1,4 @@
+// vendored from obsidian-kit#0.2.0, src/pure/think-splitter.ts
 const OPEN = "<think>";
 const CLOSE = "</think>";
 

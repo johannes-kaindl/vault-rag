@@ -57,4 +57,14 @@ describe("VaultRetrievalView.buildInto", () => {
     expect((panels[0] as any).log).toContain("file:Note.md");
     expect((panels[1] as any).log).toContain("file:Note.md");
   });
+
+  // Persistierter Layout-State kann einen Tab referenzieren, dessen Panel nicht gebaut wurde
+  // (z.B. "smart-apply" bei deaktiviertem Feature) — ohne Fallback bliebe der Hub leer/blank.
+  it("defaultTab ohne passendes Panel (z.B. deaktiviertes Feature) fällt auf panels[0] zurück", () => {
+    const panels = [fakePanel("related"), fakePanel("chat")];
+    const root = makeFakeEl();
+    VaultRetrievalView.buildInto(root, panels, "smart-apply");
+    expect(panelDiv(root, "related").className.includes("is-hidden")).toBe(false);
+    expect((panels[0] as any).log).toContain("show");
+  });
 });

@@ -60,7 +60,9 @@ export class VaultRetrievalView extends ItemView {
     const contentEl = root.createDiv({ cls: "vault-rag-hub-content" });
     const panelDivs = new Map<TabId, HTMLElement>();
     const tabBtns = new Map<TabId, HTMLElement>();
-    let navState = defaultTab;
+    // Persistierter Layout-State kann einen Tab referenzieren, dessen Panel nicht gebaut wurde
+    // (z.B. "smart-apply" bei deaktiviertem Feature) — ohne Fallback bliebe der Hub leer/blank.
+    let navState = panels.some((p) => p.id === defaultTab) ? defaultTab : (panels[0]?.id ?? defaultTab);
 
     const applyVisibility = (): void => {
       for (const [id, div] of panelDivs) div.toggleClass("is-hidden", id !== navState);

@@ -586,6 +586,33 @@ describe("SmartApplyPanel Rangliste", () => {
     await flush();
     expect(rank).toHaveBeenCalled();
   });
+
+  // main.refresh() ruft notifyFileOpen(activePath) bei JEDEM Index-Reload (nicht nur bei echtem
+  // Notizwechsel) — onFileOpen muss pfad-bewusst sein, sonst resettet ein Reload am selben Note
+  // die manuelle Vorlagenwahl (userOverrodeTemplate) und klappt die Rangliste wieder ein.
+  it("onFileOpen(gleicher Pfad wie zuletzt gerankt) — Index-Reload löst KEINEN Recompute aus", async () => {
+    const rank = vi.fn(async () => ranksFixture());
+    const { panel } = mkPanel({ rankTemplates: rank });   // activeNotePath() liefert "Inbox/roh.md"
+    await flush();                                        // Mount-Recompute rankt bereits für "Inbox/roh.md"
+    panel.onShow();
+    rank.mockClear();
+    panel.onFileOpen("Inbox/roh.md");                      // derselbe Pfad → Index-Reload-Fall
+    await new Promise((r) => setTimeout(r, 450));
+    await flush();
+    expect(rank).not.toHaveBeenCalled();
+  });
+
+  it("onFileOpen(anderer Pfad) — echter Notizwechsel löst weiterhin einen Recompute aus", async () => {
+    const rank = vi.fn(async () => ranksFixture());
+    const { panel } = mkPanel({ rankTemplates: rank });
+    await flush();
+    panel.onShow();
+    rank.mockClear();
+    panel.onFileOpen("Inbox/neu.md");                      // anderer Pfad → echter Notizwechsel
+    await new Promise((r) => setTimeout(r, 450));
+    await flush();
+    expect(rank).toHaveBeenCalled();
+  });
 });
 
 describe("SmartApplyPanel Scan-Kopf", () => {

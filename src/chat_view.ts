@@ -81,7 +81,7 @@ export class ChatPanel implements HubPanel {
 
     this.renderMessages();
     this.renderThinkToggle();
-    void this.initAsync();
+    void this.initAsync().catch(() => {});
   }
 
   private async initAsync(): Promise<void> {

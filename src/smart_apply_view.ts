@@ -77,6 +77,8 @@ export class SmartApplyPanel implements HubPanel {
   private rankTimer: ReturnType<typeof window.setTimeout> | null = null;
   private connected: boolean | null = null;
   private selectedTemplate = "";
+  // Pfad der Notiz, für die zuletzt gerankt wurde — macht onFileOpen pfad-bewusst (s.u.).
+  private lastContextPath: string | null = null;
 
   // Timer / guards
   private timer: ReturnType<typeof window.setInterval> | null = null;
@@ -89,7 +91,7 @@ export class SmartApplyPanel implements HubPanel {
     this.container = container;
     this.container.addClass("vault-rag-sa-root");
     this.render();
-    void this.initAsync();
+    void this.initAsync().catch(() => {});
   }
 
   private async initAsync(): Promise<void> {
@@ -110,8 +112,12 @@ export class SmartApplyPanel implements HubPanel {
   }
 
   /** Aktive Notiz gewechselt (zentral vom Hub gerufen, ersetzt die früher selbst-registrierten
-   *  active-leaf-change/file-open-Events). Nur wenn sichtbar sofort ranken, sonst dirty merken. */
-  onFileOpen(_path: string | null): void {
+   *  active-leaf-change/file-open-Events). Nur wenn sichtbar sofort ranken, sonst dirty merken.
+   *  main.refresh() ruft notifyFileOpen() bei JEDEM Index-Reload (nicht nur bei echtem Notizwechsel) —
+   *  bleibt der Pfad gleich, ist es kein Notizwechsel: kein Recompute, kein Reset der manuellen Wahl. */
+  onFileOpen(path: string | null): void {
+    if (path === this.lastContextPath) return;
+    this.lastContextPath = path;
     if (this.visible) { this.scheduleRecompute(); this.dirty = false; } else { this.dirty = true; }
   }
 
@@ -248,6 +254,7 @@ export class SmartApplyPanel implements HubPanel {
   private async recomputeRanking(noteChanged = false): Promise<void> {
     if (noteChanged) { this.userOverrodeTemplate = false; this.expandedRanks = false; }
     const path = this.deps.activeNotePath();
+    this.lastContextPath = path;   // seedet/hält onFileOpen's Vergleichsbasis aktuell
     if (path === null) { this.ranking = []; this.render(); return; }
     const gen = ++this.rankGen;
     let ranks: TemplateRank[] = [];

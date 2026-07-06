@@ -19,6 +19,7 @@
 - **Nach jeder Änderung grün:** `npm test` + `npm run typecheck` + `npm run lint`.
 - **Commits:** Conventional Commits, deutsche Beschreibung; **nur berührte Dateien stagen — nie `git add -A`**; Trailer `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 - **Tab-Reihenfolge/IDs (verbatim, in allen Tasks identisch):** `related` ("Ähnlich", Icon `search`) · `search` ("Suche", Icon `telescope`) · `chat` ("Chat", Icon `message-square`) · `smart-apply` ("Smart Apply", Icon `wand-2`). Default-Tab: `related`.
+- **Test-Idiom (verbindlich, in allen Test-Tasks):** Panel-/Hub-Container werden mit `makeFakeEl()` aus `tests/__mocks__/obsidian.ts` erzeugt (NICHT `document.createElement`), Assertions laufen über `.children` + `.className`/`.getAttribute` (NICHT `querySelector`/`classList`) — exakt wie die bestehenden View-Tests. `makeFakeEl` bietet: `children`, `empty/createDiv/createEl/createSpan`, `toggleClass` (manipuliert `.className`), `setAttribute/getAttribute`, `addEventListener/click`, `setText`; `addClass/removeClass` sind No-ops (nicht in Assertions verwenden). Keine ad-hoc-DOM-Helfer bauen. **`createDiv` im Mock ignoriert `attr`** — wenn ein `data-…`-Attribut auf einem Div getestet werden muss, den Mock-`createDiv` um `attr`-Support ergänzen (analog Mock-`createEl`, Zeile 8) — das ist eine legitime Mock-Vervollständigung Richtung echtem Obsidian.
 - **Hub-View-Type (verbatim):** `VIEW_TYPE_HUB = "vault-retrieval-hub"`. Hub-Ribbon-Icon: `layers`.
 - **Alt-View-Types (nur noch für Migration/Detach referenziert):** `vault-rag-related`, `vault-rag-search`, `vault-rag-chat`, `vault-rag-smart-apply`.
 
@@ -327,49 +328,69 @@ git commit -m "refactor(hub): SmartApplyPanel (View→Panel, file-Events an Hub 
 Der Hub ist mit Fake-Panels (Spies) testbar, ohne echtes ItemView-Rendering. Da `VaultRetrievalView extends ItemView` einen `WorkspaceLeaf` braucht und `this.app` nutzt, testen wir die **reine Navigations-/Sichtbarkeitslogik** über eine extrahierbare Kernmethode. Struktur:
 
 ```ts
+import { describe, it, expect } from "vitest";
 import { VaultRetrievalView } from "../src/hub_view";
+import { makeFakeEl } from "./__mocks__/obsidian";
 import type { HubPanel, TabId } from "../src/hub_panel";
 
 function fakePanel(id: TabId): HubPanel & { log: string[] } {
   const log: string[] = [];
   return {
     id, label: id, icon: "x", log,
-    mount(c) { log.push("mount"); c.createDiv({ cls: `p-${id}` }); },
+    mount(c: HTMLElement) { log.push("mount"); (c as any).createDiv({ cls: `p-${id}` }); },
     onShow() { log.push("show"); },
     onHide() { log.push("hide"); },
-    onFileOpen(p) { log.push(`file:${p}`); },
+    onFileOpen(p) { log.push(`file:${p ?? "null"}`); },
     destroy() { log.push("destroy"); },
-  };
+  } as HubPanel & { log: string[] };
 }
 
-it("mountet alle Panels, zeigt nur den Default-Tab", () => {
-  const panels = [fakePanel("related"), fakePanel("chat")];
-  const root = document.createElement("div");
-  VaultRetrievalView.buildInto(root, panels, "related");   // reine Aufbau-Logik, siehe Step 3
-  expect(panels.every(p => (p as any).log.includes("mount"))).toBe(true);
-  expect(root.querySelector('.vault-rag-hub-panel[data-tab="related"]')!.classList.contains("is-hidden")).toBe(false);
-  expect(root.querySelector('.vault-rag-hub-panel[data-tab="chat"]')!.classList.contains("is-hidden")).toBe(true);
-});
+// Panel-Div per data-tab finden — children-Traversal + getAttribute (kein querySelector).
+function panelDiv(root: any, tab: TabId): any {
+  const content = root.children.find((c: any) => c.className?.includes("vault-rag-hub-content"));
+  return content.children.find((c: any) => c.getAttribute?.("data-tab") === tab);
+}
 
-it("Tab-Klick: altes Panel hide, neues show, Sichtbarkeit getauscht", () => {
-  const panels = [fakePanel("related"), fakePanel("chat")];
-  const root = document.createElement("div");
-  const ctrl = VaultRetrievalView.buildInto(root, panels, "related");
-  ctrl.setTab("chat");
-  expect((panels[0] as any).log).toContain("hide");
-  expect((panels[1] as any).log).toContain("show");
-  expect(root.querySelector('.vault-rag-hub-panel[data-tab="chat"]')!.classList.contains("is-hidden")).toBe(false);
-});
+describe("VaultRetrievalView.buildInto", () => {
+  it("mountet alle Panels, zeigt nur den Default-Tab", () => {
+    const panels = [fakePanel("related"), fakePanel("chat")];
+    const root = makeFakeEl();
+    VaultRetrievalView.buildInto(root, panels, "related");   // reine Aufbau-Logik, siehe Step 3
+    expect(panels.every(p => (p as any).log.includes("mount"))).toBe(true);
+    expect(panelDiv(root, "related").className.includes("is-hidden")).toBe(false);
+    expect(panelDiv(root, "chat").className.includes("is-hidden")).toBe(true);
+  });
 
-it("Kontextwechsel ruft onFileOpen auf allen Panels", () => {
-  const panels = [fakePanel("related"), fakePanel("chat")];
-  const root = document.createElement("div");
-  const ctrl = VaultRetrievalView.buildInto(root, panels, "related");
-  ctrl.notifyFileOpen("Note.md");
-  expect((panels[0] as any).log).toContain("file:Note.md");
-  expect((panels[1] as any).log).toContain("file:Note.md");
+  it("Default-Panel bekommt initial onShow, das andere nicht", () => {
+    const panels = [fakePanel("related"), fakePanel("chat")];
+    VaultRetrievalView.buildInto(makeFakeEl(), panels, "related");
+    expect((panels[0] as any).log).toContain("show");
+    expect((panels[1] as any).log).not.toContain("show");
+  });
+
+  it("Tab-Wechsel: altes Panel hide, neues show, Sichtbarkeit getauscht", () => {
+    const panels = [fakePanel("related"), fakePanel("chat")];
+    const root = makeFakeEl();
+    const ctrl = VaultRetrievalView.buildInto(root, panels, "related");
+    ctrl.setTab("chat");
+    expect((panels[0] as any).log).toContain("hide");
+    expect((panels[1] as any).log).toContain("show");
+    expect(panelDiv(root, "chat").className.includes("is-hidden")).toBe(false);
+    expect(panelDiv(root, "related").className.includes("is-hidden")).toBe(true);
+  });
+
+  it("Kontextwechsel ruft onFileOpen auf allen Panels", () => {
+    const panels = [fakePanel("related"), fakePanel("chat")];
+    const root = makeFakeEl();
+    const ctrl = VaultRetrievalView.buildInto(root, panels, "related");
+    ctrl.notifyFileOpen("Note.md");
+    expect((panels[0] as any).log).toContain("file:Note.md");
+    expect((panels[1] as any).log).toContain("file:Note.md");
+  });
 });
 ```
+
+> **Voraussetzung für `panelDiv(...)`:** Die Panel-Divs tragen `data-tab` (via `createDiv({ cls, attr: { "data-tab": panel.id } })`). Der Mock-`createDiv` (Zeile 7 in `tests/__mocks__/obsidian.ts`) ignoriert `attr` derzeit — **im Rahmen dieses Tasks den Mock-`createDiv` um `attr`-Support ergänzen** (analog Mock-`createEl`, Zeile 8: `if (o?.attr) for (const k of Object.keys(o.attr)) attrs[k] = String(o.attr[k]);`). Das ist eine legitime Mock-Vervollständigung Richtung echtem Obsidian und die einzige erlaubte Änderung an der Mock-Datei.
 
 - [ ] **Step 2: Test failt** — `npx vitest run tests/hub_view.test.ts` → FAIL.
 

@@ -1,7 +1,8 @@
-import { ItemView, WorkspaceLeaf, setIcon } from "obsidian";
+import { setIcon } from "obsidian";
 import { ChatSession } from "./chat_session";
 import { ContextPanel, ContextPanelDeps } from "./context_panel";
 import { isAlwaysOnThinker } from "./reasoning";
+import { HubPanel, TabId } from "./hub_panel";
 
 export const VIEW_TYPE_CHAT = "vault-rag-chat";
 
@@ -20,7 +21,11 @@ export interface ChatViewDeps extends ContextPanelDeps {
   enterSends: () => boolean;
 }
 
-export class ChatView extends ItemView {
+export class ChatPanel implements HubPanel {
+  readonly id: TabId = "chat";
+  readonly label = "Chat";
+  readonly icon = "message-square";
+  private container!: HTMLElement;
   private panel: ContextPanel;
   private messagesEl: HTMLElement | null = null;
   private workingEl: HTMLElement | null = null;
@@ -34,16 +39,12 @@ export class ChatView extends ItemView {
   private workStart = 0;
   private running = false;
 
-  constructor(leaf: WorkspaceLeaf, private deps: ChatViewDeps) {
-    super(leaf);
+  constructor(private deps: ChatViewDeps) {
     this.panel = new ContextPanel(deps, deps.autoK);
   }
-  getViewType(): string { return VIEW_TYPE_CHAT; }
-  getDisplayText(): string { return "Vault Chat"; }
-  getIcon(): string { return "message-square"; }
 
-  async onOpen(): Promise<void> {
-    const c = this.contentEl; c.empty();
+  mount(container: HTMLElement): void {
+    const c = this.container = container; c.empty();
     c.addClass("vault-rag-chat-root");
     this.statusEl = c.createDiv({ cls: "vault-rag-chat-status" });
     this.statusEl.addEventListener("click", () => void this.refreshStatus());
@@ -79,9 +80,13 @@ export class ChatView extends ItemView {
     else { buildMessages(); buildInput(); }
 
     this.renderMessages();
+    this.renderThinkToggle();
+    void this.initAsync();
+  }
+
+  private async initAsync(): Promise<void> {
     await this.refreshStatus();
     await this.refreshModels();
-    this.renderThinkToggle();
   }
 
   private async refreshModels(): Promise<void> {
@@ -225,8 +230,7 @@ export class ChatView extends ItemView {
     if (atBottom) el.scrollTop = el.scrollHeight;   // dem Stream folgen, aber manuelles Hochscrollen respektieren
   }
 
-  async onClose(): Promise<void> {
-    this.contentEl.removeClass("vault-rag-chat-root");
+  destroy(): void {
     if (this.timer !== null) { window.clearInterval(this.timer); this.timer = null; }
     if (this.debTimer !== null) { window.clearTimeout(this.debTimer); this.debTimer = null; }
   }

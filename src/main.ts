@@ -1,27 +1,29 @@
 import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Retriever, Hit } from "./retriever";
-import { RelatedNotesView, VIEW_TYPE_RELATED } from "./view";
+import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList } from "./settings";
 import { resolveActiveEndpoint } from "./vendor/kit/endpoint";
 import { mergeSettings } from "./vendor/kit/settings";
 import { EmbeddingClient } from "./embedder";
 import { LiveIndexer } from "./live_indexer";
 import { PendingQueue } from "./pending_queue";
-import { SemanticSearchView, VIEW_TYPE_SEARCH, SearchResult } from "./search_view";
+import { SearchPanel, VIEW_TYPE_SEARCH, SearchResult } from "./search_view";
 import { toIndexVector } from "./embed_vector";
 import { ChatClient } from "./chat_client";
 import { buildContext } from "./context_source";
 import { pickNote } from "./note_picker";
 import { ChatSession } from "./chat_session";
-import { ChatView, VIEW_TYPE_CHAT } from "./chat_view";
+import { ChatPanel, VIEW_TYPE_CHAT } from "./chat_view";
 import { SmartApply, type ApplyProposal } from "./smart_apply";
-import { SmartApplyView, VIEW_TYPE_SMART_APPLY } from "./smart_apply_view";
+import { SmartApplyPanel, VIEW_TYPE_SMART_APPLY } from "./smart_apply_view";
 import { extractType, templateFilesUnder } from "./template_matcher";
 import { TemplateRanker } from "./template_ranker";
 import type { TemplateRank } from "./template_ranker";
 import { buildHideCss, normalizeIndexDir } from "./index_dir";
 import { migrateIndex, onlyContainsIndexFiles, INDEX_REQUIRED_FILES } from "./index_migrate";
+import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
+import type { HubPanel, TabId } from "./hub_panel";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -76,56 +78,6 @@ export default class VaultRagPlugin extends Plugin {
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
 
     this.addSettingTab(new VaultRagSettingTab(this.app, this));
-    this.registerView(VIEW_TYPE_RELATED, (leaf: WorkspaceLeaf) => new RelatedNotesView(leaf, {
-      getHits: () => this.currentHits(),
-      openPath: this.openPath,
-    }));
-    this.registerView(VIEW_TYPE_SEARCH, (leaf: WorkspaceLeaf) => new SemanticSearchView(leaf, {
-      search: (q) => this.runSearch(q),
-      openPath: this.openPath,
-    }));
-    this.addRibbonIcon("search", "Verwandte Notizen", () => this.activateView());
-    this.addCommand({ id: "open-related", name: "Verwandte Notizen öffnen", callback: () => this.activateView() });
-    this.addRibbonIcon("telescope", "Semantische Suche", () => this.activateSearchView());
-    this.addCommand({ id: "open-semantic-search", name: "Semantische Suche öffnen", callback: () => this.activateSearchView() });
-    this.registerView(VIEW_TYPE_CHAT, (leaf: WorkspaceLeaf) => new ChatView(leaf, {
-      session: new ChatSession({
-        client: () => this.chatClient,
-        assemble: (paths) => buildContext(paths, {
-          read: (p) => this.app.vault.adapter.read(p),
-          budget: this.settings.contextCharBudget,
-        }),
-        systemPreamble: () => this.settings.chatSystemPrompt,
-        params: () => ({ model: this.settings.chatModel, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
-      }),
-      openPath: this.openPath,
-      copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },
-      ping: () => this.chatReady(),
-      listModels: () => this.chatClient.listModels(),
-      getModel: () => this.settings.chatModel,
-      setModel: (m: string) => { this.settings.chatModel = m; void this.saveSettings(); },
-      inputPosition: () => this.settings.chatInputPosition,
-      getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
-      embed: async (q) => {
-        const index = this.index;
-        if (!index) throw new Error("kein Index");
-        const vecs = await this.embedder.embed([q]);
-        if (vecs.length === 0) throw new Error("embed: leere Antwort");
-        return toIndexVector(vecs, index.dim);
-      },
-      search: (vec, n) => {
-        const retriever = this.retriever;
-        return retriever ? retriever.search(vec, { k: n, minSim: this.settings.minSim, exclude: this.settings.exclude }).map(h => h.path) : [];
-      },
-      pickNote: () => pickNote(this.app),
-      autoK: this.settings.chatK,
-      getSuppress: () => this.settings.suppressThinking,
-      setSuppress: (v: boolean) => { this.settings.suppressThinking = v; void this.saveSettings(); },
-      enterSends: () => this.settings.enterSends,
-    }));
-    this.addRibbonIcon("message-square", "Vault Chat", () => this.activateChatView());
-    this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => this.activateChatView() });
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refresh()));
 
     // File-Events
     this.registerEvent(this.app.vault.on("modify", (file: TAbstractFile) => {
@@ -195,7 +147,90 @@ export default class VaultRagPlugin extends Plugin {
           return toIndexVector(vecs, index.dim);
         },
       });
-      this.registerView(VIEW_TYPE_SMART_APPLY, (leaf: WorkspaceLeaf) => new SmartApplyView(leaf, {
+    }
+
+    this.addCommand({
+      id: "reindex-vault",
+      name: "Vault neu indizieren",
+      callback: () => void this.reindexVault(),
+    });
+
+    if (this.settings.showStatusBar) this.setStatusBarVisible(true);
+    this.refreshIndexFolderHiding();
+
+    // Aktiven Endpoint aus den Fallback-Listen auflösen (erster erreichbarer gewinnt).
+    void this.resolveAndReconnectEmbedder();
+    void this.resolveAndReconnectChat();
+
+    // Hub: EIN registerView statt vier — buildPanels() ans Ende von onload, damit
+    // this.smartApply/this.templateRanker (oben im smartApplyEnabled-Block gebaut) bereits existieren.
+    this.registerView(VIEW_TYPE_HUB, (leaf: WorkspaceLeaf) => new VaultRetrievalView(leaf, this.buildPanels(), "related"));
+    this.addRibbonIcon("layers", "Vault Retrieval", () => void this.openHub("related"));
+    this.addCommand({ id: "open-related", name: "Verwandte Notizen öffnen", callback: () => void this.openHub("related") });
+    this.addCommand({ id: "open-semantic-search", name: "Semantische Suche öffnen", callback: () => void this.openHub("search") });
+    this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => void this.openHub("chat") });
+    this.addCommand({
+      id: "smart-apply-active-note",
+      name: "Smart Apply auf aktive Notiz",
+      checkCallback: (checking: boolean) => {
+        const f = this.app.workspace.getActiveFile();
+        const ok = f instanceof TFile && f.extension === "md" && this.settings.smartApplyEnabled;
+        if (ok && !checking) void this.openHub("smart-apply");
+        return ok;
+      },
+    });
+
+    this.app.workspace.onLayoutReady(() => this.migrateOldLeaves());
+  }
+
+  private buildPanels(): HubPanel[] {
+    const panels: HubPanel[] = [
+      new RelatedPanel({
+        getHits: () => this.currentHits(),
+        openPath: this.openPath,
+      }),
+      new SearchPanel({
+        search: (q) => this.runSearch(q),
+        openPath: this.openPath,
+      }),
+      new ChatPanel({
+        session: new ChatSession({
+          client: () => this.chatClient,
+          assemble: (paths) => buildContext(paths, {
+            read: (p) => this.app.vault.adapter.read(p),
+            budget: this.settings.contextCharBudget,
+          }),
+          systemPreamble: () => this.settings.chatSystemPrompt,
+          params: () => ({ model: this.settings.chatModel, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
+        }),
+        openPath: this.openPath,
+        copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },
+        ping: () => this.chatReady(),
+        listModels: () => this.chatClient.listModels(),
+        getModel: () => this.settings.chatModel,
+        setModel: (m: string) => { this.settings.chatModel = m; void this.saveSettings(); },
+        inputPosition: () => this.settings.chatInputPosition,
+        getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
+        embed: async (q) => {
+          const index = this.index;
+          if (!index) throw new Error("kein Index");
+          const vecs = await this.embedder.embed([q]);
+          if (vecs.length === 0) throw new Error("embed: leere Antwort");
+          return toIndexVector(vecs, index.dim);
+        },
+        search: (vec, n) => {
+          const retriever = this.retriever;
+          return retriever ? retriever.search(vec, { k: n, minSim: this.settings.minSim, exclude: this.settings.exclude }).map(h => h.path) : [];
+        },
+        pickNote: () => pickNote(this.app),
+        autoK: this.settings.chatK,
+        getSuppress: () => this.settings.suppressThinking,
+        setSuppress: (v: boolean) => { this.settings.suppressThinking = v; void this.saveSettings(); },
+        enterSends: () => this.settings.enterSends,
+      }),
+    ];
+    if (this.settings.smartApplyEnabled && this.smartApply && this.templateRanker) {
+      panels.push(new SmartApplyPanel({
         // SEAM-VERTRAG (7): build/reroll tragen templatePath + die Live-Stream-Callbacks der View.
         build: (notePath, templatePath, onToken, onReasoning) => this.proposeSmartApply(notePath, templatePath, onToken, onReasoning),
         accept: (p) => this.smartApply!.persistApply(p),
@@ -214,31 +249,24 @@ export default class VaultRagPlugin extends Plugin {
         getSuppress: () => this.settings.smartApplySuppressThinking,
         setSuppress: (v: boolean) => { this.settings.smartApplySuppressThinking = v; void this.saveSettings(); },
       }));
-      this.addRibbonIcon("wand-2", "Smart Apply", () => void this.activateSmartApplyView());
-      this.addCommand({
-        id: "smart-apply-active-note",
-        name: "Smart Apply auf aktive Notiz",
-        checkCallback: (checking: boolean) => {
-          const f = this.app.workspace.getActiveFile();
-          const ok = f instanceof TFile && f.extension === "md";
-          if (ok && !checking) void this.activateSmartApplyView();
-          return ok;
-        },
-      });
     }
+    return panels;
+  }
 
-    this.addCommand({
-      id: "reindex-vault",
-      name: "Vault neu indizieren",
-      callback: () => void this.reindexVault(),
-    });
+  async openHub(tab: TabId): Promise<void> {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_HUB);
+    const leaf = existing.length ? existing[0] : this.app.workspace.getRightLeaf(false);
+    if (!leaf) return;
+    if (!existing.length) await leaf.setViewState({ type: VIEW_TYPE_HUB, active: true });
+    const view = leaf.view;
+    if (view instanceof VaultRetrievalView) view.showTab(tab);
+    void this.app.workspace.revealLeaf(leaf);
+  }
 
-    if (this.settings.showStatusBar) this.setStatusBarVisible(true);
-    this.refreshIndexFolderHiding();
-
-    // Aktiven Endpoint aus den Fallback-Listen auflösen (erster erreichbarer gewinnt).
-    void this.resolveAndReconnectEmbedder();
-    void this.resolveAndReconnectChat();
+  private migrateOldLeaves(): void {
+    for (const t of [VIEW_TYPE_RELATED, VIEW_TYPE_SEARCH, VIEW_TYPE_CHAT, VIEW_TYPE_SMART_APPLY]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(t)) leaf.detach();
+    }
   }
 
   /** Aktiven Embedding-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
@@ -545,17 +573,17 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   refresh() {
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_RELATED)) {
-      const v = leaf.view as RelatedNotesView;
-      v.render?.();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_HUB)) {
+      const v = leaf.view;
+      if (v instanceof VaultRetrievalView) v.refreshContext();
     }
   }
 
   /** Offene Smart-Apply-Cockpits sofort neu ranken (z.B. nach Vorlagenpfad-Änderung). */
   refreshSmartApplyRanking(): void {
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_SMART_APPLY)) {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_HUB)) {
       const v = leaf.view;
-      if (v instanceof SmartApplyView) v.refreshRanking();
+      if (v instanceof VaultRetrievalView) v.refreshRanking();
     }
   }
 
@@ -589,13 +617,6 @@ export default class VaultRagPlugin extends Plugin {
     this.updateStatusBar();
   }
 
-  async activateView() {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_RELATED);
-    if (existing.length) { void this.app.workspace.revealLeaf(existing[0]); return; }
-    const leaf = this.app.workspace.getRightLeaf(false);
-    await leaf?.setViewState({ type: VIEW_TYPE_RELATED, active: true });
-  }
-
   private async runSearch(query: string): Promise<SearchResult> {
     // Snapshot vor den awaits: maybeReload() (30s) könnte index/retriever zwischenzeitlich nullen.
     const retriever = this.retriever;
@@ -613,20 +634,6 @@ export default class VaultRagPlugin extends Plugin {
     } catch {
       return { kind: "offline" };
     }
-  }
-
-  async activateSearchView() {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SEARCH);
-    if (existing.length) { void this.app.workspace.revealLeaf(existing[0]); return; }
-    const leaf = this.app.workspace.getRightLeaf(false);
-    await leaf?.setViewState({ type: VIEW_TYPE_SEARCH, active: true });
-  }
-
-  async activateChatView() {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_CHAT);
-    if (existing.length) { void this.app.workspace.revealLeaf(existing[0]); return; }
-    const leaf = this.app.workspace.getRightLeaf(false);
-    await leaf?.setViewState({ type: VIEW_TYPE_CHAT, active: true });
   }
 
   // SEAM-VERTRAG (5): templatePath="" → auto-detect; non-empty → direkt verwenden (Picker entfällt).
@@ -659,15 +666,6 @@ export default class VaultRagPlugin extends Plugin {
     }
     // SEAM-VERTRAG (7): Live-Stream-Callbacks der View durchreichen (genau ein Stream in propose).
     return core.propose(notePath, tpl, onToken, onReasoning, undefined, detection);
-  }
-
-  // Reveal-only: öffnet/enthüllt das Cockpit; Trigger läuft über den Cockpit-Button.
-  async activateSmartApplyView(): Promise<void> {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_SMART_APPLY);
-    const leaf = existing.length ? existing[0] : this.app.workspace.getRightLeaf(false);
-    if (!leaf) return;
-    if (!existing.length) await leaf.setViewState({ type: VIEW_TYPE_SMART_APPLY, active: true });
-    void this.app.workspace.revealLeaf(leaf);
   }
 
   async saveSettings() { await this.saveData(this.settings); }

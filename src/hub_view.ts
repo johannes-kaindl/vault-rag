@@ -39,13 +39,13 @@ export class VaultRetrievalView extends ItemView {
 
   // ── Public API für main.ts ────────────────────────────────────────────────
   showTab(id: TabId): void { this.ctrl?.setTab(id); this.navState = id; }
-  refreshContext(): void { this.ctrl?.notifyFileOpen(this.app.workspace.getActiveFile()?.path ?? null); }
+  refreshContext(): void { this.emitFileOpen(); }
   refreshRanking(): void {
     const sa = this.panels.find(p => p.id === "smart-apply") as { refreshRanking?: () => void } | undefined;
     sa?.refreshRanking?.();
   }
 
-  getState(): Record<string, unknown> { return { tab: this.navState }; }
+  getState(): Record<string, unknown> { return { tab: this.ctrl?.currentTab() ?? this.navState }; }
   async setState(state: unknown, result: ViewStateResult): Promise<void> {
     const tab = (state as { tab?: TabId } | null)?.tab;
     if (tab) { this.navState = tab; this.ctrl?.setTab(tab); }

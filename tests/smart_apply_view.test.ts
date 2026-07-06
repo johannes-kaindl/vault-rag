@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { SmartApplyView, VIEW_TYPE_SMART_APPLY, SmartApplyViewDeps } from "../src/smart_apply_view";
+import { SmartApplyPanel, VIEW_TYPE_SMART_APPLY, SmartApplyViewDeps } from "../src/smart_apply_view";
 import type { ApplyProposal, ApplyResult } from "../src/smart_apply_view";
 import type { TemplateRank } from "../src/template_ranker";
-import { makeFakeApp } from "./__mocks__/obsidian";
+import { makeFakeEl } from "./__mocks__/obsidian";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -18,7 +18,11 @@ function hasClass(el: any, cls: string): boolean {
 function first(el: any, cls: string): any {
   return all(el, cls)[0];
 }
-async function flush(n = 6): Promise<void> {
+// Höherer Default als früher: onOpen() awaitete früher die komplette initAsync-Kette
+// (refreshModels→refreshConn→recomputeRanking) synchron durch. mount() feuert diese Kette
+// jetzt nur noch fire-and-forget (void initAsync()) — Tests, die auf das settled Ergebnis
+// prüfen, müssen ihr per flush() genug Mikrotask-Ticks geben, um durchzulaufen.
+async function flush(n = 20): Promise<void> {
   for (let i = 0; i < n; i++) await Promise.resolve();
 }
 
@@ -66,10 +70,13 @@ function mkDeps(over: Partial<SmartApplyViewDeps> = {}): SmartApplyViewDeps {
   };
 }
 
-function mkView(over: Partial<SmartApplyViewDeps> = {}) {
+/** Konstruiert + mountet ein SmartApplyPanel in einen frischen makeFakeEl()-Container. */
+function mkPanel(over: Partial<SmartApplyViewDeps> = {}) {
   const deps = mkDeps(over);
-  const view = new SmartApplyView({ app: makeFakeApp() } as any, deps);
-  return { view, deps };
+  const container = makeFakeEl();
+  const panel = new SmartApplyPanel(deps);
+  panel.mount(container);
+  return { panel, container, deps };
 }
 
 function ranksFixture(): TemplateRank[] {
@@ -81,66 +88,62 @@ function ranksFixture(): TemplateRank[] {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("SmartApplyView — Cockpit", () => {
-  it("getViewType ist VIEW_TYPE_SMART_APPLY, Icon wand-2", () => {
-    const { view } = mkView();
-    expect(view.getViewType()).toBe(VIEW_TYPE_SMART_APPLY);
-    expect(view.getIcon()).toBe("wand-2");
-    expect(view.getDisplayText()).toBe("Smart Apply");
+describe("SmartApplyPanel — Cockpit", () => {
+  it("id/label/icon: smart-apply / Smart Apply / wand-2; VIEW_TYPE_SMART_APPLY bleibt exportiert", () => {
+    const { panel } = mkPanel();
+    expect(panel.id).toBe("smart-apply");
+    expect(panel.icon).toBe("wand-2");
+    expect(panel.label).toBe("Smart Apply");
+    expect(VIEW_TYPE_SMART_APPLY).toBe("vault-rag-smart-apply");
   });
 
   // Step 1 — Header immer sichtbar
-  it("render() emittiert immer die Header-Elemente (Modell/Verbindung/💭/Rangliste/Run/Stop)", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    expect(first(view.contentEl, "vault-rag-sa-model")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-conn")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-think")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-ranklist")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-run")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-stop")).toBeTruthy();
+  it("mount() rendert immer die Header-Elemente (Modell/Verbindung/💭/Rangliste/Run/Stop)", () => {
+    const { container } = mkPanel();
+    expect(first(container, "vault-rag-sa-model")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-conn")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-think")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-ranklist")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-run")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-stop")).toBeTruthy();
   });
 
   it("Modell-Select füllt sich aus listModels und setzt setModel bei Wechsel", async () => {
-    const { view, deps } = mkView();
-    await view.onOpen();
+    const { container, deps } = mkPanel();
     await flush();
-    const sel = first(view.contentEl, "vault-rag-sa-model");
+    const sel = first(container, "vault-rag-sa-model");
     expect(sel.children.length).toBe(2);
     sel.value = "smart-model";
     (sel._listeners?.change ?? []).forEach((cb: any) => cb());
     expect(deps.setModel).toHaveBeenCalledWith("smart-model");
   });
 
-  it("💭-Toggle ruft setSuppress (toggelt getSuppress)", async () => {
-    const { view, deps } = mkView({ getSuppress: vi.fn(() => false) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-think").click();
+  it("💭-Toggle ruft setSuppress (toggelt getSuppress)", () => {
+    const { container, deps } = mkPanel({ getSuppress: vi.fn(() => false) });
+    first(container, "vault-rag-sa-think").click();
     expect(deps.setSuppress).toHaveBeenCalledWith(true);
   });
 
   it("Verbindungspunkt spiegelt ping()=true als verbunden", async () => {
-    const { view } = mkView({ ping: vi.fn(async () => true) });
-    await view.onOpen();
+    const { container } = mkPanel({ ping: vi.fn(async () => true) });
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-conn").textContent).toContain("verbunden");
+    expect(first(container, "vault-rag-sa-conn").textContent).toContain("verbunden");
   });
 
   it("Verbindungspunkt spiegelt ping()=false als offline", async () => {
-    const { view } = mkView({ ping: vi.fn(async () => false) });
-    await view.onOpen();
+    const { container } = mkPanel({ ping: vi.fn(async () => false) });
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-conn").textContent).toContain("offline");
+    expect(first(container, "vault-rag-sa-conn").textContent).toContain("offline");
   });
 
   it("Verbindungs-Icon unterscheidet sich je Zustand per Form (nicht nur Farbe)", async () => {
-    const okView = mkView({ ping: vi.fn(async () => true) });
-    await okView.view.onOpen(); await flush();
-    const okIcon = first(okView.view.contentEl, "vault-rag-conn-dot").getAttribute("data-icon");
+    const ok = mkPanel({ ping: vi.fn(async () => true) });
+    await flush();
+    const okIcon = first(ok.container, "vault-rag-conn-dot").getAttribute("data-icon");
 
-    const offView = mkView({ ping: vi.fn(async () => false) });
-    await offView.view.onOpen(); await flush();
-    const offIcon = first(offView.view.contentEl, "vault-rag-conn-dot").getAttribute("data-icon");
+    const off = mkPanel({ ping: vi.fn(async () => false) });
+    await flush();
+    const offIcon = first(off.container, "vault-rag-conn-dot").getAttribute("data-icon");
 
     expect(okIcon).toBeTruthy();
     expect(offIcon).toBeTruthy();
@@ -148,49 +151,46 @@ describe("SmartApplyView — Cockpit", () => {
   });
 
   it("Verbindungszeile trägt ein barrierefreies aria-label zum erneuten Prüfen", async () => {
-    const { view } = mkView({ ping: vi.fn(async () => true) });
-    await view.onOpen(); await flush();
-    expect(first(view.contentEl, "vault-rag-sa-conn").getAttribute("aria-label")).toBeTruthy();
+    const { container } = mkPanel({ ping: vi.fn(async () => true) });
+    await flush();
+    expect(first(container, "vault-rag-sa-conn").getAttribute("aria-label")).toBeTruthy();
   });
 
   it("Verbindungszeile hat einen Refresh-Button, der ping erneut auslöst", async () => {
     const ping = vi.fn(async () => true);
-    const { view } = mkView({ ping });
-    await view.onOpen(); await flush();
+    const { container } = mkPanel({ ping });
+    await flush();
     ping.mockClear();
-    first(view.contentEl, "vault-rag-sa-conn-refresh").click();
+    first(container, "vault-rag-sa-conn-refresh").click();
     await flush();
     expect(ping).toHaveBeenCalledTimes(1);
   });
 
   // Step 2 — idle body
-  it("idle-Body zeigt Platzhaltertext", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    expect(first(view.contentEl, "vault-rag-sa-idle")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-idle").textContent).toContain("Auf aktive Notiz anwenden");
+  it("idle-Body zeigt Platzhaltertext", () => {
+    const { container } = mkPanel();
+    expect(first(container, "vault-rag-sa-idle")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-idle").textContent).toContain("Auf aktive Notiz anwenden");
   });
 
   // Step 3 — start() null path
   it("start() ohne aktive Notiz zeigt Notice und bleibt idle", async () => {
-    const { view, deps } = mkView({ activeNotePath: vi.fn(() => null) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container, deps } = mkPanel({ activeNotePath: vi.fn(() => null) });
+    first(container, "vault-rag-sa-run").click();
     await flush();
     expect(deps.build).not.toHaveBeenCalled();
-    expect(first(view.contentEl, "vault-rag-sa-idle")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-idle")).toBeTruthy();
   });
 
   // Step 4 — start() valid path → running
   it("start() mit aktiver Notiz geht in running und ruft build mit dem Pfad", async () => {
     let resolveBuild: (p: ApplyProposal) => void = () => {};
     const build = vi.fn((_path: string, _templatePath: string) => new Promise<ApplyProposal>((res) => { resolveBuild = res; }));
-    const { view } = mkView({ build: build as unknown as SmartApplyViewDeps["build"] });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
+    first(container, "vault-rag-sa-run").click();
     await flush(2);
     expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(String), expect.any(Function), expect.any(Function));
-    expect(first(view.contentEl, "vault-rag-sa-running")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-running")).toBeTruthy();
     // Aufräumen: build auflösen, damit kein hängender Timer bleibt
     resolveBuild(mkProposal());
     await flush();
@@ -202,41 +202,38 @@ describe("SmartApplyView — Cockpit", () => {
     let rsn: (t: string) => void = () => {};
     const build = vi.fn((_path: string, _templatePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) =>
       new Promise<ApplyProposal>(() => { tok = onToken; rsn = onReasoning; }));
-    const { view } = mkView({ build: build as unknown as SmartApplyViewDeps["build"] });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
+    first(container, "vault-rag-sa-run").click();
     await flush(2);
     tok("## Inhalt\n"); tok("alt");
     rsn("denke nach…");
-    expect(first(view.contentEl, "vault-rag-sa-stream").textContent).toBe("## Inhalt\nalt");
-    expect(first(view.contentEl, "vault-rag-sa-reasoning-body").textContent).toContain("denke nach");
+    expect(first(container, "vault-rag-sa-stream").textContent).toBe("## Inhalt\nalt");
+    expect(first(container, "vault-rag-sa-reasoning-body").textContent).toContain("denke nach");
   });
 
   // Step 6 — build resolve → diff
   it("build()-Resolve geht in den Diff-Zustand mit dem Proposal", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-diff")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-apply")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-diff")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-apply")).toBeTruthy();
     // Zwei-Flächen-Diff zeigt original + proposed
-    expect(first(view.contentEl, "vault-rag-sa-orig")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-prop")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-orig")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-prop")).toBeTruthy();
   });
 
   it("Diff zeigt grünes Guard-Banner wenn hardOk", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    const banner = first(view.contentEl, "vault-rag-sa-guard");
+    const banner = first(container, "vault-rag-sa-guard");
     expect(hasClass(banner, "is-ok")).toBe(true);
   });
 
   // Step 7 — Anwenden disabled + guard banner
   it("Diff: Anwenden ist gesperrt (is-disabled) und Guard listet fehlgeschlagene Checks wenn !hardOk", async () => {
-    const { view, deps } = mkView({
+    const { container, deps } = mkPanel({
       build: vi.fn(async () => mkProposal({
         hardOk: false,
         checks: [
@@ -245,25 +242,23 @@ describe("SmartApplyView — Cockpit", () => {
         ],
       })),
     });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    const btn = first(view.contentEl, "vault-rag-sa-apply");
+    const btn = first(container, "vault-rag-sa-apply");
     expect(hasClass(btn, "is-disabled")).toBe(true);
     btn.click();
     await flush();
     expect(deps.accept).not.toHaveBeenCalled();
-    const banner = first(view.contentEl, "vault-rag-sa-guard");
+    const banner = first(container, "vault-rag-sa-guard");
     expect(hasClass(banner, "is-error")).toBe(true);
     expect(all(banner, "vault-rag-sa-guard-fail").length).toBe(1);
   });
 
   it("Diff: Anwenden ruft accept genau einmal wenn hardOk", async () => {
-    const { view, deps } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container, deps } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    const btn = first(view.contentEl, "vault-rag-sa-apply");
+    const btn = first(container, "vault-rag-sa-apply");
     expect(hasClass(btn, "is-disabled")).toBe(false);
     btn.click();
     await flush();
@@ -273,204 +268,189 @@ describe("SmartApplyView — Cockpit", () => {
   // Step 8 — accept written:true → applied
   it("accept{written:true} geht in applied mit Rückgängig-Button", async () => {
     const undo = vi.fn(async () => {});
-    const { view } = mkView({ accept: vi.fn(async () => ({ written: true, undo })) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel({ accept: vi.fn(async () => ({ written: true, undo })) });
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    first(view.contentEl, "vault-rag-sa-apply").click();
+    first(container, "vault-rag-sa-apply").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-applied")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-applied").textContent).toContain("angewendet");
-    const undoBtn = first(view.contentEl, "vault-rag-sa-undo");
+    expect(first(container, "vault-rag-sa-applied")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-applied").textContent).toContain("angewendet");
+    const undoBtn = first(container, "vault-rag-sa-undo");
     expect(undoBtn).toBeTruthy();
     undoBtn.click();
     await flush();
     expect(undo).toHaveBeenCalledTimes(1);
-    expect(all(view.contentEl, "vault-rag-sa-apply").length).toBe(0);
+    expect(all(container, "vault-rag-sa-apply").length).toBe(0);
   });
 
   it("applied zeigt den Pfad der Notiz", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    first(view.contentEl, "vault-rag-sa-apply").click();
+    first(container, "vault-rag-sa-apply").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-applied").textContent).toContain("roh");
+    expect(first(container, "vault-rag-sa-applied").textContent).toContain("roh");
   });
 
   // Step 9 — accept written:false stale → stale state
   it("accept{written:false,reason:'stale'} geht in stale mit Rebuild-Button", async () => {
-    const { view } = mkView({ accept: vi.fn(async () => ({ written: false, reason: "stale" as const })) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel({ accept: vi.fn(async () => ({ written: false, reason: "stale" as const })) });
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    first(view.contentEl, "vault-rag-sa-apply").click();
+    first(container, "vault-rag-sa-apply").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-stale")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-stale").textContent).toContain("geändert");
-    expect(first(view.contentEl, "vault-rag-sa-rebuild")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-stale")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-stale").textContent).toContain("geändert");
+    expect(first(container, "vault-rag-sa-rebuild")).toBeTruthy();
     // nicht mehr im applied/diff
-    expect(all(view.contentEl, "vault-rag-sa-applied").length).toBe(0);
-    expect(all(view.contentEl, "vault-rag-sa-apply").length).toBe(0);
+    expect(all(container, "vault-rag-sa-applied").length).toBe(0);
+    expect(all(container, "vault-rag-sa-apply").length).toBe(0);
   });
 
   it("'Neu erzeugen & anwenden' (stale) re-buildet gegen aktuellen Pfad und akzeptiert bei hardOk", async () => {
     const accept = vi.fn()
       .mockResolvedValueOnce({ written: false, reason: "stale" as const })
       .mockResolvedValueOnce({ written: true, undo: vi.fn(async () => {}) });
-    const { view, deps } = mkView({ accept: accept as unknown as SmartApplyViewDeps["accept"] });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container, deps } = mkPanel({ accept: accept as unknown as SmartApplyViewDeps["accept"] });
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    first(view.contentEl, "vault-rag-sa-apply").click();
+    first(container, "vault-rag-sa-apply").click();
     await flush();
     // jetzt stale → rebuild
-    first(view.contentEl, "vault-rag-sa-rebuild").click();
+    first(container, "vault-rag-sa-rebuild").click();
     await flush(10);
     // build erneut aufgerufen (1× start + 1× rebuild)
     expect((deps.build as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(2);
     expect((deps.build as unknown as ReturnType<typeof vi.fn>).mock.calls[1][0]).toBe("Inbox/roh.md");
     // zweites accept → written:true → applied
     expect(accept).toHaveBeenCalledTimes(2);
-    expect(first(view.contentEl, "vault-rag-sa-applied")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-applied")).toBeTruthy();
   });
 
   it("accept-Fehler: kein hängendes running-Flag, Anwenden bleibt klickbar (2. Klick erreicht accept)", async () => {
-    const { view, deps } = mkView({ accept: vi.fn(async () => { throw new Error("Schreibfehler"); }) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container, deps } = mkPanel({ accept: vi.fn(async () => { throw new Error("Schreibfehler"); }) });
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    first(view.contentEl, "vault-rag-sa-apply").click();
+    first(container, "vault-rag-sa-apply").click();
     await flush();
-    expect(all(view.contentEl, "vault-rag-sa-applied").length).toBe(0);
-    expect(all(view.contentEl, "vault-rag-sa-apply").length).toBe(1);
-    first(view.contentEl, "vault-rag-sa-apply").click();
+    expect(all(container, "vault-rag-sa-applied").length).toBe(0);
+    expect(all(container, "vault-rag-sa-apply").length).toBe(1);
+    first(container, "vault-rag-sa-apply").click();
     await flush();
     expect(deps.accept).toHaveBeenCalledTimes(2);
   });
 
   // Step 10 — Verwerfen → idle
   it("Verwerfen geht zurück nach idle (kein Write)", async () => {
-    const { view, deps } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container, deps } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    first(view.contentEl, "vault-rag-sa-discard").click();
+    first(container, "vault-rag-sa-discard").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-idle")).toBeTruthy();
-    expect(all(view.contentEl, "vault-rag-sa-diff").length).toBe(0);
+    expect(first(container, "vault-rag-sa-idle")).toBeTruthy();
+    expect(all(container, "vault-rag-sa-diff").length).toBe(0);
     expect(deps.accept).not.toHaveBeenCalled();
   });
 
   // Step 11 — Reroll → new proposal, diff
   it("'Neu generieren' ruft reroll und rendert wieder Diff", async () => {
-    const { view, deps } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container, deps } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    first(view.contentEl, "vault-rag-sa-reroll").click();
+    first(container, "vault-rag-sa-reroll").click();
     await flush();
     expect(deps.reroll).toHaveBeenCalledTimes(1);
-    expect(first(view.contentEl, "vault-rag-sa-diff")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-diff")).toBeTruthy();
   });
 
   // Stop / abort
-  it("Stop ruft deps.abort", async () => {
-    const { view, deps } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-stop").click();
+  it("Stop ruft deps.abort", () => {
+    const { container, deps } = mkPanel();
+    first(container, "vault-rag-sa-stop").click();
     expect(deps.abort).toHaveBeenCalled();
   });
 
   // Error path
   it("build wirft 'abgebrochen' → error-Zustand mit 'Verworfen', kein Throw", async () => {
-    const { view } = mkView({ build: vi.fn(async () => { throw new Error("abgebrochen"); }) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel({ build: vi.fn(async () => { throw new Error("abgebrochen"); }) });
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-error")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-error").textContent).toContain("Verworfen");
+    expect(first(container, "vault-rag-sa-error")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-error").textContent).toContain("Verworfen");
   });
 
   it("build wirft anderen Fehler → error-Zustand zeigt die Meldung, kein Throw", async () => {
-    const { view } = mkView({ build: vi.fn(async () => { throw new Error("Netzwerk-Timeout"); }) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel({ build: vi.fn(async () => { throw new Error("Netzwerk-Timeout"); }) });
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-error")).toBeTruthy();
-    expect(first(view.contentEl, "vault-rag-sa-error").textContent).toContain("Netzwerk-Timeout");
+    expect(first(container, "vault-rag-sa-error")).toBeTruthy();
+    expect(first(container, "vault-rag-sa-error").textContent).toContain("Netzwerk-Timeout");
   });
 
   it('build() wirft vorlage-waehlen → Zustand idle + Hinweis, kein Fehler-Panel, accept nicht aufgerufen', async () => {
     const build = vi.fn(async () => { throw new Error('vorlage-waehlen'); });
-    const { view, deps } = mkView({ build: build as unknown as SmartApplyViewDeps['build'] });
-    await view.onOpen();
-    first(view.contentEl, 'vault-rag-sa-run').click();
+    const { container, deps } = mkPanel({ build: build as unknown as SmartApplyViewDeps['build'] });
+    first(container, 'vault-rag-sa-run').click();
     await flush();
-    expect(first(view.contentEl, 'vault-rag-sa-idle')).toBeTruthy();
-    expect(first(view.contentEl, 'vault-rag-sa-error')).toBeFalsy();
-    expect(first(view.contentEl, 'vault-rag-sa-template-hint')).toBeTruthy();
+    expect(first(container, 'vault-rag-sa-idle')).toBeTruthy();
+    expect(first(container, 'vault-rag-sa-error')).toBeFalsy();
+    expect(first(container, 'vault-rag-sa-template-hint')).toBeTruthy();
     expect(deps.accept).not.toHaveBeenCalled();
   });
 
   // Reasoning details in diff
   it("Diff rendert einklappbaren Reasoning-Block aus proposal.reasoning", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    const body = first(view.contentEl, "vault-rag-sa-reasoning-body");
+    const body = first(container, "vault-rag-sa-reasoning-body");
     expect(body.textContent).toContain("weil X");
   });
 
   // Step 12 — Dropdowns / ranklist survive state transitions (regression for cache bug)
   it("model-select + Rangliste bleiben nach State-Übergang (idle→running→diff) sichtbar", async () => {
-    const { view } = mkView();
-    await view.onOpen();
+    const { container } = mkPanel();
     await flush(8);
 
-    // After onOpen + flush: model select and ranklist should be present
-    const modelSelAfterOpen = first(view.contentEl, "vault-rag-sa-model");
-    const ranklistAfterOpen = first(view.contentEl, "vault-rag-sa-ranklist");
+    // After mount + flush: model select and ranklist should be present
+    const modelSelAfterOpen = first(container, "vault-rag-sa-model");
+    const ranklistAfterOpen = first(container, "vault-rag-sa-ranklist");
     expect(modelSelAfterOpen.children.length).toBeGreaterThan(0);
     expect(ranklistAfterOpen).toBeTruthy();
 
     // Trigger state transition: idle → running → diff
-    first(view.contentEl, "vault-rag-sa-run").click();
+    first(container, "vault-rag-sa-run").click();
     await flush(8);
 
     // After diff state: model select and ranklist must still be present
-    const modelSelAfterDiff = first(view.contentEl, "vault-rag-sa-model");
-    const ranklistAfterDiff = first(view.contentEl, "vault-rag-sa-ranklist");
+    const modelSelAfterDiff = first(container, "vault-rag-sa-model");
+    const ranklistAfterDiff = first(container, "vault-rag-sa-ranklist");
     expect(modelSelAfterDiff.children.length).toBeGreaterThan(0);
     expect(ranklistAfterDiff).toBeTruthy();
   });
 
   it("selectedTemplate bleibt über State-Übergang erhalten (via selectTemplate + userOverride)", async () => {
-    const { view } = mkView();
-    await view.onOpen();
+    const { panel, container } = mkPanel();
     await flush(8);
 
     // Select a non-top template via selectTemplate (simulates user click in ranklist)
-    (view as any).selectTemplate("Templates/Buch.md");
-    expect((view as any).selectedTemplate).toBe("Templates/Buch.md");
+    (panel as any).selectTemplate("Templates/Buch.md");
+    expect((panel as any).selectedTemplate).toBe("Templates/Buch.md");
 
     // Trigger state transition: idle → running → diff
-    first(view.contentEl, "vault-rag-sa-run").click();
+    first(container, "vault-rag-sa-run").click();
     await flush(8);
 
     // After diff state: template selection must still be preserved (userOverride active)
-    expect((view as any).selectedTemplate).toBe("Templates/Buch.md");
+    expect((panel as any).selectedTemplate).toBe("Templates/Buch.md");
   });
 
   // Task 1 — Body-Reflow
   it("Reflow: pro sectionDiff Heading, Block-Zahl und Provenance; leere Sektion gedimmt", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    const reflow = first(view.contentEl, "vault-rag-sa-reflow");
+    const reflow = first(container, "vault-rag-sa-reflow");
     expect(reflow.textContent).toContain("Inhalt");
     expect(reflow.textContent).toContain("1 Block");
     expect(reflow.textContent).toContain("# roh");   // provenance
@@ -479,36 +459,33 @@ describe("SmartApplyView — Cockpit", () => {
   });
 
   it("Übrig nicht leer → Warn-Form (alert-triangle) + gelistete Block-Texte", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    const icon = first(view.contentEl, "vault-rag-sa-leftover-icon").getAttribute("data-icon");
+    const icon = first(container, "vault-rag-sa-leftover-icon").getAttribute("data-icon");
     expect(icon).toBe("alert-triangle");
-    expect(all(view.contentEl, "vault-rag-sa-leftover-item")[0].textContent).toContain("übriger Absatz");
+    expect(all(container, "vault-rag-sa-leftover-item")[0].textContent).toContain("übriger Absatz");
   });
 
   it("Übrig leer → Success-Form (circle-check) ohne Liste", async () => {
-    const { view } = mkView({ build: vi.fn(async () => mkProposal({ unassigned: [] })) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel({ build: vi.fn(async () => mkProposal({ unassigned: [] })) });
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-leftover-icon").getAttribute("data-icon")).toBe("circle-check");
-    expect(all(view.contentEl, "vault-rag-sa-leftover-item").length).toBe(0);
+    expect(first(container, "vault-rag-sa-leftover-icon").getAttribute("data-icon")).toBe("circle-check");
+    expect(all(container, "vault-rag-sa-leftover-item").length).toBe(0);
   });
 
   it("kein Routing (assignment-parse-Fehler) → kein Reflow, kein irreführendes 'nichts verloren'", async () => {
-    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+    const { container } = mkPanel({ build: vi.fn(async () => mkProposal({
       hardOk: false, sectionDiff: [], unassigned: [],
       checks: [{ id: "assignment-parse", ok: false, detail: "kein gültiges JSON" }],
     })) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    expect(all(view.contentEl, "vault-rag-sa-reflow").length).toBe(0);
-    expect(all(view.contentEl, "vault-rag-sa-leftover").length).toBe(0);
+    expect(all(container, "vault-rag-sa-reflow").length).toBe(0);
+    expect(all(container, "vault-rag-sa-leftover").length).toBe(0);
     // Scan-Kopf zeigt den Fehler weiterhin
-    expect(hasClass(first(view.contentEl, "vault-rag-sa-guard"), "is-error")).toBe(true);
+    expect(hasClass(first(container, "vault-rag-sa-guard"), "is-error")).toBe(true);
   });
 
   // Source-cleanliness
@@ -520,141 +497,138 @@ describe("SmartApplyView — Cockpit", () => {
   });
 
   it("setzt nirgends ein inline style-Attribut", async () => {
-    const { view } = mkView();
-    await view.onOpen();
+    const { container } = mkPanel();
     const offenders: string[] = [];
     const walk = (n: any) => {
       const orig = n.setAttribute;
       n.setAttribute = (k: string, v: string) => { if (k === "style") offenders.push(v); return orig?.(k, v); };
       (n.children ?? []).forEach(walk);
     };
-    walk(view.contentEl);
-    first(view.contentEl, "vault-rag-sa-run").click();
+    walk(container);
+    first(container, "vault-rag-sa-run").click();
     await flush();
     expect(offenders).toEqual([]);
   });
 });
 
-describe("SmartApplyView Rangliste", () => {
+describe("SmartApplyPanel Rangliste", () => {
   it("rendert die Rangliste sortiert und wählt die oberste vor", async () => {
-    const { view } = mkView();
-    await view.onOpen();
+    const { panel, container } = mkPanel();
     await flush();
-    const rows = all(view.contentEl, "vault-rag-sa-rank-row");
+    const rows = all(container, "vault-rag-sa-rank-row");
     expect(rows.length).toBe(2);
-    expect((view as any).selectedTemplate).toBe("Templates/Besprechung.md");
+    expect((panel as any).selectedTemplate).toBe("Templates/Besprechung.md");
     expect(hasClass(rows[0], "is-selected")).toBe(true);
   });
 
   it("selectTemplate setzt Auswahl + userOverride und übersteht Recompute ohne Notizwechsel", async () => {
-    const { view } = mkView();
-    await view.onOpen(); await flush();
-    (view as any).selectTemplate("Templates/Buch.md");
-    expect((view as any).selectedTemplate).toBe("Templates/Buch.md");
-    await (view as any).recomputeRanking(false);
-    expect((view as any).selectedTemplate).toBe("Templates/Buch.md");
+    const { panel } = mkPanel();
+    await flush();
+    (panel as any).selectTemplate("Templates/Buch.md");
+    expect((panel as any).selectedTemplate).toBe("Templates/Buch.md");
+    await (panel as any).recomputeRanking(false);
+    expect((panel as any).selectedTemplate).toBe("Templates/Buch.md");
   });
 
   it("Notizwechsel-Recompute setzt Override zurück und wählt die neue Top-Vorlage", async () => {
-    const { view } = mkView();
-    await view.onOpen(); await flush();
-    (view as any).selectTemplate("Templates/Buch.md");
-    await (view as any).recomputeRanking(true);
-    expect((view as any).selectedTemplate).toBe("Templates/Besprechung.md");
+    const { panel } = mkPanel();
+    await flush();
+    (panel as any).selectTemplate("Templates/Buch.md");
+    await (panel as any).recomputeRanking(true);
+    expect((panel as any).selectedTemplate).toBe("Templates/Besprechung.md");
   });
 
   it("offline (alle source=fallback) zeigt einen Offline-Hinweis", async () => {
     const fb: TemplateRank[] = [{ templatePath: "Templates/A.md", type: "A", score: 0, source: "fallback" }];
-    const { view } = mkView({ rankTemplates: vi.fn(async () => fb) });
-    await view.onOpen(); await flush();
-    expect(first(view.contentEl, "vault-rag-sa-rank-note")).toBeTruthy();
+    const { container } = mkPanel({ rankTemplates: vi.fn(async () => fb) });
+    await flush();
+    expect(first(container, "vault-rag-sa-rank-note")).toBeTruthy();
   });
 
-  it("registriert active-leaf-change beim Öffnen", async () => {
-    const app = makeFakeApp();
-    const view = new SmartApplyView({ app } as any, mkDeps());
-    await view.onOpen(); await flush();
-    expect(app.workspace.on).toHaveBeenCalledWith("active-leaf-change", expect.any(Function));
-  });
-
-  it("registriert file-open beim Öffnen (Notizwechsel im selben Tab rankt neu)", async () => {
-    const app = makeFakeApp();
-    const view = new SmartApplyView({ app } as any, mkDeps());
-    await view.onOpen(); await flush();
-    // active-leaf-change feuert NICHT, wenn man eine andere Notiz im selben Leaf öffnet —
-    // dafür ist file-open zuständig. Ohne diese Registrierung bliebe die Rangliste stehen.
-    expect(app.workspace.on).toHaveBeenCalledWith("file-open", expect.any(Function));
-  });
-
-  it("der file-open-Handler löst einen Recompute aus (rankt neu)", async () => {
-    const app = makeFakeApp();
+  // Die Self-Events (active-leaf-change/file-open) sind ersatzlos aus dem Panel entfernt —
+  // der Hub soll sie zentral verdrahten und stattdessen onFileOpen() rufen. Die folgenden Tests
+  // treiben genau diese neue Schnittstelle (onShow/onHide/onFileOpen), statt app.workspace.on
+  // zu inspizieren.
+  it("onFileOpen löst (debounced) einen Recompute aus, wenn das Panel sichtbar ist", async () => {
     const rank = vi.fn(async () => ranksFixture());
-    const view = new SmartApplyView({ app } as any, mkDeps({ rankTemplates: rank }));
-    await view.onOpen(); await flush();
+    const { panel } = mkPanel({ rankTemplates: rank });
+    await flush();
+    panel.onShow();                                // Hub zeigt den Tab als aktiv an
     rank.mockClear();
-    const handler = app.workspace.on.mock.calls.find((c: any[]) => c[0] === "file-open")?.[1];
-    expect(handler).toBeTruthy();
-    handler();                                   // simuliert: neue Notiz geöffnet
-    await new Promise((r) => setTimeout(r, 450)); // Debounce (400ms) ablaufen lassen
+    panel.onFileOpen("Inbox/neu.md");
+    await new Promise((r) => setTimeout(r, 450));   // Debounce (400ms) ablaufen lassen
     await flush();
     expect(rank).toHaveBeenCalled();
   });
 
+  it("onFileOpen bleibt lazy während das Panel versteckt ist (dirty) — onShow holt nach", async () => {
+    const rank = vi.fn(async () => ranksFixture());
+    const { panel } = mkPanel({ rankTemplates: rank });
+    await flush();
+    rank.mockClear();
+    // Panel ist initial nicht sichtbar (Hub hat den Tab noch nicht aktiviert)
+    panel.onFileOpen("Inbox/neu.md");
+    await new Promise((r) => setTimeout(r, 450));
+    await flush();
+    expect(rank).not.toHaveBeenCalled();            // versteckt → kein Recompute
+    panel.onShow();
+    await new Promise((r) => setTimeout(r, 450));
+    await flush();
+    expect(rank).toHaveBeenCalled();                // sichtbar geworden → Nachholen
+  });
+
   it("refreshRanking() rankt sofort neu (z.B. nach Vorlagenpfad-Änderung in den Settings)", async () => {
     const rank = vi.fn(async () => ranksFixture());
-    const { view } = mkView({ rankTemplates: rank });
-    await view.onOpen(); await flush();
+    const { panel } = mkPanel({ rankTemplates: rank });
+    await flush();
     rank.mockClear();
-    view.refreshRanking();
+    panel.refreshRanking();
     await flush();
     expect(rank).toHaveBeenCalled();
   });
 });
 
-describe("SmartApplyView Scan-Kopf", () => {
+describe("SmartApplyPanel Scan-Kopf", () => {
   it("Scan-Kopf: Status mit Form (circle-check) + Text, Vorlage+Detection, Stat-Chips", async () => {
-    const { view } = mkView();   // mkProposal: hardOk, type=📖 Buch, detection=likely, 1 zugeordnet, 1 übrig
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel();   // mkProposal: hardOk, type=📖 Buch, detection=likely, 1 zugeordnet, 1 übrig
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-check");
-    const scan = first(view.contentEl, "vault-rag-sa-guard");
+    expect(first(container, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-check");
+    const scan = first(container, "vault-rag-sa-guard");
     expect(scan.textContent).toContain("Bereit zum Anwenden");
     expect(scan.textContent).toContain("📖 Buch");
     expect(scan.textContent).toContain("automatisch erkannt");  // detection likely
-    const stats = first(view.contentEl, "vault-rag-sa-scan-stats");
+    const stats = first(container, "vault-rag-sa-scan-stats");
     expect(stats.textContent).toContain("1/2");   // 1 von 2 Blöcken zugeordnet
     expect(stats.textContent).toContain("1 übrig");
     expect(stats.textContent).toContain("2 Felder gesetzt");  // type + tags(entfernt) prominent
   });
 
   it("Scan-Kopf bei !hardOk: Form circle-x + gesperrt-Text + Fehl-Checks", async () => {
-    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+    const { container } = mkPanel({ build: vi.fn(async () => mkProposal({
       hardOk: false,
       checks: [{ id: "permutation", ok: false, detail: "block_9 unbekannt" }],
     })) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-x");
-    const scan = first(view.contentEl, "vault-rag-sa-guard");
+    expect(first(container, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-x");
+    const scan = first(container, "vault-rag-sa-guard");
     expect(hasClass(scan, "is-error")).toBe(true);
     expect(all(scan, "vault-rag-sa-guard-fail").length).toBe(1);
   });
 });
 
-describe("SmartApplyView Task 4 — Rohtext on-demand & Diff-Reihenfolge", () => {
+describe("SmartApplyPanel Task 4 — Rohtext on-demand & Diff-Reihenfolge", () => {
   it("Rohtext liegt in einem ausklappbaren <details>, FM steht vor Reflow vor Rohtext", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    const raw = first(view.contentEl, "vault-rag-sa-raw");
+    const raw = first(container, "vault-rag-sa-raw");
     expect(raw.tagName.toLowerCase()).toBe("details");
     expect(first(raw, "vault-rag-sa-orig")).toBeTruthy();
     expect(first(raw, "vault-rag-sa-prop")).toBeTruthy();
     // Reihenfolge im Diff: Frontmatter < Reflow < Rohtext — direkte Kinder des diff-Wrappers
-    const diff = first(view.contentEl, "vault-rag-sa-diff");
+    const diff = first(container, "vault-rag-sa-diff");
     const order = (diff.children as any[]).map((c: any) => String(c.className ?? ""));
     const idx = (cls: string) => order.findIndex((c: string) => c.includes(cls));
     expect(idx("vault-rag-sa-fm")).toBeGreaterThanOrEqual(0);
@@ -663,51 +637,47 @@ describe("SmartApplyView Task 4 — Rohtext on-demand & Diff-Reihenfolge", () =>
   });
 });
 
-describe("SmartApplyView Frontmatter-Entrauschung", () => {
+describe("SmartApplyPanel Frontmatter-Entrauschung", () => {
   it("Frontmatter: gesetzte/geänderte/entfernte Felder prominent, leere+unveränderte im Detail", async () => {
-    const { view } = mkView();   // mkProposal: type=neu(gefüllt), up=unveraendert, tags=entfernt
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel();   // mkProposal: type=neu(gefüllt), up=unveraendert, tags=entfernt
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    const prominent = first(view.contentEl, "vault-rag-sa-fm-set");
+    const prominent = first(container, "vault-rag-sa-fm-set");
     expect(prominent.textContent).toContain("type");      // neu + Wert
     expect(prominent.textContent).toContain("tags");      // entfernt
     expect(prominent.textContent).not.toContain("up");    // unveraendert → nicht prominent
-    const muted = first(view.contentEl, "vault-rag-sa-fm-muted");
+    const muted = first(container, "vault-rag-sa-fm-muted");
     expect(muted.textContent).toContain("up");            // unveraendert → Detail
   });
 
   it("Frontmatter: neues aber leeres Feld landet im Detail, nicht prominent", async () => {
-    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+    const { container } = mkPanel({ build: vi.fn(async () => mkProposal({
       fmRows: [
         { key: "type", original: undefined, proposed: "📖 Buch", change: "neu" },
         { key: "datum", original: undefined, proposed: "", change: "neu" },
       ],
     })) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    expect(first(view.contentEl, "vault-rag-sa-fm-set").textContent).toContain("type");
-    expect(first(view.contentEl, "vault-rag-sa-fm-set").textContent).not.toContain("datum");
-    expect(first(view.contentEl, "vault-rag-sa-fm-muted").textContent).toContain("datum");
+    expect(first(container, "vault-rag-sa-fm-set").textContent).toContain("type");
+    expect(first(container, "vault-rag-sa-fm-set").textContent).not.toContain("datum");
+    expect(first(container, "vault-rag-sa-fm-muted").textContent).toContain("datum");
   });
 
   it("alle Felder unverändert → kein leeres vault-rag-sa-fm-set", async () => {
-    const { view } = mkView({ build: vi.fn(async () => mkProposal({
+    const { container } = mkPanel({ build: vi.fn(async () => mkProposal({
       fmRows: [{ key: "up", original: "[[A]]", proposed: "[[A]]", change: "unveraendert" }],
     })) });
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    expect(all(view.contentEl, "vault-rag-sa-fm-set").length).toBe(0);
+    expect(all(container, "vault-rag-sa-fm-set").length).toBe(0);
   });
 
   it("Spalten-Header Original/Vorschlag über den gesetzten Feldern", async () => {
-    const { view } = mkView();
-    await view.onOpen();
-    first(view.contentEl, "vault-rag-sa-run").click();
+    const { container } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
     await flush();
-    const head = first(view.contentEl, "vault-rag-sa-fm-head");
+    const head = first(container, "vault-rag-sa-fm-head");
     expect(head.textContent).toContain("Original");
     expect(head.textContent).toContain("Vorschlag");
   });

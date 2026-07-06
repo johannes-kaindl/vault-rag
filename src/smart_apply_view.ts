@@ -1,8 +1,9 @@
-import { ItemView, WorkspaceLeaf, setIcon, Notice } from "obsidian";
+import { setIcon, Notice } from "obsidian";
 import type { FmValue, FmChange, FmRow } from "./frontmatter";
 import type { ApplyProposal, ApplyResult } from "./smart_apply";
 import type { TemplateRank } from "./template_ranker";
 import { isAlwaysOnThinker } from "./reasoning";
+import type { HubPanel, TabId } from "./hub_panel";
 
 // Re-export for consumers (e.g. tests) that import from this module
 export type { ApplyProposal, ApplyResult, SectionDiff } from "./smart_apply";
@@ -38,9 +39,16 @@ const CHANGE_ICON: Record<FmChange, string> = {
   entfernt: "trash-2",
 };
 
-// ── SmartApplyView (persistent cockpit) ─────────────────────────────────────────
+// ── SmartApplyPanel (persistent cockpit) ─────────────────────────────────────────
 
-export class SmartApplyView extends ItemView {
+export class SmartApplyPanel implements HubPanel {
+  readonly id: TabId = "smart-apply";
+  readonly label = "Smart Apply";
+  readonly icon = "wand-2";
+  private container!: HTMLElement;
+  private visible = false;
+  private dirty = false;
+
   // State machine
   private state: CockpitState = "idle";
   private proposal: ApplyProposal | null = null;
@@ -75,29 +83,39 @@ export class SmartApplyView extends ItemView {
   private workStart = 0;
   private accepting = false;
 
-  constructor(leaf: WorkspaceLeaf, private deps: SmartApplyViewDeps) {
-    super(leaf);
+  constructor(private deps: SmartApplyViewDeps) {}
+
+  mount(container: HTMLElement): void {
+    this.container = container;
+    this.container.addClass("vault-rag-sa-root");
+    this.render();
+    void this.initAsync();
   }
 
-  getViewType(): string { return VIEW_TYPE_SMART_APPLY; }
-  getDisplayText(): string { return "Smart Apply"; }
-  getIcon(): string { return "wand-2"; }
-
-  async onOpen(): Promise<void> {
-    this.contentEl.addClass("vault-rag-sa-root");
-    this.render();
+  private async initAsync(): Promise<void> {
     await this.refreshModels();
     await this.refreshConn();
     await this.recomputeRanking();
-    // Beide Events nötig: active-leaf-change beim Wechsel zwischen Tabs/Panes, file-open beim
-    // Öffnen einer anderen Notiz im selben Tab (dort feuert active-leaf-change nicht).
-    // Der Debounce in scheduleRecompute dedupliziert, wenn beide gemeinsam feuern.
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.scheduleRecompute()));
-    this.registerEvent(this.app.workspace.on("file-open", () => this.scheduleRecompute()));
   }
 
-  async onClose(): Promise<void> {
-    this.contentEl.removeClass("vault-rag-sa-root");
+  /** Tab wird sichtbar — kontextsensitiv: holt einen ausstehenden Recompute nach. */
+  onShow(): void {
+    this.visible = true;
+    if (this.dirty) { this.scheduleRecompute(); this.dirty = false; }
+  }
+
+  /** Tab wird versteckt. */
+  onHide(): void {
+    this.visible = false;
+  }
+
+  /** Aktive Notiz gewechselt (zentral vom Hub gerufen, ersetzt die früher selbst-registrierten
+   *  active-leaf-change/file-open-Events). Nur wenn sichtbar sofort ranken, sonst dirty merken. */
+  onFileOpen(_path: string | null): void {
+    if (this.visible) { this.scheduleRecompute(); this.dirty = false; } else { this.dirty = true; }
+  }
+
+  destroy(): void {
     this.stopTimer();
     if (this.rankTimer !== null) { window.clearTimeout(this.rankTimer); this.rankTimer = null; }
   }
@@ -105,7 +123,7 @@ export class SmartApplyView extends ItemView {
   // ── Render ────────────────────────────────────────────────────────────────
 
   private render(): void {
-    const c = this.contentEl;
+    const c = this.container;
     c.empty();
     // Re-build resets transient element refs (no leaks across re-renders).
     this.streamPaneEl = null;

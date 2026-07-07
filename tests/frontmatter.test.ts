@@ -108,6 +108,30 @@ describe("mergeFrontmatter", () => {
   });
 });
 
+describe("mergeFrontmatter inferred + audit", () => {
+  const orig = parseFrontmatter(`---\n---\nBody`);
+  const keys = ["bereich", "status"];
+  const defaults = { bereich: "", status: "Entwurf" };
+  const llm: Record<string, FmAssignedValue> = { bereich: { source: "inferred", value: "System", confidence: "mittel" } };
+  it("ohne Auswahl bleibt inferred draußen (Default)", () => {
+    const m = mergeFrontmatter(keys, defaults, orig, llm);
+    expect(m.data.bereich).toBe(""); // fällt auf leer/Default
+  });
+  it("mit Auswahl wird inferred eingesetzt", () => {
+    const m = mergeFrontmatter(keys, defaults, orig, llm, { acceptInferred: new Set(["bereich"]) });
+    expect(m.data.bereich).toBe("System");
+  });
+  it("auditTrail setzt smartapply_erschlossen-Liste", () => {
+    const m = mergeFrontmatter(keys, defaults, orig, llm, { acceptInferred: new Set(["bereich"]), auditTrail: true });
+    expect(m.data.smartapply_erschlossen).toEqual(["bereich"]);
+    expect(m.order).toContain("smartapply_erschlossen");
+  });
+  it("auditTrail ohne akzeptierte inferred setzt KEIN Feld", () => {
+    const m = mergeFrontmatter(keys, defaults, orig, llm, { acceptInferred: new Set(), auditTrail: true });
+    expect(m.data).not.toHaveProperty("smartapply_erschlossen");
+  });
+});
+
 describe("diffFrontmatter", () => {
   it("klassifiziert unveraendert/geaendert/neu/entfernt", () => {
     const original: ParsedFrontmatter = {

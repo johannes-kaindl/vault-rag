@@ -140,6 +140,19 @@ function isAssignmentShape(v: unknown): v is Assignment {
   return true;
 }
 
+/** Filtert wohlgeformte Addition-Items aus einem beliebigen JSON-Wert; malformte Einträge werden gedroppt. */
+function coerceAdditions(v: unknown): Addition[] {
+  if (!Array.isArray(v)) return [];
+  const out: Addition[] = [];
+  for (const item of v) {
+    if (typeof item !== "object" || item === null) continue;
+    const o = item as Record<string, unknown>;
+    if (typeof o.id !== "string" || typeof o.targetHeading !== "string" || typeof o.text !== "string") continue;
+    out.push({ id: o.id, targetHeading: o.targetHeading, text: o.text, confidence: parseConfidence(o.confidence) });
+  }
+  return out;
+}
+
 /** Erstes balanciert geklammertes {...}-Objekt aus einem Text ziehen (Fences/Prosa-tolerant). */
 function extractFirstObject(text: string): string | null {
   const start = text.indexOf("{");
@@ -174,7 +187,17 @@ export function parseAssignment(raw: string): Assignment | null {
   } catch {
     return null;
   }
-  return isAssignmentShape(parsed) ? parsed : null;
+  if (!isAssignmentShape(parsed)) return null;
+  const shaped = parsed as Assignment;
+  const additions = coerceAdditions(shaped.additions);
+  // inferred-confidence normalisieren (source darf jetzt "inferred" sein)
+  const fm: Record<string, FmAssignedValue> = {};
+  for (const [k, val] of Object.entries(shaped.frontmatter)) {
+    fm[k] = val.source === "inferred"
+      ? { source: "inferred", value: val.value, confidence: parseConfidence((val as { confidence?: unknown }).confidence) }
+      : val;
+  }
+  return { ...shaped, additions: additions.length > 0 ? additions : undefined, frontmatter: fm };
 }
 
 // ── reconcileAssignment ──────────────────────────────────────────────────────

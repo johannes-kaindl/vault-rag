@@ -299,6 +299,28 @@ describe("parseAssignment", () => {
   });
 });
 
+describe("parseAssignment Schema v2", () => {
+  it("v1 ohne additions bleibt gültig", () => {
+    const a = parseAssignment(`{"version":1,"sections":[{"heading":"H","blocks":["block_0"]}],"unassigned":[],"frontmatter":{}}`);
+    expect(a).not.toBeNull();
+    expect(a!.additions).toBeUndefined();
+  });
+  it("v2 mit additions + inferred-FM parst und normalisiert confidence", () => {
+    const raw = `{"version":2,"sections":[],"unassigned":["block_0"],"additions":[{"id":"add_0","targetHeading":"H","text":"Ergänzt.","confidence":"HIGH"}],"frontmatter":{"bereich":{"source":"inferred","value":"System","confidence":"mittel"}}}`;
+    const a = parseAssignment(raw);
+    expect(a).not.toBeNull();
+    expect(a!.additions).toHaveLength(1);
+    expect(a!.additions![0]).toMatchObject({ id: "add_0", targetHeading: "H", text: "Ergänzt.", confidence: "hoch" });
+    expect(a!.frontmatter.bereich).toMatchObject({ source: "inferred", value: "System", confidence: "mittel" });
+  });
+  it("verwirft additions mit fehlenden Feldern (ganze Antwort bleibt gültig, addition gedroppt)", () => {
+    const raw = `{"version":2,"sections":[],"unassigned":[],"additions":[{"id":"add_0","text":"kein targetHeading"}],"frontmatter":{}}`;
+    const a = parseAssignment(raw);
+    expect(a).not.toBeNull();
+    expect(a!.additions ?? []).toHaveLength(0);
+  });
+});
+
 describe("buildRestructurePrompt", () => {
   const tpl = spec(["Setup", "Ablauf"]);
   const blocks: SourceBlock[] = [

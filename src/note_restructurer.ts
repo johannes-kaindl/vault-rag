@@ -1,6 +1,20 @@
-import type { FmAssignedValue } from "./frontmatter";
+import type { FmAssignedValue, Confidence } from "./frontmatter";
 import type { ChatMessage } from "./chat_client";
 import type { TemplateSpec } from "./template_matcher";
+
+export type { Confidence } from "./frontmatter";
+export type ApplyMode = "deterministisch" | "additiv" | "transformativ";
+export interface Addition { id: string; targetHeading: string; text: string; confidence: Confidence }
+
+const CONF_MAP: Record<string, Confidence> = {
+  hoch: "hoch", high: "hoch",
+  mittel: "mittel", medium: "mittel", mid: "mittel",
+  niedrig: "niedrig", low: "niedrig",
+};
+export function parseConfidence(raw: unknown): Confidence {
+  if (typeof raw !== "string") return "niedrig";
+  return CONF_MAP[raw.trim().toLowerCase()] ?? "niedrig";
+}
 
 export interface SourceBlock { id: string; text: string }
 
@@ -8,10 +22,11 @@ export interface Assignment {
   version: number;
   sections: { heading: string; blocks: string[] }[];
   unassigned: string[];
+  additions?: Addition[];
   frontmatter: Record<string, FmAssignedValue>;
 }
 
-export type CheckId = "assignment-parse" | "permutation" | "fm-roundtrip" | "fm-source" | "assemble";
+export type CheckId = "assignment-parse" | "permutation" | "fm-roundtrip" | "fm-source" | "assemble" | "additions-target";
 export interface CheckResult { id: CheckId; ok: boolean; detail?: string }
 
 // ── splitBlocks ──────────────────────────────────────────────────────────────
@@ -79,9 +94,35 @@ export const EMPTY_SECTION_SENTINEL = "(noch leer)";
 // Edge: if a template heading is literally "Übrig", that section and this catch-all will both appear. Unlikely; not engineered against.
 export const UEBRIG_HEADING = "## Übrig";
 
-export function assembleBody(tpl: TemplateSpec, a: Assignment, blocks: SourceBlock[]): string {
+/**
+ * Splits `additions` into those whose targetHeading matches a real tpl.sections[].heading
+ * (kept) and the rest (dropped).
+ */
+export function reconcileAdditions(tpl: TemplateSpec, additions: Addition[]): { kept: Addition[]; dropped: Addition[] } {
+  const tplHeadings = new Set(tpl.sections.map(s => s.heading));
+  const kept: Addition[] = [];
+  const dropped: Addition[] = [];
+  for (const add of additions) {
+    (tplHeadings.has(add.targetHeading) ? kept : dropped).push(add);
+  }
+  return { kept, dropped };
+}
+
+export function assembleBody(
+  tpl: TemplateSpec,
+  a: Assignment,
+  blocks: SourceBlock[],
+  additions: Addition[] = [],
+  auditTrail = false,
+): string {
   const byId = new Map(blocks.map(b => [b.id, b.text]));
   const assignedFor = new Map(a.sections.map(s => [s.heading, s.blocks]));
+  const additionsFor = new Map<string, Addition[]>();
+  for (const add of additions) {
+    const list = additionsFor.get(add.targetHeading) ?? [];
+    list.push(add);
+    additionsFor.set(add.targetHeading, list);
+  }
   const parts: string[] = [];
   for (const sec of tpl.sections) {
     const hashes = "#".repeat(sec.level);
@@ -92,7 +133,11 @@ export function assembleBody(tpl: TemplateSpec, a: Assignment, blocks: SourceBlo
       const unknownIds = ids.filter(id => !byId.has(id));
       throw new Error(`assembleBody: unbekannte Block-IDs: ${unknownIds.join(", ")}`);
     }
-    parts.push(texts.length > 0 ? texts.join("\n\n") : EMPTY_SECTION_SENTINEL);
+    const additionTexts = (additionsFor.get(sec.heading) ?? []).map(add =>
+      auditTrail ? `${add.text} %%erschlossen: ${add.confidence}%%` : add.text,
+    );
+    const allTexts = [...texts, ...additionTexts];
+    parts.push(allTexts.length > 0 ? allTexts.join("\n\n") : EMPTY_SECTION_SENTINEL);
   }
   if (a.unassigned.length > 0) {
     parts.push(UEBRIG_HEADING);
@@ -123,6 +168,19 @@ function isAssignmentShape(v: unknown): v is Assignment {
   if (!Array.isArray(o.unassigned) || !o.unassigned.every(b => typeof b === "string")) return false;
   if (typeof o.frontmatter !== "object" || o.frontmatter === null) return false;
   return true;
+}
+
+/** Filtert wohlgeformte Addition-Items aus einem beliebigen JSON-Wert; malformte Einträge werden gedroppt. */
+function coerceAdditions(v: unknown): Addition[] {
+  if (!Array.isArray(v)) return [];
+  const out: Addition[] = [];
+  for (const item of v) {
+    if (typeof item !== "object" || item === null) continue;
+    const o = item as Record<string, unknown>;
+    if (typeof o.id !== "string" || typeof o.targetHeading !== "string" || typeof o.text !== "string") continue;
+    out.push({ id: o.id, targetHeading: o.targetHeading, text: o.text, confidence: parseConfidence(o.confidence) });
+  }
+  return out;
 }
 
 /** Erstes balanciert geklammertes {...}-Objekt aus einem Text ziehen (Fences/Prosa-tolerant). */
@@ -159,7 +217,17 @@ export function parseAssignment(raw: string): Assignment | null {
   } catch {
     return null;
   }
-  return isAssignmentShape(parsed) ? parsed : null;
+  if (!isAssignmentShape(parsed)) return null;
+  const shaped = parsed;
+  const additions = coerceAdditions(shaped.additions);
+  // inferred-confidence normalisieren (source darf jetzt "inferred" sein)
+  const fm: Record<string, FmAssignedValue> = {};
+  for (const [k, val] of Object.entries(shaped.frontmatter)) {
+    fm[k] = val.source === "inferred"
+      ? { source: "inferred", value: val.value, confidence: parseConfidence((val as { confidence?: unknown }).confidence) }
+      : val;
+  }
+  return { ...shaped, additions: additions.length > 0 ? additions : undefined, frontmatter: fm };
 }
 
 // ── reconcileAssignment ──────────────────────────────────────────────────────
@@ -208,6 +276,12 @@ export const ANTI_FABRICATION = [
   "Du gibst AUSSCHLIESSLICH ein einzelnes JSON-Objekt zurück, keinen Fließtext, keine Erklärung.",
 ].join(" ");
 
+export const ADDITIV_INSTRUCTION = [
+  "Du darfst Original-Blöcke nicht umschreiben, kürzen oder zusammenfassen — sie werden byte-genau übernommen; du ordnest sie nur zu (wie im deterministischen Modus).",
+  "Zusätzlich DARFST du: (a) neue Ergänzungsblöcke unter eine bestehende Template-Überschrift setzen (Feld `additions`), z.B. eine kurze Zusammenfassung oder eine erschlossene Kontextangabe; (b) Frontmatter-Werte erschließen, auch wenn sie nicht wörtlich im Text stehen (`source: \"inferred\"`).",
+  "Jede Ergänzung und jeder erschlossene Wert MUSS eine ehrliche Selbst-Konfidenz tragen: \"hoch\", \"mittel\" oder \"niedrig\". Ergänze nur, was fundiert ableitbar ist; im Zweifel \"niedrig\" oder weglassen. Erfinde keine Fakten.",
+].join(" ");
+
 /** Vorlagen-Beispielwert als String (Selbst-Dokumentation, nie Inhalt). Leer → "". */
 function fmExample(v: unknown): string {
   if (v === undefined || v === null) return "";
@@ -216,7 +290,11 @@ function fmExample(v: unknown): string {
   return "";
 }
 
-export function buildRestructurePrompt(tpl: TemplateSpec, blocks: SourceBlock[]): ChatMessage[] {
+export function buildRestructurePrompt(
+  tpl: TemplateSpec,
+  blocks: SourceBlock[],
+  mode: ApplyMode = "deterministisch",
+): ChatMessage[] {
   const numbered = blocks.map(b => `${b.id}:\n${b.text}`).join("\n\n");
   const headings = tpl.sections.map(s => s.heading).join(", ");
 
@@ -235,16 +313,7 @@ export function buildRestructurePrompt(tpl: TemplateSpec, blocks: SourceBlock[])
     })
     .join("\n");
 
-  const system = [
-    "Du bist ein strukturierender Assistent für Obsidian-Notizen.",
-    ANTI_FABRICATION,
-    "Die `Anleitung:`-Zeilen und `(Beispiel: …)`-Angaben der Vorlage sind VORGABEN — sie sagen dir, welche Original-Blöcke unter welche Überschrift gehören und was in ein Frontmatter-Feld passt. Sie sind KEIN zuzuordnender Inhalt; übernimm ihren Text niemals in den Output.",
-    'Schema: { "version": 1, "sections": [{ "heading": "<Überschrift>", "blocks": ["block_3"] }],',
-    '"unassigned": ["block_7"], "frontmatter": { "<key>": { "source": "content"|"empty", "value": "<wert>" } } }',
-    'Frontmatter mit source="content" muss wörtlich aus den Blöcken stammen; sonst source="empty".',
-  ].join("\n");
-
-  const user = [
+  const userCommon = [
     "## Vorlagen-Struktur (Überschriften + Anleitung)",
     sectionLines,
     "",
@@ -256,9 +325,35 @@ export function buildRestructurePrompt(tpl: TemplateSpec, blocks: SourceBlock[])
     "## Original-Body in nummerierten Blöcken",
     numbered,
     "",
+  ];
+
+  if (mode === "additiv") {
+    const system = [
+      "Du bist ein strukturierender Assistent für Obsidian-Notizen.",
+      ADDITIV_INSTRUCTION,
+      "Die `Anleitung:`-Zeilen und `(Beispiel: …)`-Angaben der Vorlage sind VORGABEN — sie sagen dir, welche Original-Blöcke unter welche Überschrift gehören und was in ein Frontmatter-Feld passt. Sie sind KEIN zuzuordnender Inhalt; übernimm ihren Text niemals in den Output.",
+      'Schema (additiv): { "version": 2, "sections": [...], "unassigned": [...], "additions": [{ "id": "add_0", "targetHeading": "<bestehende Überschrift>", "text": "<neuer Text>", "confidence": "hoch"|"mittel"|"niedrig" }], "frontmatter": { "<key>": { "source": "content"|"inferred"|"empty", "value": "<wert>", "confidence": "hoch"|"mittel"|"niedrig" } } }',
+      'Frontmatter mit source="content" muss wörtlich aus den Blöcken stammen; source="inferred" ist nach bestem Wissen erschlossen, mit Konfidenz; sonst source="empty".',
+    ].join("\n");
+
+    const user = [...userCommon, ADDITIV_INSTRUCTION, "Antworte AUSSCHLIESSLICH mit dem JSON-Objekt."].join("\n");
+
+    return [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ];
+  }
+
+  const system = [
+    "Du bist ein strukturierender Assistent für Obsidian-Notizen.",
     ANTI_FABRICATION,
-    "Antworte AUSSCHLIESSLICH mit dem JSON-Objekt.",
+    "Die `Anleitung:`-Zeilen und `(Beispiel: …)`-Angaben der Vorlage sind VORGABEN — sie sagen dir, welche Original-Blöcke unter welche Überschrift gehören und was in ein Frontmatter-Feld passt. Sie sind KEIN zuzuordnender Inhalt; übernimm ihren Text niemals in den Output.",
+    'Schema: { "version": 1, "sections": [{ "heading": "<Überschrift>", "blocks": ["block_3"] }],',
+    '"unassigned": ["block_7"], "frontmatter": { "<key>": { "source": "content"|"empty", "value": "<wert>" } } }',
+    'Frontmatter mit source="content" muss wörtlich aus den Blöcken stammen; sonst source="empty".',
   ].join("\n");
+
+  const user = [...userCommon, ANTI_FABRICATION, "Antworte AUSSCHLIESSLICH mit dem JSON-Objekt."].join("\n");
 
   return [
     { role: "system", content: system },

@@ -6,22 +6,29 @@ import {
   diffFrontmatter,
   assertParseable,
   FmRow,
+  ParsedFrontmatter,
+  FmAssignedValue,
 } from "./frontmatter";
 import {
   parseTemplate,
   detectType,
   SuggestionSource,
   TypeSuggestion,
+  TemplateSpec,
 } from "./template_matcher";
 import {
   splitBlocks,
   buildRestructurePrompt,
   parseAssignment,
   reconcileAssignment,
+  reconcileAdditions,
   permutationCheck,
   assembleBody,
   CheckResult,
   SourceBlock,
+  Addition,
+  Assignment,
+  ApplyMode,
 } from "./note_restructurer";
 import type { ChatClient } from "./chat_client";
 
@@ -63,12 +70,70 @@ export interface ApplyProposal {
   checks: CheckResult[];
   hardOk: boolean;
   reasoning: string;
+  mode: ApplyMode;
+  additions: Addition[];
+  assembly: AssemblyContext;
+  selection: ApplySelection;
 }
 
 export interface ApplyResult {
   written: boolean;
   reason?: "stale" | "blocked";
   undo?: () => Promise<void>;
+  /** Re-applies exactly the text that was written (the final selection + auditTrail), NOT the
+   *  preview proposal.proposedText — lets the UI toggle Undo ↔ Redo after an apply. */
+  redo?: () => Promise<void>;
+}
+
+// ── Non-deterministic mode: granular re-assembly ──────────────────────────────
+
+export interface ApplySelection { inferredKeys: Set<string>; additionIds: Set<string> }
+
+/** The building blocks a proposal carries so the text can be rebuilt without another LLM call. */
+export interface AssemblyContext {
+  tpl: TemplateSpec;
+  original: ParsedFrontmatter;
+  assignment: Assignment;
+  blocks: SourceBlock[];
+  additions: Addition[];
+}
+
+/**
+ * Default granular selection: every inferred frontmatter key and every addition whose
+ * confidence !== "niedrig" (hoch+mittel ON, niedrig OFF).
+ */
+export function defaultSelection(ctx: AssemblyContext): ApplySelection {
+  const inferredKeys = new Set<string>();
+  for (const [key, entry] of Object.entries(ctx.assignment.frontmatter)) {
+    if (entry.source === "inferred" && entry.confidence !== "niedrig") {
+      inferredKeys.add(key);
+    }
+  }
+  const additionIds = new Set<string>();
+  for (const add of ctx.additions) {
+    if (add.confidence !== "niedrig") additionIds.add(add.id);
+  }
+  return { inferredKeys, additionIds };
+}
+
+/**
+ * Pure re-assembler: rebuilds the proposed note text from a granular selection, without
+ * another LLM call. Composes mergeFrontmatter → serializeFrontmatter + assembleBody.
+ */
+export function assembleProposedText(ctx: AssemblyContext, sel: ApplySelection, auditTrail: boolean): string {
+  const merged = mergeFrontmatter(ctx.tpl.keys, ctx.tpl.fmDefaults, ctx.original, ctx.assignment.frontmatter, {
+    acceptInferred: sel.inferredKeys,
+    auditTrail,
+  });
+  const fmText = serializeFrontmatter(merged.data, merged.order);
+  const body = assembleBody(
+    ctx.tpl,
+    ctx.assignment,
+    ctx.blocks,
+    ctx.additions.filter((a) => sel.additionIds.has(a.id)),
+    auditTrail,
+  );
+  return fmText + body;
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -113,6 +178,7 @@ export class SmartApply {
   async propose(
     notePath: string,
     templatePath: string,
+    mode: ApplyMode,
     onToken: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
@@ -141,7 +207,7 @@ export class SmartApply {
     const blocks = splitBlocks(originalParsed.body);
 
     // Step 6: build prompt
-    const messages = buildRestructurePrompt(tpl, blocks);
+    const messages = buildRestructurePrompt(tpl, blocks, mode);
 
     // Step 7: stream — exactly ONE stream call
     const p = this.params();
@@ -161,6 +227,8 @@ export class SmartApply {
       const checks: CheckResult[] = [
         { id: "assignment-parse", ok: false, detail: "LLM-Antwort enthält kein gültiges Assignment-JSON" },
       ];
+      const emptyAssignment: Assignment = { version: 1, sections: [], unassigned: [], frontmatter: {} };
+      const assembly: AssemblyContext = { tpl, original: originalParsed, assignment: emptyAssignment, blocks, additions: [] };
       return {
         notePath,
         templatePath,
@@ -174,6 +242,10 @@ export class SmartApply {
         checks,
         hardOk: false,
         reasoning,
+        mode,
+        additions: [],
+        assembly,
+        selection: defaultSelection(assembly),
       };
     }
 
@@ -185,13 +257,27 @@ export class SmartApply {
     // Step 9: permutation check
     const permCheck = permutationCheck(blocks.map((b) => b.id), reconciled);
 
-    // Step 10: soft check fm-source — gate fabricated values
+    // Step 10: soft check fm-source — gate fabricated values.
+    // Mode gating (Task 8): in "deterministisch" mode, any FM value with source "inferred"
+    // is treated as "content" — so it is subject to the SAME literal-match gate below (this
+    // is today's behavior, generalized to the schema-v2 "inferred" source). In "additiv"
+    // mode, "inferred" values are left as-is (with their confidence) and bypass this gate:
+    // only "content" values must be a literal substring of the note.
     const bodyText = originalParsed.body;
     const existingFmValues = Object.values(originalParsed.data).flat().join(" ");
     const haystack = normalizeStr(bodyText + " " + existingFmValues);
 
+    const preGateFm: Record<string, FmAssignedValue> =
+      mode === "deterministisch"
+        ? Object.fromEntries(
+            Object.entries(reconciled.frontmatter).map(([k, v]) =>
+              v.source === "inferred" ? [k, { source: "content", value: v.value }] : [k, v],
+            ),
+          )
+        : reconciled.frontmatter;
+
     let fmSourceOk = true;
-    const gatedFm = { ...reconciled.frontmatter };
+    const gatedFm = { ...preGateFm };
     for (const key of Object.keys(gatedFm)) {
       const entry = gatedFm[key];
       if (entry.source === "content" && entry.value.trim() !== "") {
@@ -208,6 +294,26 @@ export class SmartApply {
     // Update reconciled assignment with gated values
     const cleanedAssignment = { ...reconciled, frontmatter: gatedFm };
 
+    // Step 10b: mode gating for additions (Task 8). "deterministisch" discards ALL
+    // additions (today's behavior has no concept of additions). "additiv" keeps only
+    // additions whose targetHeading matches a real template section (reconcileAdditions);
+    // any dropped addition is reported via a SOFT "additions-target" check (does not
+    // block hardOk).
+    const rawAdditions = assignment.additions ?? [];
+    let additions: Addition[] = [];
+    let additionsTargetCheck: CheckResult | null = null;
+    if (mode === "additiv") {
+      const { kept, dropped } = reconcileAdditions(tpl, rawAdditions);
+      additions = kept;
+      additionsTargetCheck = {
+        id: "additions-target",
+        ok: dropped.length === 0,
+        ...(dropped.length > 0
+          ? { detail: `verworfene Ergänzungen (unbekannte Überschrift): ${dropped.map((d) => d.targetHeading).join(", ")}` }
+          : {}),
+      };
+    }
+
     // Step 11: merge frontmatter
     const mergedFm = mergeFrontmatter(tpl.keys, tpl.fmDefaults, originalParsed, cleanedAssignment.frontmatter);
 
@@ -223,6 +329,8 @@ export class SmartApply {
         detail: err instanceof Error ? err.message : String(err),
       };
       const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck];
+      if (additionsTargetCheck !== null) checks.push(additionsTargetCheck);
+      const assembly: AssemblyContext = { tpl, original: originalParsed, assignment: cleanedAssignment, blocks, additions };
       return {
         notePath,
         templatePath,
@@ -236,6 +344,10 @@ export class SmartApply {
         checks,
         hardOk: false,
         reasoning,
+        mode,
+        additions,
+        assembly,
+        selection: defaultSelection(assembly),
       };
     }
 
@@ -254,6 +366,19 @@ export class SmartApply {
 
     // Step 15: diff frontmatter
     const fmRows = diffFrontmatter(originalParsed, mergedFm);
+
+    // Step 15b (Task 8): mirror source/confidence onto matching fmRows for keys whose
+    // FINAL (mode-gated) source is "inferred" — only possible in "additiv" mode, since
+    // "deterministisch" already converted all inferred entries to content/empty above.
+    // The base merge above never emits the inferred value itself (no acceptInferred) —
+    // this only annotates the row so the UI can show it as "erschlossen".
+    for (const row of fmRows) {
+      const entry = cleanedAssignment.frontmatter[row.key];
+      if (entry && entry.source === "inferred") {
+        row.source = "inferred";
+        row.confidence = entry.confidence;
+      }
+    }
 
     // Step 16: build sectionDiff — from template sections in template order
     const blockById = new Map(blocks.map((b) => [b.id, b.text]));
@@ -275,19 +400,41 @@ export class SmartApply {
       ? { id: "assemble", ok: false, detail: `assembleBody: ${assembleError}` }
       : null;
     const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck];
+    if (additionsTargetCheck !== null) {
+      checks.push(additionsTargetCheck);
+    }
     if (assembleCheck !== null) {
       checks.push(assembleCheck);
     }
 
-    // Step 18: hardOk — true iff assignment-parse + permutation + fm-roundtrip + assemble all ok
+    // Step 18: hardOk — true iff assignment-parse + permutation + fm-roundtrip + assemble all
+    // ok. "additions-target" is SOFT and never enters this formula (it does not block).
     const hardOk = parseCheck.ok && permCheck.ok && fmRoundtripCheck.ok && (assembleCheck === null || assembleCheck.ok);
+
+    // Step 19: build the AssemblyContext (Task 7 seam) + its default granular selection,
+    // and re-derive proposedText from it — this is now the SOLE source of truth for the
+    // preview text (mode-aware: additions/inferred FM only ever reach it when kept above).
+    // Only attempted when hardOk, matching the previous "else originalText" fallback;
+    // guarded further with try/catch as defense-in-depth (kept additions/valid ids are
+    // already guaranteed above, so this should not throw in practice).
+    const assembly: AssemblyContext = { tpl, original: originalParsed, assignment: cleanedAssignment, blocks, additions };
+    const selection = defaultSelection(assembly);
+    let finalProposedText = originalText;
+    if (hardOk) {
+      try {
+        finalProposedText = assembleProposedText(assembly, selection, false);
+      } catch {
+        // Defensive fallback to the legacy (additions-less) computation — should not trigger.
+        finalProposedText = proposedText;
+      }
+    }
 
     return {
       notePath,
       templatePath,
       type: tpl.type,
       originalText,
-      proposedText: hardOk ? proposedText : originalText,
+      proposedText: finalProposedText,
       fmRows,
       sectionDiff,
       unassigned,
@@ -295,6 +442,10 @@ export class SmartApply {
       checks,
       hardOk,
       reasoning,
+      mode,
+      additions,
+      assembly,
+      selection,
     };
     } finally {
       this.controller = null;
@@ -305,9 +456,12 @@ export class SmartApply {
    * SOLE WRITER. Stale-hash guard: re-reads file, computes djb2 hash, compares to
    * hash of proposal.originalText. Mismatch → {written:false, reason:"stale"}.
    * If !proposal.hardOk → {written:false, reason:"blocked"}.
-   * Else: single write call, return {written:true, undo: () => write(notePath, originalText)}.
+   * Else: build the final text FRESH from the granular selection (never the preview
+   * proposal.proposedText — the user may have deselected inferred keys/additions after
+   * the preview was rendered), then single write call, return
+   * {written:true, undo: () => write(notePath, originalText)}.
    */
-  async persistApply(proposal: ApplyProposal): Promise<ApplyResult> {
+  async persistApply(proposal: ApplyProposal, selection: ApplySelection, auditTrail: boolean): Promise<ApplyResult> {
     if (!proposal.hardOk) {
       return { written: false, reason: "blocked" };
     }
@@ -318,7 +472,8 @@ export class SmartApply {
       return { written: false, reason: "stale" };
     }
 
-    await this.deps.write(proposal.notePath, proposal.proposedText);
+    const finalText = assembleProposedText(proposal.assembly, selection, auditTrail);
+    await this.deps.write(proposal.notePath, finalText);
 
     const originalText = proposal.originalText;
     const notePath = proposal.notePath;
@@ -326,6 +481,7 @@ export class SmartApply {
     return {
       written: true,
       undo: () => this.deps.write(notePath, originalText),
+      redo: () => this.deps.write(notePath, finalText),
     };
   }
 }

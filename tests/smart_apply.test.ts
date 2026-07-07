@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { SmartApply, SmartApplyDeps, SmartApplyParams } from "../src/smart_apply";
+import { SmartApply, SmartApplyDeps, SmartApplyParams, assembleProposedText, defaultSelection, AssemblyContext } from "../src/smart_apply";
 import type { ChatClient } from "../src/chat_client";
 import { parseFrontmatter } from "../src/frontmatter";
 import { splitBlocks } from "../src/note_restructurer";
+import type { Assignment, Addition } from "../src/note_restructurer";
+import { parseTemplate } from "../src/template_matcher";
 
 // ── Test data ────────────────────────────────────────────────────────────────
 
@@ -98,7 +100,7 @@ describe("SmartApply", () => {
       },
     });
     const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
     expect(proposal.proposedText).toContain("## Agenda");
@@ -132,7 +134,7 @@ describe("SmartApply", () => {
       },
     });
     const sa = new SmartApply(deps, makeClient(badAssignment), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(false);
     const permCheck = proposal.checks.find((c) => c.id === "permutation");
@@ -160,7 +162,7 @@ describe("SmartApply", () => {
       },
     });
     const sa = new SmartApply(deps, makeClient(fabricatedAssignment), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // hardOk still true (fm-source is a soft check)
     expect(proposal.hardOk).toBe(true);
@@ -179,7 +181,7 @@ describe("SmartApply", () => {
       },
     });
     const sa = new SmartApply(deps, makeClient("Dies ist kein JSON und kann nicht geparst werden."), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(false);
     const parseCheck = proposal.checks.find((c) => c.id === "assignment-parse");
@@ -211,7 +213,7 @@ describe("SmartApply", () => {
     const sa = new SmartApply(deps, abortingClient, () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
 
     await expect(
-      sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {}, controller.signal),
+      sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {}, controller.signal),
     ).rejects.toThrow();
   });
 
@@ -226,12 +228,12 @@ describe("SmartApply", () => {
       write: writeFn,
     });
     const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // Simulate the file being modified externally
     fileContent = testNoteText + "\n<!-- external edit -->";
 
-    const result = await sa.persistApply(proposal);
+    const result = await sa.persistApply(proposal, proposal.selection, false);
     expect(result.written).toBe(false);
     expect(result.reason).toBe("stale");
     expect(writeFn).not.toHaveBeenCalled();
@@ -247,10 +249,10 @@ describe("SmartApply", () => {
       write: writeFn,
     });
     const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
-    const result = await sa.persistApply(proposal);
+    const result = await sa.persistApply(proposal, proposal.selection, false);
 
     expect(result.written).toBe(true);
     expect(writeFn).toHaveBeenCalledTimes(1);
@@ -267,9 +269,9 @@ describe("SmartApply", () => {
       write: writeFn,
     });
     const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
-    const result = await sa.persistApply(proposal);
+    const result = await sa.persistApply(proposal, proposal.selection, false);
     expect(result.written).toBe(true);
     expect(result.undo).toBeDefined();
 
@@ -293,9 +295,9 @@ describe("SmartApply", () => {
     const sa = new SmartApply(deps, () => makeClient(clientJson)(), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
 
     // First apply
-    const proposal1 = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal1 = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
     expect(proposal1.hardOk).toBe(true);
-    await sa.persistApply(proposal1);
+    await sa.persistApply(proposal1, proposal1.selection, false);
     // Update "stored" content to proposedText
     currentContent = proposal1.proposedText;
 
@@ -325,7 +327,7 @@ describe("SmartApply", () => {
     });
 
     // Second apply — re-run on the already-applied note with correct block IDs
-    const proposal2 = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal2 = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
     expect(proposal2.hardOk).toBe(true);
     const changedRows = proposal2.fmRows.filter((r) => r.change !== "unveraendert");
     expect(changedRows.length).toBe(0);
@@ -339,7 +341,7 @@ describe("SmartApply", () => {
       },
     });
     const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // provenance should be the block text (e.g. "## Agenda"), not "block_0"
     const agendaSection = proposal.sectionDiff.find((s) => s.heading === "Agenda");
@@ -376,7 +378,7 @@ Erste Ergebnisse hier.
       listTemplates: async () => ["Templates/Meeting.md"],
     });
     const sa = new SmartApply(ragDeps, makeClient(validAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // SEAM-VERTRAG (3): RAG path threaded from this.detect()
     expect(proposal.detection.source).toBe("rag");
@@ -411,6 +413,7 @@ Erste Ergebnisse hier.
     await sa.propose(
       NOTE_PATH,
       TEMPLATE_PATH,
+      "deterministisch",
       (t) => tokens.push(t),
       (t) => reasonings.push(t),
     );
@@ -444,7 +447,7 @@ Erste Ergebnisse hier.
       }) as unknown as ChatClient;
 
     const sa = new SmartApply(deps, client, () => ({ model: 'm', temperature: 0.7, suppressThinking: false, maxTokens: 2048 }));
-    await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(capturedOpts?.temperature).toBe(0.7);
   });
@@ -474,7 +477,7 @@ Erste Ergebnisse hier.
 
     const testParams: SmartApplyParams = { model: 'm-fast', temperature: 0.4, suppressThinking: true, maxTokens: 777 };
     const sa = new SmartApply(deps, client, () => testParams);
-    await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(capturedOpts?.model).toBe('m-fast');
     expect(capturedOpts?.temperature).toBe(0.4);
@@ -509,7 +512,7 @@ Erste Ergebnisse hier.
       }) as unknown as ChatClient;
 
     const sa = new SmartApply(deps, client, () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposePromise = sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposePromise = sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
     await streamStarted;
     sa.abort();
 
@@ -538,7 +541,7 @@ Erste Ergebnisse hier.
       },
     });
     const sa = new SmartApply(deps, makeClient(badHeadingAssignment), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // block_3 ("Erste Ergebnisse hier.") must be in unassigned
     expect(proposal.unassigned.map(b => b.id)).toContain("block_3");
@@ -568,7 +571,7 @@ Erste Ergebnisse hier.
       },
     });
     const sa = new SmartApply(deps, makeClient(partialAssignment), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // sectionDiff must have both template sections
     const headings = proposal.sectionDiff.map(s => s.heading);
@@ -623,7 +626,7 @@ Keine bisher.
       listTemplates: async () => ["Templates/Besprechung.md"],
     });
     const sa = new SmartApply(deps, makeClient(assignment), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, "Templates/Besprechung.md", () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, "Templates/Besprechung.md", "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
     // type and status must come from template defaults
@@ -656,7 +659,7 @@ Keine bisher.
       },
     });
     const sa = new SmartApply(deps, makeClient(assignmentWithUnassigned), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
-    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {});
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
     expect(proposal.proposedText).toContain("## Übrig");
@@ -676,8 +679,198 @@ Keine bisher.
     const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
     const preDetection = await sa.detect(NOTE_PATH); // call once explicitly
     detectSpy.mockClear(); // reset call count
-    await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {}, undefined, preDetection);
+    await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {}, undefined, preDetection);
     expect(detectSpy).not.toHaveBeenCalled();
     detectSpy.mockRestore();
+  });
+});
+
+// ── propose(mode) — Gating ──────────────────────────────────────────────────────
+
+describe("propose mode gating", () => {
+  const noop = () => {};
+
+  // v2-Assignment: addition targets "Agenda" (existing template heading); "datum" is
+  // inferred (not literally in testNoteText) with confidence "mittel" (not "niedrig").
+  function gatingAssignmentJSON(): string {
+    return JSON.stringify({
+      version: 2,
+      sections: [
+        { heading: "Agenda", blocks: ["block_0", "block_1"] },
+        { heading: "Ergebnisse", blocks: ["block_2", "block_3"] },
+      ],
+      unassigned: [],
+      additions: [
+        { id: "add_0", targetHeading: "Agenda", text: "Ergänzter Punkt.", confidence: "hoch" },
+      ],
+      frontmatter: {
+        title: { source: "content", value: "Projekt-Kickoff" },
+        datum: { source: "inferred", value: "System", confidence: "mittel" },
+      },
+    });
+  }
+
+  // Template WITHOUT an "Agenda" section — the addition's targetHeading has no match here.
+  const tplWithStrayAdditionText = `---
+type: Meeting
+title:
+datum:
+---
+## Ergebnisse
+
+%% Was dabei herauskam %%
+`;
+  const STRAY_TEMPLATE_PATH = "Templates/StrayAddition.md";
+
+  function makeGatingDeps(templatePath: string, templateText_: string) {
+    return makeDeps({
+      read: async (p) => {
+        if (p === templatePath) return templateText_;
+        return testNoteText;
+      },
+      listTemplates: async () => [templatePath],
+    });
+  }
+
+  it("deterministisch verwirft additions und inferred (Wörtlichkeit erzwungen)", async () => {
+    const deps = makeGatingDeps(TEMPLATE_PATH, templateText);
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", noop, noop);
+
+    expect(p.additions).toHaveLength(0);
+    expect(p.mode).toBe("deterministisch");
+    // inferred-Wert, der nicht wörtlich im Text steht, ist nicht gesetzt:
+    expect(p.proposedText).not.toContain("System");
+  });
+
+  it("additiv behält additions + inferred", async () => {
+    const deps = makeGatingDeps(TEMPLATE_PATH, templateText);
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
+
+    expect(p.additions.length).toBeGreaterThan(0);
+    expect(p.mode).toBe("additiv");
+    // default-selection (mittel) hat den inferred-Wert schon in der Preview:
+    expect(p.proposedText).toContain("System");
+    // Step 6: fmRows tragen source/confidence für inferred-Keys
+    const datumRow = p.fmRows.find((r) => r.key === "datum");
+    expect(datumRow?.source).toBe("inferred");
+    expect(datumRow?.confidence).toBe("mittel");
+  });
+
+  it("additiv droppt addition mit fremder targetHeading → weicher Check, hardOk bleibt true", async () => {
+    const deps = makeGatingDeps(STRAY_TEMPLATE_PATH, tplWithStrayAdditionText);
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const p = await sa.propose(NOTE_PATH, STRAY_TEMPLATE_PATH, "additiv", noop, noop);
+
+    expect(p.checks.find((c) => c.id === "additions-target")?.ok).toBe(false);
+    expect(p.hardOk).toBe(true);
+  });
+
+  it("persistApply schreibt mit finaler Auswahl (nicht der Preview)", async () => {
+    const writeFn = vi.fn();
+    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
+    // Preview (default selection) has the inferred "datum" value ("System") in it:
+    expect(p.proposedText).toContain("System");
+    // Nutzer wählt inferred ab:
+    const res = await sa.persistApply(p, { inferredKeys: new Set(), additionIds: new Set() }, false);
+    expect(res.written).toBe(true);
+    const written = writeFn.mock.calls[0][1] as string;
+    expect(written).not.toContain("System"); // inferred abgewählt → nicht geschrieben
+  });
+
+  it("auditTrail=true schreibt smartapply_erschlossen ins Frontmatter", async () => {
+    const writeFn = vi.fn();
+    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
+    await sa.persistApply(p, { inferredKeys: new Set(["datum"]), additionIds: new Set() }, true);
+    const written = writeFn.mock.calls[0][1] as string;
+    expect(written).toContain("smartapply_erschlossen");
+  });
+
+  it("redo wendet die FINALE Auswahl erneut an (nicht die Default-Preview)", async () => {
+    const writeFn = vi.fn();
+    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
+    // Preview (Default-Auswahl) enthält den erschlossenen Wert "System":
+    expect(p.proposedText).toContain("System");
+    // Nutzer wählt inferred AB → der angewendete Text hat "System" NICHT:
+    const res = await sa.persistApply(p, { inferredKeys: new Set(), additionIds: new Set() }, false);
+    const appliedText = writeFn.mock.calls[0][1] as string;
+    expect(appliedText).not.toContain("System");
+    expect(res.redo).toBeDefined();
+    // redo muss GENAU den angewendeten Text wiederherstellen (die finale Auswahl), nicht die Preview:
+    writeFn.mockClear();
+    await res.redo!();
+    expect(writeFn).toHaveBeenCalledTimes(1);
+    expect(writeFn).toHaveBeenCalledWith(NOTE_PATH, appliedText);
+  });
+});
+
+// ── assembleProposedText / defaultSelection ────────────────────────────────────
+
+describe("assembleProposedText", () => {
+  const assembleTemplateText = `---
+type: Notiz
+bereich:
+---
+## Notizen
+
+%% Beliebige Notizen %%
+`;
+
+  const assembleNoteText = `---
+type: Notiz
+---
+## Notizen
+
+Ein Punkt.
+`;
+
+  function buildCtx(): AssemblyContext {
+    const tpl = parseTemplate(assembleTemplateText);
+    const original = parseFrontmatter(assembleNoteText);
+    const blocks = splitBlocks(original.body);
+    // blocks: block_0 = "## Notizen", block_1 = "Ein Punkt."
+    const assignment: Assignment = {
+      version: 1,
+      sections: [{ heading: "Notizen", blocks: ["block_0", "block_1"] }],
+      unassigned: [],
+      frontmatter: {
+        bereich: { source: "inferred", value: "System", confidence: "mittel" },
+      },
+    };
+    const additions: Addition[] = [
+      { id: "add_0", targetHeading: "Notizen", text: "Erschlossen.", confidence: "niedrig" },
+    ];
+    return { tpl, original, assignment, blocks, additions };
+  }
+
+  const ctx = buildCtx();
+
+  it("defaultSelection nimmt hoch+mittel, lässt niedrig aus", () => {
+    const sel = defaultSelection(ctx);
+    expect(sel.inferredKeys.has("bereich")).toBe(true); // mittel
+    expect(sel.additionIds.has("add_0")).toBe(false); // niedrig
+  });
+
+  it("volle Auswahl bringt inferred-Wert + addition-Text in den Output", () => {
+    const text = assembleProposedText(
+      ctx,
+      { inferredKeys: new Set(["bereich"]), additionIds: new Set(["add_0"]) },
+      false,
+    );
+    expect(text).toContain("System");
+    expect(text).toContain("Erschlossen.");
+  });
+
+  it("leere Auswahl → weder inferred noch addition im Output", () => {
+    const text = assembleProposedText(ctx, { inferredKeys: new Set(), additionIds: new Set() }, false);
+    expect(text).not.toContain("System");
+    expect(text).not.toContain("Erschlossen.");
   });
 });

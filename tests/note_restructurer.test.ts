@@ -6,13 +6,17 @@ import {
   buildRestructurePrompt,
   parseAssignment,
   reconcileAssignment,
+  reconcileAdditions,
   EMPTY_SECTION_SENTINEL,
   UEBRIG_HEADING,
   ANTI_FABRICATION,
   SourceBlock,
   Assignment,
+  Addition,
 } from "../src/note_restructurer";
+import { parseConfidence } from "../src/note_restructurer";
 import type { TemplateSpec, TemplateSection } from "../src/template_matcher";
+import { parseTemplate } from "../src/template_matcher";
 
 function spec(headings: string[]): TemplateSpec {
   const sections: TemplateSection[] = headings.map((h, i) => ({
@@ -203,6 +207,37 @@ describe("assembleBody", () => {
   });
 });
 
+describe("reconcileAdditions", () => {
+  const tpl = parseTemplate(`---\ntype:"X"\n---\n## Kern\n%%a%%\n## Notizen\n%%b%%\n`);
+  it("behält additions mit gültiger targetHeading, droppt fremde", () => {
+    const r = reconcileAdditions(tpl, [
+      { id: "add_0", targetHeading: "Kern", text: "ok", confidence: "hoch" },
+      { id: "add_1", targetHeading: "Erfunden", text: "weg", confidence: "mittel" },
+    ]);
+    expect(r.kept.map(a => a.id)).toEqual(["add_0"]);
+    expect(r.dropped.map(a => a.id)).toEqual(["add_1"]);
+  });
+});
+
+describe("assembleBody mit additions", () => {
+  const tpl = parseTemplate(`---\ntype:"X"\n---\n## Kern\n%%a%%\n## Notizen\n%%b%%\n`);
+  const blocks = splitBlocks("Original A.");
+  const a: Assignment = { version: 2, sections: [{ heading: "Kern", blocks: ["block_0"] }], unassigned: [], frontmatter: {} };
+  const add: Addition = { id: "add_0", targetHeading: "Kern", text: "Erschlossen.", confidence: "mittel" };
+  it("fügt selektierte addition nach dem Original-Block unter Kern ein", () => {
+    const body = assembleBody(tpl, a, blocks, [add], false);
+    expect(body).toContain("Original A.");
+    expect(body.indexOf("Original A.")).toBeLessThan(body.indexOf("Erschlossen."));
+  });
+  it("auditTrail=true hängt %%-Konfidenz-Kommentar an die addition", () => {
+    const body = assembleBody(tpl, a, blocks, [add], true);
+    expect(body).toContain("Erschlossen. %%erschlossen: mittel%%");
+  });
+  it("ohne additions byte-identisch zum deterministischen assembleBody", () => {
+    expect(assembleBody(tpl, a, blocks)).toBe(assembleBody(tpl, a, blocks, [], false));
+  });
+});
+
 describe("assembleBody Inhaltskonservierung (Property)", () => {
   function mulberry32(seed: number): () => number {
     let s = seed >>> 0;
@@ -298,6 +333,28 @@ describe("parseAssignment", () => {
   });
 });
 
+describe("parseAssignment Schema v2", () => {
+  it("v1 ohne additions bleibt gültig", () => {
+    const a = parseAssignment(`{"version":1,"sections":[{"heading":"H","blocks":["block_0"]}],"unassigned":[],"frontmatter":{}}`);
+    expect(a).not.toBeNull();
+    expect(a!.additions).toBeUndefined();
+  });
+  it("v2 mit additions + inferred-FM parst und normalisiert confidence", () => {
+    const raw = `{"version":2,"sections":[],"unassigned":["block_0"],"additions":[{"id":"add_0","targetHeading":"H","text":"Ergänzt.","confidence":"HIGH"}],"frontmatter":{"bereich":{"source":"inferred","value":"System","confidence":"mittel"}}}`;
+    const a = parseAssignment(raw);
+    expect(a).not.toBeNull();
+    expect(a!.additions).toHaveLength(1);
+    expect(a!.additions![0]).toMatchObject({ id: "add_0", targetHeading: "H", text: "Ergänzt.", confidence: "hoch" });
+    expect(a!.frontmatter.bereich).toMatchObject({ source: "inferred", value: "System", confidence: "mittel" });
+  });
+  it("verwirft additions mit fehlenden Feldern (ganze Antwort bleibt gültig, addition gedroppt)", () => {
+    const raw = `{"version":2,"sections":[],"unassigned":[],"additions":[{"id":"add_0","text":"kein targetHeading"}],"frontmatter":{}}`;
+    const a = parseAssignment(raw);
+    expect(a).not.toBeNull();
+    expect(a!.additions ?? []).toHaveLength(0);
+  });
+});
+
 describe("buildRestructurePrompt", () => {
   const tpl = spec(["Setup", "Ablauf"]);
   const blocks: SourceBlock[] = [
@@ -332,6 +389,27 @@ describe("buildRestructurePrompt", () => {
     // in der system-Nachricht UND in der user-Nachricht: exakter ANTI_FABRICATION-String
     expect(sys).toContain(ANTI_FABRICATION);
     expect(user).toContain(ANTI_FABRICATION);
+  });
+});
+
+describe("buildRestructurePrompt mode", () => {
+  const tpl = parseTemplate(`---\ntype: "📝 Notiz"\nbereich:   # Lebensbereich.\n---\n## Kern\n%% Kernaussage. %%\n`);
+  const blocks = splitBlocks("Ein Satz.");
+  it("deterministisch ist byte-identisch zu ohne mode", () => {
+    expect(buildRestructurePrompt(tpl, blocks, "deterministisch")).toEqual(buildRestructurePrompt(tpl, blocks));
+  });
+  it("deterministisch enthält weiterhin das strikte Anti-Fabrikations-Gebot", () => {
+    const sys = buildRestructurePrompt(tpl, blocks)[0].content;
+    expect(sys).toContain("KEINEN Text erfinden");
+  });
+  it("additiv erlaubt additions + inferred + verlangt Konfidenz", () => {
+    const msgs = buildRestructurePrompt(tpl, blocks, "additiv");
+    const sys = msgs[0].content;
+    expect(sys).toContain("additions");
+    expect(sys).toMatch(/inferred/);
+    expect(sys).toMatch(/[Kk]onfidenz/);
+    // Original-Blöcke bleiben unantastbar:
+    expect(sys).toMatch(/Original-Blöcke.*(nicht|niemals).*(umschreiben|verändern)/s);
   });
 });
 
@@ -454,5 +532,23 @@ describe("reconcileAssignment", () => {
     const r = reconcileAssignment(tpl, a);
     expect(r.version).toBe(2);
     expect(r.frontmatter).toEqual(a.frontmatter);
+  });
+});
+
+describe("parseConfidence", () => {
+  it("erkennt die drei deutschen Stufen", () => {
+    expect(parseConfidence("hoch")).toBe("hoch");
+    expect(parseConfidence("mittel")).toBe("mittel");
+    expect(parseConfidence("niedrig")).toBe("niedrig");
+  });
+  it("normalisiert englische Labels + Groß/Klein/Whitespace", () => {
+    expect(parseConfidence(" High ")).toBe("hoch");
+    expect(parseConfidence("MEDIUM")).toBe("mittel");
+    expect(parseConfidence("low")).toBe("niedrig");
+  });
+  it("fällt bei Unbekanntem/Fehlendem konservativ auf niedrig", () => {
+    expect(parseConfidence("banane")).toBe("niedrig");
+    expect(parseConfidence(undefined)).toBe("niedrig");
+    expect(parseConfidence(42)).toBe("niedrig");
   });
 });

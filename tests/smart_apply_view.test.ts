@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { SmartApplyPanel, VIEW_TYPE_SMART_APPLY, SmartApplyViewDeps } from "../src/smart_apply_view";
 import type { ApplyProposal, ApplyResult } from "../src/smart_apply_view";
+import type { AssemblyContext } from "../src/smart_apply";
+import { assembleProposedText, defaultSelection } from "../src/smart_apply";
 import type { TemplateRank } from "../src/template_ranker";
+import type { ApplyMode } from "../src/note_restructurer";
 import { makeFakeEl } from "./__mocks__/obsidian";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -26,6 +29,20 @@ async function flush(n = 20): Promise<void> {
   for (let i = 0; i < n; i++) await Promise.resolve();
 }
 
+/** Minimaler, aber gültiger AssemblyContext — reicht für defaultSelection()/assembleProposedText()
+ *  ohne echtes Template/Blocks. Tests, die konkrete inferred-Werte/additions prüfen wollen,
+ *  überschreiben `assignment`/`additions` gezielt via `over`. */
+function mkAssembly(over: Partial<AssemblyContext> = {}): AssemblyContext {
+  return {
+    tpl: { type: "📖 Buch", keys: [], fmDefaults: {}, sections: [], defaultMode: "deterministisch", raw: "" },
+    original: { data: {}, order: [], body: "" },
+    assignment: { version: 1, sections: [], unassigned: [], frontmatter: {} },
+    blocks: [],
+    additions: [],
+    ...over,
+  };
+}
+
 function mkProposal(over: Partial<ApplyProposal> = {}): ApplyProposal {
   return {
     notePath: "Inbox/roh.md",
@@ -47,15 +64,19 @@ function mkProposal(over: Partial<ApplyProposal> = {}): ApplyProposal {
     hardOk: true,
     reasoning: "weil X",
     detection: { source: "rag", confidence: "likely" },
+    mode: "deterministisch",
+    additions: [],
+    assembly: mkAssembly(),
+    selection: { inferredKeys: new Set(), additionIds: new Set() },
     ...over,
   };
 }
 
 function mkDeps(over: Partial<SmartApplyViewDeps> = {}): SmartApplyViewDeps {
   return {
-    build: vi.fn(async (_notePath: string, _templatePath: string, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
+    build: vi.fn(async (_notePath: string, _templatePath: string, _mode: ApplyMode, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
     accept: vi.fn(async (): Promise<ApplyResult> => ({ written: true, undo: vi.fn(async () => {}) })),
-    reroll: vi.fn(async (_p: ApplyProposal, _templatePath: string, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
+    reroll: vi.fn(async (_p: ApplyProposal, _templatePath: string, _mode: ApplyMode, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
     openPath: vi.fn(),
     abort: vi.fn(),
     activeNotePath: vi.fn(() => "Inbox/roh.md"),
@@ -66,6 +87,7 @@ function mkDeps(over: Partial<SmartApplyViewDeps> = {}): SmartApplyViewDeps {
     getSuppress: vi.fn(() => false),
     setSuppress: vi.fn(),
     ping: vi.fn(async () => true),
+    templateDefaultMode: vi.fn(async (_templatePath: string): Promise<ApplyMode> => "deterministisch"),
     ...over,
   };
 }
@@ -189,7 +211,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
     first(container, "vault-rag-sa-run").click();
     await flush(2);
-    expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(String), expect.any(Function), expect.any(Function));
+    expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(String), expect.any(String), expect.any(Function), expect.any(Function));
     expect(first(container, "vault-rag-sa-running")).toBeTruthy();
     // Aufräumen: build auflösen, damit kein hängender Timer bleibt
     resolveBuild(mkProposal());
@@ -200,7 +222,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   it("onToken/onReasoning hängen Live-Text in Roh-Stream-pre bzw. 💭-details an", async () => {
     let tok: (t: string) => void = () => {};
     let rsn: (t: string) => void = () => {};
-    const build = vi.fn((_path: string, _templatePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) =>
+    const build = vi.fn((_path: string, _templatePath: string, _mode: string, onToken: (t: string) => void, onReasoning: (t: string) => void) =>
       new Promise<ApplyProposal>(() => { tok = onToken; rsn = onReasoning; }));
     const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
     first(container, "vault-rag-sa-run").click();
@@ -281,6 +303,36 @@ describe("SmartApplyPanel — Cockpit", () => {
     await flush();
     expect(undo).toHaveBeenCalledTimes(1);
     expect(all(container, "vault-rag-sa-apply").length).toBe(0);
+  });
+
+  it("Undo → Button wird Redo (Toggle); Redo wendet erneut an und toggelt zurück", async () => {
+    const undo = vi.fn(async () => {});
+    const redo = vi.fn(async () => {});
+    const { container } = mkPanel({ accept: vi.fn(async () => ({ written: true, undo, redo })) });
+    first(container, "vault-rag-sa-run").click();
+    await flush();
+    first(container, "vault-rag-sa-apply").click();
+    await flush();
+
+    // Angewendet: Button "Rückgängig"
+    const undoBtn = first(container, "vault-rag-sa-undo");
+    expect(undoBtn.textContent).toContain("Rückgängig");
+
+    // Rückgängig → bleibt in applied, Button wird "Wiederherstellen"
+    undoBtn.click();
+    await flush();
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(first(container, "vault-rag-sa-applied")).toBeTruthy();
+    const redoBtn = first(container, "vault-rag-sa-undo");
+    expect(redoBtn.textContent).toContain("Wiederherstellen");
+    expect(first(container, "vault-rag-sa-applied").textContent).toContain("rückgängig");
+
+    // Wiederherstellen → redo aufgerufen, Button wieder "Rückgängig"
+    redoBtn.click();
+    await flush();
+    expect(redo).toHaveBeenCalledTimes(1);
+    expect(first(container, "vault-rag-sa-undo").textContent).toContain("Rückgängig");
+    expect(first(container, "vault-rag-sa-applied").textContent).toContain("angewendet");
   });
 
   it("applied zeigt den Pfad der Notiz", async () => {
@@ -707,5 +759,205 @@ describe("SmartApplyPanel Frontmatter-Entrauschung", () => {
     const head = first(container, "vault-rag-sa-fm-head");
     expect(head.textContent).toContain("Original");
     expect(head.textContent).toContain("Vorschlag");
+  });
+
+  // Final Whole-Branch-Review — M1: mergeFrontmatter gibt einem nicht-leeren ORIGINAL-Wert
+  // Priorität vor dem inferred-Wert — bei change==="unveraendert" ist die Checkbox ein
+  // wirkungsloser No-op (kein Write-Effekt) und darf gar nicht erst als Badge/Checkbox
+  // auftauchen (Widerspruch zur Raw-Preview, die den ORIGINAL-Wert zeigt).
+  it("M1: inferred-Row mit change='unveraendert' zeigt WEDER Konfidenz-Badge NOCH Checkbox", async () => {
+    const { container } = mkPanel({
+      build: vi.fn(async () => mkProposal({
+        mode: "additiv",
+        fmRows: [
+          { key: "genre", original: "Sachbuch", proposed: "Sachbuch", change: "unveraendert", source: "inferred", confidence: "hoch" },
+        ],
+        assembly: mkAssembly({
+          tpl: { type: "📖 Buch", keys: ["genre"], fmDefaults: {}, sections: [], defaultMode: "additiv", raw: "" },
+          assignment: {
+            version: 2, sections: [], unassigned: [],
+            frontmatter: { genre: { source: "inferred", value: "Sachbuch", confidence: "hoch" } },
+          },
+        }),
+      })),
+    });
+    first(container, "vault-rag-sa-run").click();
+    await flush();
+
+    expect(all(container, "vault-rag-sa-conf").length).toBe(0);
+    expect(all(container, "vault-rag-sa-conf-check").length).toBe(0);
+    // Row still renders (in the muted/details section), just as an ordinary row.
+    const muted = first(container, "vault-rag-sa-fm-muted");
+    expect(muted.textContent).toContain("genre");
+    expect(muted.textContent).toContain("Sachbuch");
+  });
+});
+
+// ── Task 10 — Modus-Control, Konfidenz-Badges, granulare Checkboxen, Audit-Toggle ───────────────
+
+describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
+  it("rendert ein Modus-Segmented-Control; transformativ ist disabled", () => {
+    const { container } = mkPanel();
+    const btns = all(container, "vault-rag-sa-mode-btn");
+    expect(btns.length).toBe(3);
+    expect(btns.map((b) => b.textContent)).toEqual(["Deterministisch", "Additiv", "Transformativ"]);
+    const transformativ = btns.find((b) => b.textContent === "Transformativ");
+    expect(hasClass(transformativ, "is-disabled")).toBe(true);
+    // WCAG 1.4.1: aktiver Modus über Text+Klasse, nicht nur Farbe — Default ist "deterministisch".
+    const det = btns.find((b) => b.textContent === "Deterministisch");
+    expect(hasClass(det, "is-active")).toBe(true);
+  });
+
+  it("additiv-Proposal zeigt Konfidenz-Badge + Checkbox pro inferred-FM und pro addition", async () => {
+    const { container } = mkPanel({
+      build: vi.fn(async () => mkProposal({
+        mode: "additiv",
+        fmRows: [
+          { key: "genre", original: undefined, proposed: "", change: "neu", source: "inferred", confidence: "hoch" },
+        ],
+        assembly: mkAssembly({
+          tpl: { type: "📖 Buch", keys: ["genre"], fmDefaults: {}, sections: [], defaultMode: "additiv", raw: "" },
+          assignment: {
+            version: 2, sections: [], unassigned: [],
+            frontmatter: { genre: { source: "inferred", value: "Sachbuch", confidence: "hoch" } },
+          },
+        }),
+        additions: [{ id: "add_0", targetHeading: "## Notizen", text: "Ergänzter Text zur Einordnung", confidence: "mittel" }],
+      })),
+    });
+    first(container, "vault-rag-sa-run").click();
+    await flush();
+
+    // Konfidenz-Badges: eine für das inferred-FM-Feld, eine für die addition.
+    const badges = all(container, "vault-rag-sa-conf");
+    expect(badges.length).toBe(2);
+    expect(badges.some((b) => b.textContent === "● hoch")).toBe(true);
+    expect(badges.some((b) => b.textContent === "◐ mittel")).toBe(true);
+
+    // Checkboxen: eine pro inferred-FM-Row + eine pro addition.
+    const checks = all(container, "vault-rag-sa-conf-check");
+    expect(checks.length).toBe(2);
+    expect(checks.every((c) => c.getAttribute("type") === "checkbox")).toBe(true);
+
+    // Der angezeigte erschlossene Wert kommt aus assembly.assignment.frontmatter[key].value,
+    // NICHT aus fmRow.proposed (das ist "").
+    const fmSection = first(container, "vault-rag-sa-fm");
+    expect(fmSection.textContent).toContain("Sachbuch");
+
+    // Addition unter ihrer Ziel-Heading, mit ＋-ergänzt-Marker.
+    const reflow = first(container, "vault-rag-sa-reflow");
+    expect(reflow.textContent).toContain("＋ ergänzt");
+    expect(reflow.textContent).toContain("Ergänzter Text zur Einordnung");
+  });
+
+  it("niedrig-Konfidenz-Item ist per Default nicht angehakt", async () => {
+    const { container } = mkPanel({
+      build: vi.fn(async () => mkProposal({
+        mode: "additiv",
+        fmRows: [
+          { key: "ort", original: undefined, proposed: "", change: "neu", source: "inferred", confidence: "niedrig" },
+        ],
+        assembly: mkAssembly({
+          tpl: { type: "📖 Buch", keys: ["ort"], fmDefaults: {}, sections: [], defaultMode: "additiv", raw: "" },
+          assignment: {
+            version: 2, sections: [], unassigned: [],
+            frontmatter: { ort: { source: "inferred", value: "Berlin", confidence: "niedrig" } },
+          },
+        }),
+      })),
+    });
+    first(container, "vault-rag-sa-run").click();
+    await flush();
+    const checkbox = first(container, "vault-rag-sa-conf-check");
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it("Checkbox-Toggle baut proposedText neu (Re-Assembly, kein build-Aufruf)", async () => {
+    // proposedText spiegelt (wie im echten propose()) den Text unter der Default-Auswahl —
+    // Fixture baut ihn über dieselben pure-core-Funktionen wie die Produktion.
+    const assembly = mkAssembly({
+      tpl: { type: "📖 Buch", keys: ["genre"], fmDefaults: {}, sections: [], defaultMode: "additiv", raw: "" },
+      assignment: {
+        version: 2, sections: [], unassigned: [],
+        frontmatter: { genre: { source: "inferred", value: "Sachbuch", confidence: "hoch" } },
+      },
+    });
+    const defaultSel = defaultSelection(assembly);
+    const build = vi.fn(async () => mkProposal({
+      mode: "additiv",
+      fmRows: [
+        { key: "genre", original: undefined, proposed: "", change: "neu", source: "inferred", confidence: "hoch" },
+      ],
+      assembly,
+      selection: defaultSel,
+      proposedText: assembleProposedText(assembly, defaultSel, false),
+    }));
+    const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
+    first(container, "vault-rag-sa-run").click();
+    await flush();
+
+    const before = first(container, "vault-rag-sa-prop").textContent;
+    expect(before).toContain("Sachbuch");
+
+    const checkbox = first(container, "vault-rag-sa-conf-check");
+    expect(checkbox.checked).toBe(true);   // hoch → per Default angehakt
+    checkbox.checked = false;
+    (checkbox._listeners?.change ?? []).forEach((cb: any) => cb());
+    await flush();
+
+    expect(build).toHaveBeenCalledTimes(1);   // kein erneuter Stream — reine Re-Assembly
+    const after = first(container, "vault-rag-sa-prop").textContent;
+    expect(after).not.toBe(before);
+    expect(after).not.toContain("Sachbuch");
+  });
+
+  it("Modus-Wechsel ruft build mit neuem Modus (Re-Stream)", async () => {
+    const { container, deps } = mkPanel();
+    first(container, "vault-rag-sa-run").click();
+    await flush();
+    (deps.build as unknown as ReturnType<typeof vi.fn>).mockClear();
+
+    const additivBtn = all(container, "vault-rag-sa-mode-btn").find((b) => b.textContent === "Additiv");
+    additivBtn.click();
+    await flush();
+
+    expect(deps.build).toHaveBeenCalledWith(
+      expect.any(String), expect.any(String), "additiv", expect.any(Function), expect.any(Function),
+    );
+  });
+
+  // Final Whole-Branch-Review — I1 (WYSIWYG): eine frische Build-Preview muss den LIVE
+  // Audit-Toggle widerspiegeln, sonst zeigt sie Text OHNE Provenienz-Marker, obwohl
+  // persistApply() sie (mit demselben this.auditTrail) tatsächlich schreibt.
+  it("I1: Audit-Toggle VOR dem Build gesetzt — frische Preview enthält den Provenienz-Marker", async () => {
+    const assembly = mkAssembly({
+      tpl: { type: "📖 Buch", keys: ["genre"], fmDefaults: {}, sections: [], defaultMode: "additiv", raw: "" },
+      assignment: {
+        version: 2, sections: [], unassigned: [],
+        frontmatter: { genre: { source: "inferred", value: "Sachbuch", confidence: "hoch" } },
+      },
+    });
+    const build = vi.fn(async () => mkProposal({
+      mode: "additiv",
+      fmRows: [
+        { key: "genre", original: undefined, proposed: "", change: "neu", source: "inferred", confidence: "hoch" },
+      ],
+      assembly,
+      selection: defaultSelection(assembly),
+      // Preview as delivered by propose(): ALWAYS built with auditTrail=false (hardcoded seam).
+      proposedText: assembleProposedText(assembly, defaultSelection(assembly), false),
+    }));
+    const { panel, container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
+
+    // User turns "Provenienz behalten" ON BEFORE triggering the build.
+    (panel as any).auditTrail = true;
+
+    first(container, "vault-rag-sa-run").click();
+    await flush();
+
+    const prop = (panel as any).proposal as ApplyProposal;
+    expect(prop.proposedText).toContain("smartapply_erschlossen");
+    // Raw-preview pane must agree with the reconciled proposal object.
+    expect(first(container, "vault-rag-sa-prop").textContent).toContain("smartapply_erschlossen");
   });
 });

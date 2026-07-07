@@ -17,7 +17,8 @@ import { ChatSession } from "./chat_session";
 import { ChatPanel, VIEW_TYPE_CHAT } from "./chat_view";
 import { SmartApply, type ApplyProposal } from "./smart_apply";
 import { SmartApplyPanel, VIEW_TYPE_SMART_APPLY } from "./smart_apply_view";
-import { extractType, templateFilesUnder } from "./template_matcher";
+import { extractType, templateFilesUnder, parseTemplate } from "./template_matcher";
+import type { ApplyMode } from "./note_restructurer";
 import { TemplateRanker } from "./template_ranker";
 import type { TemplateRank } from "./template_ranker";
 import { buildHideCss, normalizeIndexDir } from "./index_dir";
@@ -231,10 +232,10 @@ export default class VaultRagPlugin extends Plugin {
     ];
     if (this.settings.smartApplyEnabled && this.smartApply && this.templateRanker) {
       panels.push(new SmartApplyPanel({
-        // SEAM-VERTRAG (7): build/reroll tragen templatePath + die Live-Stream-Callbacks der View.
-        build: (notePath, templatePath, onToken, onReasoning) => this.proposeSmartApply(notePath, templatePath, onToken, onReasoning),
-        accept: (p) => this.smartApply!.persistApply(p),
-        reroll: (p, templatePath, onToken, onReasoning) => this.proposeSmartApply(p.notePath, templatePath, onToken, onReasoning),
+        // SEAM-VERTRAG (7): build/reroll tragen templatePath + mode + die Live-Stream-Callbacks der View.
+        build: (notePath, templatePath, mode, onToken, onReasoning) => this.proposeSmartApply(notePath, templatePath, mode, onToken, onReasoning),
+        accept: (p, selection, auditTrail) => this.smartApply!.persistApply(p, selection, auditTrail),
+        reroll: (p, templatePath, mode, onToken, onReasoning) => this.proposeSmartApply(p.notePath, templatePath, mode, onToken, onReasoning),
         openPath: this.openPath,
         abort: () => { this.smartApply?.abort(); },
         activeNotePath: () => {
@@ -248,6 +249,7 @@ export default class VaultRagPlugin extends Plugin {
         rankTemplates: (notePath: string): Promise<TemplateRank[]> => this.templateRanker!.rank(notePath),
         getSuppress: () => this.settings.smartApplySuppressThinking,
         setSuppress: (v: boolean) => { this.settings.smartApplySuppressThinking = v; void this.saveSettings(); },
+        templateDefaultMode: (templatePath: string) => this.templateDefaultMode(templatePath),
       }));
     }
     return panels;
@@ -641,6 +643,7 @@ export default class VaultRagPlugin extends Plugin {
   private async proposeSmartApply(
     notePath: string,
     templatePath: string,
+    mode: ApplyMode,
     onToken: (t: string) => void,
     onReasoning: (t: string) => void,
   ): Promise<ApplyProposal> {
@@ -648,7 +651,7 @@ export default class VaultRagPlugin extends Plugin {
     if (!core) throw new Error("Smart Apply ist deaktiviert");
     if (templatePath !== "") {
       // Explizite Vorlage aus dem Cockpit-Dropdown — direkt verwenden, kein detect().
-      return core.propose(notePath, templatePath, onToken, onReasoning);
+      return core.propose(notePath, templatePath, mode, onToken, onReasoning);
     }
     // Auto-detect: detect() ONCE — avoid double embed+search sweep.
     const detection = await core.detect(notePath);
@@ -665,7 +668,18 @@ export default class VaultRagPlugin extends Plugin {
       }
     }
     // SEAM-VERTRAG (7): Live-Stream-Callbacks der View durchreichen (genau ein Stream in propose).
-    return core.propose(notePath, tpl, onToken, onReasoning, undefined, detection);
+    return core.propose(notePath, tpl, mode, onToken, onReasoning, undefined, detection);
+  }
+
+  /** Liest+parst die Vorlage und liefert ihren defaultMode; Fallback auf den Settings-Default,
+   *  falls die Vorlage nicht gelesen/geparst werden kann (z.B. noch keine Auswahl getroffen). */
+  private async templateDefaultMode(templatePath: string): Promise<ApplyMode> {
+    try {
+      const text = await this.app.vault.adapter.read(templatePath);
+      return parseTemplate(text).defaultMode;
+    } catch {
+      return this.settings.smartApplyDefaultMode;
+    }
   }
 
   async saveSettings() { await this.saveData(this.settings); }

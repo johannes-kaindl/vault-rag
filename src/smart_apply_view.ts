@@ -1,9 +1,11 @@
 import { setIcon, Notice } from "obsidian";
-import type { FmValue, FmChange, FmRow } from "./frontmatter";
-import type { ApplyProposal, ApplyResult } from "./smart_apply";
+import type { FmValue, FmChange, FmRow, Confidence } from "./frontmatter";
+import type { ApplyProposal, ApplyResult, ApplySelection } from "./smart_apply";
+import { assembleProposedText, defaultSelection } from "./smart_apply";
 import type { TemplateRank } from "./template_ranker";
 import { isAlwaysOnThinker } from "./reasoning";
 import type { HubPanel, TabId } from "./hub_panel";
+import type { ApplyMode } from "./note_restructurer";
 
 // Re-export for consumers (e.g. tests) that import from this module
 export type { ApplyProposal, ApplyResult, SectionDiff } from "./smart_apply";
@@ -11,9 +13,9 @@ export type { ApplyProposal, ApplyResult, SectionDiff } from "./smart_apply";
 // ── Deps ────────────────────────────────────────────────────────────────────
 
 export interface SmartApplyViewDeps {
-  build: (notePath: string, templatePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
-  accept: (p: ApplyProposal) => Promise<ApplyResult>;
-  reroll: (p: ApplyProposal, templatePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
+  build: (notePath: string, templatePath: string, mode: ApplyMode, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
+  accept: (p: ApplyProposal, selection: ApplySelection, auditTrail: boolean) => Promise<ApplyResult>;
+  reroll: (p: ApplyProposal, templatePath: string, mode: ApplyMode, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
   openPath: (p: string) => void;
   abort: () => void;
   activeNotePath: () => string | null;
@@ -24,6 +26,8 @@ export interface SmartApplyViewDeps {
   getSuppress: () => boolean;
   setSuppress: (v: boolean) => void;
   ping: () => Promise<boolean>;
+  /** Liest+parst die Vorlage, liefert ihren defaultMode (Fallback: Settings-Default). */
+  templateDefaultMode: (templatePath: string) => Promise<ApplyMode>;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -39,6 +43,15 @@ const CHANGE_ICON: Record<FmChange, string> = {
   entfernt: "trash-2",
 };
 
+// Form (Symbol) trägt die Bedeutung, nicht nur Farbe — lesbar auch bei Farbsehschwäche.
+const CONF_SYMBOL: Record<Confidence, string> = { hoch: "●", mittel: "◐", niedrig: "○" };
+
+const MODE_LABELS: { id: ApplyMode; label: string }[] = [
+  { id: "deterministisch", label: "Deterministisch" },
+  { id: "additiv", label: "Additiv" },
+  { id: "transformativ", label: "Transformativ" },
+];
+
 // ── SmartApplyPanel (persistent cockpit) ─────────────────────────────────────────
 
 export class SmartApplyPanel implements HubPanel {
@@ -53,6 +66,9 @@ export class SmartApplyPanel implements HubPanel {
   private state: CockpitState = "idle";
   private proposal: ApplyProposal | null = null;
   private lastUndo: (() => Promise<void>) | null = null;
+  private lastRedo: (() => Promise<void>) | null = null;
+  // Nach einem Undo (undone=true) bleibt das Panel im applied-Zustand, der Button wird zum Redo.
+  private undone = false;
   private errorText = "";
   private templateHint = "";
 
@@ -84,6 +100,11 @@ export class SmartApplyPanel implements HubPanel {
   private timer: ReturnType<typeof window.setInterval> | null = null;
   private workStart = 0;
   private accepting = false;
+
+  // Non-deterministic Smart Apply (Task 10): Modus-Wahl, granulare Auswahl, Audit-Trail-Toggle.
+  private selectedMode: ApplyMode = "deterministisch";
+  private selection: ApplySelection = { inferredKeys: new Set(), additionIds: new Set() };
+  private auditTrail = false;
 
   constructor(private deps: SmartApplyViewDeps) {}
 
@@ -188,7 +209,43 @@ export class SmartApplyPanel implements HubPanel {
     stopBtn.toggleClass("is-disabled", !running);
     stopBtn.addEventListener("click", () => this.deps.abort());
 
+    this.renderModeControl(header);
+    this.renderAuditToggle(header);
     this.renderRankList(header);
+  }
+
+  /** Modus-Segmented-Control: Deterministisch|Additiv|Transformativ (transformativ = Slice 2, disabled).
+   *  WCAG 1.4.1: aktiver Modus über Text+`is-active`-Klasse, nicht nur Farbe. */
+  private renderModeControl(header: HTMLElement): void {
+    const wrap = header.createDiv({ cls: "vault-rag-sa-mode" });
+    for (const m of MODE_LABELS) {
+      const disabled = m.id === "transformativ";
+      const seg = wrap.createEl("button", { cls: "vault-rag-sa-mode-btn", text: m.label });
+      seg.toggleClass("is-disabled", disabled);
+      seg.toggleClass("is-active", this.selectedMode === m.id);
+      if (!disabled) {
+        seg.addEventListener("click", () => {
+          this.selectedMode = m.id;
+          this.render();
+          void this.start();
+        });
+      }
+    }
+  }
+
+  /** Audit-Trail-Toggle: „Provenienz behalten" — steuert, ob erschlossene/ergänzte Anteile im
+   *  finalen Text markiert werden (`%%erschlossen: …%%` / `smartapply_erschlossen`). Ändert nur
+   *  die Live-Vorschau (reassemble), löst nie einen neuen Stream aus. */
+  private renderAuditToggle(header: HTMLElement): void {
+    const wrap = header.createDiv({ cls: "vault-rag-sa-audit" });
+    const checkbox = wrap.createEl("input", { cls: "vault-rag-sa-audit-check" });
+    checkbox.setAttribute("type", "checkbox");
+    checkbox.checked = this.auditTrail;
+    checkbox.addEventListener("change", () => {
+      this.auditTrail = checkbox.checked;
+      this.reassemble();
+    });
+    wrap.createSpan({ cls: "vault-rag-sa-audit-label", text: "Provenienz behalten" });
   }
 
   private renderRankList(header: HTMLElement): void {
@@ -262,6 +319,15 @@ export class SmartApplyPanel implements HubPanel {
     if (gen !== this.rankGen) return; // veraltet — neuerer Lauf gewinnt
     this.ranking = ranks;
     if (!this.userOverrodeTemplate) this.selectedTemplate = ranks[0]?.templatePath ?? "";
+    // Echter Notizwechsel (nicht bloß ein Index-Reload): Modus aus der Vorlage seeden.
+    if (noteChanged && this.selectedTemplate) {
+      try {
+        this.selectedMode = await this.deps.templateDefaultMode(this.selectedTemplate);
+      } catch {
+        // Fallback: bisherigen Modus beibehalten.
+      }
+      if (gen !== this.rankGen) return; // während des zweiten await veraltet geworden
+    }
     this.render();
   }
 
@@ -393,6 +459,21 @@ export class SmartApplyPanel implements HubPanel {
       if (sd.provenance) {
         row.createDiv({ cls: "vault-rag-sa-reflow-prov", text: this.truncate(sd.provenance, 80) });
       }
+      for (const add of p.additions.filter((a) => a.targetHeading === sd.heading)) {
+        const addRow = row.createDiv({ cls: "vault-rag-sa-add" });
+        addRow.createSpan({ cls: "vault-rag-sa-add-marker", text: "＋ ergänzt" });
+        addRow.createSpan({ cls: "vault-rag-sa-add-text", text: this.truncate(add.text, 80) });
+        this.renderConfidenceBadge(addRow, add.confidence);
+        const id = add.id;
+        const checkbox = addRow.createEl("input", { cls: "vault-rag-sa-conf-check" });
+        checkbox.setAttribute("type", "checkbox");
+        checkbox.checked = this.selection.additionIds.has(id);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) this.selection.additionIds.add(id);
+          else this.selection.additionIds.delete(id);
+          this.reassemble();
+        });
+      }
     }
     const left = sec.createDiv({ cls: "vault-rag-sa-leftover" });
     const icon = left.createSpan({ cls: "vault-rag-sa-leftover-icon" });
@@ -487,14 +568,42 @@ export class SmartApplyPanel implements HubPanel {
     return row.change === "unveraendert" || (row.change === "neu" && !this.hasValue(row.proposed));
   }
 
-  private renderFmRow(parent: HTMLElement, row: FmRow): void {
+  /** Form+Text-Badge (nicht nur Farbe): `● hoch` / `◐ mittel` / `○ niedrig`. */
+  private renderConfidenceBadge(parent: HTMLElement, confidence: Confidence): void {
+    const badge = parent.createSpan({ cls: `vault-rag-sa-conf is-${confidence}` });
+    badge.setText(`${CONF_SYMBOL[confidence]} ${confidence}`);
+  }
+
+  private renderFmRow(parent: HTMLElement, row: FmRow, p: ApplyProposal): void {
     const r = parent.createDiv({ cls: "vault-rag-sa-fm-row" });
     r.toggleClass(`is-${row.change}`, true);
     const icon = r.createSpan({ cls: "vault-rag-sa-fm-icon" });
     setIcon(icon, CHANGE_ICON[row.change] ?? "minus");
     r.createSpan({ cls: "vault-rag-sa-fm-key", text: row.key });
     r.createSpan({ cls: "vault-rag-sa-fm-orig", text: this.fmCell(row.original) });
-    r.createSpan({ cls: "vault-rag-sa-fm-prop", text: this.fmCell(row.proposed) });
+
+    // M1: bei change==="unveraendert" gewinnt der nicht-leere ORIGINAL-Wert in mergeFrontmatter —
+    // der inferred-Wert wird nie geschrieben. Checkbox/Badge wären dann ein wirkungsloser No-op
+    // und widersprächen der Raw-Preview (die den Original-Wert zeigt) — also nur als gewöhnliche
+    // Zeile rendern, kein Badge/Checkbox.
+    if (row.source === "inferred" && row.confidence && row.change !== "unveraendert") {
+      // CRITICAL (Task 8/10 seam): der Basis-fmRow.proposed ist "" (kein acceptInferred beim
+      // Basis-Merge) — der tatsächliche erschlossene Wert lebt in assembly.assignment.frontmatter.
+      const inferredValue = p.assembly.assignment.frontmatter[row.key]?.value;
+      r.createSpan({ cls: "vault-rag-sa-fm-prop", text: this.fmCell(inferredValue) });
+      this.renderConfidenceBadge(r, row.confidence);
+      const key = row.key;
+      const checkbox = r.createEl("input", { cls: "vault-rag-sa-conf-check" });
+      checkbox.setAttribute("type", "checkbox");
+      checkbox.checked = this.selection.inferredKeys.has(key);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) this.selection.inferredKeys.add(key);
+        else this.selection.inferredKeys.delete(key);
+        this.reassemble();
+      });
+    } else {
+      r.createSpan({ cls: "vault-rag-sa-fm-prop", text: this.fmCell(row.proposed) });
+    }
   }
 
   private renderFrontmatter(c: HTMLElement, p: ApplyProposal): void {
@@ -512,7 +621,7 @@ export class SmartApplyPanel implements HubPanel {
       head.createSpan({ cls: "vault-rag-sa-fm-key" });
       head.createSpan({ cls: "vault-rag-sa-fm-orig", text: "Original" });
       head.createSpan({ cls: "vault-rag-sa-fm-prop", text: "Vorschlag" });
-      for (const row of setRows) this.renderFmRow(setBox, row);
+      for (const row of setRows) this.renderFmRow(setBox, row, p);
     }
 
     if (mutedRows.length > 0) {
@@ -523,7 +632,7 @@ export class SmartApplyPanel implements HubPanel {
       if (empty > 0) parts.push(`${empty} leere`);
       if (unchanged > 0) parts.push(`${unchanged} unveränderte`);
       det.createEl("summary", { cls: "vault-rag-sa-fm-muted-sum", text: `${parts.join(" · ")} Felder` });
-      for (const row of mutedRows) this.renderFmRow(det, row);
+      for (const row of mutedRows) this.renderFmRow(det, row, p);
     }
   }
 
@@ -558,15 +667,26 @@ export class SmartApplyPanel implements HubPanel {
     const path = this.proposal?.notePath ?? "";
     const name = path.split("/").pop()?.replace(/\.md$/, "") ?? path;
     const box = c.createDiv({ cls: "vault-rag-sa-applied" });
-    box.toggleClass("is-ok", true);
-    box.setText(`✓ angewendet: ${name}`);
+    box.toggleClass("is-ok", !this.undone);
+    box.toggleClass("is-undone", this.undone);
+    // Status über Text + Icon-Form kodiert (nicht Farbe) — WCAG 1.4.1.
+    box.setText(this.undone ? `↩ rückgängig gemacht: ${name}` : `✓ angewendet: ${name}`);
     const icon = box.createSpan({ cls: "vault-rag-sa-applied-icon" });
-    setIcon(icon, "check");
+    setIcon(icon, this.undone ? "undo-2" : "check");
 
     const bar = c.createDiv({ cls: "vault-rag-sa-actions" });
-    const undoBtn = bar.createEl("button", { cls: "vault-rag-sa-undo", text: "Rückgängig" });
-    undoBtn.toggleClass("is-disabled", !this.lastUndo);
-    undoBtn.addEventListener("click", () => { if (this.lastUndo) void this.onUndo(); });
+    // EIN Toggle-Button: nach dem Anwenden „Rückgängig", nach einem Undo „Wiederherstellen".
+    const toggleBtn = bar.createEl("button", {
+      cls: "vault-rag-sa-undo",
+      text: this.undone ? "Wiederherstellen" : "Rückgängig",
+    });
+    toggleBtn.toggleClass("is-redo", this.undone);
+    const canAct = this.undone ? !!this.lastRedo : !!this.lastUndo;
+    toggleBtn.toggleClass("is-disabled", !canAct);
+    toggleBtn.addEventListener("click", () => {
+      if (this.undone) { if (this.lastRedo) void this.onRedo(); }
+      else { if (this.lastUndo) void this.onUndo(); }
+    });
   }
 
   // ── Body: stale ───────────────────────────────────────────────────────────────
@@ -612,6 +732,14 @@ export class SmartApplyPanel implements HubPanel {
 
   // ── Behaviors ───────────────────────────────────────────────────────────────
 
+  /** Baut proposedText aus der aktuellen granularen Auswahl neu zusammen — ohne LLM-Call. */
+  private reassemble(): void {
+    if (this.proposal) {
+      this.proposal.proposedText = assembleProposedText(this.proposal.assembly, this.selection, this.auditTrail);
+      this.render();
+    }
+  }
+
   /** "Auf aktive Notiz anwenden" handler. Never throws. */
   async start(): Promise<void> {
     const path = this.deps.activeNotePath();
@@ -620,7 +748,7 @@ export class SmartApplyPanel implements HubPanel {
       return;
     }
     const templatePath = this.selectedTemplate;
-    await this.runBuild(() => this.deps.build(path, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
   }
 
   /** Shared build→diff pipeline used by start(), reroll() and stale-rebuild. */
@@ -630,12 +758,19 @@ export class SmartApplyPanel implements HubPanel {
     this.templateHint = "";
     this.proposal = null;
     this.lastUndo = null;
+    this.lastRedo = null;
+    this.undone = false;
     this.state = "running";
     this.render();
     this.startTimer();
     try {
       const proposal = await builder();
       this.proposal = proposal;
+      this.selection = defaultSelection(proposal.assembly);
+      // I1 (WYSIWYG): propose() hardcodes the preview with auditTrail=false; reconcile it here
+      // with the live toggle so a fresh build's preview never disagrees with what persistApply()
+      // will actually write (which always uses this.auditTrail). Pure re-assembly, no new stream.
+      proposal.proposedText = assembleProposedText(proposal.assembly, this.selection, this.auditTrail);
       this.state = "diff";
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -661,9 +796,11 @@ export class SmartApplyPanel implements HubPanel {
     if (this.accepting) return;
     this.accepting = true;
     try {
-      const res = await this.deps.accept(p);
+      const res = await this.deps.accept(p, this.selection, this.auditTrail);
       if (res.written) {
         this.lastUndo = res.undo ?? null;
+        this.lastRedo = res.redo ?? null;
+        this.undone = false;
         this.state = "applied";
       } else if (res.reason === "stale") {
         this.state = "stale";
@@ -680,6 +817,8 @@ export class SmartApplyPanel implements HubPanel {
   private onDiscard(): void {
     this.proposal = null;
     this.lastUndo = null;
+    this.lastRedo = null;
+    this.undone = false;
     this.streamText = "";
     this.reasoningText = "";
     this.errorText = "";
@@ -690,7 +829,7 @@ export class SmartApplyPanel implements HubPanel {
 
   private async onReroll(p: ApplyProposal): Promise<void> {
     const templatePath = this.selectedTemplate || p.templatePath;
-    await this.runBuild(() => this.deps.reroll(p, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    await this.runBuild(() => this.deps.reroll(p, templatePath, this.selectedMode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
   }
 
   /** Stale rebuild: re-build against current note, accept again if hardOk. */
@@ -703,7 +842,7 @@ export class SmartApplyPanel implements HubPanel {
       return;
     }
     const templatePath = this.selectedTemplate || (this.proposal?.templatePath ?? "");
-    await this.runBuild(() => this.deps.build(path, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
     if (this.state === "diff" && this.proposal && this.proposal.hardOk) {
       await this.onAccept(this.proposal);
     }
@@ -716,9 +855,23 @@ export class SmartApplyPanel implements HubPanel {
       await undo();
     } catch (e) {
       new Notice(`Smart Apply: ${e instanceof Error ? e.message : String(e)}`);
+      return; // Write fehlgeschlagen → Zustand nicht togglen (bliebe sonst inkonsistent zur Platte)
     }
-    this.lastUndo = null;
-    this.state = "idle";
+    // Im applied-Zustand bleiben, aber als „rückgängig gemacht" — der Button wird zu Redo.
+    this.undone = true;
+    this.render();
+  }
+
+  private async onRedo(): Promise<void> {
+    const redo = this.lastRedo;
+    if (!redo) return;
+    try {
+      await redo();
+    } catch (e) {
+      new Notice(`Smart Apply: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    this.undone = false;
     this.render();
   }
 }

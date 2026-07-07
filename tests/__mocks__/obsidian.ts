@@ -4,7 +4,7 @@ export function makeFakeEl(): any {
   let _ownText = "";
   const el: any = {
     children, empty: () => { children.length = 0; _ownText = ""; },
-    createDiv: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; children.push(c); return c; },
+    createDiv: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; if (o?.attr) for (const k of Object.keys(o.attr)) c.setAttribute(k, o.attr[k]); children.push(c); return c; },
     createEl: (t: string, o?: any) => { const c = makeFakeEl(); c.tagName = t.toUpperCase(); if (o?.text) c.textContent = o.text; if (o?.cls) c.className = o.cls; if (o?.attr) for (const k of Object.keys(o.attr)) attrs[k] = String(o.attr[k]); children.push(c); return c; },
     setText: (t: string) => { _ownText = t; }, addClass: () => {}, removeClass: () => {},
     createSpan: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; children.push(c); return c; },

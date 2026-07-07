@@ -1,6 +1,6 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
 import { Hit } from "./retriever";
 import { renderHits } from "./view";
+import { HubPanel, TabId } from "./hub_panel";
 
 export const VIEW_TYPE_SEARCH = "vault-rag-search";
 
@@ -17,18 +17,20 @@ export interface SearchDeps {
 const MIN_QUERY = 3;
 const DEBOUNCE_MS = 400;
 
-export class SemanticSearchView extends ItemView {
+export class SearchPanel implements HubPanel {
+  readonly id: TabId = "search";
+  readonly label = "Suche";
+  readonly icon = "search";
+  private container!: HTMLElement;
   private inputEl: HTMLInputElement | null = null;
   private resultsEl: HTMLElement | null = null;
   private timer: ReturnType<typeof window.setTimeout> | null = null;
 
-  constructor(leaf: WorkspaceLeaf, private deps: SearchDeps) { super(leaf); }
-  getViewType(): string { return VIEW_TYPE_SEARCH; }
-  getDisplayText(): string { return "Semantische Suche"; }
-  getIcon(): string { return "telescope"; }
+  constructor(private deps: SearchDeps) {}
 
-  async onOpen(): Promise<void> {
-    const c = this.contentEl; c.empty();
+  mount(container: HTMLElement): void {
+    this.container = container;
+    const c = this.container; c.empty();
     const input = c.createEl("input", { cls: "vault-rag-search-input" });
     input.type = "text";
     input.placeholder = "Semantisch suchen…";
@@ -63,7 +65,7 @@ export class SemanticSearchView extends ItemView {
     el.createDiv({ cls: "vault-rag-search-state", text });
   }
 
-  async onClose(): Promise<void> {
+  destroy(): void {
     if (this.timer !== null) window.clearTimeout(this.timer);
   }
 }

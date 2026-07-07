@@ -39,8 +39,12 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
 Interface an, nie direkt die Obsidian-API → in Node testbar ohne DOM-Mock (PROF-OBS-03/04).
 **Dieses Interface nicht ohne Not ändern** — Tests und `LiveIndexer` hängen daran.
 
-Nur `main.ts`, `view.ts`, `search_view.ts`, `settings.ts` und `http.ts` importieren `obsidian`.
-`http.ts` kapselt Obsidians `requestUrl` (CORS-frei, mobil-tauglich) als einzigen Netz-Helfer — die
+Nur `main.ts`, `hub_view.ts`, `settings.ts` und `http.ts` importieren `obsidian` —
+`hub_view.ts` + `main.ts` sind die einzigen View-Layer-obsidian-Importe (Hub-Konsolidierung,
+siehe „Abweichungen"). Die vier Hub-Panels (`view.ts`/`search_view.ts`/`chat_view.ts`/
+`smart_apply_view.ts`) sind obsidian-frei bis auf `setIcon` (`chat_view.ts`, `smart_apply_view.ts`)
+bzw. zusätzlich `Notice` (nur `smart_apply_view.ts`, Fehler-Feedback). `http.ts` kapselt Obsidians
+`requestUrl` (CORS-frei, mobil-tauglich) als einzigen Netz-Helfer — die
 Client-Module (`chat_client`, `embedder`, `capabilities`) sprechen nur `http.ts` an und bleiben damit
 obsidian-frei + in Node testbar. **Streaming:** `ChatClient.stream` → `streamSSE` (`sse.ts`) nutzt
 `XMLHttpRequest` (via `onprogress`), weil `requestUrl` nicht streamen kann und `fetch` von der
@@ -70,8 +74,19 @@ live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename ·
                   persist (Write-Order: notes.i8 → paths.json → manifest.json) · noteCount-Getter.
 settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab (Sektionen, Slider,
                   Debounce, Ausschluss-Editor, Live-Progress-Refresh alle 2 s).
-view.ts           RelatedNotesView (ItemView, Seitenpanel) — rendert Hits, Klick öffnet Notiz.
-main.ts           Plugin-Entry: View/Ribbon/Command/SettingTab registrieren, file-Events
+view.ts           RelatedPanel (HubPanel) — rendert Hits (`renderHits`, auch von search_view.ts
+                  genutzt), Klick öffnet Notiz.
+search_view.ts    SearchPanel (HubPanel) — Wortsuche über den Index (Debounce 400 ms, Min. 3 Zeichen).
+chat_view.ts      ChatPanel (HubPanel) — Chat-UI: SSE-Streaming, Kontext-Panel, Reasoning-Anzeige,
+                  Modell-/Thinking-Auswahl.
+smart_apply_view.ts SmartApplyPanel (HubPanel) — Diff-Gate-Cockpit (Scan-Guard, Frontmatter-Diff,
+                  Body-Reflow, Relevanz-Rangliste, Rohtext on-demand).
+hub_panel.ts      HubPanel-Interface + TabId ("related"|"search"|"chat"|"smart-apply") — Vertrag
+                  zwischen Hub und den vier Panels (mount/onShow/onHide/onFileOpen/destroy).
+hub_view.ts       VaultRetrievalView (ItemView, VIEW_TYPE_HUB="vault-retrieval-hub") — EIN
+                  Sidebar-View mit Tab-Leiste statt vier Views; hält alle Panels dauerhaft gemountet
+                  (State-Persistenz), blendet nur per `display:none` um (kein render-from-scratch).
+main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab registrieren, file-Events
                   (modify/delete/rename), 3 s-Debounce, 60 s-Drain, EmbeddingProgress + Statusleiste.
 ```
 
@@ -176,6 +191,15 @@ Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich release
   bewusst unverändert — unsichtbar, ein Umbenennen wäre nur Risiko.
 - **PROF-OBS-02** — kein `deploy`-Script. *Grund:* aktuell manueller Plugin-Deploy; env-gesteuertes
   `npm run deploy` (`cp main.js manifest.json styles.css "$OBSIDIAN_PLUGIN_DIR"/`) nachzuziehen.
+- **UI-STANDARD §1 (Ein-Frontend)** — ✅ erfüllt: Sidebar-Hub-Konsolidierung (2026-07) ersetzt die
+  vier Einzel-Views (`RelatedNotesView`/`SearchView`/`ChatView`/`SmartApplyView`) durch **einen**
+  `VaultRetrievalView` (`VIEW_TYPE_HUB="vault-retrieval-hub"`) mit Tab-Leiste; die vier Panels
+  (`view.ts`/`search_view.ts`/`chat_view.ts`/`smart_apply_view.ts`) implementieren nur noch das
+  `HubPanel`-Interface (`hub_panel.ts`), sind keine `ItemView`s mehr. **Begründete Abweichung vom
+  vault-crews-Pilot:** der Hub rendert **nicht** render-from-scratch pro Tab, sondern hält alle
+  Panels dauerhaft gemountet (`display:none` beim Tab-Wechsel), weil Chat (SSE-Stream) und Smart
+  Apply (Zustandsmaschine + Stream) zustandsreich sind und ein Neuaufbau laufende Streams/State
+  verwürfe.
 
 ## Dach-Kontext (obsidian-plugins)
 

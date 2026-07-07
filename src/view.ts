@@ -1,5 +1,5 @@
-import { ItemView, WorkspaceLeaf } from "obsidian";
 import { Hit } from "./retriever";
+import { HubPanel, TabId } from "./hub_panel";
 
 export const VIEW_TYPE_RELATED = "vault-rag-related";
 
@@ -15,14 +15,27 @@ export function renderHits(el: HTMLElement, hits: Hit[], openPath: (path: string
   }
 }
 
-export class RelatedNotesView extends ItemView {
-  constructor(leaf: WorkspaceLeaf, private deps: ViewDeps) { super(leaf); }
-  getViewType() { return VIEW_TYPE_RELATED; }
-  getDisplayText() { return "Verwandte Notizen"; }
-  getIcon() { return "search"; }
-  async onOpen() { this.render(); }
-  render() {
-    const c = this.contentEl; c.empty();
+export class RelatedPanel implements HubPanel {
+  readonly id: TabId = "related";
+  readonly label = "Ähnlich";
+  readonly icon = "waypoints";
+  private container!: HTMLElement;
+  private visible = false;
+  private dirty = false;
+
+  constructor(private deps: ViewDeps) {}
+
+  mount(container: HTMLElement): void { this.container = container; this.refreshContext(); }
+  onShow(): void { this.visible = true; if (this.dirty) { this.refreshContext(); this.dirty = false; } }
+  onHide(): void { this.visible = false; }
+  onFileOpen(_path: string | null): void {
+    if (this.visible) { this.refreshContext(); this.dirty = false; } else { this.dirty = true; }
+  }
+  destroy(): void {}
+
+  /** Public, damit der Hub nach Index-Reload extern refreshen kann. */
+  refreshContext(): void {
+    const c = this.container; c.empty();
     const hits = this.deps.getHits();
     if (hits.length === 0) { c.createDiv({ cls: "vault-rag-empty", text: "Keine verwandten Notizen (oder Notiz noch nicht indexiert)." }); return; }
     renderHits(c, hits, this.deps.openPath);

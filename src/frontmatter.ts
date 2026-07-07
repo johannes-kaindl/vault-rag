@@ -1,11 +1,12 @@
 // frontmatter.ts — yaml_lite: flat scalars + simple lists only. No obsidian import.
 
 export type FmValue = string | string[];
-export type FmSource = "content" | "empty";
-export interface FmAssignedValue { source: FmSource; value: string }
+export type Confidence = "hoch" | "mittel" | "niedrig";
+export type FmSource = "content" | "empty" | "inferred";
+export interface FmAssignedValue { source: FmSource; value: string; confidence?: Confidence }
 export interface ParsedFrontmatter { data: Record<string, FmValue>; order: string[]; body: string; comments?: Record<string, string> }
 export type FmChange = "unveraendert" | "geaendert" | "neu" | "entfernt";
-export interface FmRow { key: string; original?: FmValue; proposed?: FmValue; change: FmChange }
+export interface FmRow { key: string; original?: FmValue; proposed?: FmValue; change: FmChange; source?: FmSource; confidence?: Confidence }
 
 // Matches "---\n<block>\n---\n" at the very start of a document.
 const DELIM_RE = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?/;

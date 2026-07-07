@@ -1,6 +1,20 @@
-import type { FmAssignedValue } from "./frontmatter";
+import type { FmAssignedValue, Confidence } from "./frontmatter";
 import type { ChatMessage } from "./chat_client";
 import type { TemplateSpec } from "./template_matcher";
+
+export type { Confidence } from "./frontmatter";
+export type ApplyMode = "deterministisch" | "additiv" | "transformativ";
+export interface Addition { id: string; targetHeading: string; text: string; confidence: Confidence }
+
+const CONF_MAP: Record<string, Confidence> = {
+  hoch: "hoch", high: "hoch",
+  mittel: "mittel", medium: "mittel", mid: "mittel",
+  niedrig: "niedrig", low: "niedrig",
+};
+export function parseConfidence(raw: unknown): Confidence {
+  if (typeof raw !== "string") return "niedrig";
+  return CONF_MAP[raw.trim().toLowerCase()] ?? "niedrig";
+}
 
 export interface SourceBlock { id: string; text: string }
 
@@ -8,6 +22,7 @@ export interface Assignment {
   version: number;
   sections: { heading: string; blocks: string[] }[];
   unassigned: string[];
+  additions?: Addition[];
   frontmatter: Record<string, FmAssignedValue>;
 }
 

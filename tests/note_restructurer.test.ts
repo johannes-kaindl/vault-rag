@@ -12,6 +12,7 @@ import {
   SourceBlock,
   Assignment,
 } from "../src/note_restructurer";
+import { parseConfidence } from "../src/note_restructurer";
 import type { TemplateSpec, TemplateSection } from "../src/template_matcher";
 
 function spec(headings: string[]): TemplateSpec {
@@ -454,5 +455,23 @@ describe("reconcileAssignment", () => {
     const r = reconcileAssignment(tpl, a);
     expect(r.version).toBe(2);
     expect(r.frontmatter).toEqual(a.frontmatter);
+  });
+});
+
+describe("parseConfidence", () => {
+  it("erkennt die drei deutschen Stufen", () => {
+    expect(parseConfidence("hoch")).toBe("hoch");
+    expect(parseConfidence("mittel")).toBe("mittel");
+    expect(parseConfidence("niedrig")).toBe("niedrig");
+  });
+  it("normalisiert englische Labels + Groß/Klein/Whitespace", () => {
+    expect(parseConfidence(" High ")).toBe("hoch");
+    expect(parseConfidence("MEDIUM")).toBe("mittel");
+    expect(parseConfidence("low")).toBe("niedrig");
+  });
+  it("fällt bei Unbekanntem/Fehlendem konservativ auf niedrig", () => {
+    expect(parseConfidence("banane")).toBe("niedrig");
+    expect(parseConfidence(undefined)).toBe("niedrig");
+    expect(parseConfidence(42)).toBe("niedrig");
   });
 });

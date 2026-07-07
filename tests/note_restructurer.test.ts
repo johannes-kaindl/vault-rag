@@ -6,11 +6,13 @@ import {
   buildRestructurePrompt,
   parseAssignment,
   reconcileAssignment,
+  reconcileAdditions,
   EMPTY_SECTION_SENTINEL,
   UEBRIG_HEADING,
   ANTI_FABRICATION,
   SourceBlock,
   Assignment,
+  Addition,
 } from "../src/note_restructurer";
 import { parseConfidence } from "../src/note_restructurer";
 import type { TemplateSpec, TemplateSection } from "../src/template_matcher";
@@ -202,6 +204,37 @@ describe("assembleBody", () => {
     const a = asg({ sections: [{ heading: "Setup", blocks: ["block_0"] }] });
     const body = assembleBody(tpl, a, blocks);
     expect(body).not.toContain("## Übrig");
+  });
+});
+
+describe("reconcileAdditions", () => {
+  const tpl = parseTemplate(`---\ntype:"X"\n---\n## Kern\n%%a%%\n## Notizen\n%%b%%\n`);
+  it("behält additions mit gültiger targetHeading, droppt fremde", () => {
+    const r = reconcileAdditions(tpl, [
+      { id: "add_0", targetHeading: "Kern", text: "ok", confidence: "hoch" },
+      { id: "add_1", targetHeading: "Erfunden", text: "weg", confidence: "mittel" },
+    ]);
+    expect(r.kept.map(a => a.id)).toEqual(["add_0"]);
+    expect(r.dropped.map(a => a.id)).toEqual(["add_1"]);
+  });
+});
+
+describe("assembleBody mit additions", () => {
+  const tpl = parseTemplate(`---\ntype:"X"\n---\n## Kern\n%%a%%\n## Notizen\n%%b%%\n`);
+  const blocks = splitBlocks("Original A.");
+  const a: Assignment = { version: 2, sections: [{ heading: "Kern", blocks: ["block_0"] }], unassigned: [], frontmatter: {} };
+  const add: Addition = { id: "add_0", targetHeading: "Kern", text: "Erschlossen.", confidence: "mittel" };
+  it("fügt selektierte addition nach dem Original-Block unter Kern ein", () => {
+    const body = assembleBody(tpl, a, blocks, [add], false);
+    expect(body).toContain("Original A.");
+    expect(body.indexOf("Original A.")).toBeLessThan(body.indexOf("Erschlossen."));
+  });
+  it("auditTrail=true hängt %%-Konfidenz-Kommentar an die addition", () => {
+    const body = assembleBody(tpl, a, blocks, [add], true);
+    expect(body).toContain("Erschlossen. %%erschlossen: mittel%%");
+  });
+  it("ohne additions byte-identisch zum deterministischen assembleBody", () => {
+    expect(assembleBody(tpl, a, blocks)).toBe(assembleBody(tpl, a, blocks, [], false));
   });
 });
 

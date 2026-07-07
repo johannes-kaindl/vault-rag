@@ -94,9 +94,35 @@ export const EMPTY_SECTION_SENTINEL = "(noch leer)";
 // Edge: if a template heading is literally "Übrig", that section and this catch-all will both appear. Unlikely; not engineered against.
 export const UEBRIG_HEADING = "## Übrig";
 
-export function assembleBody(tpl: TemplateSpec, a: Assignment, blocks: SourceBlock[]): string {
+/**
+ * Splits `additions` into those whose targetHeading matches a real tpl.sections[].heading
+ * (kept) and the rest (dropped).
+ */
+export function reconcileAdditions(tpl: TemplateSpec, additions: Addition[]): { kept: Addition[]; dropped: Addition[] } {
+  const tplHeadings = new Set(tpl.sections.map(s => s.heading));
+  const kept: Addition[] = [];
+  const dropped: Addition[] = [];
+  for (const add of additions) {
+    (tplHeadings.has(add.targetHeading) ? kept : dropped).push(add);
+  }
+  return { kept, dropped };
+}
+
+export function assembleBody(
+  tpl: TemplateSpec,
+  a: Assignment,
+  blocks: SourceBlock[],
+  additions: Addition[] = [],
+  auditTrail = false,
+): string {
   const byId = new Map(blocks.map(b => [b.id, b.text]));
   const assignedFor = new Map(a.sections.map(s => [s.heading, s.blocks]));
+  const additionsFor = new Map<string, Addition[]>();
+  for (const add of additions) {
+    const list = additionsFor.get(add.targetHeading) ?? [];
+    list.push(add);
+    additionsFor.set(add.targetHeading, list);
+  }
   const parts: string[] = [];
   for (const sec of tpl.sections) {
     const hashes = "#".repeat(sec.level);
@@ -107,7 +133,11 @@ export function assembleBody(tpl: TemplateSpec, a: Assignment, blocks: SourceBlo
       const unknownIds = ids.filter(id => !byId.has(id));
       throw new Error(`assembleBody: unbekannte Block-IDs: ${unknownIds.join(", ")}`);
     }
-    parts.push(texts.length > 0 ? texts.join("\n\n") : EMPTY_SECTION_SENTINEL);
+    const additionTexts = (additionsFor.get(sec.heading) ?? []).map(add =>
+      auditTrail ? `${add.text} %%erschlossen: ${add.confidence}%%` : add.text,
+    );
+    const allTexts = [...texts, ...additionTexts];
+    parts.push(allTexts.length > 0 ? allTexts.join("\n\n") : EMPTY_SECTION_SENTINEL);
   }
   if (a.unassigned.length > 0) {
     parts.push(UEBRIG_HEADING);

@@ -6,12 +6,14 @@ import {
   diffFrontmatter,
   assertParseable,
   FmRow,
+  ParsedFrontmatter,
 } from "./frontmatter";
 import {
   parseTemplate,
   detectType,
   SuggestionSource,
   TypeSuggestion,
+  TemplateSpec,
 } from "./template_matcher";
 import {
   splitBlocks,
@@ -22,6 +24,8 @@ import {
   assembleBody,
   CheckResult,
   SourceBlock,
+  Addition,
+  Assignment,
 } from "./note_restructurer";
 import type { ChatClient } from "./chat_client";
 
@@ -69,6 +73,57 @@ export interface ApplyResult {
   written: boolean;
   reason?: "stale" | "blocked";
   undo?: () => Promise<void>;
+}
+
+// ── Non-deterministic mode: granular re-assembly ──────────────────────────────
+
+export interface ApplySelection { inferredKeys: Set<string>; additionIds: Set<string> }
+
+/** The building blocks a proposal carries so the text can be rebuilt without another LLM call. */
+export interface AssemblyContext {
+  tpl: TemplateSpec;
+  original: ParsedFrontmatter;
+  assignment: Assignment;
+  blocks: SourceBlock[];
+  additions: Addition[];
+}
+
+/**
+ * Default granular selection: every inferred frontmatter key and every addition whose
+ * confidence !== "niedrig" (hoch+mittel ON, niedrig OFF).
+ */
+export function defaultSelection(ctx: AssemblyContext): ApplySelection {
+  const inferredKeys = new Set<string>();
+  for (const [key, entry] of Object.entries(ctx.assignment.frontmatter)) {
+    if (entry.source === "inferred" && entry.confidence !== "niedrig") {
+      inferredKeys.add(key);
+    }
+  }
+  const additionIds = new Set<string>();
+  for (const add of ctx.additions) {
+    if (add.confidence !== "niedrig") additionIds.add(add.id);
+  }
+  return { inferredKeys, additionIds };
+}
+
+/**
+ * Pure re-assembler: rebuilds the proposed note text from a granular selection, without
+ * another LLM call. Composes mergeFrontmatter → serializeFrontmatter + assembleBody.
+ */
+export function assembleProposedText(ctx: AssemblyContext, sel: ApplySelection, auditTrail: boolean): string {
+  const merged = mergeFrontmatter(ctx.tpl.keys, ctx.tpl.fmDefaults, ctx.original, ctx.assignment.frontmatter, {
+    acceptInferred: sel.inferredKeys,
+    auditTrail,
+  });
+  const fmText = serializeFrontmatter(merged.data, merged.order);
+  const body = assembleBody(
+    ctx.tpl,
+    ctx.assignment,
+    ctx.blocks,
+    ctx.additions.filter((a) => sel.additionIds.has(a.id)),
+    auditTrail,
+  );
+  return fmText + body;
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────

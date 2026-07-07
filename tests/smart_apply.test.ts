@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { SmartApply, SmartApplyDeps, SmartApplyParams } from "../src/smart_apply";
+import { SmartApply, SmartApplyDeps, SmartApplyParams, assembleProposedText, defaultSelection, AssemblyContext } from "../src/smart_apply";
 import type { ChatClient } from "../src/chat_client";
 import { parseFrontmatter } from "../src/frontmatter";
 import { splitBlocks } from "../src/note_restructurer";
+import type { Assignment, Addition } from "../src/note_restructurer";
+import { parseTemplate } from "../src/template_matcher";
 
 // ── Test data ────────────────────────────────────────────────────────────────
 
@@ -679,5 +681,69 @@ Keine bisher.
     await sa.propose(NOTE_PATH, TEMPLATE_PATH, () => {}, () => {}, undefined, preDetection);
     expect(detectSpy).not.toHaveBeenCalled();
     detectSpy.mockRestore();
+  });
+});
+
+// ── assembleProposedText / defaultSelection ────────────────────────────────────
+
+describe("assembleProposedText", () => {
+  const assembleTemplateText = `---
+type: Notiz
+bereich:
+---
+## Notizen
+
+%% Beliebige Notizen %%
+`;
+
+  const assembleNoteText = `---
+type: Notiz
+---
+## Notizen
+
+Ein Punkt.
+`;
+
+  function buildCtx(): AssemblyContext {
+    const tpl = parseTemplate(assembleTemplateText);
+    const original = parseFrontmatter(assembleNoteText);
+    const blocks = splitBlocks(original.body);
+    // blocks: block_0 = "## Notizen", block_1 = "Ein Punkt."
+    const assignment: Assignment = {
+      version: 1,
+      sections: [{ heading: "Notizen", blocks: ["block_0", "block_1"] }],
+      unassigned: [],
+      frontmatter: {
+        bereich: { source: "inferred", value: "System", confidence: "mittel" },
+      },
+    };
+    const additions: Addition[] = [
+      { id: "add_0", targetHeading: "Notizen", text: "Erschlossen.", confidence: "niedrig" },
+    ];
+    return { tpl, original, assignment, blocks, additions };
+  }
+
+  const ctx = buildCtx();
+
+  it("defaultSelection nimmt hoch+mittel, lässt niedrig aus", () => {
+    const sel = defaultSelection(ctx);
+    expect(sel.inferredKeys.has("bereich")).toBe(true); // mittel
+    expect(sel.additionIds.has("add_0")).toBe(false); // niedrig
+  });
+
+  it("volle Auswahl bringt inferred-Wert + addition-Text in den Output", () => {
+    const text = assembleProposedText(
+      ctx,
+      { inferredKeys: new Set(["bereich"]), additionIds: new Set(["add_0"]) },
+      false,
+    );
+    expect(text).toContain("System");
+    expect(text).toContain("Erschlossen.");
+  });
+
+  it("leere Auswahl → weder inferred noch addition im Output", () => {
+    const text = assembleProposedText(ctx, { inferredKeys: new Set(), additionIds: new Set() }, false);
+    expect(text).not.toContain("System");
+    expect(text).not.toContain("Erschlossen.");
   });
 });

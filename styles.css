@@ -148,8 +148,9 @@
 
 /* ── Hub-Tab-Leiste ──────────────────────────────────────────────────────── */
 .vault-rag-hub-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.vault-rag-hub-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--background-modifier-border); flex: 0 0 auto; }
-.vault-rag-hub-tab { display: flex; align-items: center; gap: 4px; padding: 6px 10px; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); cursor: pointer; border-radius: 0; }
+.vault-rag-hub-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--background-modifier-border); flex: 0 0 auto; }
+.vault-rag-hub-tab { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; gap: 4px; padding: 6px 8px; min-width: 0; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); cursor: pointer; border-radius: 0; }
+.vault-rag-hub-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vault-rag-hub-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
 .vault-rag-hub-tab.is-active { color: var(--text-normal); border-bottom-color: var(--interactive-accent); }
 .vault-rag-hub-tab-icon { display: inline-flex; }

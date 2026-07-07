@@ -20,7 +20,7 @@ const DEBOUNCE_MS = 400;
 export class SearchPanel implements HubPanel {
   readonly id: TabId = "search";
   readonly label = "Suche";
-  readonly icon = "telescope";
+  readonly icon = "search";
   private container!: HTMLElement;
   private inputEl: HTMLInputElement | null = null;
   private resultsEl: HTMLElement | null = null;

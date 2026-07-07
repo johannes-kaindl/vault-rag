@@ -18,7 +18,7 @@ export function renderHits(el: HTMLElement, hits: Hit[], openPath: (path: string
 export class RelatedPanel implements HubPanel {
   readonly id: TabId = "related";
   readonly label = "Ähnlich";
-  readonly icon = "search";
+  readonly icon = "waypoints";
   private container!: HTMLElement;
   private visible = false;
   private dirty = false;

@@ -310,3 +310,21 @@ describe("parseTemplate %%-guidance", () => {
     expect(tpl.sections[0].heading).toBe("X");
   });
 });
+
+describe("parseTemplate smartapply_modus", () => {
+  const withMode = (m: string) => `---\ntype: "📝 Notiz"\nsmartapply_modus: ${m}\nstatus: "🌱 Entwurf"\n---\n## H\n%% x %%\n`;
+  it("extrahiert defaultMode und entfernt den Key aus keys/fmDefaults", () => {
+    const t = parseTemplate(withMode("additiv"));
+    expect(t.defaultMode).toBe("additiv");
+    expect(t.keys).not.toContain("smartapply_modus");
+    expect(t.fmDefaults).not.toHaveProperty("smartapply_modus");
+    expect(t.keys).toContain("status");
+  });
+  it("fehlender Key → deterministisch", () => {
+    const t = parseTemplate(`---\ntype: "📝 Notiz"\nstatus: "🌱 Entwurf"\n---\n## H\n%% x %%\n`);
+    expect(t.defaultMode).toBe("deterministisch");
+  });
+  it("ungültiger Wert → deterministisch", () => {
+    expect(parseTemplate(withMode("quatsch")).defaultMode).toBe("deterministisch");
+  });
+});

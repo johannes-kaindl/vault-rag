@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-07-07
+
 ### Added
 
 - **Non-deterministic Smart Apply mode ("additive")** — a per-application mode toggle in the Smart Apply cockpit. Alongside the default deterministic mode (the LLM only assigns your original blocks and never invents), the additive mode lets the LLM *infer* frontmatter values that aren't verbatim in the text and insert marked addition blocks — each carrying an ordinal confidence (high/medium/low) that you accept or reject individually in the diff gate. Low-confidence items are unchecked by default. Your original blocks stay byte-exact either way, and the deterministic path is bit-identical to before. A template can declare its preferred mode via a reserved `smartapply_modus` frontmatter key (never leaked into target notes), with a global default in settings. An optional "keep provenance" audit toggle records inferred keys as a `smartapply_erschlossen` field and marks additions with `%%erschlossen: …%%` comments — or leaves a clean document. Confidence is encoded via icon shape and text, not colour alone (WCAG 1.4.1).

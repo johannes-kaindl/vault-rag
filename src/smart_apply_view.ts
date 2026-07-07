@@ -579,7 +579,11 @@ export class SmartApplyPanel implements HubPanel {
     r.createSpan({ cls: "vault-rag-sa-fm-key", text: row.key });
     r.createSpan({ cls: "vault-rag-sa-fm-orig", text: this.fmCell(row.original) });
 
-    if (row.source === "inferred" && row.confidence) {
+    // M1: bei change==="unveraendert" gewinnt der nicht-leere ORIGINAL-Wert in mergeFrontmatter —
+    // der inferred-Wert wird nie geschrieben. Checkbox/Badge wären dann ein wirkungsloser No-op
+    // und widersprächen der Raw-Preview (die den Original-Wert zeigt) — also nur als gewöhnliche
+    // Zeile rendern, kein Badge/Checkbox.
+    if (row.source === "inferred" && row.confidence && row.change !== "unveraendert") {
       // CRITICAL (Task 8/10 seam): der Basis-fmRow.proposed ist "" (kein acceptInferred beim
       // Basis-Merge) — der tatsächliche erschlossene Wert lebt in assembly.assignment.frontmatter.
       const inferredValue = p.assembly.assignment.frontmatter[row.key]?.value;
@@ -747,6 +751,10 @@ export class SmartApplyPanel implements HubPanel {
       const proposal = await builder();
       this.proposal = proposal;
       this.selection = defaultSelection(proposal.assembly);
+      // I1 (WYSIWYG): propose() hardcodes the preview with auditTrail=false; reconcile it here
+      // with the live toggle so a fresh build's preview never disagrees with what persistApply()
+      // will actually write (which always uses this.auditTrail). Pure re-assembly, no new stream.
+      proposal.proposedText = assembleProposedText(proposal.assembly, this.selection, this.auditTrail);
       this.state = "diff";
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

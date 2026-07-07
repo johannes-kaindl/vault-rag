@@ -189,7 +189,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
     first(container, "vault-rag-sa-run").click();
     await flush(2);
-    expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(String), expect.any(Function), expect.any(Function));
+    expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(String), expect.any(String), expect.any(Function), expect.any(Function));
     expect(first(container, "vault-rag-sa-running")).toBeTruthy();
     // Aufräumen: build auflösen, damit kein hängender Timer bleibt
     resolveBuild(mkProposal());
@@ -200,7 +200,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   it("onToken/onReasoning hängen Live-Text in Roh-Stream-pre bzw. 💭-details an", async () => {
     let tok: (t: string) => void = () => {};
     let rsn: (t: string) => void = () => {};
-    const build = vi.fn((_path: string, _templatePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) =>
+    const build = vi.fn((_path: string, _templatePath: string, _mode: string, onToken: (t: string) => void, onReasoning: (t: string) => void) =>
       new Promise<ApplyProposal>(() => { tok = onToken; rsn = onReasoning; }));
     const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
     first(container, "vault-rag-sa-run").click();

@@ -453,9 +453,12 @@ export class SmartApply {
    * SOLE WRITER. Stale-hash guard: re-reads file, computes djb2 hash, compares to
    * hash of proposal.originalText. Mismatch → {written:false, reason:"stale"}.
    * If !proposal.hardOk → {written:false, reason:"blocked"}.
-   * Else: single write call, return {written:true, undo: () => write(notePath, originalText)}.
+   * Else: build the final text FRESH from the granular selection (never the preview
+   * proposal.proposedText — the user may have deselected inferred keys/additions after
+   * the preview was rendered), then single write call, return
+   * {written:true, undo: () => write(notePath, originalText)}.
    */
-  async persistApply(proposal: ApplyProposal): Promise<ApplyResult> {
+  async persistApply(proposal: ApplyProposal, selection: ApplySelection, auditTrail: boolean): Promise<ApplyResult> {
     if (!proposal.hardOk) {
       return { written: false, reason: "blocked" };
     }
@@ -466,7 +469,8 @@ export class SmartApply {
       return { written: false, reason: "stale" };
     }
 
-    await this.deps.write(proposal.notePath, proposal.proposedText);
+    const finalText = assembleProposedText(proposal.assembly, selection, auditTrail);
+    await this.deps.write(proposal.notePath, finalText);
 
     const originalText = proposal.originalText;
     const notePath = proposal.notePath;

@@ -5,6 +5,7 @@ import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
+import type { ApplyMode } from "./note_restructurer";
 
 /** Migriert alte Einzel-Endpoint-Settings auf eine Liste. Reiner Helfer. */
 export function migrateEndpointList(single: string | undefined, list: string[] | undefined): string[] {
@@ -49,6 +50,7 @@ export interface VaultRagSettings {
   smartApplyModel: string;
   smartApplySuppressThinking: boolean;
   smartApplyMaxTokens: number;
+  smartApplyDefaultMode: ApplyMode;
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
@@ -80,6 +82,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   smartApplyModel: "",
   smartApplySuppressThinking: false,
   smartApplyMaxTokens: 4096,
+  smartApplyDefaultMode: "deterministisch",
 };
 
 type Caps = { vision: string; thinking: { support: string; confidence: string } };
@@ -244,6 +247,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildSmartApplyModel(new Setting(containerEl));
     this.buildSmartApplySuppress(new Setting(containerEl));
     this.buildSmartApplyMaxTokens(new Setting(containerEl));
+    this.buildSmartApplyDefaultMode(new Setting(containerEl));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
@@ -674,6 +678,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
           s.setName(`Smart-Apply-Max-Tokens: ${v}`);
           await this.plugin.saveSettings();
         }));
+  }
+
+  private buildSmartApplyDefaultMode(s: Setting): void {
+    s.setName("Smart-Apply-Standardmodus")
+      .setDesc("Für Vorlagen ohne eigene Modus-Angabe. Additiv/Transformativ lässt das LLM Werte erschließen und ergänzen (mit Konfidenz).")
+      .addDropdown(d => d
+        .addOption("deterministisch", "Deterministisch (nur zuordnen)")
+        .addOption("additiv", "Additiv (erschließen + ergänzen)")
+        .setValue(this.plugin.settings.smartApplyDefaultMode)
+        .onChange(async (v) => { this.plugin.settings.smartApplyDefaultMode = v as ApplyMode; await this.plugin.saveSettings(); }));
   }
 
   /** Kompakte einzeilige Embedding-Status-Zeile (bei den Embedding-Settings): EIN konsistent

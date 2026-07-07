@@ -1,9 +1,10 @@
 import { setIcon, Notice } from "obsidian";
 import type { FmValue, FmChange, FmRow } from "./frontmatter";
-import type { ApplyProposal, ApplyResult } from "./smart_apply";
+import type { ApplyProposal, ApplyResult, ApplySelection } from "./smart_apply";
 import type { TemplateRank } from "./template_ranker";
 import { isAlwaysOnThinker } from "./reasoning";
 import type { HubPanel, TabId } from "./hub_panel";
+import type { ApplyMode } from "./note_restructurer";
 
 // Re-export for consumers (e.g. tests) that import from this module
 export type { ApplyProposal, ApplyResult, SectionDiff } from "./smart_apply";
@@ -11,9 +12,9 @@ export type { ApplyProposal, ApplyResult, SectionDiff } from "./smart_apply";
 // ── Deps ────────────────────────────────────────────────────────────────────
 
 export interface SmartApplyViewDeps {
-  build: (notePath: string, templatePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
-  accept: (p: ApplyProposal) => Promise<ApplyResult>;
-  reroll: (p: ApplyProposal, templatePath: string, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
+  build: (notePath: string, templatePath: string, mode: ApplyMode, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
+  accept: (p: ApplyProposal, selection: ApplySelection, auditTrail: boolean) => Promise<ApplyResult>;
+  reroll: (p: ApplyProposal, templatePath: string, mode: ApplyMode, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
   openPath: (p: string) => void;
   abort: () => void;
   activeNotePath: () => string | null;
@@ -24,6 +25,8 @@ export interface SmartApplyViewDeps {
   getSuppress: () => boolean;
   setSuppress: (v: boolean) => void;
   ping: () => Promise<boolean>;
+  /** Liest+parst die Vorlage, liefert ihren defaultMode (Fallback: Settings-Default). */
+  templateDefaultMode: (templatePath: string) => Promise<ApplyMode>;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -620,7 +623,8 @@ export class SmartApplyPanel implements HubPanel {
       return;
     }
     const templatePath = this.selectedTemplate;
-    await this.runBuild(() => this.deps.build(path, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    // TODO(Task 10): mode-Auswahl im Panel — interim fest "deterministisch".
+    await this.runBuild(() => this.deps.build(path, templatePath, "deterministisch", (t) => this.onToken(t), (t) => this.onReasoning(t)));
   }
 
   /** Shared build→diff pipeline used by start(), reroll() and stale-rebuild. */
@@ -661,7 +665,9 @@ export class SmartApplyPanel implements HubPanel {
     if (this.accepting) return;
     this.accepting = true;
     try {
-      const res = await this.deps.accept(p);
+      // TODO(Task 10): granulare Auswahl-UI + Audit-Trail-Toggle im Panel — interim
+      // die Default-Auswahl der Proposal, ohne Audit-Trail.
+      const res = await this.deps.accept(p, p.selection, false);
       if (res.written) {
         this.lastUndo = res.undo ?? null;
         this.state = "applied";
@@ -690,7 +696,8 @@ export class SmartApplyPanel implements HubPanel {
 
   private async onReroll(p: ApplyProposal): Promise<void> {
     const templatePath = this.selectedTemplate || p.templatePath;
-    await this.runBuild(() => this.deps.reroll(p, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    // TODO(Task 10): mode-Auswahl im Panel — interim die Proposal-eigene mode.
+    await this.runBuild(() => this.deps.reroll(p, templatePath, p.mode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
   }
 
   /** Stale rebuild: re-build against current note, accept again if hardOk. */
@@ -703,7 +710,9 @@ export class SmartApplyPanel implements HubPanel {
       return;
     }
     const templatePath = this.selectedTemplate || (this.proposal?.templatePath ?? "");
-    await this.runBuild(() => this.deps.build(path, templatePath, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    // TODO(Task 10): mode-Auswahl im Panel — interim die mode der zugrundeliegenden Proposal.
+    const mode = this.proposal?.mode ?? "deterministisch";
+    await this.runBuild(() => this.deps.build(path, templatePath, mode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
     if (this.state === "diff" && this.proposal && this.proposal.hardOk) {
       await this.onAccept(this.proposal);
     }

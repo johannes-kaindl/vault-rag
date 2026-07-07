@@ -233,7 +233,7 @@ describe("SmartApply", () => {
     // Simulate the file being modified externally
     fileContent = testNoteText + "\n<!-- external edit -->";
 
-    const result = await sa.persistApply(proposal);
+    const result = await sa.persistApply(proposal, proposal.selection, false);
     expect(result.written).toBe(false);
     expect(result.reason).toBe("stale");
     expect(writeFn).not.toHaveBeenCalled();
@@ -252,7 +252,7 @@ describe("SmartApply", () => {
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
-    const result = await sa.persistApply(proposal);
+    const result = await sa.persistApply(proposal, proposal.selection, false);
 
     expect(result.written).toBe(true);
     expect(writeFn).toHaveBeenCalledTimes(1);
@@ -271,7 +271,7 @@ describe("SmartApply", () => {
     const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
-    const result = await sa.persistApply(proposal);
+    const result = await sa.persistApply(proposal, proposal.selection, false);
     expect(result.written).toBe(true);
     expect(result.undo).toBeDefined();
 
@@ -297,7 +297,7 @@ describe("SmartApply", () => {
     // First apply
     const proposal1 = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
     expect(proposal1.hardOk).toBe(true);
-    await sa.persistApply(proposal1);
+    await sa.persistApply(proposal1, proposal1.selection, false);
     // Update "stored" content to proposedText
     currentContent = proposal1.proposedText;
 
@@ -765,6 +765,30 @@ datum:
 
     expect(p.checks.find((c) => c.id === "additions-target")?.ok).toBe(false);
     expect(p.hardOk).toBe(true);
+  });
+
+  it("persistApply schreibt mit finaler Auswahl (nicht der Preview)", async () => {
+    const writeFn = vi.fn();
+    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
+    // Preview (default selection) has the inferred "datum" value ("System") in it:
+    expect(p.proposedText).toContain("System");
+    // Nutzer wählt inferred ab:
+    const res = await sa.persistApply(p, { inferredKeys: new Set(), additionIds: new Set() }, false);
+    expect(res.written).toBe(true);
+    const written = writeFn.mock.calls[0][1] as string;
+    expect(written).not.toContain("System"); // inferred abgewählt → nicht geschrieben
+  });
+
+  it("auditTrail=true schreibt smartapply_erschlossen ins Frontmatter", async () => {
+    const writeFn = vi.fn();
+    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
+    await sa.persistApply(p, { inferredKeys: new Set(["datum"]), additionIds: new Set() }, true);
+    const written = writeFn.mock.calls[0][1] as string;
+    expect(written).toContain("smartapply_erschlossen");
   });
 });
 

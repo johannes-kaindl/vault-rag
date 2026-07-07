@@ -790,6 +790,25 @@ datum:
     const written = writeFn.mock.calls[0][1] as string;
     expect(written).toContain("smartapply_erschlossen");
   });
+
+  it("redo wendet die FINALE Auswahl erneut an (nicht die Default-Preview)", async () => {
+    const writeFn = vi.fn();
+    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
+    // Preview (Default-Auswahl) enthält den erschlossenen Wert "System":
+    expect(p.proposedText).toContain("System");
+    // Nutzer wählt inferred AB → der angewendete Text hat "System" NICHT:
+    const res = await sa.persistApply(p, { inferredKeys: new Set(), additionIds: new Set() }, false);
+    const appliedText = writeFn.mock.calls[0][1] as string;
+    expect(appliedText).not.toContain("System");
+    expect(res.redo).toBeDefined();
+    // redo muss GENAU den angewendeten Text wiederherstellen (die finale Auswahl), nicht die Preview:
+    writeFn.mockClear();
+    await res.redo!();
+    expect(writeFn).toHaveBeenCalledTimes(1);
+    expect(writeFn).toHaveBeenCalledWith(NOTE_PATH, appliedText);
+  });
 });
 
 // ── assembleProposedText / defaultSelection ────────────────────────────────────

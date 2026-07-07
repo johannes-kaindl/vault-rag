@@ -66,6 +66,9 @@ export class SmartApplyPanel implements HubPanel {
   private state: CockpitState = "idle";
   private proposal: ApplyProposal | null = null;
   private lastUndo: (() => Promise<void>) | null = null;
+  private lastRedo: (() => Promise<void>) | null = null;
+  // Nach einem Undo (undone=true) bleibt das Panel im applied-Zustand, der Button wird zum Redo.
+  private undone = false;
   private errorText = "";
   private templateHint = "";
 
@@ -664,15 +667,26 @@ export class SmartApplyPanel implements HubPanel {
     const path = this.proposal?.notePath ?? "";
     const name = path.split("/").pop()?.replace(/\.md$/, "") ?? path;
     const box = c.createDiv({ cls: "vault-rag-sa-applied" });
-    box.toggleClass("is-ok", true);
-    box.setText(`✓ angewendet: ${name}`);
+    box.toggleClass("is-ok", !this.undone);
+    box.toggleClass("is-undone", this.undone);
+    // Status über Text + Icon-Form kodiert (nicht Farbe) — WCAG 1.4.1.
+    box.setText(this.undone ? `↩ rückgängig gemacht: ${name}` : `✓ angewendet: ${name}`);
     const icon = box.createSpan({ cls: "vault-rag-sa-applied-icon" });
-    setIcon(icon, "check");
+    setIcon(icon, this.undone ? "undo-2" : "check");
 
     const bar = c.createDiv({ cls: "vault-rag-sa-actions" });
-    const undoBtn = bar.createEl("button", { cls: "vault-rag-sa-undo", text: "Rückgängig" });
-    undoBtn.toggleClass("is-disabled", !this.lastUndo);
-    undoBtn.addEventListener("click", () => { if (this.lastUndo) void this.onUndo(); });
+    // EIN Toggle-Button: nach dem Anwenden „Rückgängig", nach einem Undo „Wiederherstellen".
+    const toggleBtn = bar.createEl("button", {
+      cls: "vault-rag-sa-undo",
+      text: this.undone ? "Wiederherstellen" : "Rückgängig",
+    });
+    toggleBtn.toggleClass("is-redo", this.undone);
+    const canAct = this.undone ? !!this.lastRedo : !!this.lastUndo;
+    toggleBtn.toggleClass("is-disabled", !canAct);
+    toggleBtn.addEventListener("click", () => {
+      if (this.undone) { if (this.lastRedo) void this.onRedo(); }
+      else { if (this.lastUndo) void this.onUndo(); }
+    });
   }
 
   // ── Body: stale ───────────────────────────────────────────────────────────────
@@ -744,6 +758,8 @@ export class SmartApplyPanel implements HubPanel {
     this.templateHint = "";
     this.proposal = null;
     this.lastUndo = null;
+    this.lastRedo = null;
+    this.undone = false;
     this.state = "running";
     this.render();
     this.startTimer();
@@ -783,6 +799,8 @@ export class SmartApplyPanel implements HubPanel {
       const res = await this.deps.accept(p, this.selection, this.auditTrail);
       if (res.written) {
         this.lastUndo = res.undo ?? null;
+        this.lastRedo = res.redo ?? null;
+        this.undone = false;
         this.state = "applied";
       } else if (res.reason === "stale") {
         this.state = "stale";
@@ -799,6 +817,8 @@ export class SmartApplyPanel implements HubPanel {
   private onDiscard(): void {
     this.proposal = null;
     this.lastUndo = null;
+    this.lastRedo = null;
+    this.undone = false;
     this.streamText = "";
     this.reasoningText = "";
     this.errorText = "";
@@ -835,9 +855,23 @@ export class SmartApplyPanel implements HubPanel {
       await undo();
     } catch (e) {
       new Notice(`Smart Apply: ${e instanceof Error ? e.message : String(e)}`);
+      return; // Write fehlgeschlagen → Zustand nicht togglen (bliebe sonst inkonsistent zur Platte)
     }
-    this.lastUndo = null;
-    this.state = "idle";
+    // Im applied-Zustand bleiben, aber als „rückgängig gemacht" — der Button wird zu Redo.
+    this.undone = true;
+    this.render();
+  }
+
+  private async onRedo(): Promise<void> {
+    const redo = this.lastRedo;
+    if (!redo) return;
+    try {
+      await redo();
+    } catch (e) {
+      new Notice(`Smart Apply: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    this.undone = false;
     this.render();
   }
 }

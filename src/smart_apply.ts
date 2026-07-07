@@ -80,6 +80,9 @@ export interface ApplyResult {
   written: boolean;
   reason?: "stale" | "blocked";
   undo?: () => Promise<void>;
+  /** Re-applies exactly the text that was written (the final selection + auditTrail), NOT the
+   *  preview proposal.proposedText — lets the UI toggle Undo ↔ Redo after an apply. */
+  redo?: () => Promise<void>;
 }
 
 // ── Non-deterministic mode: granular re-assembly ──────────────────────────────
@@ -478,6 +481,7 @@ export class SmartApply {
     return {
       written: true,
       undo: () => this.deps.write(notePath, originalText),
+      redo: () => this.deps.write(notePath, finalText),
     };
   }
 }

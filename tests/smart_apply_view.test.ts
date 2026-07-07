@@ -305,6 +305,36 @@ describe("SmartApplyPanel — Cockpit", () => {
     expect(all(container, "vault-rag-sa-apply").length).toBe(0);
   });
 
+  it("Undo → Button wird Redo (Toggle); Redo wendet erneut an und toggelt zurück", async () => {
+    const undo = vi.fn(async () => {});
+    const redo = vi.fn(async () => {});
+    const { container } = mkPanel({ accept: vi.fn(async () => ({ written: true, undo, redo })) });
+    first(container, "vault-rag-sa-run").click();
+    await flush();
+    first(container, "vault-rag-sa-apply").click();
+    await flush();
+
+    // Angewendet: Button "Rückgängig"
+    const undoBtn = first(container, "vault-rag-sa-undo");
+    expect(undoBtn.textContent).toContain("Rückgängig");
+
+    // Rückgängig → bleibt in applied, Button wird "Wiederherstellen"
+    undoBtn.click();
+    await flush();
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(first(container, "vault-rag-sa-applied")).toBeTruthy();
+    const redoBtn = first(container, "vault-rag-sa-undo");
+    expect(redoBtn.textContent).toContain("Wiederherstellen");
+    expect(first(container, "vault-rag-sa-applied").textContent).toContain("rückgängig");
+
+    // Wiederherstellen → redo aufgerufen, Button wieder "Rückgängig"
+    redoBtn.click();
+    await flush();
+    expect(redo).toHaveBeenCalledTimes(1);
+    expect(first(container, "vault-rag-sa-undo").textContent).toContain("Rückgängig");
+    expect(first(container, "vault-rag-sa-applied").textContent).toContain("angewendet");
+  });
+
   it("applied zeigt den Pfad der Notiz", async () => {
     const { container } = mkPanel();
     first(container, "vault-rag-sa-run").click();

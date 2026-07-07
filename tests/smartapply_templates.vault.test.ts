@@ -14,16 +14,16 @@ const HAS_VAULT = existsSync(TPL_DIR);
 interface Spec {
   file: string;
   type: string;
-  guidedKeys: string[];   // FM-Keys (außer type), die einen nicht-leeren Hinweis haben müssen
-  enumDefaults: string[]; // Keys, deren Default-Wert in seiner eigenen Hinweisliste vorkommen muss
+  guidedKeys: string[];        // FM-Keys (außer type), die einen nicht-leeren Hinweis haben müssen
+  directiveDefaults: string[]; // Keys mit gesetztem Default, deren Hinweis direktiv „unverändert übernehmen" fordert
 }
 
 const SPECS: Spec[] = [
-  { file: "Notiz.md", type: "📝 Notiz", guidedKeys: ["status", "bereich"], enumDefaults: ["status"] },
-  { file: "Konzept.md", type: "💡 Konzept", guidedKeys: ["status", "bereich"], enumDefaults: ["status"] },
-  { file: "Quelle.md", type: "🔎 Quelle", guidedKeys: ["status", "source", "medium", "autor", "jahr", "lesestatus", "bereich"], enumDefaults: ["status", "lesestatus"] },
-  { file: "Dokument.md", type: "📄 Dokument", guidedKeys: ["status", "dokumenttyp", "datum", "richtung", "partei", "aktenzeichen", "frist", "bereich"], enumDefaults: ["status"] },
-  { file: "Kommunikation.md", type: "📬 Kommunikation", guidedKeys: ["status", "datum", "kanal", "richtung", "partei"], enumDefaults: ["status"] },
+  { file: "Notiz.md", type: "📝 Notiz", guidedKeys: ["status", "bereich"], directiveDefaults: ["status"] },
+  { file: "Konzept.md", type: "💡 Konzept", guidedKeys: ["status", "bereich"], directiveDefaults: ["status"] },
+  { file: "Quelle.md", type: "🔎 Quelle", guidedKeys: ["status", "source", "medium", "autor", "jahr", "lesestatus", "bereich"], directiveDefaults: ["status", "lesestatus"] },
+  { file: "Dokument.md", type: "📄 Dokument", guidedKeys: ["status", "dokumenttyp", "datum", "richtung", "partei", "aktenzeichen", "frist", "bereich"], directiveDefaults: ["status"] },
+  { file: "Kommunikation.md", type: "📬 Kommunikation", guidedKeys: ["status", "datum", "kanal", "richtung", "partei"], directiveDefaults: ["status"] },
 ];
 
 const INTRO_RE = /einleitend|Kontextsatz|worum/i;
@@ -55,11 +55,15 @@ describe.skipIf(!HAS_VAULT)("Smart-Apply Capture-Vorlagen (Vault)", () => {
         }
       });
 
-      it("Enum-Defaults liegen in ihrer eigenen Hinweisliste", () => {
-        for (const k of s.enumDefaults) {
+      it("Direktive Defaults fordern unverändertes Übernehmen", () => {
+        // Konvention (Ledger-Lehre): FM-Hinweise sind direktiv statt Optionsliste. Ein gesetzter
+        // Default (status/lesestatus) muss von einer „unverändert übernehmen"-Anweisung begleitet
+        // sein, damit das LLM ihn nicht überschreibt — nicht mehr als Enum-Option in einer Liste.
+        for (const k of s.directiveDefaults) {
           const def = tpl.fmDefaults[k];
           expect(typeof def, `Default für ${k} fehlt`).toBe("string");
-          expect(tpl.fmGuidance?.[k] ?? "").toContain(def as string);
+          expect((def as string).trim().length, `Default für ${k} ist leer`).toBeGreaterThan(0);
+          expect(tpl.fmGuidance?.[k] ?? "", `Hinweis für ${k} ist nicht direktiv`).toMatch(/[Uu]nverändert übernehmen/);
         }
       });
 

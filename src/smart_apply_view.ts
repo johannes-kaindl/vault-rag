@@ -1,6 +1,7 @@
 import { setIcon, Notice } from "obsidian";
-import type { FmValue, FmChange, FmRow } from "./frontmatter";
+import type { FmValue, FmChange, FmRow, Confidence } from "./frontmatter";
 import type { ApplyProposal, ApplyResult, ApplySelection } from "./smart_apply";
+import { assembleProposedText, defaultSelection } from "./smart_apply";
 import type { TemplateRank } from "./template_ranker";
 import { isAlwaysOnThinker } from "./reasoning";
 import type { HubPanel, TabId } from "./hub_panel";
@@ -41,6 +42,15 @@ const CHANGE_ICON: Record<FmChange, string> = {
   neu: "plus",
   entfernt: "trash-2",
 };
+
+// Form (Symbol) trägt die Bedeutung, nicht nur Farbe — lesbar auch bei Farbsehschwäche.
+const CONF_SYMBOL: Record<Confidence, string> = { hoch: "●", mittel: "◐", niedrig: "○" };
+
+const MODE_LABELS: { id: ApplyMode; label: string }[] = [
+  { id: "deterministisch", label: "Deterministisch" },
+  { id: "additiv", label: "Additiv" },
+  { id: "transformativ", label: "Transformativ" },
+];
 
 // ── SmartApplyPanel (persistent cockpit) ─────────────────────────────────────────
 
@@ -87,6 +97,11 @@ export class SmartApplyPanel implements HubPanel {
   private timer: ReturnType<typeof window.setInterval> | null = null;
   private workStart = 0;
   private accepting = false;
+
+  // Non-deterministic Smart Apply (Task 10): Modus-Wahl, granulare Auswahl, Audit-Trail-Toggle.
+  private selectedMode: ApplyMode = "deterministisch";
+  private selection: ApplySelection = { inferredKeys: new Set(), additionIds: new Set() };
+  private auditTrail = false;
 
   constructor(private deps: SmartApplyViewDeps) {}
 
@@ -191,7 +206,43 @@ export class SmartApplyPanel implements HubPanel {
     stopBtn.toggleClass("is-disabled", !running);
     stopBtn.addEventListener("click", () => this.deps.abort());
 
+    this.renderModeControl(header);
+    this.renderAuditToggle(header);
     this.renderRankList(header);
+  }
+
+  /** Modus-Segmented-Control: Deterministisch|Additiv|Transformativ (transformativ = Slice 2, disabled).
+   *  WCAG 1.4.1: aktiver Modus über Text+`is-active`-Klasse, nicht nur Farbe. */
+  private renderModeControl(header: HTMLElement): void {
+    const wrap = header.createDiv({ cls: "vault-rag-sa-mode" });
+    for (const m of MODE_LABELS) {
+      const disabled = m.id === "transformativ";
+      const seg = wrap.createEl("button", { cls: "vault-rag-sa-mode-btn", text: m.label });
+      seg.toggleClass("is-disabled", disabled);
+      seg.toggleClass("is-active", this.selectedMode === m.id);
+      if (!disabled) {
+        seg.addEventListener("click", () => {
+          this.selectedMode = m.id;
+          this.render();
+          void this.start();
+        });
+      }
+    }
+  }
+
+  /** Audit-Trail-Toggle: „Provenienz behalten" — steuert, ob erschlossene/ergänzte Anteile im
+   *  finalen Text markiert werden (`%%erschlossen: …%%` / `smartapply_erschlossen`). Ändert nur
+   *  die Live-Vorschau (reassemble), löst nie einen neuen Stream aus. */
+  private renderAuditToggle(header: HTMLElement): void {
+    const wrap = header.createDiv({ cls: "vault-rag-sa-audit" });
+    const checkbox = wrap.createEl("input", { cls: "vault-rag-sa-audit-check" });
+    checkbox.setAttribute("type", "checkbox");
+    checkbox.checked = this.auditTrail;
+    checkbox.addEventListener("change", () => {
+      this.auditTrail = checkbox.checked;
+      this.reassemble();
+    });
+    wrap.createSpan({ cls: "vault-rag-sa-audit-label", text: "Provenienz behalten" });
   }
 
   private renderRankList(header: HTMLElement): void {
@@ -265,6 +316,15 @@ export class SmartApplyPanel implements HubPanel {
     if (gen !== this.rankGen) return; // veraltet — neuerer Lauf gewinnt
     this.ranking = ranks;
     if (!this.userOverrodeTemplate) this.selectedTemplate = ranks[0]?.templatePath ?? "";
+    // Echter Notizwechsel (nicht bloß ein Index-Reload): Modus aus der Vorlage seeden.
+    if (noteChanged && this.selectedTemplate) {
+      try {
+        this.selectedMode = await this.deps.templateDefaultMode(this.selectedTemplate);
+      } catch {
+        // Fallback: bisherigen Modus beibehalten.
+      }
+      if (gen !== this.rankGen) return; // während des zweiten await veraltet geworden
+    }
     this.render();
   }
 
@@ -396,6 +456,21 @@ export class SmartApplyPanel implements HubPanel {
       if (sd.provenance) {
         row.createDiv({ cls: "vault-rag-sa-reflow-prov", text: this.truncate(sd.provenance, 80) });
       }
+      for (const add of p.additions.filter((a) => a.targetHeading === sd.heading)) {
+        const addRow = row.createDiv({ cls: "vault-rag-sa-add" });
+        addRow.createSpan({ cls: "vault-rag-sa-add-marker", text: "＋ ergänzt" });
+        addRow.createSpan({ cls: "vault-rag-sa-add-text", text: this.truncate(add.text, 80) });
+        this.renderConfidenceBadge(addRow, add.confidence);
+        const id = add.id;
+        const checkbox = addRow.createEl("input", { cls: "vault-rag-sa-conf-check" });
+        checkbox.setAttribute("type", "checkbox");
+        checkbox.checked = this.selection.additionIds.has(id);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) this.selection.additionIds.add(id);
+          else this.selection.additionIds.delete(id);
+          this.reassemble();
+        });
+      }
     }
     const left = sec.createDiv({ cls: "vault-rag-sa-leftover" });
     const icon = left.createSpan({ cls: "vault-rag-sa-leftover-icon" });
@@ -490,14 +565,38 @@ export class SmartApplyPanel implements HubPanel {
     return row.change === "unveraendert" || (row.change === "neu" && !this.hasValue(row.proposed));
   }
 
-  private renderFmRow(parent: HTMLElement, row: FmRow): void {
+  /** Form+Text-Badge (nicht nur Farbe): `● hoch` / `◐ mittel` / `○ niedrig`. */
+  private renderConfidenceBadge(parent: HTMLElement, confidence: Confidence): void {
+    const badge = parent.createSpan({ cls: `vault-rag-sa-conf is-${confidence}` });
+    badge.setText(`${CONF_SYMBOL[confidence]} ${confidence}`);
+  }
+
+  private renderFmRow(parent: HTMLElement, row: FmRow, p: ApplyProposal): void {
     const r = parent.createDiv({ cls: "vault-rag-sa-fm-row" });
     r.toggleClass(`is-${row.change}`, true);
     const icon = r.createSpan({ cls: "vault-rag-sa-fm-icon" });
     setIcon(icon, CHANGE_ICON[row.change] ?? "minus");
     r.createSpan({ cls: "vault-rag-sa-fm-key", text: row.key });
     r.createSpan({ cls: "vault-rag-sa-fm-orig", text: this.fmCell(row.original) });
-    r.createSpan({ cls: "vault-rag-sa-fm-prop", text: this.fmCell(row.proposed) });
+
+    if (row.source === "inferred" && row.confidence) {
+      // CRITICAL (Task 8/10 seam): der Basis-fmRow.proposed ist "" (kein acceptInferred beim
+      // Basis-Merge) — der tatsächliche erschlossene Wert lebt in assembly.assignment.frontmatter.
+      const inferredValue = p.assembly.assignment.frontmatter[row.key]?.value;
+      r.createSpan({ cls: "vault-rag-sa-fm-prop", text: this.fmCell(inferredValue) });
+      this.renderConfidenceBadge(r, row.confidence);
+      const key = row.key;
+      const checkbox = r.createEl("input", { cls: "vault-rag-sa-conf-check" });
+      checkbox.setAttribute("type", "checkbox");
+      checkbox.checked = this.selection.inferredKeys.has(key);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) this.selection.inferredKeys.add(key);
+        else this.selection.inferredKeys.delete(key);
+        this.reassemble();
+      });
+    } else {
+      r.createSpan({ cls: "vault-rag-sa-fm-prop", text: this.fmCell(row.proposed) });
+    }
   }
 
   private renderFrontmatter(c: HTMLElement, p: ApplyProposal): void {
@@ -515,7 +614,7 @@ export class SmartApplyPanel implements HubPanel {
       head.createSpan({ cls: "vault-rag-sa-fm-key" });
       head.createSpan({ cls: "vault-rag-sa-fm-orig", text: "Original" });
       head.createSpan({ cls: "vault-rag-sa-fm-prop", text: "Vorschlag" });
-      for (const row of setRows) this.renderFmRow(setBox, row);
+      for (const row of setRows) this.renderFmRow(setBox, row, p);
     }
 
     if (mutedRows.length > 0) {
@@ -526,7 +625,7 @@ export class SmartApplyPanel implements HubPanel {
       if (empty > 0) parts.push(`${empty} leere`);
       if (unchanged > 0) parts.push(`${unchanged} unveränderte`);
       det.createEl("summary", { cls: "vault-rag-sa-fm-muted-sum", text: `${parts.join(" · ")} Felder` });
-      for (const row of mutedRows) this.renderFmRow(det, row);
+      for (const row of mutedRows) this.renderFmRow(det, row, p);
     }
   }
 
@@ -615,6 +714,14 @@ export class SmartApplyPanel implements HubPanel {
 
   // ── Behaviors ───────────────────────────────────────────────────────────────
 
+  /** Baut proposedText aus der aktuellen granularen Auswahl neu zusammen — ohne LLM-Call. */
+  private reassemble(): void {
+    if (this.proposal) {
+      this.proposal.proposedText = assembleProposedText(this.proposal.assembly, this.selection, this.auditTrail);
+      this.render();
+    }
+  }
+
   /** "Auf aktive Notiz anwenden" handler. Never throws. */
   async start(): Promise<void> {
     const path = this.deps.activeNotePath();
@@ -623,8 +730,7 @@ export class SmartApplyPanel implements HubPanel {
       return;
     }
     const templatePath = this.selectedTemplate;
-    // TODO(Task 10): mode-Auswahl im Panel — interim fest "deterministisch".
-    await this.runBuild(() => this.deps.build(path, templatePath, "deterministisch", (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
   }
 
   /** Shared build→diff pipeline used by start(), reroll() and stale-rebuild. */
@@ -640,6 +746,7 @@ export class SmartApplyPanel implements HubPanel {
     try {
       const proposal = await builder();
       this.proposal = proposal;
+      this.selection = defaultSelection(proposal.assembly);
       this.state = "diff";
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -665,9 +772,7 @@ export class SmartApplyPanel implements HubPanel {
     if (this.accepting) return;
     this.accepting = true;
     try {
-      // TODO(Task 10): granulare Auswahl-UI + Audit-Trail-Toggle im Panel — interim
-      // die Default-Auswahl der Proposal, ohne Audit-Trail.
-      const res = await this.deps.accept(p, p.selection, false);
+      const res = await this.deps.accept(p, this.selection, this.auditTrail);
       if (res.written) {
         this.lastUndo = res.undo ?? null;
         this.state = "applied";
@@ -696,8 +801,7 @@ export class SmartApplyPanel implements HubPanel {
 
   private async onReroll(p: ApplyProposal): Promise<void> {
     const templatePath = this.selectedTemplate || p.templatePath;
-    // TODO(Task 10): mode-Auswahl im Panel — interim die Proposal-eigene mode.
-    await this.runBuild(() => this.deps.reroll(p, templatePath, p.mode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    await this.runBuild(() => this.deps.reroll(p, templatePath, this.selectedMode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
   }
 
   /** Stale rebuild: re-build against current note, accept again if hardOk. */
@@ -710,9 +814,7 @@ export class SmartApplyPanel implements HubPanel {
       return;
     }
     const templatePath = this.selectedTemplate || (this.proposal?.templatePath ?? "");
-    // TODO(Task 10): mode-Auswahl im Panel — interim die mode der zugrundeliegenden Proposal.
-    const mode = this.proposal?.mode ?? "deterministisch";
-    await this.runBuild(() => this.deps.build(path, templatePath, mode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
     if (this.state === "diff" && this.proposal && this.proposal.hardOk) {
       await this.onAccept(this.proposal);
     }

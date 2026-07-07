@@ -71,6 +71,16 @@
 .vault-rag-sa-think-icon { display: inline-flex; }
 .vault-rag-sa-think-icon svg { width: 14px; height: 14px; }
 .vault-rag-sa-think-label { font-size: 12px; }
+/* Modus-Segmented-Control (Task 10) — Form (Text) trägt die Bedeutung, nicht nur Farbe (WCAG 1.4.1) */
+.vault-rag-sa-mode { display: flex; gap: 4px; }
+.vault-rag-sa-mode-btn { flex: 1; font-size: 11px; padding: 4px 6px; border-radius: 4px; background: var(--background-secondary); border: 1px solid var(--background-modifier-border); color: var(--text-muted); cursor: pointer; }
+.vault-rag-sa-mode-btn:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.vault-rag-sa-mode-btn.is-active { color: var(--text-on-accent); background: var(--interactive-accent); border-color: var(--interactive-accent); font-weight: 600; }
+.vault-rag-sa-mode-btn.is-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+/* Audit-Trail-Toggle (Task 10) */
+.vault-rag-sa-audit { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+.vault-rag-sa-audit-check { cursor: pointer; }
+.vault-rag-sa-audit-label { cursor: default; }
 .vault-rag-sa-idle { color: var(--text-muted); }
 .vault-rag-sa-template-hint { color: var(--text-muted); font-size: 12px; font-style: italic; margin-top: 4px; }
 .vault-rag-sa-elapsed { font-size: 11px; color: var(--text-accent); }
@@ -110,6 +120,13 @@
 .vault-rag-sa-fm-muted-sum { cursor: pointer; font-size: var(--font-ui-smaller); }
 .vault-rag-sa-fm-muted .vault-rag-sa-fm-row { opacity: .75; }
 
+/* Konfidenz-Badges (Task 10) — Symbol+Text trägt die Bedeutung, Farbe ist sekundär (WCAG 1.4.1) */
+.vault-rag-sa-conf { font-size: var(--font-ui-smaller); white-space: nowrap; padding: 0 4px; border-radius: 3px; }
+.vault-rag-sa-conf.is-hoch { color: var(--text-success); }
+.vault-rag-sa-conf.is-mittel { color: var(--text-warning); }
+.vault-rag-sa-conf.is-niedrig { color: var(--text-muted); }
+.vault-rag-sa-conf-check { cursor: pointer; }
+
 /* Body-Reflow */
 .vault-rag-sa-reflow-row { padding: 4px 0; border-bottom: 1px solid var(--background-modifier-border); }
 .vault-rag-sa-reflow-row.is-empty { opacity: .55; }
@@ -122,6 +139,11 @@
 .vault-rag-sa-leftover.is-warn { color: var(--text-warning); }
 .vault-rag-sa-leftover-list { margin-top: 2px; }
 .vault-rag-sa-leftover-item { color: var(--text-warning); font-size: var(--font-ui-smaller); padding-left: 8px; }
+
+/* Ergänzungen (additiv-Modus, Task 10) — eigene Zeile unter ihrer Ziel-Heading */
+.vault-rag-sa-add { display: flex; align-items: center; gap: 6px; margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--text-accent); font-size: var(--font-ui-smaller); }
+.vault-rag-sa-add-marker { color: var(--text-accent); font-weight: 600; white-space: nowrap; }
+.vault-rag-sa-add-text { flex: 1; min-width: 0; color: var(--text-normal); }
 
 /* Rohtext on-demand */
 .vault-rag-sa-raw-sum { cursor: pointer; color: var(--text-muted); font-size: var(--font-ui-smaller); }

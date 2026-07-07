@@ -218,7 +218,7 @@ export function parseAssignment(raw: string): Assignment | null {
     return null;
   }
   if (!isAssignmentShape(parsed)) return null;
-  const shaped = parsed as Assignment;
+  const shaped = parsed;
   const additions = coerceAdditions(shaped.additions);
   // inferred-confidence normalisieren (source darf jetzt "inferred" sein)
   const fm: Record<string, FmAssignedValue> = {};

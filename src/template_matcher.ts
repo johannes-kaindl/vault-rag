@@ -44,7 +44,7 @@ export function parseTemplate(text: string): TemplateSpec {
   const fmGuidance = parsed.comments ?? {};
 
   const VALID_MODES: ApplyMode[] = ["deterministisch", "additiv", "transformativ"];
-  const rawMode = typeof parsed.data["smartapply_modus"] === "string" ? (parsed.data["smartapply_modus"] as string).trim() : "";
+  const rawMode = typeof parsed.data["smartapply_modus"] === "string" ? parsed.data["smartapply_modus"].trim() : "";
   const defaultMode: ApplyMode = (VALID_MODES as string[]).includes(rawMode) ? (rawMode as ApplyMode) : "deterministisch";
   // Meta-Key aus keys/fmDefaults entfernen, damit er nie in die Zielnotiz wandert:
   const keysFiltered = parsed.order.filter(k => k !== "smartapply_modus");

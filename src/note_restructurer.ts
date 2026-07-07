@@ -246,6 +246,12 @@ export const ANTI_FABRICATION = [
   "Du gibst AUSSCHLIESSLICH ein einzelnes JSON-Objekt zurück, keinen Fließtext, keine Erklärung.",
 ].join(" ");
 
+export const ADDITIV_INSTRUCTION = [
+  "Du darfst Original-Blöcke nicht umschreiben, kürzen oder zusammenfassen — sie werden byte-genau übernommen; du ordnest sie nur zu (wie im deterministischen Modus).",
+  "Zusätzlich DARFST du: (a) neue Ergänzungsblöcke unter eine bestehende Template-Überschrift setzen (Feld `additions`), z.B. eine kurze Zusammenfassung oder eine erschlossene Kontextangabe; (b) Frontmatter-Werte erschließen, auch wenn sie nicht wörtlich im Text stehen (`source: \"inferred\"`).",
+  "Jede Ergänzung und jeder erschlossene Wert MUSS eine ehrliche Selbst-Konfidenz tragen: \"hoch\", \"mittel\" oder \"niedrig\". Ergänze nur, was fundiert ableitbar ist; im Zweifel \"niedrig\" oder weglassen. Erfinde keine Fakten.",
+].join(" ");
+
 /** Vorlagen-Beispielwert als String (Selbst-Dokumentation, nie Inhalt). Leer → "". */
 function fmExample(v: unknown): string {
   if (v === undefined || v === null) return "";
@@ -254,7 +260,11 @@ function fmExample(v: unknown): string {
   return "";
 }
 
-export function buildRestructurePrompt(tpl: TemplateSpec, blocks: SourceBlock[]): ChatMessage[] {
+export function buildRestructurePrompt(
+  tpl: TemplateSpec,
+  blocks: SourceBlock[],
+  mode: ApplyMode = "deterministisch",
+): ChatMessage[] {
   const numbered = blocks.map(b => `${b.id}:\n${b.text}`).join("\n\n");
   const headings = tpl.sections.map(s => s.heading).join(", ");
 
@@ -273,16 +283,7 @@ export function buildRestructurePrompt(tpl: TemplateSpec, blocks: SourceBlock[])
     })
     .join("\n");
 
-  const system = [
-    "Du bist ein strukturierender Assistent für Obsidian-Notizen.",
-    ANTI_FABRICATION,
-    "Die `Anleitung:`-Zeilen und `(Beispiel: …)`-Angaben der Vorlage sind VORGABEN — sie sagen dir, welche Original-Blöcke unter welche Überschrift gehören und was in ein Frontmatter-Feld passt. Sie sind KEIN zuzuordnender Inhalt; übernimm ihren Text niemals in den Output.",
-    'Schema: { "version": 1, "sections": [{ "heading": "<Überschrift>", "blocks": ["block_3"] }],',
-    '"unassigned": ["block_7"], "frontmatter": { "<key>": { "source": "content"|"empty", "value": "<wert>" } } }',
-    'Frontmatter mit source="content" muss wörtlich aus den Blöcken stammen; sonst source="empty".',
-  ].join("\n");
-
-  const user = [
+  const userCommon = [
     "## Vorlagen-Struktur (Überschriften + Anleitung)",
     sectionLines,
     "",
@@ -294,9 +295,35 @@ export function buildRestructurePrompt(tpl: TemplateSpec, blocks: SourceBlock[])
     "## Original-Body in nummerierten Blöcken",
     numbered,
     "",
+  ];
+
+  if (mode === "additiv") {
+    const system = [
+      "Du bist ein strukturierender Assistent für Obsidian-Notizen.",
+      ADDITIV_INSTRUCTION,
+      "Die `Anleitung:`-Zeilen und `(Beispiel: …)`-Angaben der Vorlage sind VORGABEN — sie sagen dir, welche Original-Blöcke unter welche Überschrift gehören und was in ein Frontmatter-Feld passt. Sie sind KEIN zuzuordnender Inhalt; übernimm ihren Text niemals in den Output.",
+      'Schema (additiv): { "version": 2, "sections": [...], "unassigned": [...], "additions": [{ "id": "add_0", "targetHeading": "<bestehende Überschrift>", "text": "<neuer Text>", "confidence": "hoch"|"mittel"|"niedrig" }], "frontmatter": { "<key>": { "source": "content"|"inferred"|"empty", "value": "<wert>", "confidence": "hoch"|"mittel"|"niedrig" } } }',
+      'Frontmatter mit source="content" muss wörtlich aus den Blöcken stammen; source="inferred" ist nach bestem Wissen erschlossen, mit Konfidenz; sonst source="empty".',
+    ].join("\n");
+
+    const user = [...userCommon, ADDITIV_INSTRUCTION, "Antworte AUSSCHLIESSLICH mit dem JSON-Objekt."].join("\n");
+
+    return [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ];
+  }
+
+  const system = [
+    "Du bist ein strukturierender Assistent für Obsidian-Notizen.",
     ANTI_FABRICATION,
-    "Antworte AUSSCHLIESSLICH mit dem JSON-Objekt.",
+    "Die `Anleitung:`-Zeilen und `(Beispiel: …)`-Angaben der Vorlage sind VORGABEN — sie sagen dir, welche Original-Blöcke unter welche Überschrift gehören und was in ein Frontmatter-Feld passt. Sie sind KEIN zuzuordnender Inhalt; übernimm ihren Text niemals in den Output.",
+    'Schema: { "version": 1, "sections": [{ "heading": "<Überschrift>", "blocks": ["block_3"] }],',
+    '"unassigned": ["block_7"], "frontmatter": { "<key>": { "source": "content"|"empty", "value": "<wert>" } } }',
+    'Frontmatter mit source="content" muss wörtlich aus den Blöcken stammen; sonst source="empty".',
   ].join("\n");
+
+  const user = [...userCommon, ANTI_FABRICATION, "Antworte AUSSCHLIESSLICH mit dem JSON-Objekt."].join("\n");
 
   return [
     { role: "system", content: system },

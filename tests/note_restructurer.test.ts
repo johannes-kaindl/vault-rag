@@ -14,6 +14,7 @@ import {
 } from "../src/note_restructurer";
 import { parseConfidence } from "../src/note_restructurer";
 import type { TemplateSpec, TemplateSection } from "../src/template_matcher";
+import { parseTemplate } from "../src/template_matcher";
 
 function spec(headings: string[]): TemplateSpec {
   const sections: TemplateSection[] = headings.map((h, i) => ({
@@ -355,6 +356,27 @@ describe("buildRestructurePrompt", () => {
     // in der system-Nachricht UND in der user-Nachricht: exakter ANTI_FABRICATION-String
     expect(sys).toContain(ANTI_FABRICATION);
     expect(user).toContain(ANTI_FABRICATION);
+  });
+});
+
+describe("buildRestructurePrompt mode", () => {
+  const tpl = parseTemplate(`---\ntype: "📝 Notiz"\nbereich:   # Lebensbereich.\n---\n## Kern\n%% Kernaussage. %%\n`);
+  const blocks = splitBlocks("Ein Satz.");
+  it("deterministisch ist byte-identisch zu ohne mode", () => {
+    expect(buildRestructurePrompt(tpl, blocks, "deterministisch")).toEqual(buildRestructurePrompt(tpl, blocks));
+  });
+  it("deterministisch enthält weiterhin das strikte Anti-Fabrikations-Gebot", () => {
+    const sys = buildRestructurePrompt(tpl, blocks)[0].content;
+    expect(sys).toContain("KEINEN Text erfinden");
+  });
+  it("additiv erlaubt additions + inferred + verlangt Konfidenz", () => {
+    const msgs = buildRestructurePrompt(tpl, blocks, "additiv");
+    const sys = msgs[0].content;
+    expect(sys).toContain("additions");
+    expect(sys).toMatch(/inferred/);
+    expect(sys).toMatch(/[Kk]onfidenz/);
+    // Original-Blöcke bleiben unantastbar:
+    expect(sys).toMatch(/Original-Blöcke.*(nicht|niemals).*(umschreiben|verändern)/s);
   });
 });
 

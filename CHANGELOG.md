@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Unified sidebar hub** — the four separate sidebar views (Related Notes, Semantic Search, Chat, Smart Apply) are now a single "Vault Retrieval" hub with a tab bar, opened from one ribbon icon. The four commands deep-link straight to their tab. All panels stay mounted, so state persists across tab switches: a running chat stream or an open Smart-Apply diff survives switching away and back. The context-sensitive panels (Related, Smart Apply) refresh lazily — only when their tab is visible.
+
+### Changed
+
+- Old per-function sidebar leaves are migrated away automatically on load (one hub view replaces four).
+- Tab icons: Related now uses `waypoints`, Search uses the magnifying glass.
+
+### Fixed
+
+- Smart Apply no longer resets a manually chosen template when a background re-index fires for the same note.
+
 ## [0.7.1] — 2026-06-28
 
 ### Fixed

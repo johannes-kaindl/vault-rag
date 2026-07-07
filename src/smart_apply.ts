@@ -7,6 +7,7 @@ import {
   assertParseable,
   FmRow,
   ParsedFrontmatter,
+  FmAssignedValue,
 } from "./frontmatter";
 import {
   parseTemplate,
@@ -20,12 +21,14 @@ import {
   buildRestructurePrompt,
   parseAssignment,
   reconcileAssignment,
+  reconcileAdditions,
   permutationCheck,
   assembleBody,
   CheckResult,
   SourceBlock,
   Addition,
   Assignment,
+  ApplyMode,
 } from "./note_restructurer";
 import type { ChatClient } from "./chat_client";
 
@@ -67,6 +70,10 @@ export interface ApplyProposal {
   checks: CheckResult[];
   hardOk: boolean;
   reasoning: string;
+  mode: ApplyMode;
+  additions: Addition[];
+  assembly: AssemblyContext;
+  selection: ApplySelection;
 }
 
 export interface ApplyResult {
@@ -168,6 +175,7 @@ export class SmartApply {
   async propose(
     notePath: string,
     templatePath: string,
+    mode: ApplyMode,
     onToken: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
@@ -196,7 +204,7 @@ export class SmartApply {
     const blocks = splitBlocks(originalParsed.body);
 
     // Step 6: build prompt
-    const messages = buildRestructurePrompt(tpl, blocks);
+    const messages = buildRestructurePrompt(tpl, blocks, mode);
 
     // Step 7: stream — exactly ONE stream call
     const p = this.params();
@@ -216,6 +224,8 @@ export class SmartApply {
       const checks: CheckResult[] = [
         { id: "assignment-parse", ok: false, detail: "LLM-Antwort enthält kein gültiges Assignment-JSON" },
       ];
+      const emptyAssignment: Assignment = { version: 1, sections: [], unassigned: [], frontmatter: {} };
+      const assembly: AssemblyContext = { tpl, original: originalParsed, assignment: emptyAssignment, blocks, additions: [] };
       return {
         notePath,
         templatePath,
@@ -229,6 +239,10 @@ export class SmartApply {
         checks,
         hardOk: false,
         reasoning,
+        mode,
+        additions: [],
+        assembly,
+        selection: defaultSelection(assembly),
       };
     }
 
@@ -240,13 +254,27 @@ export class SmartApply {
     // Step 9: permutation check
     const permCheck = permutationCheck(blocks.map((b) => b.id), reconciled);
 
-    // Step 10: soft check fm-source — gate fabricated values
+    // Step 10: soft check fm-source — gate fabricated values.
+    // Mode gating (Task 8): in "deterministisch" mode, any FM value with source "inferred"
+    // is treated as "content" — so it is subject to the SAME literal-match gate below (this
+    // is today's behavior, generalized to the schema-v2 "inferred" source). In "additiv"
+    // mode, "inferred" values are left as-is (with their confidence) and bypass this gate:
+    // only "content" values must be a literal substring of the note.
     const bodyText = originalParsed.body;
     const existingFmValues = Object.values(originalParsed.data).flat().join(" ");
     const haystack = normalizeStr(bodyText + " " + existingFmValues);
 
+    const preGateFm: Record<string, FmAssignedValue> =
+      mode === "deterministisch"
+        ? Object.fromEntries(
+            Object.entries(reconciled.frontmatter).map(([k, v]) =>
+              v.source === "inferred" ? [k, { source: "content", value: v.value }] : [k, v],
+            ),
+          )
+        : reconciled.frontmatter;
+
     let fmSourceOk = true;
-    const gatedFm = { ...reconciled.frontmatter };
+    const gatedFm = { ...preGateFm };
     for (const key of Object.keys(gatedFm)) {
       const entry = gatedFm[key];
       if (entry.source === "content" && entry.value.trim() !== "") {
@@ -263,6 +291,26 @@ export class SmartApply {
     // Update reconciled assignment with gated values
     const cleanedAssignment = { ...reconciled, frontmatter: gatedFm };
 
+    // Step 10b: mode gating for additions (Task 8). "deterministisch" discards ALL
+    // additions (today's behavior has no concept of additions). "additiv" keeps only
+    // additions whose targetHeading matches a real template section (reconcileAdditions);
+    // any dropped addition is reported via a SOFT "additions-target" check (does not
+    // block hardOk).
+    const rawAdditions = assignment.additions ?? [];
+    let additions: Addition[] = [];
+    let additionsTargetCheck: CheckResult | null = null;
+    if (mode === "additiv") {
+      const { kept, dropped } = reconcileAdditions(tpl, rawAdditions);
+      additions = kept;
+      additionsTargetCheck = {
+        id: "additions-target",
+        ok: dropped.length === 0,
+        ...(dropped.length > 0
+          ? { detail: `verworfene Ergänzungen (unbekannte Überschrift): ${dropped.map((d) => d.targetHeading).join(", ")}` }
+          : {}),
+      };
+    }
+
     // Step 11: merge frontmatter
     const mergedFm = mergeFrontmatter(tpl.keys, tpl.fmDefaults, originalParsed, cleanedAssignment.frontmatter);
 
@@ -278,6 +326,8 @@ export class SmartApply {
         detail: err instanceof Error ? err.message : String(err),
       };
       const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck];
+      if (additionsTargetCheck !== null) checks.push(additionsTargetCheck);
+      const assembly: AssemblyContext = { tpl, original: originalParsed, assignment: cleanedAssignment, blocks, additions };
       return {
         notePath,
         templatePath,
@@ -291,6 +341,10 @@ export class SmartApply {
         checks,
         hardOk: false,
         reasoning,
+        mode,
+        additions,
+        assembly,
+        selection: defaultSelection(assembly),
       };
     }
 
@@ -309,6 +363,19 @@ export class SmartApply {
 
     // Step 15: diff frontmatter
     const fmRows = diffFrontmatter(originalParsed, mergedFm);
+
+    // Step 15b (Task 8): mirror source/confidence onto matching fmRows for keys whose
+    // FINAL (mode-gated) source is "inferred" — only possible in "additiv" mode, since
+    // "deterministisch" already converted all inferred entries to content/empty above.
+    // The base merge above never emits the inferred value itself (no acceptInferred) —
+    // this only annotates the row so the UI can show it as "erschlossen".
+    for (const row of fmRows) {
+      const entry = cleanedAssignment.frontmatter[row.key];
+      if (entry && entry.source === "inferred") {
+        row.source = "inferred";
+        row.confidence = entry.confidence;
+      }
+    }
 
     // Step 16: build sectionDiff — from template sections in template order
     const blockById = new Map(blocks.map((b) => [b.id, b.text]));
@@ -330,19 +397,41 @@ export class SmartApply {
       ? { id: "assemble", ok: false, detail: `assembleBody: ${assembleError}` }
       : null;
     const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck];
+    if (additionsTargetCheck !== null) {
+      checks.push(additionsTargetCheck);
+    }
     if (assembleCheck !== null) {
       checks.push(assembleCheck);
     }
 
-    // Step 18: hardOk — true iff assignment-parse + permutation + fm-roundtrip + assemble all ok
+    // Step 18: hardOk — true iff assignment-parse + permutation + fm-roundtrip + assemble all
+    // ok. "additions-target" is SOFT and never enters this formula (it does not block).
     const hardOk = parseCheck.ok && permCheck.ok && fmRoundtripCheck.ok && (assembleCheck === null || assembleCheck.ok);
+
+    // Step 19: build the AssemblyContext (Task 7 seam) + its default granular selection,
+    // and re-derive proposedText from it — this is now the SOLE source of truth for the
+    // preview text (mode-aware: additions/inferred FM only ever reach it when kept above).
+    // Only attempted when hardOk, matching the previous "else originalText" fallback;
+    // guarded further with try/catch as defense-in-depth (kept additions/valid ids are
+    // already guaranteed above, so this should not throw in practice).
+    const assembly: AssemblyContext = { tpl, original: originalParsed, assignment: cleanedAssignment, blocks, additions };
+    const selection = defaultSelection(assembly);
+    let finalProposedText = originalText;
+    if (hardOk) {
+      try {
+        finalProposedText = assembleProposedText(assembly, selection, false);
+      } catch {
+        // Defensive fallback to the legacy (additions-less) computation — should not trigger.
+        finalProposedText = proposedText;
+      }
+    }
 
     return {
       notePath,
       templatePath,
       type: tpl.type,
       originalText,
-      proposedText: hardOk ? proposedText : originalText,
+      proposedText: finalProposedText,
       fmRows,
       sectionDiff,
       unassigned,
@@ -350,6 +439,10 @@ export class SmartApply {
       checks,
       hardOk,
       reasoning,
+      mode,
+      additions,
+      assembly,
+      selection,
     };
     } finally {
       this.controller = null;

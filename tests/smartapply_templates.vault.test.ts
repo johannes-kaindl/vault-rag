@@ -90,4 +90,12 @@ describe.skipIf(!HAS_VAULT)("Smart-Apply Capture-Vorlagen (Vault)", () => {
       });
     });
   }
+
+  it("Vorlagen tragen keinen smartapply_modus-Leak; defaultMode wohldefiniert", () => {
+    for (const s of SPECS) {
+      const tpl = parseTemplate(readFileSync(join(TPL_DIR, s.file), "utf8"));
+      expect(tpl.keys).not.toContain("smartapply_modus");
+      expect(["deterministisch", "additiv", "transformativ"]).toContain(tpl.defaultMode);
+    }
+  });
 });

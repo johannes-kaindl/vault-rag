@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-07-08
+
 ### Added
 - Endpunkt-Presets: Ein-Klick-Buttons „+ LM Studio" / „+ Ollama" mit korrekten Default-Ports.
 - Klartext-Diagnose pro Endpunkt statt nur rot/grün (Verbindung abgelehnt / Hostname unbekannt / Zeitüberschreitung / kein LLM-API).

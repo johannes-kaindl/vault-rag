@@ -37,6 +37,8 @@
 .vault-rag-ep-status.is-ok { color: var(--text-success); }
 .vault-rag-ep-status.is-error { color: var(--text-error); }
 .vault-rag-ep-status.is-active { font-weight: var(--font-bold); }
+.vault-rag-ep-warn { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-warning); }
+.vault-rag-ep-warn svg { width: 14px; height: 14px; }
 .vault-rag-sa-conn-refresh { margin-left: 6px; display: inline-flex; align-items: center; }
 .vault-rag-sa-conn-refresh svg { width: 14px; height: 14px; }
 .vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; flex: 0 0 auto; }

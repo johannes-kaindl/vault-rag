@@ -112,9 +112,32 @@ describe("ChatClient", () => {
     const body = JSON.parse(xhr.body) as Record<string, unknown>;
     expect("max_tokens" in body).toBe(false);
   });
-  it("ping true bei 200", async () => {
-    vi.mocked(requestUrl).mockResolvedValue({ status: 200, json: {} } as any);
-    expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(true);
+  describe("ping", () => {
+    it("true bei 200 mit gültiger Modell-Liste", async () => {
+      vi.mocked(requestUrl).mockResolvedValue({ status: 200, json: { data: [] } } as any);
+      expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(true);
+    });
+    it("false wenn 200 aber kein OpenAI-Body (Fremd-Server)", async () => {
+      vi.mocked(requestUrl).mockResolvedValue({ status: 200, json: {} } as any);
+      expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(false);
+    });
+    it("false wenn nicht erreichbar", async () => {
+      vi.mocked(requestUrl).mockRejectedValue(new Error("ECONNREFUSED"));
+      expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(false);
+    });
+    it("false bei HTTP 500", async () => {
+      vi.mocked(requestUrl).mockResolvedValue({ status: 500 } as any);
+      expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(false);
+    });
+  });
+
+  describe("probe", () => {
+    it("liefert kind=refused mit Klartext bei ECONNREFUSED", async () => {
+      vi.mocked(requestUrl).mockRejectedValue(new Error("net::ERR_CONNECTION_REFUSED"));
+      const s = await new ChatClient("http://localhost:1243", "m").probe();
+      expect(s.kind).toBe("refused");
+      expect(s.klartext).toContain("Port");
+    });
   });
 });
 

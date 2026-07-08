@@ -11,19 +11,30 @@ describe("EmbeddingClient", () => {
   afterEach(() => vi.mocked(requestUrl).mockReset());
 
   describe("ping", () => {
-    it("gibt true zurück wenn Endpoint 200 liefert", async () => {
-      vi.mocked(requestUrl).mockResolvedValue(ok({}) as any);
+    it("true bei 200 mit gültiger Modell-Liste", async () => {
+      vi.mocked(requestUrl).mockResolvedValue(ok({ data: [] }) as any);
       expect(await new EmbeddingClient("http://localhost:11434", "qwen3-embedding:8b").ping()).toBe(true);
     });
-
-    it("gibt false zurück wenn Endpoint nicht erreichbar", async () => {
+    it("false wenn 200 aber kein OpenAI-Body (Fremd-Server)", async () => {
+      vi.mocked(requestUrl).mockResolvedValue(ok({}) as any);
+      expect(await new EmbeddingClient("http://localhost:11434", "qwen3-embedding:8b").ping()).toBe(false);
+    });
+    it("false wenn nicht erreichbar", async () => {
       vi.mocked(requestUrl).mockRejectedValue(new Error("ECONNREFUSED"));
       expect(await new EmbeddingClient("http://localhost:11434", "qwen3-embedding:8b").ping()).toBe(false);
     });
-
-    it("gibt false zurück bei HTTP 500", async () => {
+    it("false bei HTTP 500", async () => {
       vi.mocked(requestUrl).mockResolvedValue({ status: 500 } as any);
       expect(await new EmbeddingClient("http://localhost:11434", "qwen3-embedding:8b").ping()).toBe(false);
+    });
+  });
+
+  describe("probe", () => {
+    it("liefert kind=refused mit Klartext bei ECONNREFUSED", async () => {
+      vi.mocked(requestUrl).mockRejectedValue(new Error("net::ERR_CONNECTION_REFUSED"));
+      const s = await new EmbeddingClient("http://localhost:1243", "m").probe();
+      expect(s.kind).toBe("refused");
+      expect(s.klartext).toContain("Port");
     });
   });
 

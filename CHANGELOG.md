@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Endpunkt-Presets: Ein-Klick-Buttons „+ LM Studio" / „+ Ollama" mit korrekten Default-Ports.
+- Klartext-Diagnose pro Endpunkt statt nur rot/grün (Verbindung abgelehnt / Hostname unbekannt / Zeitüberschreitung / kein LLM-API).
+- Nicht-blockierende Eingabe-Prüfung (fehlendes Schema/Port, Platzhalter-IP).
+
+### Changed
+- Chat-Endpunkt-Default auf `http://localhost:1234` (LM Studio) geändert.
+
 ## [0.9.0] — 2026-07-07
 
 ### Added

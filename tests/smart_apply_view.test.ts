@@ -146,6 +146,16 @@ describe("SmartApplyPanel — Cockpit", () => {
     expect(deps.setSuppress).toHaveBeenCalledWith(true);
   });
 
+  it("Klick auf ein Modus-Segment setzt nur den Modus, startet KEINEN Run", async () => {
+    const { container, deps } = mkPanel();
+    const segs = all(container, "vault-rag-sa-mode-btn");
+    expect(segs.length).toBeGreaterThan(1);          // Modus-Leiste ist gerendert
+    segs[1].click();                                  // Additiv (Deterministisch|Additiv|Transformativ)
+    await flush();
+    expect(deps.build).not.toHaveBeenCalled();        // Modus-Wechsel triggert KEINEN Run
+    expect(all(container, "vault-rag-sa-mode-btn").filter(b => hasClass(b, "is-active")).length).toBe(1);
+  });
+
   it("Verbindungspunkt spiegelt ping()=true als verbunden", async () => {
     const { container } = mkPanel({ ping: vi.fn(async () => true) });
     await flush();
@@ -911,7 +921,7 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
     expect(after).not.toContain("Sachbuch");
   });
 
-  it("Modus-Wechsel ruft build mit neuem Modus (Re-Stream)", async () => {
+  it("Modus-Wechsel nach einem Build löst KEINEN erneuten Build aus (kein Re-Stream)", async () => {
     const { container, deps } = mkPanel();
     first(container, "vault-rag-sa-run").click();
     await flush();
@@ -921,9 +931,8 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
     additivBtn.click();
     await flush();
 
-    expect(deps.build).toHaveBeenCalledWith(
-      expect.any(String), expect.any(String), "additiv", expect.any(Function), expect.any(Function),
-    );
+    // Modus-Klick setzt nur den Modus — der Run läuft ausschließlich über „Auf aktive Notiz anwenden".
+    expect(deps.build).not.toHaveBeenCalled();
   });
 
   // Final Whole-Branch-Review — I1 (WYSIWYG): eine frische Build-Preview muss den LIVE

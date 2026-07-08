@@ -1,4 +1,4 @@
-import { AbstractInputSuggest, App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, TFolder, setIcon } from "obsidian";
+import { AbstractInputSuggest, App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, TFolder, setIcon, setTooltip } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
@@ -303,7 +303,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       // Pro-Feld-Status in A11y-Form (Form + Text + Farbe): loader → check/x, aktiver markiert.
       const ep = value.trim();
       if (!isAdder && ep) {
-        setIcon(statusIcon, "loader"); statusIcon.setAttribute("title", "prüfe…");
+        setIcon(statusIcon, "loader"); setTooltip(statusIcon, "prüfe…");
         void opts.probe(ep).then(status => {
           statusIcon.empty();
           setIcon(statusIcon, status.reachable ? "circle-check" : "circle-x");
@@ -311,14 +311,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
           statusIcon.toggleClass("is-error", !status.reachable);
           const isActive = normalizeEndpoint(ep) === (opts.active() ?? "");
           statusIcon.toggleClass("is-active", isActive);
-          statusIcon.setAttribute("title", status.klartext + (isActive ? " · aktiv" : ""));
+          setTooltip(statusIcon, status.klartext + (isActive ? " · aktiv" : ""));
         });
         // Eingabe-Prüfung: nicht-blockierendes Warn-Icon (WCAG-Form + Tooltip)
         const warnings = validateEndpointInput(ep);
         if (warnings.length) {
           const warnIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-warn" });
           setIcon(warnIcon, "alert-triangle");
-          warnIcon.setAttribute("title", warnings.map(w => w.message).join(" · "));
+          setTooltip(warnIcon, warnings.map(w => w.message).join(" · "));
         }
       }
     });

@@ -23,6 +23,7 @@
     "release": "node scripts/release.mjs"
   },
   "devDependencies": {
+    "@types/node": "^26.1.1",
     "esbuild": "^0.21.0",
     "eslint": "^9.39.4",
     "eslint-plugin-obsidianmd": "^0.3.0",

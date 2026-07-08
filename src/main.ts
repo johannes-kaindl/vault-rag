@@ -47,7 +47,7 @@ export default class VaultRagPlugin extends Plugin {
   private templateRanker?: TemplateRanker;
   private liveIndexer!: LiveIndexer;
   private pendingQueue!: PendingQueue;
-  private debounceTimers = new Map<string, ReturnType<typeof window.setTimeout>>();
+  private debounceTimers = new Map<string, number>();
   embeddingProgress: EmbeddingProgress = {
     isEmbedding: false,
     embeddedNotes: 0,

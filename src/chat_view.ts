@@ -34,8 +34,8 @@ export class ChatPanel implements HubPanel {
   private inputEl: HTMLTextAreaElement | null = null;
   private thinkToggleEl: HTMLElement | null = null;
   private sendBtn: HTMLElement | null = null;
-  private timer: ReturnType<typeof window.setInterval> | null = null;
-  private debTimer: ReturnType<typeof window.setTimeout> | null = null;
+  private timer: number | null = null;
+  private debTimer: number | null = null;
   private workStart = 0;
   private running = false;
 

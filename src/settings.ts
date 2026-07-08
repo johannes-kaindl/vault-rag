@@ -102,7 +102,7 @@ class ReindexConfirmModal extends Modal {
  * Fähigkeiten) laufen über Render-State-Felder, die `resetRenderState()` pro Render-Zyklus neu setzt.
  */
 export class VaultRagSettingTab extends PluginSettingTab {
-  private refreshInterval: ReturnType<typeof window.setInterval> | null = null;
+  private refreshInterval: number | null = null;
   private lastCaps: Caps = { vision: "no", thinking: { support: "none", confidence: "no" } };
   private updateBudgetMax: (maxChars: number) => void = () => {};
   private infoValue: HTMLElement | null = null;

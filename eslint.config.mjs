@@ -11,6 +11,20 @@ export default tseslint.config(
     },
   },
   ...obsidianmd.configs.recommended,
+  // src/mcp/ ist ein Node-Programm (MCP-Server): die Obsidian-Kontext-Verbote
+  // (obsidianmd/*, fetch via no-restricted-globals, node:-Importe, console) gelten
+  // dort nicht — alle Qualitätsregeln (tseslint recommendedTypeChecked + typed-Regeln
+  // aus dem recommended-Set) bleiben aktiv.
+  {
+    files: ["src/mcp/**/*.ts"],
+    rules: {
+      ...Object.fromEntries(Object.keys(obsidianmd.rules ?? {}).map(r => [`obsidianmd/${r}`, "off"])),
+      "no-restricted-globals": "off",
+      "no-restricted-imports": "off",
+      "import/no-nodejs-modules": "off",
+      "no-console": "off",
+    },
+  },
   {
     rules: {
       // Deutsche UI: Substantive werden großgeschrieben. Die Regel erwartet englische

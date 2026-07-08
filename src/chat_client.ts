@@ -2,7 +2,8 @@ import { streamSSE } from "./sse";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
 import { suppressParams } from "./reasoning";
-import { httpJson } from "./http";
+import { httpJson, probeEndpoint } from "./http";
+import { EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
 
@@ -21,8 +22,13 @@ export class ChatClient {
     this.endpoint = normalizeEndpoint(endpoint);
   }
 
+  /** Erreichbarkeit + Klartext-Diagnose des Endpunkts. */
+  async probe(): Promise<EndpointStatus> {
+    return probeEndpoint(this.endpoint);
+  }
+
   async ping(): Promise<boolean> {
-    try { return (await httpJson({ url: `${this.endpoint}/v1/models` })).status === 200; } catch { return false; }
+    return (await this.probe()).reachable;
   }
 
   /** Verfügbare Modelle vom OpenAI-kompatiblen Endpoint (GET /v1/models). [] bei Fehler/Offline. */

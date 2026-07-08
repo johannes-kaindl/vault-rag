@@ -1,6 +1,7 @@
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
-import { httpJson } from "./http";
+import { httpJson, probeEndpoint } from "./http";
+import { EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 
 export class EmbeddingClient {
   private endpoint: string;
@@ -8,12 +9,13 @@ export class EmbeddingClient {
     this.endpoint = normalizeEndpoint(endpoint);
   }
 
+  /** Erreichbarkeit + Klartext-Diagnose des Endpunkts. */
+  async probe(): Promise<EndpointStatus> {
+    return probeEndpoint(this.endpoint);
+  }
+
   async ping(): Promise<boolean> {
-    try {
-      return (await httpJson({ url: `${this.endpoint}/v1/models` })).status === 200;
-    } catch {
-      return false;
-    }
+    return (await this.probe()).reachable;
   }
 
   async listModels(): Promise<string[]> {

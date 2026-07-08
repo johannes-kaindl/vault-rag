@@ -26,7 +26,7 @@ describe("settings", () => {
   });
 
   it("hat Chat-Defaults", () => {
-    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual(["http://localhost:8080"]);
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual(["http://localhost:1234"]);
     expect(DEFAULT_SETTINGS.chatModel).toBe("qwen3");
     expect(DEFAULT_SETTINGS.chatK).toBe(5);
     expect(DEFAULT_SETTINGS.contextCharBudget).toBe(12000);
@@ -132,5 +132,14 @@ describe("applyEndpointEdit", () => {
 
   it("trimmt und filtert leere Einträge im Ergebnis", () => {
     expect(applyEndpointEdit(["  http://a  ", "http://b"], 1, "  http://c  ", false)).toEqual(["http://a", "http://c"]);
+  });
+});
+
+describe("DEFAULT_SETTINGS Endpunkte", () => {
+  it("Chat-Default ist LM Studio :1234", () => {
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual(["http://localhost:1234"]);
+  });
+  it("Embedding-Default bleibt Ollama :11434", () => {
+    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual(["http://localhost:11434"]);
   });
 });

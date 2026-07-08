@@ -1,7 +1,7 @@
 import { setIcon } from "obsidian";
 import { ChatSession } from "./chat_session";
 import { ContextPanel, ContextPanelDeps } from "./context_panel";
-import { isAlwaysOnThinker } from "./reasoning";
+import { isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import { HubPanel, TabId } from "./hub_panel";
 
 export const VIEW_TYPE_CHAT = "vault-rag-chat";

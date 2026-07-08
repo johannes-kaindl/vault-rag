@@ -1,4 +1,4 @@
-import { ThinkingSupport } from "./reasoning";
+import { ThinkingSupport } from "./vendor/kit/reasoning";
 import { httpJson } from "./http";
 
 export type Confidence = "no" | "likely" | "confirmed";

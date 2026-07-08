@@ -2,7 +2,7 @@ import { AbstractInputSuggest, App, ButtonComponent, Modal, Notice, Plugin, Plug
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
-import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
+import { reasoningHappened, isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";

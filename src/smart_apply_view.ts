@@ -3,7 +3,7 @@ import type { FmValue, FmChange, FmRow, Confidence } from "./frontmatter";
 import type { ApplyProposal, ApplyResult, ApplySelection } from "./smart_apply";
 import { assembleProposedText, defaultSelection } from "./smart_apply";
 import type { TemplateRank } from "./template_ranker";
-import { isAlwaysOnThinker } from "./reasoning";
+import { isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import type { HubPanel, TabId } from "./hub_panel";
 import type { ApplyMode } from "./note_restructurer";
 

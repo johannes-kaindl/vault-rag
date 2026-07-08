@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { suppressParams, reasoningHappened, isAlwaysOnThinker } from "../src/reasoning";
+import { suppressParams, reasoningHappened, isAlwaysOnThinker } from "../src/vendor/kit/reasoning";
 
 describe("suppressParams", () => {
   it("liefert leeres Objekt wenn nicht unterdrückt", () => {

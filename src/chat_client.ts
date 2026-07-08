@@ -1,7 +1,7 @@
 import { streamSSE } from "./sse";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
-import { suppressParams } from "./reasoning";
+import { suppressParams } from "./vendor/kit/reasoning";
 import { httpJson, probeEndpoint } from "./http";
 import { EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 

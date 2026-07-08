@@ -5,8 +5,7 @@ import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
-import { ENDPOINT_PRESETS, validateEndpointInput } from "./vendor/kit/endpoint_diagnostics";
-import { EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
+import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import type { ApplyMode } from "./note_restructurer";
 
 /** Migriert alte Einzel-Endpoint-Settings auf eine Liste. Reiner Helfer. */
@@ -329,6 +328,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         .setTooltip(`${preset.url} hinzufügen`)
         .onClick(() => {
           const cur = opts.get();
+          if (cur.includes(preset.url)) return;   // schon in der Liste — kein Duplikat anhängen
           opts.set(applyEndpointEdit(cur, cur.length, preset.url, true));
           void this.plugin.saveSettings()
             .then(() => opts.reconnect())

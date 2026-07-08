@@ -27,6 +27,8 @@ export class ChatClient {
     return probeEndpoint(this.endpoint);
   }
 
+  /** Boolean-Kurzform für Aufrufer (Resolver), die nur Erreichbarkeit brauchen.
+   *  Verschärft: 200 allein genügt nicht — probe() verlangt die /v1/models-Form (siehe probeEndpoint). */
   async ping(): Promise<boolean> {
     return (await this.probe()).reachable;
   }

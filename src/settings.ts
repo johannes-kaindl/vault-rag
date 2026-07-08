@@ -357,7 +357,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       containerEl: this.containerEl,
       label: "Chat-Endpunkte",
       desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. OpenAI-kompatible LLM-Server (MLX/LM-Studio), getrennt von den Embedding-Endpunkten.",
-      placeholder: "http://localhost:8080",
+      placeholder: "http://localhost:1234",
       get: () => this.plugin.settings.chatEndpoints,
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
       active: () => this.plugin.activeChatEndpoint,

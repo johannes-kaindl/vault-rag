@@ -225,9 +225,10 @@ export class SmartApplyPanel implements HubPanel {
       seg.toggleClass("is-active", this.selectedMode === m.id);
       if (!disabled) {
         seg.addEventListener("click", () => {
+          // Nur den Modus setzen + neu rendern — konsistent mit selectTemplate/Audit-Toggle.
+          // Der Run läuft ausschließlich über „Auf aktive Notiz anwenden" (runBtn).
           this.selectedMode = m.id;
           this.render();
-          void this.start();
         });
       }
     }

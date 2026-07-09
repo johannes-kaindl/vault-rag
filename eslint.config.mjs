@@ -23,7 +23,10 @@ export default tseslint.config(
     rules: {
       ...Object.fromEntries(Object.keys(obsidianmd.rules ?? {}).map(r => [`obsidianmd/${r}`, "off"])),
       "no-restricted-globals": "off",
-      "no-restricted-imports": "off",
+      "no-restricted-imports": ["error", {
+        paths: [{ name: "obsidian", message: "src/mcp ist ein headless Node-Programm — nie obsidian importieren." }],
+        patterns: [{ group: ["*/http", "../http"], message: "src/mcp spricht Netz nur über node_embed (fetch), nie über obsidians requestUrl-Wrapper." }],
+      }],
       "import/no-nodejs-modules": "off",
       "no-console": "off",
     },

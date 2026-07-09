@@ -103,11 +103,14 @@ e.g. in Claude Code's `.mcp.json`:
 }
 ```
 
-Configuration (endpoints, index folder, excludes) is read from the plugin's
-own settings (`.obsidian/plugins/vault-retrieval/data.json`) — change it in
-Obsidian, the server follows. Env overrides: `VAULT_RAG_EMBEDDING_ENDPOINT`,
-`VAULT_RAG_EMBEDDING_MODEL`, `VAULT_RAG_INDEX_DIR`. One server instance per vault.
-The server never writes to your vault.
+Configuration (endpoints, index folder, excludes) is read at server startup
+from the plugin's own settings (`.obsidian/plugins/vault-retrieval/data.json`).
+Restart the MCP server to apply settings changes — the index itself is picked up
+live (the server reloads it whenever the plugin rewrites it). Env overrides:
+`VAULT_RAG_EMBEDDING_ENDPOINT`, `VAULT_RAG_EMBEDDING_MODEL`, `VAULT_RAG_INDEX_DIR`.
+One server instance per vault. The server never writes to your vault.
+
+Note: `read_note` enforces exclude prefixes case-insensitively (safe on case-insensitive filesystems like APFS/NTFS), while `search`/`related` filter result paths case-sensitively — they expose only paths and scores, never content.
 
 ## Related
 

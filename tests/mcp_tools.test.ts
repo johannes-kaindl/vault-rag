@@ -114,3 +114,69 @@ describe("McpTools.readNote", () => {
     await fs.rm(outside, { force: true });
   });
 });
+
+describe("McpTools.search", () => {
+  const okStatus = { reachable: true, kind: "ok", klartext: "Verbunden" } as const;
+  const downStatus = { reachable: false, kind: "refused", klartext: "Verbindung abgelehnt — Server läuft nicht oder Port falsch." } as const;
+
+  it("bettet die Query ein und rankt gegen den Index", async () => {
+    const vault = await makeVaultWithIndex({ "treffer.md": [1, 0, 0, 0], "daneben.md": [0, 1, 0, 0] });
+    const io: ToolIo = {
+      probe: async () => okStatus,
+      embedQuery: async () => new Float32Array([1, 0, 0, 0]),
+    };
+    const { tools } = await makeTools(vault, io);
+    const r = await tools.search({ query: "egal", min_similarity: 0.5 });
+    expect(r.hits.map(h => h.path)).toEqual(["treffer.md"]);
+  });
+  it("nimmt den ersten erreichbaren Endpoint (Fallback-Liste) und cached ihn", async () => {
+    const vault = await makeVaultWithIndex({ "a.md": [1, 0, 0, 0] });
+    const cfg = await loadConfig(vault, {});
+    cfg.settings.embeddingEndpoints = ["http://tot:1", "http://lebt:2/v1"];
+    const probed: string[] = [];
+    const usedEndpoints: string[] = [];
+    const tools = new McpTools(cfg, {
+      probe: async ep => { probed.push(ep); return ep.includes("lebt") ? okStatus : downStatus; },
+      embedQuery: async ep => { usedEndpoints.push(ep); return new Float32Array([1, 0, 0, 0]); },
+    });
+    await tools.search({ query: "q" });
+    await tools.search({ query: "q2" });
+    expect(usedEndpoints).toEqual(["http://lebt:2", "http://lebt:2"]); // normalisiert (/v1 gestrippt) + gecacht
+    expect(probed.filter(p => p.includes("lebt")).length).toBe(1);      // zweiter Call ohne Re-Probe
+  });
+  it("kein Endpoint erreichbar → Fehler listet Klartext-Diagnosen", async () => {
+    const vault = await makeVaultWithIndex({ "a.md": [1, 0, 0, 0] });
+    const { tools } = await makeTools(vault, {
+      probe: async () => downStatus,
+      embedQuery: async () => { throw new Error("unerreichbar"); },
+    });
+    await expect(tools.search({ query: "q" })).rejects.toThrow(/Verbindung abgelehnt/);
+  });
+  it("Totalausfall probt jeden Endpoint nur einmal (kein Doppel-Scan)", async () => {
+    const vault = await makeVaultWithIndex({ "a.md": [1, 0, 0, 0] });
+    const cfg = await loadConfig(vault, {});
+    cfg.settings.embeddingEndpoints = ["http://tot1:1", "http://tot2:2"];
+    let probes = 0;
+    const tools = new McpTools(cfg, {
+      probe: async () => { probes++; return downStatus; },
+      embedQuery: async () => { throw new Error("nie erreicht"); },
+    });
+    await expect(tools.search({ query: "q" })).rejects.toThrow(/Kein Embedding-Endpunkt/);
+    expect(probes).toBe(2);
+  });
+  it("Embed-Fehler → genau ein Re-Resolve + Retry", async () => {
+    const vault = await makeVaultWithIndex({ "a.md": [1, 0, 0, 0] });
+    let embedCalls = 0;
+    const { tools } = await makeTools(vault, {
+      probe: async () => okStatus,
+      embedQuery: async () => {
+        embedCalls++;
+        if (embedCalls === 1) throw new Error("Verbindung riss");
+        return new Float32Array([1, 0, 0, 0]);
+      },
+    });
+    const r = await tools.search({ query: "q" });
+    expect(embedCalls).toBe(2);
+    expect(r.hits.length).toBeGreaterThan(0);
+  });
+});

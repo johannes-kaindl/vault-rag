@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { IndexLoader, VaultIndex } from "../index";
 import { Retriever, Hit } from "../retriever";
 import type { EndpointStatus } from "../vendor/kit/endpoint_diagnostics";
+import { normalizeEndpoint } from "../vendor/kit/endpoint";
 import { NodeVaultAdapter } from "./node_adapter";
 import type { McpConfig } from "./config";
 
@@ -32,6 +33,7 @@ export class McpTools {
   private index: VaultIndex | null = null;
   private manifestMtimeMs = 0;
   private adapter: NodeVaultAdapter;
+  private activeEndpoint: string | null = null;
 
   constructor(private cfg: McpConfig, private io: ToolIo) {
     this.adapter = new NodeVaultAdapter(cfg.vaultPath);
@@ -68,6 +70,38 @@ export class McpTools {
 
   private static toHitList(hits: Hit[]): HitList {
     return { hits: hits.map(h => ({ path: h.path, score: Math.round(h.score * 1000) / 1000 })) };
+  }
+
+  /** Erster erreichbarer Endpoint der Fallback-Liste (normalisiert), gecacht.
+   *  Nicht erreichbar → Fehler mit Klartext-Diagnose PRO Endpoint (classify-Klassen). */
+  private async ensureEndpoint(): Promise<string> {
+    if (this.activeEndpoint) return this.activeEndpoint;
+    const failures: string[] = [];
+    for (const raw of this.cfg.settings.embeddingEndpoints) {
+      if (!raw?.trim()) continue;
+      const ep = normalizeEndpoint(raw);
+      const status = await this.io.probe(ep);
+      if (status.reachable) { this.activeEndpoint = ep; return ep; }
+      failures.push(`${ep}: ${status.klartext}`);
+    }
+    throw new Error(`Kein Embedding-Endpunkt erreichbar.\n${failures.join("\n")}`);
+  }
+
+  async search(a: { query: string; k?: number; min_similarity?: number }): Promise<HitList> {
+    const index = await this.currentIndex();
+    const embedAt = (ep: string) =>
+      this.io.embedQuery(ep, this.cfg.settings.embeddingModel, a.query, index.dim);
+    let vec: Float32Array;
+    try {
+      vec = await embedAt(await this.ensureEndpoint());
+    } catch (e) {
+      // Genau EIN Re-Resolve+Retry — nur für Embed-Fehler auf einem aufgelösten Endpoint.
+      // „Kein Endpoint erreichbar" aus ensureEndpoint (Cache blieb null) propagiert direkt.
+      if (this.activeEndpoint === null) throw e;
+      this.activeEndpoint = null;
+      vec = await embedAt(await this.ensureEndpoint());
+    }
+    return McpTools.toHitList(new Retriever(index).search(vec, this.opts(a.k, a.min_similarity)));
   }
 
   async related(a: { path: string; k?: number; min_similarity?: number }): Promise<HitList> {

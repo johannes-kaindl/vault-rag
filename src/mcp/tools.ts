@@ -14,6 +14,19 @@ export interface ToolIo {
 
 export interface HitList { hits: { path: string; score: number }[] }
 
+/** Path-Guard für read_note: vault-relativ, kein Traversal, nur .md, exclude respektiert.
+ *  Was vom Index ausgeschlossen ist, gibt der Server auch nicht als Volltext heraus. */
+export function resolveNotePath(vaultRoot: string, rel: string, exclude: string[]): string {
+  if (path.isAbsolute(rel)) throw new Error(`Nur vault-relative Pfade erlaubt: "${rel}"`);
+  const norm = path.normalize(rel).split(path.sep).join("/");
+  if (norm === ".." || norm.startsWith("../")) throw new Error(`Pfad verlässt den Vault: "${rel}"`);
+  if (!norm.endsWith(".md")) throw new Error(`Nur Markdown-Notizen (.md) lesbar: "${rel}"`);
+  const normLower = norm.toLowerCase();
+  const hit = exclude.find(e => e && normLower.startsWith(e.toLowerCase()));
+  if (hit) throw new Error(`Pfad liegt unter Ausschluss-Präfix "${hit}": "${rel}"`);
+  return path.join(vaultRoot, norm);
+}
+
 /** Transport-freie Tool-Handler des MCP-Servers — server.ts ist nur die dünne SDK-Schale. */
 export class McpTools {
   private index: VaultIndex | null = null;
@@ -63,5 +76,19 @@ export class McpTools {
       throw new Error(`Notiz nicht im Index: "${a.path}" — nicht indexiert (exclude-Regel?) oder noch nicht embedded.`);
     }
     return McpTools.toHitList(new Retriever(index).related(a.path, this.opts(a.k, a.min_similarity)));
+  }
+
+  async readNote(a: { path: string }): Promise<{ path: string; content: string }> {
+    const abs = resolveNotePath(this.cfg.vaultPath, a.path, this.cfg.settings.exclude);
+    try {
+      const [realAbs, realRoot] = await Promise.all([fs.realpath(abs), fs.realpath(this.cfg.vaultPath)]);
+      if (realAbs !== realRoot && !realAbs.startsWith(realRoot + path.sep)) {
+        throw new Error("__outside__");
+      }
+      return { path: a.path, content: await fs.readFile(realAbs, "utf-8") };
+    } catch (e) {
+      if ((e as Error).message === "__outside__") throw new Error(`Pfad verlässt den Vault (Symlink): "${a.path}"`);
+      throw new Error(`Notiz nicht gefunden: "${a.path}"`);
+    }
   }
 }

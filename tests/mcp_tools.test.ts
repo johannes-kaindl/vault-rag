@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { McpTools, type ToolIo } from "../src/mcp/tools";
+import { McpTools, type ToolIo, resolveNotePath } from "../src/mcp/tools";
 import { loadConfig } from "../src/mcp/config";
 import type { McpConfig } from "../src/mcp/config";
 
@@ -66,5 +66,51 @@ describe("McpTools.related", () => {
     await new Promise(r => setTimeout(r, 10)); // mtime-Auflösung
     await writeIndex(path.join(vault, "_vaultrag"), { "a.md": [1, 0, 0, 0], "neu.md": [1, 0, 0, 0] });
     expect((await tools.related({ path: "a.md" })).hits.map(h => h.path)).toEqual(["neu.md"]);
+  });
+});
+
+describe("resolveNotePath (Guard)", () => {
+  const root = "/vault";
+  it("akzeptiert vault-relative .md-Pfade", () => {
+    expect(resolveNotePath(root, "sub/notiz.md", [])).toBe(path.join(root, "sub/notiz.md"));
+  });
+  it("weist absolute Pfade ab", () => {
+    expect(() => resolveNotePath(root, "/etc/passwd.md", [])).toThrow(/vault-relativ/i);
+  });
+  it("weist ..-Traversal ab (auch versteckt)", () => {
+    expect(() => resolveNotePath(root, "../geheim.md", [])).toThrow(/verlässt/);
+    expect(() => resolveNotePath(root, "sub/../../geheim.md", [])).toThrow(/verlässt/);
+  });
+  it("weist Nicht-Markdown ab", () => {
+    expect(() => resolveNotePath(root, "bild.png", [])).toThrow(/\.md/);
+  });
+  it("weist exclude-Präfixe ab", () => {
+    expect(() => resolveNotePath(root, "Templates/t.md", ["Templates/"])).toThrow(/Ausschluss/);
+  });
+  it("weist exclude-Präfixe auch bei abweichender Groß-/Kleinschreibung ab", () => {
+    expect(() => resolveNotePath(root, "templates/t.md", ["Templates/"])).toThrow(/Ausschluss/);
+  });
+});
+
+describe("McpTools.readNote", () => {
+  it("liest den Volltext einer Notiz", async () => {
+    const vault = await makeVaultWithIndex({ "a.md": [1, 0, 0, 0] });
+    await fs.writeFile(path.join(vault, "a.md"), "# Inhalt");
+    const { tools } = await makeTools(vault);
+    expect(await tools.readNote({ path: "a.md" })).toEqual({ path: "a.md", content: "# Inhalt" });
+  });
+  it("fehlende Datei → Klartext-Fehler", async () => {
+    const vault = await makeVaultWithIndex({ "a.md": [1, 0, 0, 0] });
+    const { tools } = await makeTools(vault);
+    await expect(tools.readNote({ path: "fehlt.md" })).rejects.toThrow(/nicht gefunden/);
+  });
+  it("folgt Symlinks nicht aus dem Vault heraus", async () => {
+    const vault = await makeVaultWithIndex({ "a.md": [1, 0, 0, 0] });
+    const outside = path.join(vault, "..", `vaultrag-outside-${path.basename(vault)}.md`);
+    await fs.writeFile(outside, "GEHEIM");
+    await fs.symlink(outside, path.join(vault, "leak.md"));
+    const { tools } = await makeTools(vault);
+    await expect(tools.readNote({ path: "leak.md" })).rejects.toThrow(/verlässt den Vault/);
+    await fs.rm(outside, { force: true });
   });
 });

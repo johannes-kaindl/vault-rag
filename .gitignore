@@ -4,3 +4,5 @@ mcp-server.js
 data.json
 .claude/
 .DS_Store
+.mcp.json
+.superpowers/

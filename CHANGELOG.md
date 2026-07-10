@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **MCP server** — use your vault index from Claude Code and other MCP clients. A bundled stdio server (`mcp-server.js`, built alongside the plugin by `npm run build`) exposes three read-only tools over your existing embedding index: `search` (semantic search, embeds the query via your configured endpoint), `related` (neighbours of a note, fully offline), and `read_note` (full markdown text, `.md` only, exclude prefixes enforced case-insensitively, symlink-escape protection via realpath containment). Configuration is read at server startup from the plugin's own settings (`data.json`); the index itself is picked up live whenever the plugin rewrites it. One server instance per vault; the server never writes to your vault. See the README's "MCP server" section for client registration (`.mcp.json`).
+
+### Changed
+- Internal: pure settings truth (`VaultRagSettings`/`DEFAULT_SETTINGS`/endpoint migration) extracted to `settings_core.ts` (re-exported, no behaviour change); obsidianmd lint rules scoped to plugin code with a targeted import guard for the Node-side MCP code.
+
 ## [0.10.1] — 2026-07-08
 
 ## [0.10.0] — 2026-07-08

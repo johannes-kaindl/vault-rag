@@ -78,6 +78,40 @@ Your indexing backend exports a portable note-level **Matryoshka-256 int8 mini-i
 
 Architecture, module layout and contributor conventions live in [`AGENTS.md`](AGENTS.md).
 
+## MCP server (use your index from Claude Code & other agents)
+
+The plugin's embedding index doubles as a retrieval backend for MCP clients
+(Claude Code, OpenClaw, …). A bundled stdio server exposes three read-only tools:
+
+| Tool | What it does | Needs endpoint? |
+|---|---|---|
+| `search` | Semantic search over the vault (query → `{path, score}` hits) | yes (embeds the query) |
+| `related` | Notes related to a given note (straight from the index) | no — works offline |
+| `read_note` | Full markdown text of a note (`.md` only, excludes respected) | no — works offline |
+
+Build once (`npm run build` produces `mcp-server.js`), then register it,
+e.g. in Claude Code's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "vault-retrieval": {
+      "command": "node",
+      "args": ["/path/to/vault-rag/mcp-server.js", "/path/to/your/vault"]
+    }
+  }
+}
+```
+
+Configuration (endpoints, index folder, excludes) is read at server startup
+from the plugin's own settings (`.obsidian/plugins/vault-retrieval/data.json`).
+Restart the MCP server to apply settings changes — the index itself is picked up
+live (the server reloads it whenever the plugin rewrites it). Env overrides:
+`VAULT_RAG_EMBEDDING_ENDPOINT`, `VAULT_RAG_EMBEDDING_MODEL`, `VAULT_RAG_INDEX_DIR`.
+One server instance per vault. The server never writes to your vault.
+
+Note: `read_note` enforces exclude prefixes case-insensitively (safe on case-insensitive filesystems like APFS/NTFS), while `search`/`related` filter result paths case-sensitively — they expose only paths and scores, never content.
+
 ## Related
 
 Image transcription (handwriting/screenshots → Markdown) lives in the sibling plugin **[image-to-markdown](https://codeberg.org/jkaindl/image-to-markdown)**.

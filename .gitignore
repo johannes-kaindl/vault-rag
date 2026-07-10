@@ -1,5 +1,6 @@
 node_modules/
 main.js
+mcp-server.js
 data.json
 .claude/
 .DS_Store

@@ -90,14 +90,14 @@ export class SmartApplyPanel implements HubPanel {
   private expandedRanks = false;
   private userOverrodeTemplate = false;
   private rankGen = 0;
-  private rankTimer: ReturnType<typeof window.setTimeout> | null = null;
+  private rankTimer: number | null = null;
   private connected: boolean | null = null;
   private selectedTemplate = "";
   // Pfad der Notiz, für die zuletzt gerankt wurde — macht onFileOpen pfad-bewusst (s.u.).
   private lastContextPath: string | null = null;
 
   // Timer / guards
-  private timer: ReturnType<typeof window.setInterval> | null = null;
+  private timer: number | null = null;
   private workStart = 0;
   private accepting = false;
 

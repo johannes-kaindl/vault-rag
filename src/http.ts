@@ -24,7 +24,7 @@ export async function httpJson(param: {
  *  im Hintergrund folgenlos weiter (reine Lese-Probe). */
 export async function probeEndpoint(baseUrl: string, timeoutMs = 5000): Promise<EndpointStatus> {
   const url = `${baseUrl}/v1/models`;
-  let timer: ReturnType<typeof window.setTimeout> | undefined;
+  let timer: number | undefined;
   const timeout = new Promise<"__timeout__">(resolve => {
     timer = window.setTimeout(() => resolve("__timeout__"), timeoutMs);
   });

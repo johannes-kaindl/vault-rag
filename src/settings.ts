@@ -7,13 +7,10 @@ import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import type { ApplyMode } from "./note_restructurer";
+import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, type VaultRagSettings } from "./settings_core";
 
-/** Migriert alte Einzel-Endpoint-Settings auf eine Liste. Reiner Helfer. */
-export function migrateEndpointList(single: string | undefined, list: string[] | undefined): string[] {
-  if (list && list.length) return list.filter(e => e && e.trim());
-  if (single && single.trim()) return [single.trim()];
-  return [];
-}
+export { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList };
+export type { VaultRagSettings };
 
 /** Wendet die Bearbeitung EINES Endpoint-Felds auf die Liste an (bei blur, nicht pro Tastendruck).
  *  isAdder=true: nicht-leerer Wert wird angehängt. isAdder=false: Index setzen (leer → entfernen). Getrimmt+leer-gefiltert. */
@@ -25,66 +22,6 @@ export function applyEndpointEdit(endpoints: string[], index: number, value: str
   else { next.splice(index, 1); }
   return next.map(e => e.trim()).filter(e => e);
 }
-
-export interface VaultRagSettings {
-  k: number;
-  minSim: number;
-  indexDir: string;
-  hideIndexFolder: boolean;
-  exclude: string[];
-  embeddingEndpoints: string[];
-  embeddingModel: string;
-  showStatusBar: boolean;
-  debounceMs: number;
-  chatEndpoints: string[];
-  chatModel: string;
-  chatK: number;
-  contextCharBudget: number;
-  chatTemperature: number;
-  chatSystemPrompt: string;
-  chatInputPosition: "bottom" | "top";
-  suppressThinking: boolean;
-  enterSends: boolean;
-  smartApplyEnabled: boolean;
-  templateDir: string;
-  smartApplyTemperature: number;
-  smartApplyModel: string;
-  smartApplySuppressThinking: boolean;
-  smartApplyMaxTokens: number;
-  smartApplyDefaultMode: ApplyMode;
-}
-
-export const DEFAULT_SYSTEM_PROMPT =
-  "Du beantwortest Fragen gegroundet in den bereitgestellten Notizen des Nutzers. " +
-  "Wenn die Antwort nicht aus ihnen hervorgeht, sag das offen. Antworte knapp und auf Deutsch.";
-
-export const DEFAULT_SETTINGS: VaultRagSettings = {
-  k: 20,
-  minSim: 0.3,
-  indexDir: "_vaultrag",
-  hideIndexFolder: true,
-  exclude: ["Templates/", "Archive/"],
-  embeddingEndpoints: ["http://localhost:11434"],
-  embeddingModel: "qwen3-embedding:8b",
-  showStatusBar: false,
-  debounceMs: 3000,
-  chatEndpoints: ["http://localhost:1234"],
-  chatModel: "qwen3",
-  chatK: 5,
-  contextCharBudget: 12000,
-  chatTemperature: 0.7,
-  chatSystemPrompt: DEFAULT_SYSTEM_PROMPT,
-  chatInputPosition: "bottom",
-  suppressThinking: false,
-  enterSends: true,
-  smartApplyEnabled: false,
-  templateDir: "Templates/",
-  smartApplyTemperature: 0,
-  smartApplyModel: "",
-  smartApplySuppressThinking: false,
-  smartApplyMaxTokens: 4096,
-  smartApplyDefaultMode: "deterministisch",
-};
 
 type Caps = { vision: string; thinking: { support: string; confidence: string } };
 
@@ -165,7 +102,7 @@ class ReindexConfirmModal extends Modal {
  * Fähigkeiten) laufen über Render-State-Felder, die `resetRenderState()` pro Render-Zyklus neu setzt.
  */
 export class VaultRagSettingTab extends PluginSettingTab {
-  private refreshInterval: ReturnType<typeof window.setInterval> | null = null;
+  private refreshInterval: number | null = null;
   private lastCaps: Caps = { vision: "no", thinking: { support: "none", confidence: "no" } };
   private updateBudgetMax: (maxChars: number) => void = () => {};
   private infoValue: HTMLElement | null = null;

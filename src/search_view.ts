@@ -24,7 +24,7 @@ export class SearchPanel implements HubPanel {
   private container!: HTMLElement;
   private inputEl: HTMLInputElement | null = null;
   private resultsEl: HTMLElement | null = null;
-  private timer: ReturnType<typeof window.setTimeout> | null = null;
+  private timer: number | null = null;
 
   constructor(private deps: SearchDeps) {}
 

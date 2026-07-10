@@ -311,4 +311,32 @@ describe("LiveIndexer persist-Guard", () => {
     indexer.remove("b.md");
     await expect(indexer.persist("live")).resolves.toBeUndefined(); // 2→1 (-1) erlaubt
   });
+
+  it("markUnready blockt live-persist mid-session, auch wenn der Indexer zuvor schon ready war", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A");
+    await indexer.persist("live"); // ready war true, persist erfolgreich
+    expect(indexer.isReady()).toBe(true);
+
+    indexer.markUnready(); // Gefahrenzustand mid-session (z.B. maybeReload → load-failed-index-present)
+    expect(indexer.isReady()).toBe(false);
+    await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "not-ready" });
+  });
+
+  it("nach markUnready stellt ein erneutes init() den ready-Zustand wieder her", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A");
+    await indexer.persist("live");
+
+    indexer.markUnready();
+    await expect(indexer.persist("live")).rejects.toBeInstanceOf(PersistBlockedError);
+
+    indexer.init(oneNoteIndex("a.md")); // z.B. erfolgreicher Reload/Recovery
+    expect(indexer.isReady()).toBe(true);
+    await expect(indexer.persist("live")).resolves.toBeUndefined();
+  });
 });

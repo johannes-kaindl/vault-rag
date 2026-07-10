@@ -57,6 +57,9 @@ export class LiveIndexer {
   /** No-Index-Pfad: kein Index auf Platte → leerer Indexer darf gefahrlos aufbauen. */
   markFresh(): void { this.ready = true; this.diskCount = 0; }
 
+  /** Setzt den Indexer in den Nicht-bereit-Zustand (Gefahrenzustand mid-session) → live-persist blockt. */
+  markUnready(): void { this.ready = false; }
+
   async reindexAll(
     paths: string[],
     read: (p: string) => Promise<string>,

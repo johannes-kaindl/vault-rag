@@ -357,7 +357,8 @@ export default class VaultRagPlugin extends Plugin {
       await this.loadIndex();
       this.refreshIndexFolderHiding();
       // Fix 2: alten Ordner NUR löschen, wenn der neue Index wirklich geladen werden konnte
-      // (indexComplete prüft nur Existenz, nicht Parsebarkeit — loadIndex schluckt Parse-Fehler still).
+      // (indexComplete prüft nur Existenz, nicht Parsebarkeit — loadIndex meldet Parse-Fehler
+      // jetzt laut als Gefahrenzustand, statt sie still zu schlucken).
       if (this.index) {
         await this.cleanupIndexDir(oldDir);
       } else {
@@ -394,14 +395,18 @@ export default class VaultRagPlugin extends Plugin {
 
   async loadIndex() {
     const manifestPath = `${this.settings.indexDir}/manifest.json`;
-    const manifestExists = await this.app.vault.adapter.exists(manifestPath);
+    // Konservativ kapseln: wirft exists() selbst, MUSS das als "Index könnte da sein" gelten
+    // (sonst würde ein exists-Fehler fälschlich als no-index → markFresh → Clobber-Risiko).
+    let manifestExists = true;
+    try { manifestExists = await this.app.vault.adapter.exists(manifestPath); } catch { manifestExists = true; }
     let parseThrew = false;
     let loaded: VaultIndex | null = null;
     try {
       loaded = await new IndexLoader(this.app.vault.adapter, this.settings.indexDir).load();
     } catch (e) {
       parseThrew = true;
-      console.warn("vault-rag: loadIndex failed", e);
+      // Im legitimen no-index-Fall wirft load() erwartbar (nichts zu laden) — kein echter Fehler.
+      if (manifestExists) console.warn("vault-rag: loadIndex failed", e);
     }
     const state = classifyLoadResult(manifestExists, parseThrew);
     if (state === "loaded-ok" && loaded) {
@@ -422,8 +427,10 @@ export default class VaultRagPlugin extends Plugin {
       this.syncProgress();
     } else {
       // GEFAHRENZUSTAND: Index liegt vor, ließ sich aber nicht laden. liveIndexer NICHT init'en
-      // (bleibt not-ready → persist-Guard blockt live-Overwrites). Laut anzeigen.
+      // und explizit auf not-ready setzen (auch mid-session, falls er zuvor schon ready war —
+      // sonst würde der persist-Guard trotz Gefahrenzustand nicht greifen). Laut anzeigen.
       this.index = null; this.retriever = null;
+      this.liveIndexer.markUnready();
       this.indexHealthy = false;
       this.syncProgress();
       new Notice("⚠ vault-rag: Index beschädigt/nicht ladbar — Schreibschutz aktiv. Über die Einstellungen wiederherstellen oder neu indizieren.", 10000);
@@ -445,6 +452,7 @@ export default class VaultRagPlugin extends Plugin {
           this.index = prevIndex; this.retriever = prevRetriever;
           if (prevIndex) this.liveIndexer.init(prevIndex);
           new Notice(`vault-rag: Ein anderes Gerät hat einen kleineren Index gesynct (${shrunkCount} statt ${prevCount}). Guter Index behalten — „Index vervollständigen", um zu vereinen.`, 10000);
+          this.syncProgress();
         }
       }
     } catch { /* noch kein Index */ }

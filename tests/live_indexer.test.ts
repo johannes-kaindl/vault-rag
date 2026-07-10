@@ -224,6 +224,42 @@ describe("LiveIndexer", () => {
       expect(indexer.noteCount).toBe(0);
     });
   });
+
+  describe("LiveIndexer.healMissing", () => {
+    it("behält vorhandene Vektoren und ergänzt nur fehlende", async () => {
+      const a = makeAdapter();
+      const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+      indexer.markFresh();
+      await indexer.update("a.md", "#A");         // vorhanden
+      const contents: Record<string, string> = { "b.md": "#B", "c.md": "#C" };
+      const added = await indexer.healMissing(["b.md", "c.md"], async (p) => contents[p]);
+      expect(added).toBe(2);
+      const idx = indexer.buildIndex();
+      expect(idx.count).toBe(3);
+      expect(idx.rowFor("a.md")).toBeGreaterThanOrEqual(0);
+      expect(idx.rowFor("b.md")).toBeGreaterThanOrEqual(0);
+      expect(idx.rowFor("c.md")).toBeGreaterThanOrEqual(0);
+    });
+
+    it("überspringt unlesbare Dateien ohne Abbruch", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "m");
+      indexer.markFresh();
+      const added = await indexer.healMissing(["x.md", "y.md"], async (p) => {
+        if (p === "x.md") throw new Error("weg");
+        return "#Y";
+      });
+      expect(added).toBe(1);
+      expect(indexer.buildIndex().rowFor("y.md")).toBeGreaterThanOrEqual(0);
+    });
+
+    it("meldet Fortschritt", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "m");
+      indexer.markFresh();
+      const seen: Array<[number, number, number]> = [];
+      await indexer.healMissing(["a.md", "b.md"], async () => "#X", (d, i, t) => seen.push([d, i, t]));
+      expect(seen[seen.length - 1]).toEqual([2, 2, 2]);
+    });
+  });
 });
 
 describe("LiveIndexer persist-Guard", () => {

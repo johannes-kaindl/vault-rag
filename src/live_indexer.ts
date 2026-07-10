@@ -75,6 +75,28 @@ export class LiveIndexer {
     this.ready = true;
   }
 
+  /**
+   * Additiver Delta-Reindex: embeddet nur die fehlenden Pfade und fügt sie zur bestehenden
+   * Vektor-Map hinzu (KEIN Reset). Dient als „Index vervollständigen" und als Resume für
+   * abgebrochene Voll-Reindexe. Gibt die Zahl neu indizierter Notizen zurück.
+   */
+  async healMissing(
+    missing: string[],
+    read: (p: string) => Promise<string>,
+    onProgress?: (done: number, indexed: number, total: number) => void,
+  ): Promise<number> {
+    let indexed = 0;
+    for (let i = 0; i < missing.length; i++) {
+      try {
+        const v = await this.embedNote(await read(missing[i]));
+        if (v) { this.noteVectors.set(missing[i], v); indexed++; }
+      } catch { /* unlesbar/Embed-Fehler überspringen */ }
+      onProgress?.(i + 1, indexed, missing.length);
+    }
+    this.ready = true;
+    return indexed;
+  }
+
   buildIndex(): VaultIndex {
     const paths = [...this.noteVectors.keys()].sort();
     const n = paths.length;

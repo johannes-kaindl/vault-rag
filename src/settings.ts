@@ -46,6 +46,7 @@ export interface VaultRagPluginHost extends Plugin {
   changeIndexDir(newDir: string): Promise<void>;
   listBackups(): Promise<{ name: string; count: number }[]>;
   restoreBackup(name: string): Promise<void>;
+  indexHealthReadout(): string;
 }
 
 /** Autocomplete-Suggest für Vault-Ordner in einem Text-Input-Feld. */
@@ -194,7 +195,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     sec("Index");
     this.buildIndexDir(new Setting(containerEl));
     this.buildHideIndexFolder(new Setting(containerEl));
-    this.buildReindexButton(new Setting(containerEl));
+    sec("Index-Robustheit");
+    this.buildRobustnessSection(containerEl);
     sec("Chat");
     this.buildChatEndpointList();
     this.buildChatModel(new Setting(containerEl));
@@ -750,13 +752,28 @@ export class VaultRagSettingTab extends PluginSettingTab {
       }));
   }
 
-  private buildReindexButton(s: Setting): void {
-    s.setName("Vault neu indizieren")
-      .setDesc("Bettet alle Notizen neu ein. Das kann je nach Vault-Größe mehrere Minuten dauern. Der bestehende Index bleibt bis zum Abschluss erhalten.")
-      .addButton(b => b
-        .setButtonText("Vault neu indizieren")
-        .onClick(() => {
-          new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open();
-        }));
+  /** „Vault neu indizieren" lebt bewusst hier statt in der Index-Sektion (Config): Robustheit
+   *  bündelt alle Wiederherstellungs-Aktionen (Zustand, Delta-Heal, Backup, Voll-Reindex) an
+   *  einer Stelle — kein zweiter Reindex-Button mehr in „Index". */
+  private buildRobustnessSection(containerEl: HTMLElement): void {
+    new Setting(containerEl)
+      .setName("Index-Zustand")
+      .setDesc(this.plugin.indexHealthReadout());
+    new Setting(containerEl)
+      .setName("Index vervollständigen")
+      .setDesc("Nur fehlende Notizen nachträglich einbetten (Delta) — schnell, ohne Voll-Reindex.")
+      .addButton(b => b.setButtonText("Vervollständigen").onClick(() => { void this.plugin.healVault(); }));
+    new Setting(containerEl)
+      .setName("Aus Backup wiederherstellen")
+      .setDesc("Geräte-lokale Sicherungen des Index (letzte 3). Ersetzt den aktuellen Index.")
+      .addButton(b => b.setButtonText("Backups…").onClick(() => { void (async () => {
+        new RestoreBackupModal(this.app, await this.plugin.listBackups(), (n) => void this.plugin.restoreBackup(n)).open();
+      })(); }));
+    new Setting(containerEl)
+      .setName("Vault neu indizieren")
+      .setDesc("Baut den kompletten Index von Grund auf neu — der letzte Ausweg.")
+      .addButton(b => b.setButtonText("Neu indizieren").setWarning().onClick(() => {
+        new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open();
+      }));
   }
 }

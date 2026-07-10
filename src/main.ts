@@ -461,6 +461,13 @@ export default class VaultRagPlugin extends Plugin {
     new Notice(this.indexHealthy ? "Index aus Backup wiederhergestellt." : "Wiederhergestellter Index ließ sich nicht laden.");
   }
 
+  /** Kompakter Zustands-Text für die Robustheits-Sektion in den Einstellungen. */
+  indexHealthReadout(): string {
+    if (!this.indexHealthy) return "⚠ Laden fehlgeschlagen — beschädigter Index erkannt (Schreibschutz aktiv)";
+    const n = this.liveIndexer.noteCount;
+    return `${n.toLocaleString("de-DE")} Notizen · gesund`;
+  }
+
   async loadIndex() {
     const manifestPath = `${this.settings.indexDir}/manifest.json`;
     // Konservativ kapseln: wirft exists() selbst, MUSS das als "Index könnte da sein" gelten

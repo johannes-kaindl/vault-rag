@@ -44,6 +44,8 @@ export interface VaultRagPluginHost extends Plugin {
   healVault(): Promise<void>;
   refreshIndexFolderHiding(): void;
   changeIndexDir(newDir: string): Promise<void>;
+  listBackups(): Promise<{ name: string; count: number }[]>;
+  restoreBackup(name: string): Promise<void>;
 }
 
 /** Autocomplete-Suggest für Vault-Ordner in einem Text-Input-Feld. */
@@ -106,6 +108,20 @@ export class HealConfirmModal extends Modal {
     const btnRow = contentEl.createDiv({ cls: "modal-button-container" });
     new ButtonComponent(btnRow).setButtonText("Später").onClick(() => this.close());
     new ButtonComponent(btnRow).setButtonText("Jetzt vervollständigen").setCta().onClick(() => { this.close(); this.onConfirm(); });
+  }
+  onClose(): void { this.contentEl.empty(); }
+}
+
+export class RestoreBackupModal extends Modal {
+  constructor(app: App, private entries: { name: string; count: number }[], private onPick: (name: string) => void) { super(app); }
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.createEl("h2", { text: "Aus Backup wiederherstellen" });
+    if (this.entries.length === 0) { contentEl.createEl("p", { text: "Keine Backups vorhanden." }); return; }
+    for (const e of this.entries) {
+      const row = new Setting(contentEl).setName(`${e.count.toLocaleString("de-DE")} Notizen`).setDesc(e.name);
+      row.addButton(b => b.setButtonText("Wiederherstellen").setWarning().onClick(() => { this.close(); this.onPick(e.name); }));
+    }
   }
   onClose(): void { this.contentEl.empty(); }
 }

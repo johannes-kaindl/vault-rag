@@ -2,7 +2,7 @@ import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Retriever, Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
-import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList, HealConfirmModal } from "./settings";
+import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList, HealConfirmModal, RestoreBackupModal } from "./settings";
 import { resolveActiveEndpoint } from "./vendor/kit/endpoint";
 import { mergeSettings } from "./vendor/kit/settings";
 import { EmbeddingClient } from "./embedder";
@@ -23,6 +23,7 @@ import { TemplateRanker } from "./template_ranker";
 import type { TemplateRank } from "./template_ranker";
 import { buildHideCss, normalizeIndexDir } from "./index_dir";
 import { migrateIndex, onlyContainsIndexFiles, INDEX_REQUIRED_FILES } from "./index_migrate";
+import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
 import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexVsVault } from "./index_guard";
@@ -162,6 +163,12 @@ export default class VaultRagPlugin extends Plugin {
       id: "heal-index",
       name: "Index vervollständigen (fehlende Notizen)",
       callback: () => void this.healVault(),
+    });
+
+    this.addCommand({
+      id: "restore-index-backup",
+      name: "Index aus Backup wiederherstellen",
+      callback: () => void (async () => { new RestoreBackupModal(this.app, await this.listBackups(), (n) => void this.restoreBackup(n)).open(); })(),
     });
 
     if (this.settings.showStatusBar) this.setStatusBarVisible(true);
@@ -399,6 +406,61 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
+  private backupsRoot(): string { return `${this.manifest.dir}/${BACKUP_SUBDIR}`; }
+
+  /** Kopiert den aktuellen Index geräte-lokal (Plugin-Ordner, synct nicht) und rotiert auf 3. */
+  async snapshotIndex(): Promise<void> {
+    try {
+      const root = this.backupsRoot();
+      // Zeitstempel aus dem Manifest (fällt sonst auf lastMtime zurück).
+      let builtAt = "";
+      try { const m = JSON.parse(await this.app.vault.adapter.read(`${this.settings.indexDir}/manifest.json`)) as { built_at?: string }; builtAt = m.built_at ?? ""; } catch { /* ignore */ }
+      if (!builtAt) builtAt = new Date(this.lastMtime || Date.now()).toISOString();
+      const name = backupDirName(builtAt);
+      const dest = `${root}/${name}`;
+      if (await this.app.vault.adapter.exists(`${dest}/manifest.json`)) return; // schon gesichert
+      await migrateIndex(this.app.vault.adapter, this.settings.indexDir, dest);
+      // Rotation: vorhandene Backup-Verzeichnisse listen → älteste über 3 löschen.
+      const existing = await this.backupNames();
+      for (const del of selectBackupsToDelete(existing, 3)) {
+        try {
+          const listing = await this.app.vault.adapter.list(`${root}/${del}`);
+          for (const f of listing.files ?? []) await this.app.vault.adapter.remove(f);
+          await this.app.vault.adapter.rmdir(`${root}/${del}`, false);
+        } catch { /* Rotations-Fehler nicht fatal */ }
+      }
+    } catch (e) { console.warn("vault-rag: snapshotIndex failed", e); }
+  }
+
+  private async backupNames(): Promise<string[]> {
+    try {
+      const listing = await this.app.vault.adapter.list(this.backupsRoot());
+      return (listing.folders ?? []).map(p => p.split("/").pop() ?? p);
+    } catch { return []; }
+  }
+
+  async listBackups(): Promise<BackupEntry[]> {
+    const names = await this.backupNames();
+    const entries: BackupEntry[] = [];
+    for (const name of names) {
+      let count = 0;
+      try { const m = JSON.parse(await this.app.vault.adapter.read(`${this.backupsRoot()}/${name}/manifest.json`)) as { count?: number }; count = m.count ?? 0; } catch { /* ignore */ }
+      entries.push({ name, count });
+    }
+    return sortBackupsNewestFirst(entries);
+  }
+
+  async restoreBackup(name: string): Promise<void> {
+    const src = `${this.backupsRoot()}/${name}`;
+    // Vollständigkeit prüfen, bevor wir den aktiven Index ersetzen.
+    for (const f of INDEX_REQUIRED_FILES) {
+      if (!(await this.app.vault.adapter.exists(`${src}/${f}`))) { new Notice(`Backup „${name}" unvollständig — Wiederherstellung abgebrochen.`); return; }
+    }
+    await migrateIndex(this.app.vault.adapter, src, this.settings.indexDir);
+    await this.loadIndex();
+    new Notice(this.indexHealthy ? "Index aus Backup wiederhergestellt." : "Wiederhergestellter Index ließ sich nicht laden.");
+  }
+
   async loadIndex() {
     const manifestPath = `${this.settings.indexDir}/manifest.json`;
     // Konservativ kapseln: wirft exists() selbst, MUSS das als "Index könnte da sein" gelten
@@ -422,6 +484,7 @@ export default class VaultRagPlugin extends Plugin {
       const st = await this.app.vault.adapter.stat(manifestPath);
       if (st) this.lastMtime = st.mtime;
       this.indexHealthy = true;
+      void this.snapshotIndex();
       this.refresh();
       this.syncProgress();
       const vaultPaths = this.vaultMarkdownPaths();
@@ -506,6 +569,7 @@ export default class VaultRagPlugin extends Plugin {
         if (e instanceof PersistBlockedError) {
           this.indexHealthy = false;
           new Notice("⚠ vault-rag: Schreibschutz — Index wirkt beschädigt, Änderung vorgemerkt statt überschrieben.", 8000);
+          void this.snapshotIndex();
         }
         await this.pendingQueue.add(path);
         this.syncProgress();

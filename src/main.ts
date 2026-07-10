@@ -25,6 +25,7 @@ import { buildHideCss, normalizeIndexDir } from "./index_dir";
 import { migrateIndex, onlyContainsIndexFiles, INDEX_REQUIRED_FILES } from "./index_migrate";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
+import { classifyLoadResult, isSuspiciousShrink } from "./index_guard";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -57,6 +58,7 @@ export default class VaultRagPlugin extends Plugin {
   private statusBarEl: HTMLElement | null = null;
   private hideStyleSheet: CSSStyleSheet | null = null;
   private isSwitchingIndexDir = false;
+  private indexHealthy = true;
 
   private openPath = (p: string): void => {
     const f = this.app.vault.getAbstractFileByPath(p);
@@ -391,17 +393,40 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   async loadIndex() {
+    const manifestPath = `${this.settings.indexDir}/manifest.json`;
+    const manifestExists = await this.app.vault.adapter.exists(manifestPath);
+    let parseThrew = false;
+    let loaded: VaultIndex | null = null;
     try {
-      this.index = await new IndexLoader(this.app.vault.adapter, this.settings.indexDir).load();
+      loaded = await new IndexLoader(this.app.vault.adapter, this.settings.indexDir).load();
+    } catch (e) {
+      parseThrew = true;
+      console.warn("vault-rag: loadIndex failed", e);
+    }
+    const state = classifyLoadResult(manifestExists, parseThrew);
+    if (state === "loaded-ok" && loaded) {
+      this.index = loaded;
       this.retriever = new Retriever(this.index);
       this.liveIndexer.init(this.index);
-      const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/manifest.json`);
+      const st = await this.app.vault.adapter.stat(manifestPath);
       if (st) this.lastMtime = st.mtime;
+      this.indexHealthy = true;
       this.refresh();
       this.syncProgress();
-    } catch (e) {
+      // Self-Heal-Check + Load-Snapshot folgen in Task 8/9 (hier bewusst noch nicht).
+    } else if (state === "no-index") {
+      // Frische Installation: leerer Indexer darf gefahrlos aufbauen.
       this.index = null; this.retriever = null;
-      console.warn("vault-rag: loadIndex failed", e);
+      this.liveIndexer.markFresh();
+      this.indexHealthy = true;
+      this.syncProgress();
+    } else {
+      // GEFAHRENZUSTAND: Index liegt vor, ließ sich aber nicht laden. liveIndexer NICHT init'en
+      // (bleibt not-ready → persist-Guard blockt live-Overwrites). Laut anzeigen.
+      this.index = null; this.retriever = null;
+      this.indexHealthy = false;
+      this.syncProgress();
+      new Notice("⚠ vault-rag: Index beschädigt/nicht ladbar — Schreibschutz aktiv. Über die Einstellungen wiederherstellen oder neu indizieren.", 10000);
     }
   }
 
@@ -409,7 +434,19 @@ export default class VaultRagPlugin extends Plugin {
     if (this.isSwitchingIndexDir) return;
     try {
       const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/manifest.json`);
-      if (st && st.mtime !== this.lastMtime) { this.lastMtime = st.mtime; await this.loadIndex(); }
+      if (st && st.mtime !== this.lastMtime) {
+        const prevCount = this.index?.count ?? 0;
+        const prevIndex = this.index, prevRetriever = this.retriever;
+        this.lastMtime = st.mtime;
+        await this.loadIndex();
+        if (this.index && isSuspiciousShrink(prevCount, this.index.count)) {
+          // Fremd-Gerät hat einen drastisch kleineren Index gesynct → guten Bestand behalten.
+          const shrunkCount = this.index.count;
+          this.index = prevIndex; this.retriever = prevRetriever;
+          if (prevIndex) this.liveIndexer.init(prevIndex);
+          new Notice(`vault-rag: Ein anderes Gerät hat einen kleineren Index gesynct (${shrunkCount} statt ${prevCount}). Guter Index behalten — „Index vervollständigen", um zu vereinen.`, 10000);
+        }
+      }
     } catch { /* noch kein Index */ }
   }
 
@@ -591,6 +628,10 @@ export default class VaultRagPlugin extends Plugin {
 
   private updateStatusBar(): void {
     if (!this.statusBarEl) return;
+    if (!this.indexHealthy) {
+      this.statusBarEl.setText("⚠ Index beschädigt");
+      return;
+    }
     const p = this.embeddingProgress;
     if (p.reindex) {
       this.statusBarEl.setText(`↻ Indiziere ${p.reindex.done.toLocaleString("de-DE")}/${p.reindex.total.toLocaleString("de-DE")}`);

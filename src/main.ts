@@ -60,6 +60,16 @@ export default class VaultRagPlugin extends Plugin {
   private hideStyleSheet: CSSStyleSheet | null = null;
   private isSwitchingIndexDir = false;
   private indexHealthy = true;
+  private indexOpChain: Promise<void> = Promise.resolve();
+
+  /** Serialisiert mutierende Index-Operationen (mutate+build+persist), damit der persist-Guard
+   *  nicht durch nebenläufige Events (z.B. Ordner-Bulk-Delete) fälschlich Shrink meldet und kein
+   *  liveIndexer-Instanz-Swap mitten in einer Operation passiert. */
+  private runIndexOp(fn: () => Promise<void>): Promise<void> {
+    const next = this.indexOpChain.then(fn, fn);
+    this.indexOpChain = next.catch(() => {});
+    return next;
+  }
 
   private openPath = (p: string): void => {
     const f = this.app.vault.getAbstractFileByPath(p);
@@ -102,6 +112,9 @@ export default class VaultRagPlugin extends Plugin {
 
     await this.pendingQueue.load();
     await this.loadIndex();
+    // Nur aus bekannt-gutem Kontext sichern (vgl. Fix 3 im Whole-Branch-Review): loadIndex selbst
+    // snapshottet nicht mehr, damit ein Gefahrenzustand/Fremd-Shrink keinen Backup-Slot kapert.
+    if (this.index && this.indexHealthy) void this.snapshotIndex();
 
     // Index-Refresh nach Sync (30s) + Pending-Drain (60s)
     this.registerInterval(window.setInterval(() => void this.maybeReload(), 30000));
@@ -296,6 +309,8 @@ export default class VaultRagPlugin extends Plugin {
     this.embedder = new EmbeddingClient(ep, m);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m);
     if (this.index) this.liveIndexer.init(this.index);
+    else if (this.indexHealthy) this.liveIndexer.markFresh();
+    // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
   }
 
   /** Aktiven Chat-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
@@ -491,7 +506,6 @@ export default class VaultRagPlugin extends Plugin {
       const st = await this.app.vault.adapter.stat(manifestPath);
       if (st) this.lastMtime = st.mtime;
       this.indexHealthy = true;
-      void this.snapshotIndex();
       this.refresh();
       this.syncProgress();
       const vaultPaths = this.vaultMarkdownPaths();
@@ -529,13 +543,19 @@ export default class VaultRagPlugin extends Plugin {
         const prevIndex = this.index, prevRetriever = this.retriever;
         this.lastMtime = st.mtime;
         await this.loadIndex();
-        if (this.index && isSuspiciousShrink(prevCount, this.index.count)) {
-          // Fremd-Gerät hat einen drastisch kleineren Index gesynct → guten Bestand behalten.
-          const shrunkCount = this.index.count;
+        // Jeden "schlechteren" Ausgang abfangen — sowohl Gefahrenzustand (!this.index, z.B.
+        // abgeschnittenes notes.i8 eines Fremdgeräts) als auch Suspicious-Shrink —, solange wir
+        // vorher einen guten prevIndex hatten. Bedingung direkt im if (statt in einer Zwischenvariable),
+        // damit TS prevIndex innerhalb des Blocks als non-null narrowt.
+        if (prevIndex && (!this.index || isSuspiciousShrink(prevCount, this.index.count))) {
+          const newCount = this.index?.count ?? 0;
           this.index = prevIndex; this.retriever = prevRetriever;
-          if (prevIndex) this.liveIndexer.init(prevIndex);
-          new Notice(`vault-rag: Ein anderes Gerät hat einen kleineren Index gesynct (${shrunkCount} statt ${prevCount}). Guter Index behalten — „Index vervollständigen", um zu vereinen.`, 10000);
+          this.indexHealthy = true;
+          this.liveIndexer.init(prevIndex);
           this.syncProgress();
+          new Notice(`vault-rag: Reload lieferte einen schlechteren Index (${newCount} statt ${prevCount}) — guter Index behalten. „Index vervollständigen", um zu vereinen.`, 10000);
+        } else {
+          void this.snapshotIndex(); // NUR bei gutem, übernommenem Reload snapshotten (siehe Fix 3)
         }
       }
     } catch { /* noch kein Index */ }
@@ -560,29 +580,35 @@ export default class VaultRagPlugin extends Plugin {
     try { content = await this.app.vault.adapter.read(path); } catch { return; }
 
     if (await this.embedderReady()) {
-      // liveIndexer snapshotten: ein paralleles fire-and-forget resolveAndReconnectEmbedder()
-      // könnte this.liveIndexer über die awaits hinweg neu zuweisen → Update auf alter Instanz,
-      // buildIndex/persist auf neuer = stiller Verlust. Eine Instanz durchgängig nutzen (vgl. runSearch).
-      const li = this.liveIndexer;
-      this.embeddingProgress.isEmbedding = true;
-      try {
-        await li.update(path, content);
-        this.index = li.buildIndex();
-        this.retriever = new Retriever(this.index);
-        await li.persist("live");
-        this.syncProgress();
-        this.refresh();
-      } catch (e) {
-        if (e instanceof PersistBlockedError) {
-          this.indexHealthy = false;
-          new Notice("⚠ vault-rag: Schreibschutz — Index wirkt beschädigt, Änderung vorgemerkt statt überschrieben.", 8000);
-          void this.snapshotIndex();
+      // Mutate+build+persist serialisiert über runIndexOp (Fix 1): sonst könnten parallele
+      // Events (z.B. Bulk-Delete/-Modify) verschränkt laufen und dem persist-Guard eine falsche
+      // ±1-Differenz vorspiegeln (Shrink-Fehlalarm) oder einen liveIndexer-Instanz-Swap mitten
+      // in der Operation erleben.
+      await this.runIndexOp(async () => {
+        // liveIndexer snapshotten: ein paralleles fire-and-forget resolveAndReconnectEmbedder()
+        // könnte this.liveIndexer über die awaits hinweg neu zuweisen → Update auf alter Instanz,
+        // buildIndex/persist auf neuer = stiller Verlust. Eine Instanz durchgängig nutzen (vgl. runSearch).
+        const li = this.liveIndexer;
+        this.embeddingProgress.isEmbedding = true;
+        try {
+          await li.update(path, content);
+          this.index = li.buildIndex();
+          this.retriever = new Retriever(this.index);
+          await li.persist("live");
+          this.indexHealthy = true; // vormaliger (auch fälschlicher) Block ist aufgehoben — schreibt wieder gesund.
+          this.syncProgress();
+          this.refresh();
+        } catch (e) {
+          if (e instanceof PersistBlockedError) {
+            this.indexHealthy = false;
+            new Notice("⚠ vault-rag: Schreibschutz — Index wirkt beschädigt, Änderung vorgemerkt statt überschrieben.", 8000);
+          }
+          await this.pendingQueue.add(path);
+          this.syncProgress();
+        } finally {
+          this.embeddingProgress.isEmbedding = false;
         }
-        await this.pendingQueue.add(path);
-        this.syncProgress();
-      } finally {
-        this.embeddingProgress.isEmbedding = false;
-      }
+      });
     } else {
       await this.pendingQueue.add(path);
       this.syncProgress();
@@ -593,34 +619,45 @@ export default class VaultRagPlugin extends Plugin {
     if (this.isSwitchingIndexDir) return;
     if (path.startsWith(".")) return;
     if (!(await this.embedderReady())) return;
-    try {
-      this.liveIndexer.remove(path);
-      this.index = this.liveIndexer.buildIndex();
-      this.retriever = new Retriever(this.index);
-      await this.liveIndexer.persist("live");
-      this.syncProgress();
-      this.refresh();
-    } catch (e) {
-      if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Löschung nicht persistiert (Schreibschutz).", 8000); }
-      else console.warn("vault-rag: handleDelete failed", e);
-    }
+    // liveIndexer VOR der Serialisierung snapshotten (Minor 6): ein paralleler Instanz-Swap
+    // (resolveAndReconnectEmbedder) darf die laufende Operation nicht unter der Hand wechseln.
+    const li = this.liveIndexer;
+    await this.runIndexOp(async () => {
+      try {
+        li.remove(path);
+        this.index = li.buildIndex();
+        this.retriever = new Retriever(this.index);
+        await li.persist("live");
+        this.indexHealthy = true;
+        this.syncProgress();
+        this.refresh();
+      } catch (e) {
+        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Löschung nicht persistiert (Schreibschutz).", 8000); }
+        else console.warn("vault-rag: handleDelete failed", e);
+      }
+    });
   }
 
   private async handleRename(newPath: string, oldPath: string): Promise<void> {
     if (this.isSwitchingIndexDir) return;
     if (newPath.startsWith(".") || oldPath.startsWith(".")) return;
     if (await this.embedderReady()) {
-      try {
-        this.liveIndexer.rename(oldPath, newPath);
-        this.index = this.liveIndexer.buildIndex();
-        this.retriever = new Retriever(this.index);
-        await this.liveIndexer.persist("live");
-        this.syncProgress();
-        this.refresh();
-      } catch (e) {
-        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Umbenennung nicht persistiert (Schreibschutz).", 8000); }
-        else console.warn("vault-rag: handleRename failed", e);
-      }
+      // liveIndexer VOR der Serialisierung snapshotten (Minor 6, analog handleDelete).
+      const li = this.liveIndexer;
+      await this.runIndexOp(async () => {
+        try {
+          li.rename(oldPath, newPath);
+          this.index = li.buildIndex();
+          this.retriever = new Retriever(this.index);
+          await li.persist("live");
+          this.indexHealthy = true;
+          this.syncProgress();
+          this.refresh();
+        } catch (e) {
+          if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Umbenennung nicht persistiert (Schreibschutz).", 8000); }
+          else console.warn("vault-rag: handleRename failed", e);
+        }
+      });
     } else {
       await this.pendingQueue.add(newPath);
       this.syncProgress();
@@ -640,26 +677,30 @@ export default class VaultRagPlugin extends Plugin {
     // neu zuweisen → Update auf alter, buildIndex/persist auf neuer Instanz = stiller Verlust.
     const li = this.liveIndexer;
     const paths = this.pendingQueue.drain();
-    try {
-      this.embeddingProgress.isEmbedding = true;
-      for (const path of paths) {
-        try {
-          const content = await this.app.vault.adapter.read(path);
-          await li.update(path, content);
-        } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
+    // Mutate+build+persist serialisiert über runIndexOp (Fix 1) — analog den anderen drei Live-Pfaden.
+    await this.runIndexOp(async () => {
+      try {
+        this.embeddingProgress.isEmbedding = true;
+        for (const path of paths) {
+          try {
+            const content = await this.app.vault.adapter.read(path);
+            await li.update(path, content);
+          } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
+        }
+        // drain() hat in-memory bereits geleert; clear() nicht aufrufen —
+        // sonst gehen Paths verloren die während des await-Loops neu reinkamen.
+        this.index = li.buildIndex();
+        this.retriever = new Retriever(this.index);
+        await li.persist("live");
+        this.indexHealthy = true;
+        this.syncProgress();
+        this.refresh();
+      } catch {
+        this.syncProgress();
+      } finally {
+        this.embeddingProgress.isEmbedding = false;
       }
-      // drain() hat in-memory bereits geleert; clear() nicht aufrufen —
-      // sonst gehen Paths verloren die während des await-Loops neu reinkamen.
-      this.index = li.buildIndex();
-      this.retriever = new Retriever(this.index);
-      await li.persist("live");
-      this.syncProgress();
-      this.refresh();
-    } catch {
-      this.syncProgress();
-    } finally {
-      this.embeddingProgress.isEmbedding = false;
-    }
+    });
   }
 
   private vaultMarkdownPaths(): string[] {
@@ -701,7 +742,9 @@ export default class VaultRagPlugin extends Plugin {
       this.index = this.liveIndexer.buildIndex();
       this.retriever = new Retriever(this.index);
       await this.liveIndexer.persist("reindex");
+      this.indexHealthy = true;
       this.refresh();
+      void this.snapshotIndex();
       notice.setMessage(`Vault indiziert: ${lastIndexed} Notizen.`);
     } catch (e) {
       console.warn("vault-rag: reindexVault failed", e);
@@ -748,7 +791,9 @@ export default class VaultRagPlugin extends Plugin {
       this.index = this.liveIndexer.buildIndex();
       this.retriever = new Retriever(this.index);
       await this.liveIndexer.persist("heal");
+      this.indexHealthy = true;
       this.refresh();
+      void this.snapshotIndex();
       notice.setMessage(`Index vervollständigt: ${added} Notizen ergänzt.`);
     } catch (e) {
       console.warn("vault-rag: healVault failed", e);

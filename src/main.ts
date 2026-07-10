@@ -25,7 +25,7 @@ import { buildHideCss, normalizeIndexDir } from "./index_dir";
 import { migrateIndex, onlyContainsIndexFiles, INDEX_REQUIRED_FILES } from "./index_migrate";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { classifyLoadResult, isSuspiciousShrink } from "./index_guard";
+import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError } from "./index_guard";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -486,10 +486,14 @@ export default class VaultRagPlugin extends Plugin {
         await li.update(path, content);
         this.index = li.buildIndex();
         this.retriever = new Retriever(this.index);
-        await li.persist();
+        await li.persist("live");
         this.syncProgress();
         this.refresh();
-      } catch {
+      } catch (e) {
+        if (e instanceof PersistBlockedError) {
+          this.indexHealthy = false;
+          new Notice("⚠ vault-rag: Schreibschutz — Index wirkt beschädigt, Änderung vorgemerkt statt überschrieben.", 8000);
+        }
         await this.pendingQueue.add(path);
         this.syncProgress();
       } finally {
@@ -505,24 +509,32 @@ export default class VaultRagPlugin extends Plugin {
     if (this.isSwitchingIndexDir) return;
     if (path.startsWith(".")) return;
     if (!(await this.embedderReady())) return;
-    this.liveIndexer.remove(path);
-    this.index = this.liveIndexer.buildIndex();
-    this.retriever = new Retriever(this.index);
-    await this.liveIndexer.persist();
-    this.syncProgress();
-    this.refresh();
+    try {
+      this.liveIndexer.remove(path);
+      this.index = this.liveIndexer.buildIndex();
+      this.retriever = new Retriever(this.index);
+      await this.liveIndexer.persist("live");
+      this.syncProgress();
+      this.refresh();
+    } catch (e) {
+      if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Löschung nicht persistiert (Schreibschutz).", 8000); }
+    }
   }
 
   private async handleRename(newPath: string, oldPath: string): Promise<void> {
     if (this.isSwitchingIndexDir) return;
     if (newPath.startsWith(".") || oldPath.startsWith(".")) return;
     if (await this.embedderReady()) {
-      this.liveIndexer.rename(oldPath, newPath);
-      this.index = this.liveIndexer.buildIndex();
-      this.retriever = new Retriever(this.index);
-      await this.liveIndexer.persist();
-      this.syncProgress();
-      this.refresh();
+      try {
+        this.liveIndexer.rename(oldPath, newPath);
+        this.index = this.liveIndexer.buildIndex();
+        this.retriever = new Retriever(this.index);
+        await this.liveIndexer.persist("live");
+        this.syncProgress();
+        this.refresh();
+      } catch (e) {
+        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Umbenennung nicht persistiert (Schreibschutz).", 8000); }
+      }
     } else {
       await this.pendingQueue.add(newPath);
       this.syncProgress();
@@ -554,7 +566,7 @@ export default class VaultRagPlugin extends Plugin {
       // sonst gehen Paths verloren die während des await-Loops neu reinkamen.
       this.index = li.buildIndex();
       this.retriever = new Retriever(this.index);
-      await li.persist();
+      await li.persist("live");
       this.syncProgress();
       this.refresh();
     } catch {
@@ -598,7 +610,7 @@ export default class VaultRagPlugin extends Plugin {
       );
       this.index = this.liveIndexer.buildIndex();
       this.retriever = new Retriever(this.index);
-      await this.liveIndexer.persist();
+      await this.liveIndexer.persist("reindex");
       this.refresh();
       notice.setMessage(`Vault indiziert: ${lastIndexed} Notizen.`);
     } catch (e) {

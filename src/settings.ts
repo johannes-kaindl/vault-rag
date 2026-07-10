@@ -41,6 +41,7 @@ export interface VaultRagPluginHost extends Plugin {
   embedderReady(): Promise<boolean>;
   setStatusBarVisible(visible: boolean): void;
   reindexVault(): Promise<void>;
+  healVault(): Promise<void>;
   refreshIndexFolderHiding(): void;
   changeIndexDir(newDir: string): Promise<void>;
 }
@@ -94,6 +95,19 @@ class ReindexConfirmModal extends Modal {
   onClose(): void {
     this.contentEl.empty();
   }
+}
+
+export class HealConfirmModal extends Modal {
+  constructor(app: App, private missing: number, private total: number, private onConfirm: () => void) { super(app); }
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.createEl("h2", { text: "Index vervollständigen?" });
+    contentEl.createEl("p", { text: `${this.missing} von ${this.total} Notizen fehlen im Index. Nur die fehlenden werden neu eingebettet (Delta) — der bestehende Index bleibt erhalten.` });
+    const btnRow = contentEl.createDiv({ cls: "modal-button-container" });
+    new ButtonComponent(btnRow).setButtonText("Später").onClick(() => this.close());
+    new ButtonComponent(btnRow).setButtonText("Jetzt vervollständigen").setCta().onClick(() => { this.close(); this.onConfirm(); });
+  }
+  onClose(): void { this.contentEl.empty(); }
 }
 
 /**

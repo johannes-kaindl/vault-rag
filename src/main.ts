@@ -2,7 +2,7 @@ import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Retriever, Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
-import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList } from "./settings";
+import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList, HealConfirmModal } from "./settings";
 import { resolveActiveEndpoint } from "./vendor/kit/endpoint";
 import { mergeSettings } from "./vendor/kit/settings";
 import { EmbeddingClient } from "./embedder";
@@ -25,7 +25,7 @@ import { buildHideCss, normalizeIndexDir } from "./index_dir";
 import { migrateIndex, onlyContainsIndexFiles, INDEX_REQUIRED_FILES } from "./index_migrate";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError } from "./index_guard";
+import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexVsVault } from "./index_guard";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -156,6 +156,12 @@ export default class VaultRagPlugin extends Plugin {
       id: "reindex-vault",
       name: "Vault neu indizieren",
       callback: () => void this.reindexVault(),
+    });
+
+    this.addCommand({
+      id: "heal-index",
+      name: "Index vervollständigen (fehlende Notizen)",
+      callback: () => void this.healVault(),
     });
 
     if (this.settings.showStatusBar) this.setStatusBarVisible(true);
@@ -418,7 +424,14 @@ export default class VaultRagPlugin extends Plugin {
       this.indexHealthy = true;
       this.refresh();
       this.syncProgress();
-      // Self-Heal-Check + Load-Snapshot folgen in Task 8/9 (hier bewusst noch nicht).
+      const vaultPaths = this.vaultMarkdownPaths();
+      const { missing } = diffIndexVsVault([...this.index.paths], vaultPaths);
+      // Konservativ: nur bei substanzieller Lücke laut werden (>5% UND >20 Notizen),
+      // und nur wenn der Embedder erreichbar ist (sonst ist die Lücke evtl. temporär).
+      if (missing.length > 20 && missing.length > vaultPaths.length * 0.05 && await this.embedderReady()) {
+        new Notice(`vault-rag: ${missing.length} von ${vaultPaths.length} Notizen fehlen im Index.`, 8000);
+        new HealConfirmModal(this.app, missing.length, vaultPaths.length, () => { void this.healVault(); }).open();
+      }
     } else if (state === "no-index") {
       // Frische Installation: leerer Indexer darf gefahrlos aufbauen.
       this.index = null; this.retriever = null;
@@ -578,17 +591,21 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
-  async reindexVault(): Promise<void> {
-    if (!(await this.embedderReady())) {
-      new Notice("Embedding-Endpoint nicht erreichbar — Vault-Indizierung abgebrochen.");
-      return;
-    }
-    const allPaths = this.app.vault.getMarkdownFiles().map(f => f.path).filter(p => {
+  private vaultMarkdownPaths(): string[] {
+    return this.app.vault.getMarkdownFiles().map(f => f.path).filter(p => {
       if (p.startsWith(".")) return false;
       if (this.settings.exclude.some(e => p.startsWith(e))) return false;
       if (p.startsWith(this.settings.indexDir + "/")) return false;
       return true;
     });
+  }
+
+  async reindexVault(): Promise<void> {
+    if (!(await this.embedderReady())) {
+      new Notice("Embedding-Endpoint nicht erreichbar — Vault-Indizierung abgebrochen.");
+      return;
+    }
+    const allPaths = this.vaultMarkdownPaths();
     const total = allPaths.length;
     const notice = new Notice(`Indiziere Vault… 0/${total}`, 0);
     // Statusleiste fürs Reindex einblenden (falls aus), damit man die Notice wegklicken kann
@@ -618,6 +635,53 @@ export default class VaultRagPlugin extends Plugin {
     } catch (e) {
       console.warn("vault-rag: reindexVault failed", e);
       notice.setMessage("Vault-Indizierung fehlgeschlagen.");
+    } finally {
+      this.embeddingProgress.reindex = null;
+      this.embeddingProgress.isEmbedding = false;
+      this.syncProgress();
+      if (statusReveal) this.setStatusBarVisible(this.settings.showStatusBar);
+      window.setTimeout(() => notice.hide(), 4000);
+    }
+  }
+
+  /** Delta-Reindex: nur im Vault vorhandene, aber nicht indizierte Notizen nachziehen. */
+  async healVault(): Promise<void> {
+    if (!(await this.embedderReady())) {
+      new Notice("Embedding-Endpoint nicht erreichbar — Vervollständigen abgebrochen.");
+      return;
+    }
+    if (!this.liveIndexer.isReady()) {
+      new Notice(`Kein Basis-Index geladen — bitte „Aus Backup wiederherstellen" oder „Vault neu indizieren".`);
+      return;
+    }
+    const vaultPaths = this.vaultMarkdownPaths();
+    const indexPaths = [...(this.index ? this.index.paths : [])];
+    const { missing } = diffIndexVsVault(indexPaths, vaultPaths);
+    if (missing.length === 0) { new Notice("Index ist vollständig — nichts zu tun."); return; }
+    const notice = new Notice(`Vervollständige Index… 0/${missing.length}`, 0);
+    const statusReveal = !this.statusBarEl;
+    if (statusReveal) this.setStatusBarVisible(true);
+    this.embeddingProgress.isEmbedding = true;
+    this.embeddingProgress.reindex = { done: 0, total: missing.length };
+    this.updateStatusBar();
+    try {
+      const added = await this.liveIndexer.healMissing(
+        missing,
+        (p) => this.app.vault.adapter.read(p),
+        (done, _indexed, tot) => {
+          this.embeddingProgress.reindex = { done, total: tot };
+          this.updateStatusBar();
+          notice.setMessage(`Vervollständige Index… ${done}/${tot}`);
+        },
+      );
+      this.index = this.liveIndexer.buildIndex();
+      this.retriever = new Retriever(this.index);
+      await this.liveIndexer.persist("heal");
+      this.refresh();
+      notice.setMessage(`Index vervollständigt: ${added} Notizen ergänzt.`);
+    } catch (e) {
+      console.warn("vault-rag: healVault failed", e);
+      notice.setMessage("Vervollständigen fehlgeschlagen.");
     } finally {
       this.embeddingProgress.reindex = null;
       this.embeddingProgress.isEmbedding = false;

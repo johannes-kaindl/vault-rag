@@ -518,6 +518,7 @@ export default class VaultRagPlugin extends Plugin {
       this.refresh();
     } catch (e) {
       if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Löschung nicht persistiert (Schreibschutz).", 8000); }
+      else console.warn("vault-rag: handleDelete failed", e);
     }
   }
 
@@ -534,6 +535,7 @@ export default class VaultRagPlugin extends Plugin {
         this.refresh();
       } catch (e) {
         if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Umbenennung nicht persistiert (Schreibschutz).", 8000); }
+        else console.warn("vault-rag: handleRename failed", e);
       }
     } else {
       await this.pendingQueue.add(newPath);

@@ -425,6 +425,7 @@ export default class VaultRagPlugin extends Plugin {
 
   /** Kopiert den aktuellen Index geräte-lokal (Plugin-Ordner, synct nicht) und rotiert auf 3. */
   async snapshotIndex(): Promise<void> {
+    if (!this.index || !this.indexHealthy) return; // nur bekannt-guten Zustand sichern
     try {
       const root = this.backupsRoot();
       // Zeitstempel aus dem Manifest (fällt sonst auf lastMtime zurück).

@@ -47,6 +47,10 @@ export interface VaultRagPluginHost extends Plugin {
   listBackups(): Promise<{ name: string; count: number }[]>;
   restoreBackup(name: string): Promise<void>;
   indexHealthReadout(): string;
+  mcpServerRunning(): boolean;
+  mcpServerAddress(): string | null;
+  restartMcpServer(): Promise<void>;
+  ensureMcpToken(): string;
 }
 
 /** Autocomplete-Suggest für Vault-Ordner in einem Text-Input-Feld. */
@@ -197,6 +201,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildHideIndexFolder(new Setting(containerEl));
     sec("Index-Robustheit");
     this.buildRobustnessSection(containerEl);
+    sec("MCP-Server");
+    this.buildMcpSection(containerEl);
     sec("Chat");
     this.buildChatEndpointList();
     this.buildChatModel(new Setting(containerEl));
@@ -775,5 +781,46 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .addButton(b => b.setButtonText("Neu indizieren").setWarning().onClick(() => {
         new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open();
       }));
+  }
+
+  private buildMcpSection(containerEl: HTMLElement): void {
+    new Setting(containerEl)
+      .setName("MCP-Server aktivieren")
+      .setDesc("Lokaler HTTP-Server, über den externe LLM-Agents (z. B. Claude Code) den Vault durchsuchen. Nur Desktop, nur solange Obsidian läuft. Loopback (127.0.0.1) + Token.")
+      .addToggle(t => t.setValue(this.plugin.settings.mcpEnabled).onChange(async (v: boolean) => {
+        this.plugin.settings.mcpEnabled = v;
+        if (v) this.plugin.ensureMcpToken();
+        await this.plugin.saveSettings();
+        await this.plugin.restartMcpServer();
+        this.display();
+      }));
+
+    new Setting(containerEl)
+      .setName("Port")
+      .setDesc("Loopback-Port des MCP-Servers (Default 8123). Änderung startet den Server neu.")
+      .addText(t => t.setPlaceholder("8123").setValue(String(this.plugin.settings.mcpPort))
+        .onChange(async (v: string) => {
+          const n = parseInt(v, 10);
+          if (!Number.isFinite(n) || n < 1 || n > 65535) return;
+          this.plugin.settings.mcpPort = n;
+          await this.plugin.saveSettings();
+          await this.plugin.restartMcpServer();
+        }));
+
+    const status = this.plugin.mcpServerRunning()
+      ? `läuft · ${this.plugin.mcpServerAddress() ?? ""}`
+      : (this.plugin.settings.mcpEnabled ? "aus (Start fehlgeschlagen — Port belegt?)" : "aus");
+    new Setting(containerEl).setName("Status").setDesc(status);
+
+    if (this.plugin.settings.mcpEnabled) {
+      const token = this.plugin.settings.mcpToken;
+      const cmd = `claude mcp add --transport http vault-retrieval ${this.plugin.mcpServerAddress() ?? `http://127.0.0.1:${this.plugin.settings.mcpPort}/mcp`} --header "Authorization: Bearer ${token}"`;
+      new Setting(containerEl)
+        .setName("Claude Code verbinden")
+        .setDesc("Diesen Befehl im Terminal ausführen, um den Vault als MCP-Server zu registrieren.")
+        .addButton(b => b.setButtonText("Befehl kopieren").onClick(() => {
+          void navigator.clipboard.writeText(cmd); new Notice("MCP-Befehl kopiert");
+        }));
+    }
   }
 }

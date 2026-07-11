@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-07-11
+
 ### Added
 - **Index robustness** — the vector index is now hardened against data loss. A truncated or unreadable index is detected loudly (byte-length validation on load) and puts the plugin into a read-protected state instead of silently overwriting your good index with an empty one — the failure mode that could previously collapse a full index down to a handful of notes. New recovery tools in a "Index-Robustheit" settings section: **complete the index** re-embeds only the notes missing from the index (a fast delta reindex, also offered automatically when a large gap is detected on load), and **device-local backups** (kept in the plugin folder outside vault sync, last 3 rotated) can be restored with one click. When another device syncs a drastically smaller index, the good in-memory index is kept rather than adopted. A degraded index state is now surfaced in the status bar (`⚠ Index beschädigt`) instead of failing silently.
 

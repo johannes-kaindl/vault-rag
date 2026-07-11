@@ -22,4 +22,12 @@ export default tseslint.config(
   // settings.display() ist seit 1.13 deprecated, aber der Render-Pfad für minAppVersion 1.7.2 nötig.
   // (kein Inline-eslint-disable, weil der Obsidian-Review das verbietet.)
   { files: ["src/settings.ts"], rules: { "@typescript-eslint/no-deprecated": "off" } },
+  // In-Plugin MCP-HTTP-Server: nutzt node:-Builtins (desktop-only, lazy require) sowie
+  // die Node-Globals Buffer/require. Nur diese zwei Regeln sind hier abgeschaltet — alle
+  // anderen Regeln (inkl. obsidianmd/*) gelten weiterhin für diese Dateien.
+  {
+    files: ["src/mcp/http_server.ts", "src/mcp/vault_read_guard.ts"],
+    languageOptions: { globals: { Buffer: "readonly", require: "readonly" } },
+    rules: { "import/no-nodejs-modules": "off" },
+  },
 );

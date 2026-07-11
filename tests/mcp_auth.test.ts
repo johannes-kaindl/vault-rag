@@ -17,4 +17,7 @@ describe("mcp auth", () => {
     expect(isAuthorized(undefined, "geheim")).toBe(false);
     expect(isAuthorized("geheim", "geheim")).toBe(false); // ohne "Bearer "-Präfix
   });
+  it("falscher Token gleicher Länge → dennoch abgelehnt (zeitkonstanter Vergleich)", () => {
+    expect(isAuthorized("Bearer gemein", "geheim")).toBe(false);
+  });
 });

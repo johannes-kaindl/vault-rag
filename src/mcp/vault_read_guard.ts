@@ -1,5 +1,5 @@
-import * as fs from "node:fs/promises";       // eslint-disable-line import/no-nodejs-modules -- desktop-only, dynamically imported from the MCP server path
-import * as path from "node:path";            // eslint-disable-line import/no-nodejs-modules -- desktop-only, dynamically imported from the MCP server path
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 
 /** Desktop-only Symlink-Escape-Schutz: liest eine vault-relative Datei nur, wenn ihr
  *  real aufgelöster Pfad unter dem Vault-Root bleibt (adapter.read folgt Symlinks). */

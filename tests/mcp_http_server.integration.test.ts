@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, afterEach } from "vitest";
+import * as http from "node:http";
 import { VaultIndex, IndexManifest } from "../src/index";
 import { McpTools } from "../src/mcp/tools";
 import type { McpDeps } from "../src/mcp/mcp_deps";
@@ -35,6 +36,36 @@ async function mcpCall(port: number, token: string, body: unknown): Promise<{ st
   return { status: res.status, text: await res.text() };
 }
 
+// Roher node:http-Request mit gefälschtem Host-Header (fetch() verbietet das Überschreiben
+// von Host, daher hier bewusst node:http statt fetch).
+function rawRequest(port: number, host: string, body: unknown): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/mcp",
+        method: "POST",
+        headers: {
+          "Host": host,
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/event-stream",
+          "Content-Length": Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let text = "";
+        res.on("data", (c: Buffer) => { text += c.toString("utf-8"); });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
+      },
+    );
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 describe("MCP HTTP-Server", () => {
   it("bindet auf 127.0.0.1 und liefert den Port", async () => {
     handle = await startMcpServer({ port: 0, token: "", tools: new McpTools(deps), version: "9.9.9" });
@@ -52,5 +83,11 @@ describe("MCP HTTP-Server", () => {
     const r = await mcpCall(handle.port, "geheim", { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
     expect(r.status).toBe(200);
     expect(r.text).toContain("vault-retrieval");
+  });
+
+  it("lehnt gefälschten Host-Header ab (DNS-Rebinding-Schutz)", async () => {
+    handle = await startMcpServer({ port: 0, token: "", tools: new McpTools(deps), version: "9.9.9" });
+    const r = await rawRequest(handle.port, "evil.com", { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+    expect(r.status).toBe(403);
   });
 });

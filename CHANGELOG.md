@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- MCP server is now an in-plugin HTTP server (Streamable HTTP on 127.0.0.1, Bearer-token auth,
+  desktop-only) instead of a separate stdio Node CLI. Enable it in Settings → "MCP-Server" and
+  connect with `claude mcp add --transport http …`. Removes the standalone `mcp-server.js` target.
+
 ## [0.12.0] — 2026-07-11
 
 ### Added

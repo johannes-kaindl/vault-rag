@@ -1,3 +1,5 @@
+export const Platform = { isMobile: false, isDesktop: true };
+
 export function makeFakeEl(): any {
   const children: any[] = [];
   const attrs: Record<string, string> = {};
@@ -35,7 +37,16 @@ export function makeFakeEl(): any {
 export class Plugin { app: any; manifest: any; constructor(app: any, m: any) { this.app = app; this.manifest = m; } async loadData() { return {}; } async saveData(_: any) {} addCommand(_: any) {} registerView(_: string, __: any) {} registerEvent(_: any) {} addSettingTab(_: any) {} addRibbonIcon(_: string, __: string, ___: any) { return makeFakeEl(); } }
 export class ItemView { app: any; contentEl: any; constructor(public leaf: any) { this.app = leaf?.app || {}; this.contentEl = makeFakeEl(); } getViewType() { return "unknown"; } getDisplayText() { return ""; } async onOpen() {} async onClose() {} registerEvent(_: any) {} }
 export class PluginSettingTab { app: any; plugin: any; containerEl: any; constructor(app: any, plugin: any) { this.app = app; this.plugin = plugin; this.containerEl = makeFakeEl(); } display() {} }
-export class Setting { constructor(public containerEl: any) {} setName(_: string) { return this; } setDesc(_: string) { return this; } addText(cb: any) { cb({ setValue: () => ({ onChange: () => {} }), setPlaceholder: () => ({}) }); return this; } addSlider(cb: any) { cb({ setLimits: () => ({ setValue: () => ({ onChange: () => {} }) }) }); return this; } }
+export class Setting {
+  constructor(public containerEl: any) {}
+  setName(_: string) { return this; }
+  setDesc(_: string) { return this; }
+  setHeading() { return this; }
+  addText(cb: any) { cb({ setValue: () => ({ onChange: () => {} }), setPlaceholder: () => ({}) }); return this; }
+  addSlider(cb: any) { cb({ setLimits: () => ({ setValue: () => ({ onChange: () => {} }) }) }); return this; }
+  addToggle(cb: (t: unknown) => void) { cb({ setValue: () => this, onChange: () => this, setDisabled: () => this }); return this; }
+  addButton(cb: (b: unknown) => void) { cb({ setButtonText: () => this, setCta: () => this, onClick: () => this, setDisabled: () => this }); return this; }
+}
 export class TFile { path = ""; basename = ""; extension = "md"; }
 export class TFolder { path = ""; }
 export abstract class AbstractInputSuggest<T> {
@@ -69,6 +80,7 @@ export class FuzzySuggestModal<T> {
 }
 export function setIcon(el: any, name: string): void { el?.setAttribute?.("data-icon", name); }
 export class Notice { constructor(_message: string) {} }
+export class FileSystemAdapter { getBasePath() { return ""; } read() { return Promise.resolve(""); } }
 import { vi } from "vitest";
 
 export const requestUrl = vi.fn();

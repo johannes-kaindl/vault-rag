@@ -100,10 +100,9 @@ hub_view.ts       VaultRetrievalView (ItemView, VIEW_TYPE_HUB="vault-retrieval-h
                   (State-Persistenz), blendet nur per `display:none` um (kein render-from-scratch).
 settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings · DEFAULT_SETTINGS ·
                   migrateEndpointList — von settings.ts re-exportiert, vom MCP-Server direkt genutzt.
-mcp/              Headless stdio-MCP-Server (2. esbuild-Entry → mcp-server.js, Node-Programm,
-                  NIE obsidian importieren): server.ts (SDK-Schale) · tools.ts (search/related/
-                  read_note, mtime-Reload) · config.ts (liest Plugin-data.json) ·
-                  node_adapter.ts (read-only VaultAdapter) · node_embed.ts (fetch-Probe/-Embedding).
+mcp/              In-Plugin HTTP-MCP-Server (Loopback, `/mcp`, StreamableHTTP): `http_server.ts` ·
+                  `register_tools.ts` · `tools.ts` (McpDeps-injiziert) · `mcp_deps.ts` · `auth.ts`.
+                  Kein Node-Adapter/kein stdio mehr.
 main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab registrieren, file-Events
                   (modify/delete/rename), 3 s-Debounce, 60 s-Drain, EmbeddingProgress + Statusleiste.
                   Zusätzlich Index-Robustheit: `loadIndex` klassifiziert per `index_guard` in
@@ -124,7 +123,7 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
 ```bash
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
-npm run build                     # baut main.js UND mcp-server.js
+npm run build                     # baut main.js
 npm test                          # vitest run     (191 Tests, 21 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
@@ -188,9 +187,9 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   vollständig ist, und löscht den alten Ordner nur dann — und nur, wenn er ausschließlich Index-Dateien
   enthält (`onlyContainsIndexFiles`). Hatte der alte einen vollständigen Index und der neue nicht →
   nichts geändert (Datenverlust-Schutz, B-vor-A).
-- **`mcp-server.js`** ist Build-Artefakt (gitignored) — der MCP-Server für externe Clients
-  (`node mcp-server.js <vault>`); Spec `docs/superpowers/specs/2026-07-09-mcp-server-design.md`.
-  obsidianmd-ESLint-Regeln gelten für `src/mcp/**` bewusst nicht (Node-Programm, fetch erlaubt).
+- **MCP-Server läuft in-Plugin (HTTP)** statt als separater stdio-CLI: desktop-only via
+  `Platform.isMobile`-Gate, Loopback (`127.0.0.1`) + Bearer-Token, läuft nur solange Obsidian
+  offen ist (kein eigenständiger Prozess); Spec `docs/superpowers/specs/2026-07-09-mcp-server-design.md`.
 
 ## Memory
 

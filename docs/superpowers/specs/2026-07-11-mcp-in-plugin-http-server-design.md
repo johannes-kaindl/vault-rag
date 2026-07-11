@@ -81,8 +81,11 @@ und IO-injiziert** (`ToolIo`-Interface). Die Kern-Logik bleibt daher weitgehend 
   embedder-Reconnect-Logik abgedeckt — Detail beim Planen.)
 - **`read_note`:** Pfad-Guard `resolveNotePath` (vault-relativ, kein Traversal, nur `.md`,
   exclude-Präfix case-insensitiv) **bleibt**. Der Volltext kommt über `VaultAdapter.read(path)` statt
-  `fs.readFile`; der `fs.realpath`-Symlink-Escape-Check entfällt, weil der Obsidian-Adapter
-  vault-relativ operiert (kein absoluter FS-Pfad mehr, den man verlassen könnte).
+  `fs.readFile`. Ein reiner vault-relativer Pfad reicht dabei aber NICHT: `vault.adapter.read` folgt
+  OS-Symlinks, sodass eine `.md`-Symlink innerhalb des Vaults auf eine Datei außerhalb zeigen und so
+  Fremd-Dateiinhalt an externe Agents leaken könnte. Deshalb bleibt ein `fs.realpath`-Containment-Check
+  erhalten — als eigenes, desktop-only Modul (`vault_read_guard.ts`), das nur dynamisch importiert wird
+  (Mobile lädt so nie `node:fs`/`node:path`).
 
 ## Server-Lifecycle
 

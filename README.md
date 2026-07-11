@@ -78,10 +78,11 @@ Your indexing backend exports a portable note-level **Matryoshka-256 int8 mini-i
 
 Architecture, module layout and contributor conventions live in [`AGENTS.md`](AGENTS.md).
 
-## MCP server (use your index from Claude Code & other agents)
+## MCP server (use your index from Claude Code & other agents, desktop only)
 
 The plugin's embedding index doubles as a retrieval backend for MCP clients
-(Claude Code, OpenClaw, …). A bundled stdio server exposes three read-only tools:
+(Claude Code, OpenClaw, …). An in-plugin HTTP server (Streamable HTTP, loopback-only)
+exposes three read-only tools:
 
 | Tool | What it does | Needs endpoint? |
 |---|---|---|
@@ -89,26 +90,20 @@ The plugin's embedding index doubles as a retrieval backend for MCP clients
 | `related` | Notes related to a given note (straight from the index) | no — works offline |
 | `read_note` | Full markdown text of a note (`.md` only, excludes respected) | no — works offline |
 
-Build once (`npm run build` produces `mcp-server.js`), then register it,
-e.g. in Claude Code's `.mcp.json`:
+Enable it in the plugin settings under "MCP-Server" (desktop only — the toggle and server
+are disabled on mobile). The server binds to `127.0.0.1` on a configurable port (default
+`8123`) and requires a Bearer token on every request. The settings section has a "copy
+command" button that generates the registration command for you, e.g.:
 
-```json
-{
-  "mcpServers": {
-    "vault-retrieval": {
-      "command": "node",
-      "args": ["/path/to/vault-rag/mcp-server.js", "/path/to/your/vault"]
-    }
-  }
-}
+```bash
+claude mcp add --transport http vault-retrieval http://127.0.0.1:8123/mcp \
+  --header "Authorization: Bearer <token>"
 ```
 
-Configuration (endpoints, index folder, excludes) is read at server startup
-from the plugin's own settings (`.obsidian/plugins/vault-retrieval/data.json`).
-Restart the MCP server to apply settings changes — the index itself is picked up
-live (the server reloads it whenever the plugin rewrites it). Env overrides:
-`VAULT_RAG_EMBEDDING_ENDPOINT`, `VAULT_RAG_EMBEDDING_MODEL`, `VAULT_RAG_INDEX_DIR`.
-One server instance per vault. The server never writes to your vault.
+Configuration (endpoints, index folder, excludes) is read from the plugin's own settings —
+no separate config file. The server only runs while Obsidian is open and picks up index
+changes live (reloads whenever the plugin rewrites the index). One server instance per
+vault. The server never writes to your vault.
 
 Note: `read_note` enforces exclude prefixes case-insensitively (safe on case-insensitive filesystems like APFS/NTFS), while `search`/`related` filter result paths case-sensitively — they expose only paths and scores, never content.
 

@@ -36,6 +36,10 @@ export function parseIndex(manifest: IndexManifest, paths: string[], matrix: Arr
     throw new Error(`vault-rag index korrupt: manifest.count ${manifest.count} != paths ${paths.length}`);
   }
   const dim = manifest.index_dim, scale = manifest.scale, n = paths.length;
+  const expectedBytes = n * dim;
+  if (matrix.byteLength !== expectedBytes) {
+    throw new Error(`vault-rag index korrupt: notes.i8 byteLength ${matrix.byteLength} != erwartet ${expectedBytes} (count ${n} × dim ${dim})`);
+  }
   const i8 = new Int8Array(matrix);
   const f = new Float32Array(n * dim);
   for (let r = 0; r < n; r++) {

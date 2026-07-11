@@ -2,6 +2,7 @@ import { VaultAdapter, VaultIndex, IndexManifest } from "./index";
 import { EmbeddingClient } from "./embedder";
 import { chunkMarkdown } from "./chunker";
 import { toIndexVector } from "./embed_vector";
+import { assertSafeToPersist, PersistReason, PersistBlockedError } from "./index_guard";
 
 const INDEX_DIM = 256;
 const INT8_SCALE = 127;
@@ -9,6 +10,8 @@ const INT8_SCALE = 127;
 export class LiveIndexer {
   private noteVectors = new Map<string, Float32Array>();
   private loadedManifest: IndexManifest | null = null;
+  private ready = false;
+  private diskCount = 0;
 
   constructor(
     private adapter: VaultAdapter,
@@ -24,6 +27,8 @@ export class LiveIndexer {
       const v = index.vectorFor(path);
       if (v) this.noteVectors.set(path, v.slice());
     }
+    this.ready = true;
+    this.diskCount = index.count;
   }
 
   private async embedNote(content: string): Promise<Float32Array | null> {
@@ -47,6 +52,14 @@ export class LiveIndexer {
 
   get noteCount(): number { return this.noteVectors.size; }
 
+  isReady(): boolean { return this.ready; }
+
+  /** No-Index-Pfad: kein Index auf Platte → leerer Indexer darf gefahrlos aufbauen. */
+  markFresh(): void { this.ready = true; this.diskCount = 0; }
+
+  /** Setzt den Indexer in den Nicht-bereit-Zustand (Gefahrenzustand mid-session) → live-persist blockt. */
+  markUnready(): void { this.ready = false; }
+
   async reindexAll(
     paths: string[],
     read: (p: string) => Promise<string>,
@@ -62,6 +75,29 @@ export class LiveIndexer {
       onProgress?.(i + 1, indexed, paths.length);
     }
     this.noteVectors = fresh;
+    this.ready = true;
+  }
+
+  /**
+   * Additiver Delta-Reindex: embeddet nur die fehlenden Pfade und fügt sie zur bestehenden
+   * Vektor-Map hinzu (KEIN Reset). Dient als „Index vervollständigen" und als Resume für
+   * abgebrochene Voll-Reindexe. Gibt die Zahl neu indizierter Notizen zurück.
+   */
+  async healMissing(
+    missing: string[],
+    read: (p: string) => Promise<string>,
+    onProgress?: (done: number, indexed: number, total: number) => void,
+  ): Promise<number> {
+    let indexed = 0;
+    for (let i = 0; i < missing.length; i++) {
+      try {
+        const v = await this.embedNote(await read(missing[i]));
+        if (v) { this.noteVectors.set(missing[i], v); indexed++; }
+      } catch { /* unlesbar/Embed-Fehler überspringen */ }
+      onProgress?.(i + 1, indexed, missing.length);
+    }
+    this.ready = true;
+    return indexed;
   }
 
   buildIndex(): VaultIndex {
@@ -84,7 +120,15 @@ export class LiveIndexer {
     return new VaultIndex(manifest, paths, f);
   }
 
-  async persist(): Promise<void> {
+  async persist(reason: PersistReason = "live"): Promise<void> {
+    const nextCount = this.noteVectors.size;
+    if (!this.ready && reason === "live") {
+      throw new PersistBlockedError("not-ready", "Persist verweigert: Index ist nicht initialisiert (Load-Fehler) — der gute Index auf Platte bleibt erhalten.");
+    }
+    const decision = assertSafeToPersist(this.diskCount, nextCount, reason);
+    if (!decision.allowed) {
+      throw new PersistBlockedError(decision.kind ?? "shrink", decision.message ?? "Persist verweigert.");
+    }
     const paths = [...this.noteVectors.keys()].sort();
     const n = paths.length;
     const i8 = new Int8Array(n * INDEX_DIM);
@@ -114,5 +158,7 @@ export class LiveIndexer {
       built_at: new Date().toISOString(),
     };
     await this.adapter.write(`${this.indexDir}/manifest.json`, JSON.stringify(manifest, null, 2));
+    this.ready = true;
+    this.diskCount = nextCount;
   }
 }

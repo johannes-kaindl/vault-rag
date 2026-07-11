@@ -56,7 +56,17 @@ obsidianmd-Lint-Regel gesperrt ist — XHR ist der erlaubte Streaming-Primitive.
 ```
 index.ts          VaultAdapter-Interface · IndexManifest · VaultIndex · parseIndex ·
                   IndexLoader — liest den statischen _vaultrag/-Index (notes.i8/paths.json/
-                  manifest.json), int8→float32 + Renormalisierung (Quant-Drift).
+                  manifest.json), int8→float32 + Renormalisierung (Quant-Drift). `parseIndex`
+                  validiert neben `count == paths` auch `notes.i8.byteLength == count × dim`
+                  (Byte-Guard) — wirft laut statt stillem Clobber/NaN.
+index_guard.ts    Pure-core Datenverlust-Entscheidungen: classifyLoadResult (no-index/loaded-ok/
+                  load-failed-index-present) · assertSafeToPersist (Live-Persist darf Count nur
+                  ±1 senken) · isSuspiciousShrink (Cross-Device-Clobber-Heuristik) ·
+                  diffIndexVsVault (missing/stale) · PersistBlockedError.
+index_backup.ts   Pure-core Namens-/Rotationslogik für geräte-lokale Index-Backups:
+                  BACKUP_SUBDIR ("index-backups") · backupDirName (ISO-Zeitstempel → FS-sicher) ·
+                  selectBackupsToDelete (Rotation, N=3) · sortBackupsNewestFirst (Restore-Auswahl).
+                  Die eigentliche Datei-I/O liegt in main.ts (migrateIndex).
 retriever.ts      Retriever(index).related(path, {k,minSim,exclude}) → Hit[];
                   Brute-Force-Cosinus auf normalisierten Vektoren, Top-k über minSim.
 chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker.py).
@@ -71,7 +81,9 @@ embedder.ts       EmbeddingClient → Ollama/MLX HTTP-Endpoint; ping() + Batch-E
 http.ts           httpJson() über Obsidians requestUrl — einziger obsidian-Import der Netz-Schicht.
 pending_queue.ts  PendingQueue → Dirty-List in pending.json; drain-on-reconnect.
 live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename · buildIndex ·
-                  persist (Write-Order: notes.i8 → paths.json → manifest.json) · noteCount-Getter.
+                  persist(reason) (Write-Order: notes.i8 → paths.json → manifest.json), gegen
+                  `index_guard` geguarded (ready/diskCount) · healMissing (additiver Delta-Reindex
+                  für Self-Heal) · markUnready/markFresh (Gefahrenzustand-Schalter) · noteCount-Getter.
 settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab (Sektionen, Slider,
                   Debounce, Ausschluss-Editor, Live-Progress-Refresh alle 2 s).
 view.ts           RelatedPanel (HubPanel) — rendert Hits (`renderHits`, auch von search_view.ts
@@ -94,6 +106,13 @@ mcp/              Headless stdio-MCP-Server (2. esbuild-Entry → mcp-server.js,
                   node_adapter.ts (read-only VaultAdapter) · node_embed.ts (fetch-Probe/-Embedding).
 main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab registrieren, file-Events
                   (modify/delete/rename), 3 s-Debounce, 60 s-Drain, EmbeddingProgress + Statusleiste.
+                  Zusätzlich Index-Robustheit: `loadIndex` klassifiziert per `index_guard` in
+                  no-index/loaded-ok/Gefahrenzustand (Schreibschutz + laute Notice statt Clobber),
+                  `maybeReload` guarded per `isSuspiciousShrink` gegen Cross-Device-Clobber (behält
+                  den guten In-Memory-Index), `healVault`/`HealConfirmModal` bieten Self-Heal
+                  (`diffIndexVsVault` + `LiveIndexer.healMissing`) bei erkannter Lücke an,
+                  `snapshotIndex`/`listBackups`/`restoreBackup` verwalten die geräte-lokalen
+                  Index-Backups (`index_backup.ts`).
 ```
 
 **Index-Format (Slice A, unveränderlich):** `notes.i8` (Int8-Matrix) · `paths.json` · `manifest.json`.
@@ -141,8 +160,20 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   Obsidian Sync, nicht git).
 - **Dot-Pfade auto-ausgeschlossen:** `handleModify/Delete/Rename` returnen bei `path.startsWith(".")`
   (deckt `.obsidian/`, `.trash/` ab) — daher `.trash/` **nicht** mehr in `DEFAULT_SETTINGS.exclude`.
-- **`parseIndex`** validiert `count == paths`, aber **nicht** `byteLength`. Partielle Sync-Downloads
-  heilen self-healing über mtime-Reload; optionaler Byte-Guard ist offen.
+- **`parseIndex`** validiert `count == paths` **und** `notes.i8.byteLength == count × dim`
+  (Byte-Guard). Ein abgeschnittener `notes.i8` (partieller Sync-Download) wirft laut → `loadIndex`
+  erkennt das als Gefahrenzustand (Schreibschutz, keine Live-Persists) statt still zu clobbern
+  oder NaN-Vektoren zu produzieren. Der Guard gilt für Plugin **und** MCP-Server gleichermaßen
+  (beide nutzen `IndexLoader`/`parseIndex`).
+- **`persist` ist gegen Clobber/Shrink geguarded:** `LiveIndexer.persist(reason)` — `reason="live"`
+  darf den Notiz-Count nur um ±1 senken, sonst `PersistBlockedError("shrink")`; ist der Indexer
+  nicht initialisiert/beschädigt (Gefahrenzustand, `markUnready`), blockt jeder Live-Persist mit
+  `PersistBlockedError("not-ready")`. `reason="reindex"`/`"heal"` sind explizit nutzergetriggert und
+  immer erlaubt. `main.ts` fängt `PersistBlockedError` je Event-Handler ab: `handleModify` merkt die
+  Notiz zusätzlich in der `PendingQueue` vor (nicht verworfen), `handleDelete`/`handleRename` melden
+  nur laut (Notice) ohne Pending-Fallback — in allen drei Fällen setzt es `indexHealthy = false`.
+  Geräte-lokale Index-Backups liegen unter `<plugin-dir>/index-backups/` (synct **nicht**, rotiert
+  auf 3 — `index_backup.ts`), Snapshot bei jedem erfolgreichen Load + vor riskanten Operationen.
 - **HyperForge-Export** braucht Daemon-Stopp bei Live-Lauf (embedded-Qdrant ist single-process).
 - **`main.js`** ist Build-Artefakt (gitignored) — nie von Hand editieren.
 - **Index-Ordner-Hide ist rein kosmetisch (CSS):** `buildHideCss` (`index_dir.ts`) erzeugt eine

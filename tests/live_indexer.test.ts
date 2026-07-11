@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { LiveIndexer } from "../src/live_indexer";
 import { VaultAdapter, parseIndex, VaultIndex } from "../src/index";
 import { EmbeddingClient } from "../src/embedder";
+import { PersistBlockedError } from "../src/index_guard";
 
 const DIM = 256;
 const SCALE = 127;
@@ -222,5 +223,120 @@ describe("LiveIndexer", () => {
       await indexer.reindexAll(["leer.md"], read);
       expect(indexer.noteCount).toBe(0);
     });
+  });
+
+  describe("LiveIndexer.healMissing", () => {
+    it("behält vorhandene Vektoren und ergänzt nur fehlende", async () => {
+      const a = makeAdapter();
+      const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+      indexer.markFresh();
+      await indexer.update("a.md", "#A");         // vorhanden
+      const contents: Record<string, string> = { "b.md": "#B", "c.md": "#C" };
+      const added = await indexer.healMissing(["b.md", "c.md"], async (p) => contents[p]);
+      expect(added).toBe(2);
+      const idx = indexer.buildIndex();
+      expect(idx.count).toBe(3);
+      expect(idx.rowFor("a.md")).toBeGreaterThanOrEqual(0);
+      expect(idx.rowFor("b.md")).toBeGreaterThanOrEqual(0);
+      expect(idx.rowFor("c.md")).toBeGreaterThanOrEqual(0);
+    });
+
+    it("überspringt unlesbare Dateien ohne Abbruch", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "m");
+      indexer.markFresh();
+      const added = await indexer.healMissing(["x.md", "y.md"], async (p) => {
+        if (p === "x.md") throw new Error("weg");
+        return "#Y";
+      });
+      expect(added).toBe(1);
+      expect(indexer.buildIndex().rowFor("y.md")).toBeGreaterThanOrEqual(0);
+    });
+
+    it("meldet Fortschritt", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "m");
+      indexer.markFresh();
+      const seen: Array<[number, number, number]> = [];
+      await indexer.healMissing(["a.md", "b.md"], async () => "#X", (d, i, t) => seen.push([d, i, t]));
+      expect(seen[seen.length - 1]).toEqual([2, 2, 2]);
+    });
+  });
+});
+
+describe("LiveIndexer persist-Guard", () => {
+  it("frisch konstruiert ist NICHT ready → live-persist wirft not-ready", async () => {
+    const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "m");
+    await expect(indexer.persist("live")).rejects.toBeInstanceOf(PersistBlockedError);
+    expect(indexer.isReady()).toBe(false);
+  });
+
+  it("markFresh macht ready → leerer Vault darf aufbauen (0→1)", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "# A");
+    await expect(indexer.persist("live")).resolves.toBeUndefined();
+    expect(a.written.has("_vaultrag/manifest.json")).toBe(true);
+  });
+
+  it("init setzt diskCount → Clobber (großer Index, dann leer) wird geblockt", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    // 3-Noten-Index simulieren via init
+    const big = oneNoteIndex("a.md"); // count 1 – wir brauchen >1; baue 3 per reindex
+    indexer.markFresh();
+    await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B"); await indexer.update("c.md", "#C");
+    await indexer.persist("live");           // diskCount = 3
+    // jetzt Map leeren (simuliert verwirrten Zustand) und live-persist → Sturz 3→0
+    indexer.remove("a.md"); indexer.remove("b.md"); indexer.remove("c.md");
+    await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "shrink" });
+    void big;
+  });
+
+  it("reindex-Grund darf schrumpfen", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B");
+    await indexer.persist("live");           // diskCount = 2
+    indexer.remove("a.md"); indexer.remove("b.md");
+    await expect(indexer.persist("reindex")).resolves.toBeUndefined(); // 2→0 erlaubt
+  });
+
+  it("erfolgreicher persist aktualisiert diskCount (Löschungen bleiben möglich)", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B");
+    await indexer.persist("live");           // diskCount = 2
+    indexer.remove("b.md");
+    await expect(indexer.persist("live")).resolves.toBeUndefined(); // 2→1 (-1) erlaubt
+  });
+
+  it("markUnready blockt live-persist mid-session, auch wenn der Indexer zuvor schon ready war", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A");
+    await indexer.persist("live"); // ready war true, persist erfolgreich
+    expect(indexer.isReady()).toBe(true);
+
+    indexer.markUnready(); // Gefahrenzustand mid-session (z.B. maybeReload → load-failed-index-present)
+    expect(indexer.isReady()).toBe(false);
+    await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "not-ready" });
+  });
+
+  it("nach markUnready stellt ein erneutes init() den ready-Zustand wieder her", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A");
+    await indexer.persist("live");
+
+    indexer.markUnready();
+    await expect(indexer.persist("live")).rejects.toBeInstanceOf(PersistBlockedError);
+
+    indexer.init(oneNoteIndex("a.md")); // z.B. erfolgreicher Reload/Recovery
+    expect(indexer.isReady()).toBe(true);
+    await expect(indexer.persist("live")).resolves.toBeUndefined();
   });
 });

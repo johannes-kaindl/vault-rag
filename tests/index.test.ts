@@ -28,4 +28,22 @@ describe("parseIndex", () => {
     expect(Number.isFinite(v[0])).toBe(true);
     expect(Number.isFinite(v[1])).toBe(true);
   });
+  it("zu kurzer notes.i8 → wirft (statt still NaN-Vektoren)", () => {
+    const manifest = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 2, granularity: "note", quant: "int8" };
+    const paths = ["a.md", "b.md"];
+    const bytes = new Int8Array([127, 0, 0]); // 3 bytes statt 2*2=4
+    expect(() => parseIndex(manifest, paths, bytes.buffer)).toThrow(/byteLength|Länge|3.*4|4.*3/i);
+  });
+  it("zu langer notes.i8 → wirft", () => {
+    const manifest = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 1, granularity: "note", quant: "int8" };
+    const paths = ["a.md"];
+    const bytes = new Int8Array([127, 0, 0, 0]); // 4 bytes statt 1*2=2
+    expect(() => parseIndex(manifest, paths, bytes.buffer)).toThrow(/byteLength|Länge/i);
+  });
+  it("korrekte Länge lädt normal", () => {
+    const manifest = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 1, granularity: "note", quant: "int8" };
+    const paths = ["a.md"];
+    const bytes = new Int8Array([127, 0]);
+    expect(() => parseIndex(manifest, paths, bytes.buffer)).not.toThrow();
+  });
 });

@@ -7,7 +7,7 @@ const plugin = await esbuild.context({
   target: "es2020", outfile: "main.js",
   // node-builtins external: der eingebündelte MCP-Server nutzt node:http u.a. (desktop-only,
   // in Electron zur Laufzeit vorhanden). obsidian/electron bleiben ebenfalls external.
-  external: ["obsidian", "electron", ...builtins, ...builtins.map(b => `node:${b}`)],
+  external: ["obsidian", "electron", ...builtins],
 });
 if (prod) { await plugin.rebuild(); process.exit(0); }
 else { await plugin.watch(); }

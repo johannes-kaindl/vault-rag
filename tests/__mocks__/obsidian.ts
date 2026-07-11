@@ -80,6 +80,7 @@ export class FuzzySuggestModal<T> {
 }
 export function setIcon(el: any, name: string): void { el?.setAttribute?.("data-icon", name); }
 export class Notice { constructor(_message: string) {} }
+export class FileSystemAdapter { getBasePath() { return ""; } read() { return Promise.resolve(""); } }
 import { vi } from "vitest";
 
 export const requestUrl = vi.fn();

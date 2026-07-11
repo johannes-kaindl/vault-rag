@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, FileSystemAdapter } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Retriever, Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
@@ -90,6 +90,7 @@ export default class VaultRagPlugin extends Plugin {
   private indexHealthy = true;
   private indexOpChain: Promise<void> = Promise.resolve();
   private mcpServer: McpServerHandle | null = null;
+  private mcpOpChain: Promise<void> = Promise.resolve();
 
   /** Serialisiert mutierende Index-Operationen (mutate+build+persist), damit der persist-Guard
    *  nicht durch nebenläufige Events (z.B. Ordner-Bulk-Delete) fälschlich Shrink meldet und kein
@@ -97,6 +98,15 @@ export default class VaultRagPlugin extends Plugin {
   private runIndexOp(fn: () => Promise<void>): Promise<void> {
     const next = this.indexOpChain.then(fn, fn);
     this.indexOpChain = next.catch(() => {});
+    return next;
+  }
+
+  /** Serialisiert Start/Stop/Restart des MCP-Servers, damit ein Toggle+Port-Edit-Race
+   *  (Settings-Tab) oder ein Restart mitten in einem Unload keine Handles doppelt bindet
+   *  oder verwaist zurücklässt (analog runIndexOp). */
+  private runMcpOp(fn: () => Promise<void>): Promise<void> {
+    const next = this.mcpOpChain.then(fn, fn);
+    this.mcpOpChain = next.catch(() => {});
     return next;
   }
 
@@ -221,7 +231,9 @@ export default class VaultRagPlugin extends Plugin {
     void this.resolveAndReconnectChat();
 
     void this.startMcpServerIfEnabled();
-    this.register(() => { void this.stopMcpServer(); });
+    // Über denselben mcpOpChain wie start/restart, damit ein Unload mitten in einem
+    // laufenden Start/Restart nicht auf ein Handle race'd, das gerade erst gebunden wird.
+    this.register(() => { void this.runMcpOp(() => this.stopMcpServer()); });
 
     // Hub: EIN registerView statt vier — buildPanels() ans Ende von onload, damit
     // this.smartApply/this.templateRanker (oben im smartApplyEnabled-Block gebaut) bereits existieren.
@@ -979,14 +991,28 @@ export default class VaultRagPlugin extends Plugin {
     return this.mcpServer ? `http://127.0.0.1:${this.mcpServer.port}/mcp` : null;
   }
 
-  /** Startet den Server, wenn aktiviert und Desktop. Idempotent (stoppt vorher). */
+  /** Startet den Server, wenn aktiviert und Desktop. Idempotent (stoppt vorher).
+   *  Läuft serialisiert über runMcpOp (Fix 2) — siehe doStartMcpServer. */
   async startMcpServerIfEnabled(): Promise<void> {
+    return this.runMcpOp(() => this.doStartMcpServer());
+  }
+
+  private async doStartMcpServer(): Promise<void> {
     await this.stopMcpServer();
     if (Platform.isMobile || !this.settings.mcpEnabled) return;
     const token = this.ensureMcpToken();
     try {
       const { startMcpServer } = await import("./mcp/http_server");
-      const tools = new McpTools(buildMcpDeps(this.mcpDepsHost()));
+      // Symlink-Escape-Schutz (Fix 1): vault.adapter.read folgt OS-Symlinks — eine .md-Symlink
+      // innerhalb des Vaults, die nach außen zeigt, würde sonst Fremd-Dateiinhalt an externe
+      // Agents leaken. Desktop-only, dynamisch importiert, damit Mobile nie node:fs/path lädt.
+      const { makeVaultReadGuard } = await import("./mcp/vault_read_guard");
+      const host = this.mcpDepsHost();
+      const adapter = this.app.vault.adapter;
+      if (adapter instanceof FileSystemAdapter) {
+        host.readVault = makeVaultReadGuard(adapter.getBasePath(), (p) => adapter.read(p));
+      }
+      const tools = new McpTools(buildMcpDeps(host));
       this.mcpServer = await startMcpServer({ port: this.settings.mcpPort, token, tools, version: this.manifest.version });
     } catch (e) {
       console.warn("vault-rag: MCP-Server-Start fehlgeschlagen", e);
@@ -999,8 +1025,12 @@ export default class VaultRagPlugin extends Plugin {
     if (this.mcpServer) { try { await this.mcpServer.close(); } catch { /* egal */ } this.mcpServer = null; }
   }
 
-  /** Vollständiger Neustart (nach Toggle/Port/Token-Änderung in den Settings). */
-  async restartMcpServer(): Promise<void> { await this.startMcpServerIfEnabled(); }
+  /** Vollständiger Neustart (nach Toggle/Port/Token-Änderung in den Settings). Serialisiert
+   *  über denselben mcpOpChain wie startMcpServerIfEnabled — konkurrierende Aufrufe (z.B. schnell
+   *  hintereinander getippte Port-Änderungen) können sich dadurch nicht überholen. */
+  async restartMcpServer(): Promise<void> {
+    return this.runMcpOp(() => this.doStartMcpServer());
+  }
 
   async saveSettings() { await this.saveData(this.settings); }
 }

@@ -138,6 +138,7 @@ export class RestoreBackupModal extends Modal {
  */
 export class VaultRagSettingTab extends PluginSettingTab {
   private refreshInterval: number | null = null;
+  private mcpPortRestartTimer: number | null = null;
   private lastCaps: Caps = { vision: "no", thinking: { support: "none", confidence: "no" } };
   private updateBudgetMax: (maxChars: number) => void = () => {};
   private infoValue: HTMLElement | null = null;
@@ -151,6 +152,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   hide(): void {
     this.clearInterval();
+    if (this.mcpPortRestartTimer !== null) { window.clearTimeout(this.mcpPortRestartTimer); this.mcpPortRestartTimer = null; }
     this.resolvedOnOpen = false;
     super.hide();
   }
@@ -804,7 +806,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
           if (!Number.isFinite(n) || n < 1 || n > 65535) return;
           this.plugin.settings.mcpPort = n;
           await this.plugin.saveSettings();
-          await this.plugin.restartMcpServer();
+          // Debounce (Fix 2): sonst würde jeder Tastendruck einen eigenen Server-Restart
+          // auslösen (mirrors scheduleEmbed's Debounce-Idee in main.ts) — Speichern bleibt
+          // sofort, nur der Neustart wartet ~800ms auf Tipp-Ruhe.
+          if (this.mcpPortRestartTimer !== null) window.clearTimeout(this.mcpPortRestartTimer);
+          this.mcpPortRestartTimer = window.setTimeout(() => {
+            this.mcpPortRestartTimer = null;
+            void this.plugin.restartMcpServer();
+          }, 800);
         }));
 
     const status = this.plugin.mcpServerRunning()

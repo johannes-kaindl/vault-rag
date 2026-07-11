@@ -37,6 +37,9 @@ export interface VaultRagSettings {
   smartApplySuppressThinking: boolean;
   smartApplyMaxTokens: number;
   smartApplyDefaultMode: ApplyMode;
+  mcpEnabled: boolean;
+  mcpPort: number;
+  mcpToken: string;
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
@@ -69,4 +72,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   smartApplySuppressThinking: false,
   smartApplyMaxTokens: 4096,
   smartApplyDefaultMode: "deterministisch",
+  mcpEnabled: false,
+  mcpPort: 8123,
+  mcpToken: "",
 };

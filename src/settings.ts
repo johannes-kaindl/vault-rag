@@ -8,6 +8,8 @@ import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import type { ApplyMode } from "./note_restructurer";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, type VaultRagSettings } from "./settings_core";
+import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
+import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
 
 export { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList };
 export type { VaultRagSettings };
@@ -51,6 +53,9 @@ export interface VaultRagPluginHost extends Plugin {
   mcpServerAddress(): string | null;
   restartMcpServer(): Promise<void>;
   ensureMcpToken(): string;
+  mcpStartError(): string | null;
+  rotateMcpToken(): Promise<void>;
+  mcpSelfCheck(): Promise<SelfCheckResult>;
 }
 
 /** Autocomplete-Suggest für Vault-Ordner in einem Text-Input-Feld. */
@@ -139,6 +144,8 @@ export class RestoreBackupModal extends Modal {
 export class VaultRagSettingTab extends PluginSettingTab {
   private refreshInterval: number | null = null;
   private mcpPortRestartTimer: number | null = null;
+  private showMcpToken = false;
+  private mcpClient: McpClientId = "claude-code";
   private lastCaps: Caps = { vision: "no", thinking: { support: "none", confidence: "no" } };
   private updateBudgetMax: (maxChars: number) => void = () => {};
   private infoValue: HTMLElement | null = null;
@@ -816,20 +823,64 @@ export class VaultRagSettingTab extends PluginSettingTab {
           }, 800);
         }));
 
+    const detail = this.plugin.mcpStartError();
     const status = this.plugin.mcpServerRunning()
       ? `läuft · ${this.plugin.mcpServerAddress() ?? ""}`
-      : (this.plugin.settings.mcpEnabled ? "aus (Start fehlgeschlagen — Port belegt?)" : "aus");
+      : (this.plugin.settings.mcpEnabled ? `aus — ${detail ?? "Start fehlgeschlagen"}` : "aus");
     new Setting(containerEl).setName("Status").setDesc(status);
 
-    if (this.plugin.settings.mcpEnabled) {
-      const token = this.plugin.settings.mcpToken;
-      const cmd = `claude mcp add --transport http vault-retrieval ${this.plugin.mcpServerAddress() ?? `http://127.0.0.1:${this.plugin.settings.mcpPort}/mcp`} --header "Authorization: Bearer ${token}"`;
-      new Setting(containerEl)
-        .setName("Claude Code verbinden")
-        .setDesc("Diesen Befehl im Terminal ausführen, um den Vault als MCP-Server zu registrieren.")
-        .addButton(b => b.setButtonText("Befehl kopieren").onClick(() => {
-          void navigator.clipboard.writeText(cmd); new Notice("MCP-Befehl kopiert");
+    if (!this.plugin.settings.mcpEnabled) return;
+
+    const token = this.plugin.settings.mcpToken;
+
+    new Setting(containerEl)
+      .setName("Token")
+      .setDesc(this.showMcpToken ? token : maskToken(token))
+      .addButton(b => b.setButtonText(this.showMcpToken ? "Verbergen" : "Anzeigen")
+        .onClick(() => { this.showMcpToken = !this.showMcpToken; this.display(); }))
+      .addButton(b => b.setButtonText("Neu generieren").setWarning()
+        .onClick(async () => {
+          await this.plugin.rotateMcpToken();
+          new Notice("Neuer Token — alte Clients müssen neu verbunden werden");
+          this.display();
         }));
-    }
+
+    new Setting(containerEl)
+      .setName("Verbindung testen")
+      .setDesc("Prüft den Server über den Loopback-Endpunkt — wie ein externer Client.")
+      .addButton(b => b.setButtonText("Testen")
+        .onClick(async () => {
+          b.setDisabled(true);
+          const res = await this.plugin.mcpSelfCheck();
+          b.setDisabled(false);
+          const msg = res === "ok" ? "✓ 3 Tools erreichbar"
+            : res === "unauthorized" ? "Token stimmt nicht"
+            : res === "unreachable" ? "Server nicht erreichbar (aus? Port?)"
+            : "Antwort ist kein MCP";
+          new Notice(`MCP-Selbsttest: ${msg}`);
+        }));
+
+    new Setting(containerEl)
+      .setName("Angebotene Tools")
+      .setDesc("search · related · read_note — read-only Zugriff auf den Vault-Index.");
+
+    const url = this.plugin.mcpServerAddress() ?? `http://127.0.0.1:${this.plugin.settings.mcpPort}/mcp`;
+
+    new Setting(containerEl)
+      .setName("Client-Setup")
+      .setDesc("Config für deinen MCP-Client — Client wählen, dann kopieren.")
+      .addDropdown(d => {
+        for (const c of MCP_CLIENTS) d.addOption(c.id, c.label);
+        d.setValue(this.mcpClient);
+        d.onChange((v: string) => { this.mcpClient = v as McpClientId; this.display(); });
+      })
+      .addButton(b => b.setButtonText("Kopieren")
+        .onClick(() => {
+          void navigator.clipboard.writeText(buildClientSnippet(this.mcpClient, { url, token }));
+          new Notice("MCP-Config kopiert");
+        }));
+
+    const pre = containerEl.createEl("pre", { cls: "vault-rag-mcp-snippet" });
+    pre.setText(buildClientSnippet(this.mcpClient, { url, token: maskToken(token) }));
   }
 }

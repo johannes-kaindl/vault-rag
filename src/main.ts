@@ -1010,19 +1010,30 @@ export default class VaultRagPlugin extends Plugin {
       jsonrpc: "2.0", id: 1, method: "initialize",
       params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "vault-retrieval-selfcheck", version: this.manifest.version } },
     });
+    let timer: number | undefined;
+    const timeout = new Promise<"__timeout__">(resolve => {
+      timer = window.setTimeout(() => resolve("__timeout__"), 5000);
+    });
     try {
-      const r = await requestUrl({
-        url, method: "POST", throw: false,
-        headers: {
-          "Authorization": `Bearer ${this.settings.mcpToken}`,
-          "Content-Type": "application/json",
-          "Accept": "application/json, text/event-stream",
-        },
-        body,
-      });
-      return classifySelfCheck({ networkError: false, status: r.status, bodyText: r.text });
-    } catch {
+      const raced = await Promise.race([
+        requestUrl({
+          url, method: "POST", throw: false,
+          headers: {
+            "Authorization": `Bearer ${this.settings.mcpToken}`,
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+          },
+          body,
+        }),
+        timeout,
+      ]);
+      if (raced === "__timeout__") return classifySelfCheck({ networkError: true, status: 0, bodyText: "" });
+      return classifySelfCheck({ networkError: false, status: raced.status, bodyText: raced.text });
+    } catch (e) {
+      console.warn("vault-rag: MCP-Selbsttest fehlgeschlagen", e);
       return classifySelfCheck({ networkError: true, status: 0, bodyText: "" });
+    } finally {
+      if (timer) window.clearTimeout(timer);
     }
   }
 

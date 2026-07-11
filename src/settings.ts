@@ -819,7 +819,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           if (this.mcpPortRestartTimer !== null) window.clearTimeout(this.mcpPortRestartTimer);
           this.mcpPortRestartTimer = window.setTimeout(() => {
             this.mcpPortRestartTimer = null;
-            void this.plugin.restartMcpServer();
+            void this.plugin.restartMcpServer().then(() => this.display());
           }, 800);
         }));
 

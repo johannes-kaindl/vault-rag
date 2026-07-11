@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-07-11
+
 ### Added
 - **External access via MCP is now a built-in plugin feature.** Enable the MCP server in
   Settings → "MCP-Server" and connect an external LLM agent (e.g. Claude Code) with

@@ -17,9 +17,10 @@ export default tseslint.config(
   // aus dem recommended-Set) bleiben aktiv.
   {
     files: ["src/mcp/**/*.ts"],
-    // `process` kommt aus @types/node (tsconfig "types"), das die typescript-eslint-
-    // Scope-Analyse (anders als "lib"-Globals wie DOM/console) nicht automatisch sieht.
-    languageOptions: { globals: { process: "readonly" } },
+    // `process`/`Buffer`/`require` kommen aus @types/node (tsconfig "types"), das die
+    // typescript-eslint-Scope-Analyse (anders als "lib"-Globals wie DOM/console) nicht
+    // automatisch sieht.
+    languageOptions: { globals: { process: "readonly", Buffer: "readonly", require: "readonly" } },
     rules: {
       ...Object.fromEntries(Object.keys(obsidianmd.rules ?? {}).map(r => [`obsidianmd/${r}`, "off"])),
       "no-restricted-globals": "off",

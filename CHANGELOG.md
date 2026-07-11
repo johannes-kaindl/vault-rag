@@ -6,10 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **External access via MCP is now a built-in plugin feature.** Enable the MCP server in
+  Settings → "MCP-Server" and connect an external LLM agent (e.g. Claude Code) with
+  `claude mcp add --transport http …` — three read-only tools (`search`, `related`, `read_note`)
+  over your vault's index. The server is **desktop-only**, binds to **loopback (127.0.0.1)** only,
+  runs only while Obsidian is open, and requires a **Bearer token** (auto-generated on enable) on
+  every request. Defense-in-depth: DNS-rebinding protection (Host-header allowlist), constant-time
+  token comparison, and a realpath containment guard so `read_note` cannot follow a symlink out of
+  the vault.
+
 ### Changed
-- MCP server is now an in-plugin HTTP server (Streamable HTTP on 127.0.0.1, Bearer-token auth,
-  desktop-only) instead of a separate stdio Node CLI. Enable it in Settings → "MCP-Server" and
-  connect with `claude mcp add --transport http …`. Removes the standalone `mcp-server.js` target.
+- The MCP server is now this in-plugin HTTP server (Streamable HTTP) instead of a separate stdio
+  Node CLI — it is bundled into `main.js` and the standalone `mcp-server.js` target is removed.
 
 ## [0.12.0] — 2026-07-11
 

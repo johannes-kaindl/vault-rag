@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+// eslint-disable-next-line import/no-nodejs-modules -- nur Typen; Runtime lazy require, desktop-only
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { McpTools } from "./tools";
 import { registerTools } from "./register_tools";
@@ -11,9 +12,12 @@ const BIND_HOST = "127.0.0.1";
 
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    // eslint-disable-next-line no-undef -- Buffer is a Node.js global available at runtime
     const chunks: Buffer[] = [];
+    // eslint-disable-next-line no-undef -- Buffer is a Node.js global available at runtime
     req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => {
+      // eslint-disable-next-line no-undef -- Buffer is a Node.js global available at runtime
       const raw = Buffer.concat(chunks).toString("utf-8");
       if (!raw) { resolve(undefined); return; }
       try { resolve(JSON.parse(raw)); } catch (e) { reject(e instanceof Error ? e : new Error(String(e))); }
@@ -36,7 +40,7 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, tools: McpTo
 /** Startet den in-Plugin HTTP-MCP-Server auf 127.0.0.1. Lazy require("node:http"),
  *  damit auf Mobile (wo der Start gegated ist) nie ein Node-Builtin geladen wird. */
 export async function startMcpServer(opts: { port: number; token: string; tools: McpTools; version: string }): Promise<McpServerHandle> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment -- desktop-only, lazy: node:http nie auf Mobile laden (require global ist unbekannten Typs, Signatur via node:http-Typen unten sichergestellt)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment, import/no-nodejs-modules, no-undef -- desktop-only, lazy: node:http nie auf Mobile laden (require global ist unbekannten Typs, Signatur via node:http-Typen unten sichergestellt)
   const http: typeof import("node:http") = require("node:http");
   const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
     void (async () => {

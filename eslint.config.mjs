@@ -11,27 +11,6 @@ export default tseslint.config(
     },
   },
   ...obsidianmd.configs.recommended,
-  // src/mcp/ ist ein Node-Programm (MCP-Server): die Obsidian-Kontext-Verbote
-  // (obsidianmd/*, fetch via no-restricted-globals, node:-Importe, console) gelten
-  // dort nicht — alle Qualitätsregeln (tseslint recommendedTypeChecked + typed-Regeln
-  // aus dem recommended-Set) bleiben aktiv.
-  {
-    files: ["src/mcp/**/*.ts"],
-    // `process`/`Buffer`/`require` kommen aus @types/node (tsconfig "types"), das die
-    // typescript-eslint-Scope-Analyse (anders als "lib"-Globals wie DOM/console) nicht
-    // automatisch sieht.
-    languageOptions: { globals: { process: "readonly", Buffer: "readonly", require: "readonly" } },
-    rules: {
-      ...Object.fromEntries(Object.keys(obsidianmd.rules ?? {}).map(r => [`obsidianmd/${r}`, "off"])),
-      "no-restricted-globals": "off",
-      "no-restricted-imports": ["error", {
-        paths: [{ name: "obsidian", message: "src/mcp ist ein headless Node-Programm — nie obsidian importieren." }],
-        patterns: [{ group: ["*/http", "../http"], message: "src/mcp spricht Netz nur über node_embed (fetch), nie über obsidians requestUrl-Wrapper." }],
-      }],
-      "import/no-nodejs-modules": "off",
-      "no-console": "off",
-    },
-  },
   {
     rules: {
       // Deutsche UI: Substantive werden großgeschrieben. Die Regel erwartet englische

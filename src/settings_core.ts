@@ -40,6 +40,8 @@ export interface VaultRagSettings {
   mcpEnabled: boolean;
   mcpPort: number;
   mcpToken: string;
+  /** Auf-/Zu-Zustand der Settings-Sektionen (key → collapsed). */
+  uiCollapsed: Record<string, boolean>;
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
@@ -75,4 +77,5 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   mcpEnabled: false,
   mcpPort: 8123,
   mcpToken: "",
+  uiCollapsed: {},
 };

@@ -29,6 +29,7 @@ import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexV
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
+import { indexDeltaReadout } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
 import { RetrievalFacade } from "./retrieval_facade";
 
@@ -507,10 +508,21 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   /** Kompakter Zustands-Text für die Robustheits-Sektion in den Einstellungen. */
-  indexHealthReadout(): string {
-    if (!this.indexHealthy) return "⚠ Laden fehlgeschlagen — beschädigter Index erkannt (Schreibschutz aktiv)";
-    const n = this.liveIndexer.noteCount;
-    return `${n.toLocaleString("de-DE")} Notizen · gesund`;
+  indexHealthReadout(embedded: number, total: number, healthy: boolean): string {
+    if (!healthy) return "⚠ Laden fehlgeschlagen — beschädigter Index erkannt (Schreibschutz aktiv)";
+    return indexDeltaReadout(embedded, total);
+  }
+
+  /** Erfasste vs. Soll-Notizzahl für die Index-Zustand-Zeile. `embedded = total − fehlende`
+   *  (fehlende via `diffIndexVsVault`, dieselbe missing-Basis wie `healVault`) — bewusst NICHT
+   *  `liveIndexer.noteCount`, das Stale-Einträge (gelöscht/umbenannt) mitzählt und das Delta
+   *  unter Index-Drift verfälschen würde (Button fälschlich disabled trotz fehlender Notizen).
+   *  `healthy` spiegelt den Schreibschutz-Zustand für die Zeile + Button. */
+  indexDelta(): { embedded: number; total: number; healthy: boolean } {
+    const vaultPaths = this.vaultMarkdownPaths();
+    const total = vaultPaths.length;
+    const missing = this.index ? diffIndexVsVault([...this.index.paths], vaultPaths).missing.length : total;
+    return { embedded: total - missing, total, healthy: this.indexHealthy };
   }
 
   async loadIndex() {

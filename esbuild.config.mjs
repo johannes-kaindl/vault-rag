@@ -1,5 +1,8 @@
 import esbuild from "esbuild";
-import builtins from "builtin-modules";
+import { builtinModules } from "node:module";
+// Node-builtins in beiden Formen abdecken (`http` UND `node:http`) — der eingebündelte
+// MCP-Server importiert die `node:`-präfixierte Form, die muss explizit external sein.
+const builtins = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)];
 const prod = process.argv[2] === "production";
 const common = { bundle: true, sourcemap: prod ? false : "inline", logLevel: "info" };
 const plugin = await esbuild.context({

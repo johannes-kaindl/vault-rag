@@ -59,6 +59,9 @@ index.ts          VaultAdapter-Interface · IndexManifest · VaultIndex · parse
                   manifest.json), int8→float32 + Renormalisierung (Quant-Drift). `parseIndex`
                   validiert neben `count == paths` auch `notes.i8.byteLength == count × dim`
                   (Byte-Guard) — wirft laut statt stillem Clobber/NaN.
+index_delta.ts    Pure-Funktion indexDeltaReadout(embedded, total) → Readout-String „N / M Notizen"
+                  (de-DE, ggf. mit „(vollständig)"-Hinweis). Keine Obsidian-Abhängigkeit, daher
+                  direkt testbar.
 index_guard.ts    Pure-core Datenverlust-Entscheidungen: classifyLoadResult (no-index/loaded-ok/
                   load-failed-index-present) · assertSafeToPersist (Live-Persist darf Count nur
                   ±1 senken) · isSuspiciousShrink (Cross-Device-Clobber-Heuristik) ·
@@ -121,6 +124,16 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
 **Index-Format (Slice A, unveränderlich):** `notes.i8` (Int8-Matrix) · `paths.json` · `manifest.json`.
 `manifest.json` wird **zuletzt** geschrieben — es ist der Reload-Trigger. Embedding-Dimension **256**,
 `INT8_SCALE = 127`, **mean**-Aggregation der Chunk-Vektoren.
+
+### Vendored Kit Module (`src/vendor/kit/`)
+
+`src/vendor/kit/collapsible.ts` (aus obsidian-kit#0.12.0) — erste obsidian-gekoppelte UI-Schicht des
+Kits. `collapsibleSection(containerEl, opts)` rendert eine einklappbare Settings-Sektion (klickbarer
+Header + Body). Der Auf-/Zu-Zustand wird über den optionalen `CollapsibleStorage`-Callback persistiert —
+vault-rag verdrahtet ihn an `settings.uiCollapsed` (Record<string, boolean>, persistiert in data.json).
+`resolveCollapsed(key, defaultCollapsed, storage)` ist pure (kein DOM), entscheidet über Startzustand:
+persistierter Wert (falls key + storage vorhanden) sonst defaultCollapsed (Fallback: true). CSS
+(`COLLAPSIBLE_CSS`) wird über obsidian-Kit bereitgestellt und in `styles.css` übernommen.
 
 ## Commands
 

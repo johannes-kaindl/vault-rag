@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-07-12
+
 ### Added
 - **Collapsible settings sections.** The settings tab now groups its sections into collapsible
   headers you can fold away, and the open/closed state persists per section. The Live-Embedding

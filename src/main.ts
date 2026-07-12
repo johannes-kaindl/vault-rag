@@ -9,7 +9,6 @@ import { EmbeddingClient } from "./embedder";
 import { LiveIndexer } from "./live_indexer";
 import { PendingQueue } from "./pending_queue";
 import { SearchPanel, VIEW_TYPE_SEARCH, SearchResult } from "./search_view";
-import { toIndexVector } from "./embed_vector";
 import { ChatClient } from "./chat_client";
 import { buildContext } from "./context_source";
 import { pickNote } from "./note_picker";
@@ -27,7 +26,6 @@ import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestF
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
 import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexVsVault } from "./index_guard";
-import type { McpDeps } from "./mcp/mcp_deps";
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
@@ -40,30 +38,6 @@ export interface EmbeddingProgress {
   pendingNotes: number;
   /** Während eines Voll-Reindex: Fortschritt durch die Notiz-Liste; sonst null. */
   reindex: { done: number; total: number } | null;
-}
-
-/** Entkoppelter Host-Vertrag für buildMcpDeps — erlaubt Unit-Test ohne echtes Plugin. */
-export interface McpDepsHost {
-  getIndex(): VaultIndex | null;
-  embedderReady(): Promise<boolean>;
-  embed(text: string): Promise<Float32Array[]>;
-  readVault(relPath: string): Promise<string>;
-  settings: { k: number; minSim: number; exclude: string[] };
-}
-
-/** Baut die McpDeps aus den Live-Plugin-Anschlüssen (ready-check + embed + toIndexVector). */
-export function buildMcpDeps(host: McpDepsHost): McpDeps {
-  return {
-    getIndex: () => host.getIndex(),
-    embedQuery: async (text, dim) => {
-      if (!(await host.embedderReady())) throw new Error("Embedding-Endpoint nicht erreichbar.");
-      const vecs = await host.embed(text);
-      if (vecs.length === 0) throw new Error("embed: leere Antwort");
-      return toIndexVector(vecs, dim);
-    },
-    readNote: (relPath) => host.readVault(relPath),
-    settings: () => ({ ...host.settings }),
-  };
 }
 
 export default class VaultRagPlugin extends Plugin {
@@ -960,16 +934,6 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
-  private mcpDepsHost(): McpDepsHost {
-    return {
-      getIndex: () => this.index,
-      embedderReady: () => this.embedderReady(),
-      embed: (t) => this.embedder.embed([t]),
-      readVault: (p) => this.app.vault.adapter.read(p),
-      settings: { k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude },
-    };
-  }
-
   /** Generiert bei Bedarf einen Token, speichert ihn und gibt ihn zurück. */
   ensureMcpToken(): string {
     if (!this.settings.mcpToken) { this.settings.mcpToken = generateToken(); void this.saveSettings(); }
@@ -1041,12 +1005,11 @@ export default class VaultRagPlugin extends Plugin {
       // innerhalb des Vaults, die nach außen zeigt, würde sonst Fremd-Dateiinhalt an externe
       // Agents leaken. Desktop-only, dynamisch importiert, damit Mobile nie node:fs/path lädt.
       const { makeVaultReadGuard } = await import("./mcp/vault_read_guard");
-      const host = this.mcpDepsHost();
       const adapter = this.app.vault.adapter;
       if (adapter instanceof FileSystemAdapter) {
-        host.readVault = makeVaultReadGuard(adapter.getBasePath(), (p) => adapter.read(p));
+        this.guardedRead = makeVaultReadGuard(adapter.getBasePath(), (p) => adapter.read(p));
       }
-      const tools = new McpTools(buildMcpDeps(host));
+      const tools = new McpTools(this.facade);
       this.mcpServer = await startMcpServer({ port: this.settings.mcpPort, token, tools, version: this.manifest.version });
       this.mcpLastStartError = null;
     } catch (e) {

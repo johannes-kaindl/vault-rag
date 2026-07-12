@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import * as http from "node:http";
 import { VaultIndex, IndexManifest } from "../src/index";
 import { McpTools } from "../src/mcp/tools";
-import type { McpDeps } from "../src/mcp/mcp_deps";
+import { RetrievalFacade } from "../src/retrieval_facade";
 import { startMcpServer } from "../src/mcp/http_server";
 
 const DIM = 4;
@@ -12,12 +12,13 @@ function index(): VaultIndex {
   const v = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0]);
   return new VaultIndex(m, ["a.md", "b.md"], v);
 }
-const deps: McpDeps = {
+const deps = new RetrievalFacade({
   getIndex: () => index(),
-  embedQuery: async () => new Float32Array([1, 0, 0, 0]),
-  readNote: async (p) => `# ${p}`,
+  embedderReady: async () => true,
+  embed: async () => [new Float32Array([1, 0, 0, 0])],
   settings: () => ({ k: 20, minSim: 0, exclude: [] }),
-};
+  readVault: async (p) => `# ${p}`,
+});
 
 let handle: { close(): Promise<void>; port: number } | null = null;
 afterEach(async () => { await handle?.close(); handle = null; });

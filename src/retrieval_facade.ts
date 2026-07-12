@@ -22,6 +22,21 @@ export type EmbedResult = { kind: "vec"; vec: Float32Array } | { kind: "no-index
 export type SearchResult = { kind: "hits"; hits: Hit[] } | { kind: "no-index" } | { kind: "offline" };
 export type VecSearchResult = { kind: "hits"; hits: Hit[] } | { kind: "no-index" };
 export type RelatedResult = { kind: "hits"; hits: Hit[] } | { kind: "no-index" } | { kind: "not-indexed"; path: string };
+export type ReadResult = { kind: "ok"; text: string } | { kind: "not-found"; path: string } | { kind: "invalid"; path: string; reason: string };
+
+/** Path-Guard für readNote: vault-relativ, kein Traversal, nur .md, exclude-Präfix (case-insensitiv).
+ *  Gibt den normalisierten vault-relativen Pfad zurück. Reine String-Logik (kein node:path). */
+export function resolveNotePath(rel: string, exclude: string[]): string {
+  if (rel.startsWith("/")) throw new Error(`Nur vault-relative Pfade erlaubt: "${rel}"`);
+  const parts = rel.split(/[\\/]/).filter(s => s !== "" && s !== ".");
+  if (parts.some(s => s === "..")) throw new Error(`Pfad verlässt den Vault: "${rel}"`);
+  const norm = parts.join("/");
+  if (!norm.toLowerCase().endsWith(".md")) throw new Error(`Nur Markdown-Notizen (.md) lesbar: "${rel}"`);
+  const normLower = norm.toLowerCase();
+  const hit = exclude.find(e => e && normLower.startsWith(e.toLowerCase()));
+  if (hit) throw new Error(`Pfad liegt unter Ausschluss-Präfix "${hit}": "${rel}"`);
+  return norm;
+}
 
 export class RetrievalFacade {
   constructor(private deps: RetrievalDeps) {}
@@ -55,6 +70,21 @@ export class RetrievalFacade {
     if (!index) return { kind: "no-index" };
     if (index.rowFor(path) < 0) return { kind: "not-indexed", path };
     return { kind: "hits", hits: new Retriever(index).related(path, this.resolveOpts(opts)) };
+  }
+
+  /** Volltext einer Notiz mit Path-Guard. Ungültige Pfade → invalid (Grund erhalten). */
+  async readNote(relPath: string): Promise<ReadResult> {
+    let rel: string;
+    try {
+      rel = resolveNotePath(relPath, this.deps.settings().exclude);
+    } catch (e) {
+      return { kind: "invalid", path: relPath, reason: (e as Error).message };
+    }
+    try {
+      return { kind: "ok", text: await this.deps.readVault(rel) };
+    } catch {
+      return { kind: "not-found", path: relPath };
+    }
   }
 
   private async embedWith(index: VaultIndex, text: string): Promise<{ kind: "vec"; vec: Float32Array } | { kind: "offline" }> {

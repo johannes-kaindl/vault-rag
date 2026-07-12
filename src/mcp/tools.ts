@@ -1,25 +1,9 @@
 import { VaultIndex } from "../index";
 import { Retriever, Hit } from "../retriever";
+import { resolveNotePath } from "../retrieval_facade";
 import type { McpDeps } from "./mcp_deps";
 
 export interface HitList { hits: { path: string; score: number }[] }
-
-/** Path-Guard für read_note: vault-relativ, kein Traversal, nur .md, exclude-Präfix (case-insensitiv).
- *  Gibt den normalisierten vault-relativen Pfad zurück (der VaultAdapter liest vault-relativ) —
- *  kein node:path nötig, reine String-Logik. Was vom Index ausgeschlossen ist, gibt der Server
- *  auch nicht als Volltext heraus. */
-export function resolveNotePath(rel: string, exclude: string[]): string {
-  if (rel.startsWith("/")) throw new Error(`Nur vault-relative Pfade erlaubt: "${rel}"`);
-  // Segmente normalisieren, "."/leere entfernen, ".." verbieten.
-  const parts = rel.split(/[\\/]/).filter(s => s !== "" && s !== ".");
-  if (parts.some(s => s === "..")) throw new Error(`Pfad verlässt den Vault: "${rel}"`);
-  const norm = parts.join("/");
-  if (!norm.toLowerCase().endsWith(".md")) throw new Error(`Nur Markdown-Notizen (.md) lesbar: "${rel}"`);
-  const normLower = norm.toLowerCase();
-  const hit = exclude.find(e => e && normLower.startsWith(e.toLowerCase()));
-  if (hit) throw new Error(`Pfad liegt unter Ausschluss-Präfix "${hit}": "${rel}"`);
-  return norm;
-}
 
 /** Transport-freie Tool-Handler des MCP-Servers — register_tools.ts ist die SDK-Schale. */
 export class McpTools {

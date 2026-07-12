@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { VaultIndex, IndexManifest } from "../src/index";
-import { McpTools, resolveNotePath } from "../src/mcp/tools";
+import { McpTools } from "../src/mcp/tools";
+import { resolveNotePath } from "../src/retrieval_facade";
 import type { McpDeps } from "../src/mcp/mcp_deps";
 
 const DIM = 4;

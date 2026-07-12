@@ -88,3 +88,45 @@ describe("RetrievalFacade.related", () => {
     else throw new Error("erwartete hits");
   });
 });
+
+import { RetrievalFacade as _F, resolveNotePath } from "../src/retrieval_facade";
+
+describe("resolveNotePath", () => {
+  it("normalisiert gültige relative .md-Pfade", () => {
+    expect(resolveNotePath("Ordner/Notiz.md", [])).toBe("Ordner/Notiz.md");
+    expect(resolveNotePath("./a/./b.md", [])).toBe("a/b.md");
+  });
+  it("verbietet absolute Pfade, Traversal und nicht-.md", () => {
+    expect(() => resolveNotePath("/etc/x.md", [])).toThrow(/vault-relative/);
+    expect(() => resolveNotePath("a/../../x.md", [])).toThrow(/verlässt den Vault/);
+    expect(() => resolveNotePath("a/x.txt", [])).toThrow(/Markdown/);
+  });
+  it("verbietet exclude-Präfix (case-insensitiv)", () => {
+    expect(() => resolveNotePath("templates/x.md", ["Templates/"])).toThrow(/Ausschluss-Präfix/);
+  });
+});
+
+describe("RetrievalFacade.readNote", () => {
+  const base = {
+    getIndex: () => null, embedderReady: async () => true,
+    embed: async () => [], settings: () => ({ k: 5, minSim: 0, exclude: ["Templates/"] }),
+  };
+  it("ok: liest Volltext über readVault", async () => {
+    const f = new RetrievalFacade({ ...base, readVault: async (r) => `INHALT von ${r}` });
+    expect(await f.readNote("a/b.md")).toEqual({ kind: "ok", text: "INHALT von a/b.md" });
+  });
+  it("invalid: resolveNotePath-Grund bleibt erhalten", async () => {
+    const f = new RetrievalFacade({ ...base, readVault: async () => "x" });
+    const r = await f.readNote("../x.md");
+    expect(r.kind).toBe("invalid");
+    if (r.kind === "invalid") expect(r.reason).toMatch(/verlässt den Vault/);
+  });
+  it("invalid: exclude-Präfix", async () => {
+    const f = new RetrievalFacade({ ...base, readVault: async () => "x" });
+    expect((await f.readNote("Templates/x.md")).kind).toBe("invalid");
+  });
+  it("not-found: readVault wirft", async () => {
+    const f = new RetrievalFacade({ ...base, readVault: async () => { throw new Error("ENOENT"); } });
+    expect(await f.readNote("a/b.md")).toEqual({ kind: "not-found", path: "a/b.md" });
+  });
+});

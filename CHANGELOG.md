@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.1] — 2026-07-12
+
 ### Changed
 - Build: replaced the `builtin-modules` dev-dependency with Node's built-in
   `node:module` `builtinModules` for the esbuild externals list (both bare and

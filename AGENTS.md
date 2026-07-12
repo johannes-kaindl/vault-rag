@@ -69,6 +69,10 @@ index_backup.ts   Pure-core Namens-/Rotationslogik für geräte-lokale Index-Bac
                   Die eigentliche Datei-I/O liegt in main.ts (migrateIndex).
 retriever.ts      Retriever(index).related(path, {k,minSim,exclude}) → Hit[];
                   Brute-Force-Cosinus auf normalisierten Vektoren, Top-k über minSim.
+retrieval_facade.ts  Gemeinsame obsidian-freie Fassade über Retriever/Embedder für UI + MCP:
+                  RetrievalFacade(deps).embedQuery/searchVector/search/related/readNote →
+                  getypte Result-Unions (hits/no-index/offline/not-indexed/…), nie throw.
+                  resolveNotePath (Path-Guard) lebt hier. Kein this.retriever-Feld mehr.
 chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker.py).
 reasoning.ts      Reine Thinking-Helfer: suppressParams (Cross-Server-Union reasoning_effort/
                   chat_template_kwargs/reasoning_budget — nie Boolean/„minimal") · reasoningHappened
@@ -101,7 +105,7 @@ hub_view.ts       VaultRetrievalView (ItemView, VIEW_TYPE_HUB="vault-retrieval-h
 settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings · DEFAULT_SETTINGS ·
                   migrateEndpointList — von settings.ts re-exportiert, vom MCP-Server direkt genutzt.
 mcp/              In-Plugin HTTP-MCP-Server (Loopback, `/mcp`, StreamableHTTP): `http_server.ts` ·
-                  `register_tools.ts` · `tools.ts` (McpDeps-injiziert) · `mcp_deps.ts` · `auth.ts`.
+                  `register_tools.ts` · `tools.ts` (dünner Adapter über RetrievalFacade) · `auth.ts`.
                   Kein Node-Adapter/kein stdio mehr.
 main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab registrieren, file-Events
                   (modify/delete/rename), 3 s-Debounce, 60 s-Drain, EmbeddingProgress + Statusleiste.

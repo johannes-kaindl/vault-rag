@@ -732,7 +732,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
       const active = this.plugin.activeEmbeddingEndpoint;
       const conn = connected === null ? "prüfe…" : connected ? (active ? `verbunden via ${active}` : "verbunden") : "offline";
       const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
-      const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet · ${p.pendingNotes.toLocaleString("de-DE")} ausstehend` : "";
+      // Nur die eingebettete Zahl hier — der echte Rückstand (fehlende Notizen) lebt als EINE
+      // Wahrheit in der Index-Zustand-Zeile (Index-Robustheit). „pending" war die transiente
+      // Offline-Queue und kollidierte optisch mit dem Deckungs-Delta.
+      const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet` : "";
       const act = p?.isEmbedding ? "Embedding läuft" : "";
       text.setText([conn, act, counts].filter(Boolean).join(" · "));
     };

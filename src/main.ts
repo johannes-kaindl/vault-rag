@@ -185,11 +185,12 @@ export default class VaultRagPlugin extends Plugin {
           },
           // Weiterhin gebraucht: detectType() (template_matcher.ts) ruft deps.search() für den
           // RAG-Typ-Vote auf — entgegen der Planannahme kein toter Code (SEAM-VERTRAG 3, auto-detect
-          // im leeren-templatePath-Pfad von proposeSmartApply). Läuft jetzt über die Fassade statt
-          // dem alten Retriever-Feld; exclude kommt dadurch aus den Plugin-Settings statt hart
-          // "Templates/" — siehe Task-3-Report.
+          // im leeren-templatePath-Pfad von proposeSmartApply). Läuft über die Fassade (searchVector,
+          // der einzige interne Low-Level-Pfad mit exclude-Override); opts (inkl. hart gesetztem
+          // exclude:["Templates/"] aus template_matcher.ts) wird vollständig durchgereicht — siehe
+          // Task-3-Report + Fix-Wave-Report.
           search: (vec, opts) => {
-            const r = this.facade.searchVector(vec, { k: opts.k, minSim: opts.minSim });
+            const r = this.facade.searchVector(vec, opts);
             return r.kind === "hits" ? r.hits : [];
           },
         },

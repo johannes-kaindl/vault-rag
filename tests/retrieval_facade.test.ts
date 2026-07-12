@@ -56,10 +56,16 @@ describe("RetrievalFacade.searchVector", () => {
     expect(r).toEqual({ kind: "hits", hits: expect.any(Array) });
     if (r.kind === "hits") expect(r.hits.map(h => h.path)).toEqual(["a.md", "b.md", "c.md"]);
   });
-  it("opts überschreiben k/minSim; exclude bleibt aus settings", () => {
+  it("opts überschreiben k/minSim; ohne opts.exclude bleibt exclude aus settings", () => {
     const f = new RetrievalFacade(deps({ settings: () => ({ k: 5, minSim: 0, exclude: ["a.md"] }) }));
     const r = f.searchVector(new Float32Array([1, 0]), { k: 1, minSim: 0 });
     if (r.kind === "hits") expect(r.hits.map(h => h.path)).toEqual(["b.md"]); // a.md excluded, k=1
+  });
+  it("opts.exclude überschreibt settings.exclude (interner Low-Level-Pfad, z.B. SmartApply-Detect)", () => {
+    const f = new RetrievalFacade(deps({ settings: () => ({ k: 5, minSim: 0, exclude: [] }) }));
+    const r = f.searchVector(new Float32Array([1, 0]), { exclude: ["a.md"] });
+    if (r.kind === "hits") expect(r.hits.map(h => h.path)).toEqual(["b.md", "c.md"]); // a.md via opts.exclude ausgeschlossen, nicht via settings
+    else throw new Error("erwartete hits");
   });
 });
 

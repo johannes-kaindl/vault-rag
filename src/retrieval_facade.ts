@@ -48,11 +48,13 @@ export class RetrievalFacade {
     return this.embedWith(index, text);
   }
 
-  /** Reine Cosinus-Suche mit fertigem Query-Vektor (kein embed, kein ready-check). */
-  searchVector(vec: Float32Array, opts?: Partial<RetrieveOverrides>): VecSearchResult {
+  /** Reine Cosinus-Suche mit fertigem Query-Vektor (kein embed, kein ready-check).
+   *  Interner Low-Level-Pfad (Chat + SmartApply-Detect) — opts.exclude überschreibt settings().exclude,
+   *  falls angegeben (im Gegensatz zu search()/related(), die exclude strikt aus settings() ziehen). */
+  searchVector(vec: Float32Array, opts?: Partial<RetrieveOpts>): VecSearchResult {
     const index = this.deps.getIndex();
     if (!index) return { kind: "no-index" };
-    return { kind: "hits", hits: new Retriever(index).search(vec, this.resolveOpts(opts)) };
+    return { kind: "hits", hits: new Retriever(index).search(vec, this.resolveOpts(opts, true)) };
   }
 
   /** Query-Text → embed → Cosinus. */
@@ -98,8 +100,14 @@ export class RetrievalFacade {
     }
   }
 
-  private resolveOpts(opts?: Partial<RetrieveOverrides>): RetrieveOpts {
+  /** allowExclude: nur searchVector darf opts.exclude durchreichen (internes Nutzungsmuster).
+   *  search()/related() rufen ohne allowExclude → exclude kommt immer aus settings(). */
+  private resolveOpts(opts?: Partial<RetrieveOpts>, allowExclude = false): RetrieveOpts {
     const s = this.deps.settings();
-    return { k: opts?.k ?? s.k, minSim: opts?.minSim ?? s.minSim, exclude: s.exclude };
+    return {
+      k: opts?.k ?? s.k,
+      minSim: opts?.minSim ?? s.minSim,
+      exclude: allowExclude && opts?.exclude ? opts.exclude : s.exclude,
+    };
   }
 }

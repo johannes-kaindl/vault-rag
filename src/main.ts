@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, FileSystemAdapter } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, FileSystemAdapter, requestUrl } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Retriever, Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
@@ -30,6 +30,7 @@ import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexV
 import type { McpDeps } from "./mcp/mcp_deps";
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
+import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
 import type { McpServerHandle } from "./mcp/http_server";
 
 export interface EmbeddingProgress {
@@ -90,6 +91,7 @@ export default class VaultRagPlugin extends Plugin {
   private indexHealthy = true;
   private indexOpChain: Promise<void> = Promise.resolve();
   private mcpServer: McpServerHandle | null = null;
+  private mcpLastStartError: string | null = null;
   private mcpOpChain: Promise<void> = Promise.resolve();
 
   /** Serialisiert mutierende Index-Operationen (mutate+build+persist), damit der persist-Guard
@@ -991,6 +993,50 @@ export default class VaultRagPlugin extends Plugin {
     return this.mcpServer ? `http://127.0.0.1:${this.mcpServer.port}/mcp` : null;
   }
 
+  mcpStartError(): string | null { return this.mcpLastStartError; }
+
+  /** Neuen Token erzeugen, persistieren, Server neu starten. Alte Clients werden ungültig. */
+  async rotateMcpToken(): Promise<void> {
+    this.settings.mcpToken = generateToken();
+    await this.saveSettings();
+    await this.restartMcpServer();
+  }
+
+  /** Ruft den eigenen Loopback-Server wie ein externer Client (initialize) und klassifiziert. */
+  async mcpSelfCheck(): Promise<SelfCheckResult> {
+    const url = this.mcpServerAddress();
+    if (!url) return "unreachable";
+    const body = JSON.stringify({
+      jsonrpc: "2.0", id: 1, method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "vault-retrieval-selfcheck", version: this.manifest.version } },
+    });
+    let timer: number | undefined;
+    const timeout = new Promise<"__timeout__">(resolve => {
+      timer = window.setTimeout(() => resolve("__timeout__"), 5000);
+    });
+    try {
+      const raced = await Promise.race([
+        requestUrl({
+          url, method: "POST", throw: false,
+          headers: {
+            "Authorization": `Bearer ${this.settings.mcpToken}`,
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+          },
+          body,
+        }),
+        timeout,
+      ]);
+      if (raced === "__timeout__") return classifySelfCheck({ networkError: true, status: 0, bodyText: "" });
+      return classifySelfCheck({ networkError: false, status: raced.status, bodyText: raced.text });
+    } catch (e) {
+      console.warn("vault-rag: MCP-Selbsttest fehlgeschlagen", e);
+      return classifySelfCheck({ networkError: true, status: 0, bodyText: "" });
+    } finally {
+      if (timer) window.clearTimeout(timer);
+    }
+  }
+
   /** Startet den Server, wenn aktiviert und Desktop. Idempotent (stoppt vorher).
    *  Läuft serialisiert über runMcpOp (Fix 2) — siehe doStartMcpServer. */
   async startMcpServerIfEnabled(): Promise<void> {
@@ -1014,9 +1060,11 @@ export default class VaultRagPlugin extends Plugin {
       }
       const tools = new McpTools(buildMcpDeps(host));
       this.mcpServer = await startMcpServer({ port: this.settings.mcpPort, token, tools, version: this.manifest.version });
+      this.mcpLastStartError = null;
     } catch (e) {
+      this.mcpLastStartError = mapStartError(e as { code?: string; message?: string });
       console.warn("vault-rag: MCP-Server-Start fehlgeschlagen", e);
-      new Notice(`⚠ MCP-Server konnte nicht starten (Port ${this.settings.mcpPort} belegt?): ${String((e as Error).message ?? e)}`, 8000);
+      new Notice(`⚠ MCP-Server konnte nicht starten (${this.mcpLastStartError}): ${String((e as Error).message ?? e)}`, 8000);
       this.mcpServer = null;
     }
   }

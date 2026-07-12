@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Collapsible settings sections.** The settings tab now groups its sections into collapsible
+  headers you can fold away, and the open/closed state persists per section. The Live-Embedding
+  section starts expanded the first time you open settings (that's where you enter the endpoint
+  nothing works without). Section headers are fully **keyboard- and screenreader-operable** —
+  focusable via Tab, Enter/Space to toggle, with a visible focus ring and `aria-expanded`.
+- **Index state shown as a delta.** The index section reads "N / M notes" with an inline
+  "complete the index" button. The count is computed as `embedded = total − missing` (the same
+  basis as the self-heal), so it reflects genuinely missing notes instead of a stale index count.
+
+### Changed
+- **One backlog truth.** The embedding status no longer shows a separate "pending" count; the
+  index-state delta is now the single source of truth for what still needs embedding — this
+  removes the confusing "1 pending" vs "225 missing" contradiction.
+- Internal: all query-embedding / retrieval call sites were consolidated behind a single
+  obsidian-free `RetrievalFacade` shared by the UI and the MCP server (the MCP tools behave
+  byte-identically).
+
+### Fixed
+- **Chat and Smart Apply reconnect after going offline.** Both now resolve the embedder through
+  the shared facade, so after an offline period or an endpoint switch they reconnect correctly
+  instead of embedding against a dead endpoint.
+
 ## [0.14.1] — 2026-07-12
 
 ### Changed

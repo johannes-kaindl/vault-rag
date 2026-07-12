@@ -90,8 +90,8 @@ export class RetrievalFacade {
   }
 
   private async embedWith(index: VaultIndex, text: string): Promise<{ kind: "vec"; vec: Float32Array } | { kind: "offline" }> {
-    if (!(await this.deps.embedderReady())) return { kind: "offline" };
     try {
+      if (!(await this.deps.embedderReady())) return { kind: "offline" };
       const vecs = await this.deps.embed([text]);
       if (vecs.length === 0) return { kind: "offline" };
       return { kind: "vec", vec: toIndexVector(vecs, index.dim) };

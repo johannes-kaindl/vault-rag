@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseIndex, VaultIndex } from "../src/index";
-import { RetrievalFacade, RetrievalDeps } from "../src/retrieval_facade";
+import { RetrievalFacade, RetrievalDeps, resolveNotePath } from "../src/retrieval_facade";
 
 function idx(): VaultIndex {
   const m = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 3, granularity: "note", quant: "int8" };
@@ -95,7 +95,6 @@ describe("RetrievalFacade.related", () => {
   });
 });
 
-import { RetrievalFacade as _F, resolveNotePath } from "../src/retrieval_facade";
 
 describe("resolveNotePath", () => {
   it("normalisiert gültige relative .md-Pfade", () => {

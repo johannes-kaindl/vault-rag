@@ -6,6 +6,7 @@ import { reasoningHappened, isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
+import { collapsibleSection, type CollapsibleStorage } from "./vendor/kit/collapsible";
 import type { ApplyMode } from "./note_restructurer";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, type VaultRagSettings } from "./settings_core";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
@@ -194,45 +195,58 @@ export class VaultRagSettingTab extends PluginSettingTab {
       void this.plugin.resolveAndReconnectEmbedder();
       void this.plugin.resolveAndReconnectChat();
     }
-    const sec = (name: string): void => { new Setting(containerEl).setName(name).setHeading(); };
-    sec("Suche");
-    this.buildK(new Setting(containerEl));
-    this.buildMinSim(new Setting(containerEl));
-    this.buildExclude(new Setting(containerEl));
-    sec("Live-Embedding");
-    this.buildEmbeddingEndpointList();
-    this.buildEmbeddingModel(new Setting(containerEl));
-    this.buildEmbeddingStatus(new Setting(containerEl));
-    this.buildDebounce(new Setting(containerEl));
-    this.buildStatusBar(new Setting(containerEl));
-    sec("Index");
-    this.buildIndexDir(new Setting(containerEl));
-    this.buildHideIndexFolder(new Setting(containerEl));
-    sec("Index-Robustheit");
-    this.buildRobustnessSection(containerEl);
-    sec("MCP-Server");
-    this.buildMcpSection(containerEl);
-    sec("Chat");
-    this.buildChatEndpointList();
-    this.buildChatModel(new Setting(containerEl));
-    this.buildModelDetails(new Setting(containerEl));
-    this.buildCaps(new Setting(containerEl));
-    this.buildChatK(new Setting(containerEl));
-    this.buildBudget(new Setting(containerEl));
-    this.buildTemp(new Setting(containerEl));
-    this.buildSystemPrompt(new Setting(containerEl));
-    this.buildInputPos(new Setting(containerEl));
-    this.buildThinking(new Setting(containerEl));
-    this.buildEnter(new Setting(containerEl));
-    sec("Smart Apply");
-    this.buildSmartApplyEnabled(new Setting(containerEl));
-    this.buildSmartApplyConnectionNote(new Setting(containerEl));
-    this.buildTemplateDir(new Setting(containerEl));
-    this.buildSmartApplyTemperature(new Setting(containerEl));
-    this.buildSmartApplyModel(new Setting(containerEl));
-    this.buildSmartApplySuppress(new Setting(containerEl));
-    this.buildSmartApplyMaxTokens(new Setting(containerEl));
-    this.buildSmartApplyDefaultMode(new Setting(containerEl));
+    const storage: CollapsibleStorage = {
+      getCollapsed: (key: string): boolean => this.plugin.settings.uiCollapsed[key] ?? true,
+      setCollapsed: (key: string, collapsed: boolean): void => {
+        this.plugin.settings.uiCollapsed[key] = collapsed;
+        void this.plugin.saveSettings();
+      },
+    };
+
+    const searchBody = collapsibleSection(containerEl, { title: "Suche", key: "search", storage });
+    this.buildK(new Setting(searchBody));
+    this.buildMinSim(new Setting(searchBody));
+    this.buildExclude(new Setting(searchBody));
+
+    const embeddingBody = collapsibleSection(containerEl, { title: "Live-Embedding", key: "embedding", storage });
+    this.buildEmbeddingEndpointList(embeddingBody);
+    this.buildEmbeddingModel(new Setting(embeddingBody));
+    this.buildEmbeddingStatus(new Setting(embeddingBody));
+    this.buildDebounce(new Setting(embeddingBody));
+    this.buildStatusBar(new Setting(embeddingBody));
+
+    const indexBody = collapsibleSection(containerEl, { title: "Index", key: "index", storage });
+    this.buildIndexDir(new Setting(indexBody));
+    this.buildHideIndexFolder(new Setting(indexBody));
+
+    const robustnessBody = collapsibleSection(containerEl, { title: "Index-Robustheit", key: "index-robustness", storage });
+    this.buildRobustnessSection(robustnessBody);
+
+    const mcpBody = collapsibleSection(containerEl, { title: "MCP-Server", key: "mcp", storage });
+    this.buildMcpSection(mcpBody);
+
+    const chatBody = collapsibleSection(containerEl, { title: "Chat", key: "chat", storage });
+    this.buildChatEndpointList(chatBody);
+    this.buildChatModel(new Setting(chatBody));
+    this.buildModelDetails(new Setting(chatBody));
+    this.buildCaps(new Setting(chatBody));
+    this.buildChatK(new Setting(chatBody));
+    this.buildBudget(new Setting(chatBody));
+    this.buildTemp(new Setting(chatBody));
+    this.buildSystemPrompt(new Setting(chatBody));
+    this.buildInputPos(new Setting(chatBody));
+    this.buildThinking(new Setting(chatBody));
+    this.buildEnter(new Setting(chatBody));
+
+    const smartApplyBody = collapsibleSection(containerEl, { title: "Smart Apply", key: "smartapply", storage });
+    this.buildSmartApplyEnabled(new Setting(smartApplyBody));
+    this.buildSmartApplyConnectionNote(new Setting(smartApplyBody));
+    this.buildTemplateDir(new Setting(smartApplyBody));
+    this.buildSmartApplyTemperature(new Setting(smartApplyBody));
+    this.buildSmartApplyModel(new Setting(smartApplyBody));
+    this.buildSmartApplySuppress(new Setting(smartApplyBody));
+    this.buildSmartApplyMaxTokens(new Setting(smartApplyBody));
+    this.buildSmartApplyDefaultMode(new Setting(smartApplyBody));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
@@ -322,9 +336,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     actions.addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.display()));
   }
 
-  private buildEmbeddingEndpointList(): void {
+  private buildEmbeddingEndpointList(containerEl: HTMLElement): void {
     this.buildEndpointList({
-      containerEl: this.containerEl,
+      containerEl,
       label: "Embedding-Endpunkte",
       desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Ollama- oder MLX-Server-URLs (Desktop oder LAN/VPN-erreichbar).",
       placeholder: "http://localhost:11434",
@@ -336,9 +350,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     });
   }
 
-  private buildChatEndpointList(): void {
+  private buildChatEndpointList(containerEl: HTMLElement): void {
     this.buildEndpointList({
-      containerEl: this.containerEl,
+      containerEl,
       label: "Chat-Endpunkte",
       desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. OpenAI-kompatible LLM-Server (MLX/LM-Studio), getrennt von den Embedding-Endpunkten.",
       placeholder: "http://localhost:1234",

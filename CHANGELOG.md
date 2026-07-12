@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Easier MCP setup for external clients.** The MCP-server settings section now generates
+  ready-to-copy connection snippets for **Claude Code, OpenCode, OpenClaw, and a generic
+  `.mcp.json`** client (pick from a dropdown), lets you **reveal and rotate the Bearer token**,
+  lists the three tools the server exposes (`search`, `related`, `read_note`), and adds a
+  **"Test connection" button** that self-checks the running server end-to-end (with a 5s timeout
+  so it can never hang). Server start failures now report a plain-text cause (e.g. "Port belegt")
+  instead of a generic guess. Loopback-only, no new transport, no new dependencies.
+
 ## [0.13.0] — 2026-07-11
 
 ### Added

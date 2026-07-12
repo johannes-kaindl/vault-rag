@@ -29,6 +29,7 @@ import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexV
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
+import { indexDeltaReadout } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
 import { RetrievalFacade } from "./retrieval_facade";
 
@@ -509,8 +510,8 @@ export default class VaultRagPlugin extends Plugin {
   /** Kompakter Zustands-Text für die Robustheits-Sektion in den Einstellungen. */
   indexHealthReadout(): string {
     if (!this.indexHealthy) return "⚠ Laden fehlgeschlagen — beschädigter Index erkannt (Schreibschutz aktiv)";
-    const n = this.liveIndexer.noteCount;
-    return `${n.toLocaleString("de-DE")} Notizen · gesund`;
+    const { embedded, total } = this.indexDelta();
+    return indexDeltaReadout(embedded, total);
   }
 
   /** Embedded- vs. Soll-Notizzahl für die Index-Zustand-Zeile in den Einstellungen.

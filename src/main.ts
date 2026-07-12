@@ -513,6 +513,14 @@ export default class VaultRagPlugin extends Plugin {
     return `${n.toLocaleString("de-DE")} Notizen · gesund`;
   }
 
+  /** Embedded- vs. Soll-Notizzahl für die Index-Zustand-Zeile in den Einstellungen.
+   *  total spiegelt exakt das Exclude-Filter-Prädikat aus vaultMarkdownPaths(). */
+  indexDelta(): { embedded: number; total: number } {
+    const embedded = this.embeddingProgress.embeddedNotes;
+    const total = this.vaultMarkdownPaths().length;
+    return { embedded, total };
+  }
+
   async loadIndex() {
     const manifestPath = `${this.settings.indexDir}/manifest.json`;
     // Konservativ kapseln: wirft exists() selbst, MUSS das als "Index könnte da sein" gelten

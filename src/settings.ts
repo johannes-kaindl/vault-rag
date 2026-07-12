@@ -7,6 +7,7 @@ import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import { collapsibleSection, type CollapsibleStorage } from "./vendor/kit/collapsible";
+import { indexDeltaReadout } from "./index_delta";
 import type { ApplyMode } from "./note_restructurer";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, type VaultRagSettings } from "./settings_core";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
@@ -50,6 +51,7 @@ export interface VaultRagPluginHost extends Plugin {
   listBackups(): Promise<{ name: string; count: number }[]>;
   restoreBackup(name: string): Promise<void>;
   indexHealthReadout(): string;
+  indexDelta(): { embedded: number; total: number };
   mcpServerRunning(): boolean;
   mcpServerAddress(): string | null;
   restartMcpServer(): Promise<void>;
@@ -785,13 +787,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  bündelt alle Wiederherstellungs-Aktionen (Zustand, Delta-Heal, Backup, Voll-Reindex) an
    *  einer Stelle — kein zweiter Reindex-Button mehr in „Index". */
   private buildRobustnessSection(containerEl: HTMLElement): void {
+    const { embedded, total } = this.plugin.indexDelta();
     new Setting(containerEl)
       .setName("Index-Zustand")
-      .setDesc(this.plugin.indexHealthReadout());
-    new Setting(containerEl)
-      .setName("Index vervollständigen")
-      .setDesc("Nur fehlende Notizen nachträglich einbetten (Delta) — schnell, ohne Voll-Reindex.")
-      .addButton(b => b.setButtonText("Vervollständigen").onClick(() => { void this.plugin.healVault(); }));
+      .setDesc(indexDeltaReadout(embedded, total))
+      .addButton(b => b
+        .setButtonText("Vervollständigen")
+        .setDisabled(embedded >= total)
+        .onClick(() => { void this.plugin.healVault(); }));
     new Setting(containerEl)
       .setName("Aus Backup wiederherstellen")
       .setDesc("Geräte-lokale Sicherungen des Index (letzte 3). Ersetzt den aktuellen Index.")

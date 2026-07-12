@@ -1,4 +1,4 @@
-// vendored from obsidian-kit#0.12.0, src/obsidian/collapsible.ts
+// vendored from obsidian-kit#0.13.0, src/obsidian/collapsible.ts
 import { setIcon } from "obsidian";
 
 /** Optionaler Persistenz-Callback für den Auf-/Zu-Zustand. Der Consumer verdrahtet ihn
@@ -41,21 +41,36 @@ export function collapsibleSection(containerEl: HTMLElement, opts: CollapsibleOp
 
   const section = containerEl.createDiv({ cls: "okit-collapsible" });
   const header = section.createDiv({ cls: "okit-collapsible-header" });
+  // a11y: der Header ist funktional ein Aufklapp-Schalter — fokussierbar + rollen-/
+  // zustands-annotiert, damit er per Tastatur und von Screenreadern bedienbar ist.
+  header.setAttribute("role", "button");
+  header.setAttribute("tabindex", "0");
   const chevron = header.createSpan({ cls: "okit-collapsible-chevron" });
   header.createSpan({ cls: "okit-collapsible-title", text: opts.title });
   const body = section.createDiv({ cls: "okit-collapsible-body" });
 
   const apply = (): void => {
     setIcon(chevron, collapsed ? "chevron-right" : "chevron-down");
+    header.setAttribute("aria-expanded", String(!collapsed));
     body.toggleClass("is-collapsed", collapsed);
     section.toggleClass("is-collapsed", collapsed);
   };
   apply();
 
-  header.addEventListener("click", () => {
+  const toggle = (): void => {
     collapsed = !collapsed;
     if (opts.key && opts.storage) opts.storage.setCollapsed(opts.key, collapsed);
     apply();
+  };
+
+  header.addEventListener("click", () => { toggle(); });
+  header.addEventListener("keydown", (evt: KeyboardEvent) => {
+    // Enter/Leertaste sind die Standard-Aktivierung eines role="button"; bei der Leertaste
+    // sonst scrollt die Seite, daher preventDefault (bei Enter unschädlich).
+    if (evt.key === "Enter" || evt.key === " ") {
+      evt.preventDefault();
+      toggle();
+    }
   });
 
   return body;
@@ -71,6 +86,11 @@ export const COLLAPSIBLE_CSS = `
   border-bottom: 1px solid var(--background-modifier-border);
 }
 .okit-collapsible-header:hover { color: var(--text-accent); }
+.okit-collapsible-header:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-s);
+}
 .okit-collapsible-chevron { display: inline-flex; color: var(--text-muted); }
 .okit-collapsible-body { padding-top: var(--size-4-2); }
 .okit-collapsible-body.is-collapsed { display: none; }

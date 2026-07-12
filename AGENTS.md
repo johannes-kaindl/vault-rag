@@ -127,9 +127,10 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
 
 ### Vendored Kit Module (`src/vendor/kit/`)
 
-`src/vendor/kit/collapsible.ts` (aus obsidian-kit#0.12.0) — erste obsidian-gekoppelte UI-Schicht des
+`src/vendor/kit/collapsible.ts` (aus obsidian-kit#0.13.0) — erste obsidian-gekoppelte UI-Schicht des
 Kits. `collapsibleSection(containerEl, opts)` rendert eine einklappbare Settings-Sektion (klickbarer
-Header + Body). Der Auf-/Zu-Zustand wird über den optionalen `CollapsibleStorage`-Callback persistiert —
+Header + Body). Der Header ist tastatur-/screenreader-bedienbar (`role="button"`, `tabindex="0"`,
+`aria-expanded`, Enter/Leertaste-Toggle, `:focus-visible`-Ring — a11y ab Kit 0.13.0). Der Auf-/Zu-Zustand wird über den optionalen `CollapsibleStorage`-Callback persistiert —
 vault-rag verdrahtet ihn an `settings.uiCollapsed` (Record<string, boolean>, persistiert in data.json).
 `resolveCollapsed(key, defaultCollapsed, storage)` ist pure (kein DOM), entscheidet über Startzustand:
 persistierter Wert (falls key + storage vorhanden) sonst defaultCollapsed (Fallback: true). CSS

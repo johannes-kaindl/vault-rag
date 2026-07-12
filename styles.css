@@ -202,6 +202,11 @@
   border-bottom: 1px solid var(--background-modifier-border);
 }
 .okit-collapsible-header:hover { color: var(--text-accent); }
+.okit-collapsible-header:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-s);
+}
 .okit-collapsible-chevron { display: inline-flex; color: var(--text-muted); }
 .okit-collapsible-body { padding-top: var(--size-4-2); }
 .okit-collapsible-body.is-collapsed { display: none; }

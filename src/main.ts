@@ -1,6 +1,6 @@
 import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, FileSystemAdapter, requestUrl } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
-import { Retriever, Hit } from "./retriever";
+import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList, HealConfirmModal, RestoreBackupModal } from "./settings";
 import { resolveActiveEndpoint } from "./vendor/kit/endpoint";
@@ -32,6 +32,7 @@ import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
 import type { McpServerHandle } from "./mcp/http_server";
+import { RetrievalFacade } from "./retrieval_facade";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -68,7 +69,8 @@ export function buildMcpDeps(host: McpDepsHost): McpDeps {
 export default class VaultRagPlugin extends Plugin {
   settings!: VaultRagSettings;
   private index: VaultIndex | null = null;
-  private retriever: Retriever | null = null;
+  private facade!: RetrievalFacade;
+  private guardedRead: (rel: string) => Promise<string> = (p) => this.app.vault.adapter.read(p);
   private lastMtime = 0;
   embedder!: EmbeddingClient;
   chatClient!: ChatClient;
@@ -131,6 +133,13 @@ export default class VaultRagPlugin extends Plugin {
     this.chatClient = new ChatClient(this.settings.chatEndpoints[0] ?? "", this.settings.chatModel);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
+    this.facade = new RetrievalFacade({
+      getIndex: () => this.index,
+      embedderReady: () => this.embedderReady(),
+      embed: (texts) => this.embedder.embed(texts),
+      settings: () => ({ k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude }),
+      readVault: (rel) => this.guardedRead(rel),
+    });
 
     this.addSettingTab(new VaultRagSettingTab(this.app, this));
 
@@ -170,15 +179,18 @@ export default class VaultRagPlugin extends Plugin {
             templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir),
           typeOf: async (p) => extractType(await this.app.vault.adapter.read(p)),
           embed: async (t) => {
-            const index = this.index;
-            if (!index) throw new Error("kein Index");
-            const vecs = await this.embedder.embed([t]);
-            if (vecs.length === 0) throw new Error("embed: leere Antwort");
-            return toIndexVector(vecs, index.dim);
+            const e = await this.facade.embedQuery(t);
+            if (e.kind !== "vec") throw new Error("kein Index / Embedder offline");
+            return e.vec;
           },
+          // Weiterhin gebraucht: detectType() (template_matcher.ts) ruft deps.search() für den
+          // RAG-Typ-Vote auf — entgegen der Planannahme kein toter Code (SEAM-VERTRAG 3, auto-detect
+          // im leeren-templatePath-Pfad von proposeSmartApply). Läuft jetzt über die Fassade statt
+          // dem alten Retriever-Feld; exclude kommt dadurch aus den Plugin-Settings statt hart
+          // "Templates/" — siehe Task-3-Report.
           search: (vec, opts) => {
-            const retriever = this.retriever;
-            return retriever ? retriever.search(vec, opts) : [];
+            const r = this.facade.searchVector(vec, { k: opts.k, minSim: opts.minSim });
+            return r.kind === "hits" ? r.hits : [];
           },
         },
         () => this.chatClient,
@@ -198,11 +210,9 @@ export default class VaultRagPlugin extends Plugin {
         // indexierter Vorlagen/Notizen komplett.
         indexVector: (p) => this.index?.vectorFor(p) ?? null,
         embed: async (t) => {
-          const index = this.index;
-          if (!index) throw new Error("kein Index");
-          const vecs = await this.embedder.embed([t]);
-          if (vecs.length === 0) throw new Error("embed: leere Antwort");
-          return toIndexVector(vecs, index.dim);
+          const e = await this.facade.embedQuery(t);
+          if (e.kind !== "vec") throw new Error("kein Index / Embedder offline");
+          return e.vec;
         },
       });
     }
@@ -287,15 +297,13 @@ export default class VaultRagPlugin extends Plugin {
         inputPosition: () => this.settings.chatInputPosition,
         getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
         embed: async (q) => {
-          const index = this.index;
-          if (!index) throw new Error("kein Index");
-          const vecs = await this.embedder.embed([q]);
-          if (vecs.length === 0) throw new Error("embed: leere Antwort");
-          return toIndexVector(vecs, index.dim);
+          const e = await this.facade.embedQuery(q);
+          if (e.kind !== "vec") throw new Error("Embedder nicht erreichbar.");  // context_panel fängt → []
+          return e.vec;
         },
         search: (vec, n) => {
-          const retriever = this.retriever;
-          return retriever ? retriever.search(vec, { k: n, minSim: this.settings.minSim, exclude: this.settings.exclude }).map(h => h.path) : [];
+          const r = this.facade.searchVector(vec, { k: n });
+          return r.kind === "hits" ? r.hits.map(h => h.path) : [];
         },
         pickNote: () => pickNote(this.app),
         autoK: this.settings.chatK,
@@ -548,7 +556,6 @@ export default class VaultRagPlugin extends Plugin {
     const state = classifyLoadResult(manifestExists, parseThrew);
     if (state === "loaded-ok" && loaded) {
       this.index = loaded;
-      this.retriever = new Retriever(this.index);
       this.liveIndexer.init(this.index);
       const st = await this.app.vault.adapter.stat(manifestPath);
       if (st) this.lastMtime = st.mtime;
@@ -565,7 +572,7 @@ export default class VaultRagPlugin extends Plugin {
       }
     } else if (state === "no-index") {
       // Frische Installation: leerer Indexer darf gefahrlos aufbauen.
-      this.index = null; this.retriever = null;
+      this.index = null;
       this.liveIndexer.markFresh();
       this.indexHealthy = true;
       this.syncProgress();
@@ -573,7 +580,7 @@ export default class VaultRagPlugin extends Plugin {
       // GEFAHRENZUSTAND: Index liegt vor, ließ sich aber nicht laden. liveIndexer NICHT init'en
       // und explizit auf not-ready setzen (auch mid-session, falls er zuvor schon ready war —
       // sonst würde der persist-Guard trotz Gefahrenzustand nicht greifen). Laut anzeigen.
-      this.index = null; this.retriever = null;
+      this.index = null;
       this.liveIndexer.markUnready();
       this.indexHealthy = false;
       this.syncProgress();
@@ -587,7 +594,7 @@ export default class VaultRagPlugin extends Plugin {
       const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/manifest.json`);
       if (st && st.mtime !== this.lastMtime) {
         const prevCount = this.index?.count ?? 0;
-        const prevIndex = this.index, prevRetriever = this.retriever;
+        const prevIndex = this.index;
         this.lastMtime = st.mtime;
         await this.loadIndex();
         // Jeden "schlechteren" Ausgang abfangen — sowohl Gefahrenzustand (!this.index, z.B.
@@ -596,7 +603,7 @@ export default class VaultRagPlugin extends Plugin {
         // damit TS prevIndex innerhalb des Blocks als non-null narrowt.
         if (prevIndex && (!this.index || isSuspiciousShrink(prevCount, this.index.count))) {
           const newCount = this.index?.count ?? 0;
-          this.index = prevIndex; this.retriever = prevRetriever;
+          this.index = prevIndex;
           this.indexHealthy = true;
           this.liveIndexer.init(prevIndex);
           this.syncProgress();
@@ -640,7 +647,6 @@ export default class VaultRagPlugin extends Plugin {
         try {
           await li.update(path, content);
           this.index = li.buildIndex();
-          this.retriever = new Retriever(this.index);
           await li.persist("live");
           this.indexHealthy = true; // vormaliger (auch fälschlicher) Block ist aufgehoben — schreibt wieder gesund.
           this.syncProgress();
@@ -673,7 +679,6 @@ export default class VaultRagPlugin extends Plugin {
       try {
         li.remove(path);
         this.index = li.buildIndex();
-        this.retriever = new Retriever(this.index);
         await li.persist("live");
         this.indexHealthy = true;
         this.syncProgress();
@@ -695,7 +700,6 @@ export default class VaultRagPlugin extends Plugin {
         try {
           li.rename(oldPath, newPath);
           this.index = li.buildIndex();
-          this.retriever = new Retriever(this.index);
           await li.persist("live");
           this.indexHealthy = true;
           this.syncProgress();
@@ -737,7 +741,6 @@ export default class VaultRagPlugin extends Plugin {
         // drain() hat in-memory bereits geleert; clear() nicht aufrufen —
         // sonst gehen Paths verloren die während des await-Loops neu reinkamen.
         this.index = li.buildIndex();
-        this.retriever = new Retriever(this.index);
         await li.persist("live");
         this.indexHealthy = true;
         this.syncProgress();
@@ -787,7 +790,6 @@ export default class VaultRagPlugin extends Plugin {
         },
       );
       this.index = this.liveIndexer.buildIndex();
-      this.retriever = new Retriever(this.index);
       await this.liveIndexer.persist("reindex");
       this.indexHealthy = true;
       this.refresh();
@@ -836,7 +838,6 @@ export default class VaultRagPlugin extends Plugin {
         },
       );
       this.index = this.liveIndexer.buildIndex();
-      this.retriever = new Retriever(this.index);
       await this.liveIndexer.persist("heal");
       this.indexHealthy = true;
       this.refresh();
@@ -856,8 +857,9 @@ export default class VaultRagPlugin extends Plugin {
 
   currentHits(): Hit[] {
     const f = this.app.workspace.getActiveFile();
-    if (!f || !this.retriever) return [];
-    return this.retriever.related(f.path, { k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude });
+    if (!f) return [];
+    const r = this.facade.related(f.path);
+    return r.kind === "hits" ? r.hits : [];
   }
 
   refresh() {
@@ -910,22 +912,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async runSearch(query: string): Promise<SearchResult> {
-    // Snapshot vor den awaits: maybeReload() (30s) könnte index/retriever zwischenzeitlich nullen.
-    const retriever = this.retriever;
-    const index = this.index;
-    if (!retriever || !index) return { kind: "no-index" };
-    if (!(await this.embedderReady())) return { kind: "offline" };
-    try {
-      const vecs = await this.embedder.embed([query]);
-      if (vecs.length === 0) throw new Error("embed: leere Antwort");
-      const qVec = toIndexVector(vecs, index.dim);
-      const hits = retriever.search(qVec, {
-        k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude,
-      });
-      return { kind: "hits", hits };
-    } catch {
-      return { kind: "offline" };
-    }
+    return this.facade.search(query);
   }
 
   // SEAM-VERTRAG (5): templatePath="" → auto-detect; non-empty → direkt verwenden (Picker entfällt).

@@ -197,7 +197,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
       void this.plugin.resolveAndReconnectChat();
     }
     const storage: CollapsibleStorage = {
-      getCollapsed: (key: string): boolean => this.plugin.settings.uiCollapsed[key] ?? true,
+      getCollapsed: (key: string): boolean | undefined =>
+        key in this.plugin.settings.uiCollapsed ? this.plugin.settings.uiCollapsed[key] : undefined,
       setCollapsed: (key: string, collapsed: boolean): void => {
         this.plugin.settings.uiCollapsed[key] = collapsed;
         void this.plugin.saveSettings();
@@ -209,7 +210,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildMinSim(new Setting(searchBody));
     this.buildExclude(new Setting(searchBody));
 
-    const embeddingBody = collapsibleSection(containerEl, { title: "Live-Embedding", key: "embedding", storage });
+    // Live-Embedding startet beim ersten Mal offen — hier trägt man den Endpunkt ein, ohne
+    // den man vault-rag nicht einrichten kann. Danach gewinnt der persistierte User-Zustand.
+    const embeddingBody = collapsibleSection(containerEl, { title: "Live-Embedding", key: "embedding", storage, defaultCollapsed: false });
     this.buildEmbeddingEndpointList(embeddingBody);
     this.buildEmbeddingModel(new Setting(embeddingBody));
     this.buildEmbeddingStatus(new Setting(embeddingBody));

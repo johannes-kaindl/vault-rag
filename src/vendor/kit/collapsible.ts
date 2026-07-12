@@ -4,7 +4,9 @@ import { setIcon } from "obsidian";
 /** Optionaler Persistenz-Callback für den Auf-/Zu-Zustand. Der Consumer verdrahtet ihn
  *  an seinen eigenen Speicher (z. B. data.json); das Kit bleibt storage-agnostisch. */
 export interface CollapsibleStorage {
-  getCollapsed(key: string): boolean;
+  /** Persistierter Zustand, oder `undefined` wenn für den Key noch nichts gespeichert ist
+   *  (dann greift `defaultCollapsed`). */
+  getCollapsed(key: string): boolean | undefined;
   setCollapsed(key: string, collapsed: boolean): void;
 }
 
@@ -18,13 +20,15 @@ export interface CollapsibleOptions {
   storage?: CollapsibleStorage;
 }
 
-/** Löst den initialen Collapsed-Zustand auf: persistierter Wert (nur mit key UND storage),
- *  sonst defaultCollapsed. Pure — kein DOM.
+/** Löst den initialen Collapsed-Zustand auf: persistierter Wert falls gesetzt, sonst
+ *  defaultCollapsed (so wirkt ein per-Sektion-Default beim ersten Mal und wird danach vom
+ *  gespeicherten User-Zustand abgelöst). Pure — kein DOM.
  *  @example resolveCollapsed("chat", true, undefined) // → true (kein storage)
- *  @example resolveCollapsed("chat", true, { getCollapsed: () => false, setCollapsed(){} }) // → false */
+ *  @example resolveCollapsed("chat", true, { getCollapsed: () => false, setCollapsed(){} }) // → false
+ *  @example resolveCollapsed("chat", false, { getCollapsed: () => undefined, setCollapsed(){} }) // → false (kein gespeicherter Wert → default) */
 export function resolveCollapsed(key: string | undefined, defaultCollapsed: boolean, storage?: CollapsibleStorage): boolean {
-  if (key && storage) return storage.getCollapsed(key);
-  return defaultCollapsed;
+  const stored = key && storage ? storage.getCollapsed(key) : undefined;
+  return stored ?? defaultCollapsed;
 }
 
 /** Rendert eine einklappbare Sektion (klickbarer Header + Body) in containerEl und gibt den

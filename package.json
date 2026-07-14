@@ -1,6 +1,6 @@
 {
   "name": "vault-retrieval",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "description": "Local, offline retrieval over your vault: related notes, semantic search, and grounded chat with a local LLM.",
   "keywords": [
     "obsidian",

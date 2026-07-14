@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-07-14
+
 ### Fixed
 - **Empty notes no longer count as a permanent index deficit.** Notes with no embeddable
   content (empty or frontmatter-only, e.g. folder notes) can never be indexed — but the

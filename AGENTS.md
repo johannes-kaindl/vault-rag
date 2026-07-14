@@ -59,9 +59,12 @@ index.ts          VaultAdapter-Interface · IndexManifest · VaultIndex · parse
                   manifest.json), int8→float32 + Renormalisierung (Quant-Drift). `parseIndex`
                   validiert neben `count == paths` auch `notes.i8.byteLength == count × dim`
                   (Byte-Guard) — wirft laut statt stillem Clobber/NaN.
-index_delta.ts    Pure-Funktion indexDeltaReadout(embedded, total) → Readout-String „N / M Notizen"
-                  (de-DE, ggf. mit „(vollständig)"-Hinweis). Keine Obsidian-Abhängigkeit, daher
-                  direkt testbar.
+index_delta.ts    Pure Delta-/Heal-Anzeige-Logik (keine Obsidian-Abhängigkeit): indexDeltaReadout
+                  („N / M Notizen", de-DE, ggf. „(vollständig)" + „· K leere Notizen ignoriert") ·
+                  computeIndexDelta (leere Notizen zählen weder als fehlend noch ins Soll) ·
+                  classifyChunkless (chunk-lose Pfade erkennen; unlesbar ≠ leer) · splitHealTargets
+                  (bekannte Leere fliegen aus dem Heal-Lauf) · healResultMessage (ehrliche Notice:
+                  „X ergänzt · Y leere übersprungen · Z fehlgeschlagen").
 index_guard.ts    Pure-core Datenverlust-Entscheidungen: classifyLoadResult (no-index/loaded-ok/
                   load-failed-index-present) · assertSafeToPersist (Live-Persist darf Count nur
                   ±1 senken) · isSuspiciousShrink (Cross-Device-Clobber-Heuristik) ·
@@ -142,7 +145,7 @@ persistierter Wert (falls key + storage vorhanden) sonst defaultCollapsed (Fallb
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (191 Tests, 21 Files)
+npm test                          # vitest run     (631 Tests, 47 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
 npx vitest run tests/<datei>      # eine Test-Datei
@@ -191,6 +194,12 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   nur laut (Notice) ohne Pending-Fallback — in allen drei Fällen setzt es `indexHealthy = false`.
   Geräte-lokale Index-Backups liegen unter `<plugin-dir>/index-backups/` (synct **nicht**, rotiert
   auf 3 — `index_backup.ts`), Snapshot bei jedem erfolgreichen Load + vor riskanten Operationen.
+- **Leere Notizen sind nie im Index (by design):** `embedNote` → null bei 0 Chunks (nur Frontmatter/
+  leer, z.B. Ordner-Notizen). Damit sie kein Phantom-Defizit erzeugen, hält `main.ts` ein
+  `emptyNotePaths`-Set — **bewusst nicht persistiert**: bei jedem `loadIndex` frisch klassifiziert
+  (`classifyChunkless` über die missing-Pfade), in-Session von den Live-Handlern gepflegt, von
+  Heal/Reindex aus dem `HealReport` neu aufgebaut. Delta-Anzeige/Heal-Lauf/Auto-Heal-Prompt rechnen
+  alle auf der bereinigten Basis (`computeIndexDelta`/`splitHealTargets`).
 - **HyperForge-Export** braucht Daemon-Stopp bei Live-Lauf (embedded-Qdrant ist single-process).
 - **`main.js`** ist Build-Artefakt (gitignored) — nie von Hand editieren.
 - **Index-Ordner-Hide ist rein kosmetisch (CSS):** `buildHideCss` (`index_dir.ts`) erzeugt eine

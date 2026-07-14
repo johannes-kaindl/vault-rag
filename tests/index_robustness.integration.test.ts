@@ -148,7 +148,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     const { missing } = diffIndexVsVault([...idx.paths], paths);
     expect(missing.length).toBe(60);
 
-    const added = await li.healMissing(missing, read);
+    const { added } = await li.healMissing(missing, read);
     expect(added).toBe(60);
     await li.persist("heal"); // wächst → erlaubt
     expect(await countOnDisk(indexDir)).toBe(100);

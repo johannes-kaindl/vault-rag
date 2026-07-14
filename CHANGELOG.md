@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Empty notes no longer count as a permanent index deficit.** Notes with no embeddable
+  content (empty or frontmatter-only, e.g. folder notes) can never be indexed — but the
+  index-state delta counted them as missing forever, and "complete the index" reported a
+  confusing "0 notes added" while the button stayed enabled. The delta now excludes them
+  (with an explicit "N empty notes ignored" hint), the self-heal reports honestly
+  ("X added · Y empty skipped · Z failed"), and the auto-heal prompt on load only fires
+  for genuinely embeddable gaps. Live edits keep the classification current: emptying a
+  note moves it out of the tally, filling it moves it back in.
+
 ## [0.15.0] — 2026-07-12
 
 ### Added

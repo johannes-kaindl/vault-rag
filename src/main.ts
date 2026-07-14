@@ -29,7 +29,7 @@ import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexV
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
-import { indexDeltaReadout } from "./index_delta";
+import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
 import { RetrievalFacade } from "./retrieval_facade";
 
@@ -66,6 +66,10 @@ export default class VaultRagPlugin extends Plugin {
   private hideStyleSheet: CSSStyleSheet | null = null;
   private isSwitchingIndexDir = false;
   private indexHealthy = true;
+  /** Chunk-lose Notizen (leer / nur Frontmatter) — nie indexierbar, zählen nicht als fehlend.
+   *  Bewusst NICHT persistiert: wird bei jedem loadIndex frisch klassifiziert (selbstheilend
+   *  gegenüber extern geänderten Dateien) und in-Session von den Live-Handlern gepflegt. */
+  private emptyNotePaths = new Set<string>();
   private indexOpChain: Promise<void> = Promise.resolve();
   private mcpServer: McpServerHandle | null = null;
   private mcpLastStartError: string | null = null;
@@ -508,21 +512,22 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   /** Kompakter Zustands-Text für die Robustheits-Sektion in den Einstellungen. */
-  indexHealthReadout(embedded: number, total: number, healthy: boolean): string {
+  indexHealthReadout(embedded: number, total: number, healthy: boolean, emptyCount = 0): string {
     if (!healthy) return "⚠ Laden fehlgeschlagen — beschädigter Index erkannt (Schreibschutz aktiv)";
-    return indexDeltaReadout(embedded, total);
+    return indexDeltaReadout(embedded, total, emptyCount);
   }
 
   /** Erfasste vs. Soll-Notizzahl für die Index-Zustand-Zeile. `embedded = total − fehlende`
    *  (fehlende via `diffIndexVsVault`, dieselbe missing-Basis wie `healVault`) — bewusst NICHT
    *  `liveIndexer.noteCount`, das Stale-Einträge (gelöscht/umbenannt) mitzählt und das Delta
    *  unter Index-Drift verfälschen würde (Button fälschlich disabled trotz fehlender Notizen).
+   *  Chunk-lose Notizen (emptyNotePaths) zählen weder als fehlend noch ins Soll — sie können
+   *  nie im Index landen; sonst zeigte die Zeile ein dauerhaftes Phantom-Defizit.
    *  `healthy` spiegelt den Schreibschutz-Zustand für die Zeile + Button. */
-  indexDelta(): { embedded: number; total: number; healthy: boolean } {
+  indexDelta(): { embedded: number; total: number; healthy: boolean; emptyCount: number } {
     const vaultPaths = this.vaultMarkdownPaths();
-    const total = vaultPaths.length;
-    const missing = this.index ? diffIndexVsVault([...this.index.paths], vaultPaths).missing.length : total;
-    return { embedded: total - missing, total, healthy: this.indexHealthy };
+    const missing = this.index ? diffIndexVsVault([...this.index.paths], vaultPaths).missing : vaultPaths;
+    return { ...computeIndexDelta(vaultPaths.length, missing, this.emptyNotePaths), healthy: this.indexHealthy };
   }
 
   async loadIndex() {
@@ -551,11 +556,15 @@ export default class VaultRagPlugin extends Plugin {
       this.syncProgress();
       const vaultPaths = this.vaultMarkdownPaths();
       const { missing } = diffIndexVsVault([...this.index.paths], vaultPaths);
+      // Chunk-lose Notizen frisch klassifizieren (billig: nur die missing-Pfade lesen) —
+      // sie sind nie indexierbar und dürfen weder Auto-Heal noch das Delta triggern.
+      this.emptyNotePaths = new Set(await classifyChunkless(missing, (p) => this.app.vault.adapter.read(p)));
+      const embeddable = missing.filter(p => !this.emptyNotePaths.has(p));
       // Konservativ: nur bei substanzieller Lücke laut werden (>5% UND >20 Notizen),
       // und nur wenn der Embedder erreichbar ist (sonst ist die Lücke evtl. temporär).
-      if (missing.length > 20 && missing.length > vaultPaths.length * 0.05 && await this.embedderReady()) {
-        new Notice(`vault-rag: ${missing.length} von ${vaultPaths.length} Notizen fehlen im Index.`, 8000);
-        new HealConfirmModal(this.app, missing.length, vaultPaths.length, () => { void this.healVault(); }).open();
+      if (embeddable.length > 20 && embeddable.length > vaultPaths.length * 0.05 && await this.embedderReady()) {
+        new Notice(`vault-rag: ${embeddable.length} von ${vaultPaths.length} Notizen fehlen im Index.`, 8000);
+        new HealConfirmModal(this.app, embeddable.length, vaultPaths.length, () => { void this.healVault(); }).open();
       }
     } else if (state === "no-index") {
       // Frische Installation: leerer Indexer darf gefahrlos aufbauen.
@@ -632,7 +641,8 @@ export default class VaultRagPlugin extends Plugin {
         const li = this.liveIndexer;
         this.embeddingProgress.isEmbedding = true;
         try {
-          await li.update(path, content);
+          const updated = await li.update(path, content);
+          if (updated === "empty") this.emptyNotePaths.add(path); else this.emptyNotePaths.delete(path);
           this.index = li.buildIndex();
           await li.persist("live");
           this.indexHealthy = true; // vormaliger (auch fälschlicher) Block ist aufgehoben — schreibt wieder gesund.
@@ -665,6 +675,7 @@ export default class VaultRagPlugin extends Plugin {
     await this.runIndexOp(async () => {
       try {
         li.remove(path);
+        this.emptyNotePaths.delete(path);
         this.index = li.buildIndex();
         await li.persist("live");
         this.indexHealthy = true;
@@ -686,6 +697,7 @@ export default class VaultRagPlugin extends Plugin {
       await this.runIndexOp(async () => {
         try {
           li.rename(oldPath, newPath);
+          if (this.emptyNotePaths.delete(oldPath)) this.emptyNotePaths.add(newPath);
           this.index = li.buildIndex();
           await li.persist("live");
           this.indexHealthy = true;
@@ -722,7 +734,8 @@ export default class VaultRagPlugin extends Plugin {
         for (const path of paths) {
           try {
             const content = await this.app.vault.adapter.read(path);
-            await li.update(path, content);
+            const updated = await li.update(path, content);
+            if (updated === "empty") this.emptyNotePaths.add(path); else this.emptyNotePaths.delete(path);
           } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
         }
         // drain() hat in-memory bereits geleert; clear() nicht aufrufen —
@@ -764,24 +777,24 @@ export default class VaultRagPlugin extends Plugin {
     this.embeddingProgress.isEmbedding = true;
     this.embeddingProgress.reindex = { done: 0, total };
     this.updateStatusBar();
-    let lastIndexed = 0;
     try {
-      await this.liveIndexer.reindexAll(
+      const report = await this.liveIndexer.reindexAll(
         allPaths,
         (p) => this.app.vault.adapter.read(p),
-        (done, indexed, tot) => {
-          lastIndexed = indexed;
+        (done, _indexed, tot) => {
           this.embeddingProgress.reindex = { done, total: tot };
           this.updateStatusBar();
           notice.setMessage(`Indiziere Vault… ${done}/${tot}`);
         },
       );
+      // Voll-Reindex hat den ganzen Vault gelesen → frischeste Leer-Klassifikation.
+      this.emptyNotePaths = new Set(report.skippedEmpty);
       this.index = this.liveIndexer.buildIndex();
       await this.liveIndexer.persist("reindex");
       this.indexHealthy = true;
       this.refresh();
       void this.snapshotIndex();
-      notice.setMessage(`Vault indiziert: ${lastIndexed} Notizen.`);
+      notice.setMessage(`Vault indiziert: ${report.added} Notizen.`);
     } catch (e) {
       console.warn("vault-rag: reindexVault failed", e);
       notice.setMessage("Vault-Indizierung fehlgeschlagen.");
@@ -815,7 +828,7 @@ export default class VaultRagPlugin extends Plugin {
     this.embeddingProgress.reindex = { done: 0, total: missing.length };
     this.updateStatusBar();
     try {
-      const added = await this.liveIndexer.healMissing(
+      const report = await this.liveIndexer.healMissing(
         missing,
         (p) => this.app.vault.adapter.read(p),
         (done, _indexed, tot) => {
@@ -824,12 +837,14 @@ export default class VaultRagPlugin extends Plugin {
           notice.setMessage(`Vervollständige Index… ${done}/${tot}`);
         },
       );
+      // Der Heal-Lauf hat alle missing-Pfade gelesen → frischeste Leer-Klassifikation.
+      this.emptyNotePaths = new Set(report.skippedEmpty);
       this.index = this.liveIndexer.buildIndex();
       await this.liveIndexer.persist("heal");
       this.indexHealthy = true;
       this.refresh();
       void this.snapshotIndex();
-      notice.setMessage(`Index vervollständigt: ${added} Notizen ergänzt.`);
+      notice.setMessage(healResultMessage(report.added, report.skippedEmpty.length, report.failed.length));
     } catch (e) {
       console.warn("vault-rag: healVault failed", e);
       notice.setMessage("Vervollständigen fehlgeschlagen.");

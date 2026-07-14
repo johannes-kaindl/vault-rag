@@ -7,6 +7,19 @@ import { assertSafeToPersist, PersistReason, PersistBlockedError } from "./index
 const INDEX_DIM = 256;
 const INT8_SCALE = 127;
 
+/** Ergebnis eines (Delta-)Reindex-Laufs: ergänzte Notizen, chunk-lose (leer / nur
+ *  Frontmatter → nie indexierbar) und fehlgeschlagene (Lese-/Embed-Fehler → beim
+ *  nächsten Lauf erneut versuchen). */
+export interface HealReport {
+  added: number;
+  skippedEmpty: string[];
+  failed: string[];
+}
+
+/** Klassifikation eines Live-Updates: "empty" = Notiz ist chunk-los und wurde aus dem
+ *  Index entfernt statt embeddet. */
+export type UpdateResult = "indexed" | "empty";
+
 export class LiveIndexer {
   private noteVectors = new Map<string, Float32Array>();
   private loadedManifest: IndexManifest | null = null;
@@ -38,9 +51,11 @@ export class LiveIndexer {
     return toIndexVector(vecs, INDEX_DIM);
   }
 
-  async update(path: string, content: string): Promise<void> {
+  async update(path: string, content: string): Promise<UpdateResult> {
     const v = await this.embedNote(content);
-    if (v) this.noteVectors.set(path, v); else this.noteVectors.delete(path);
+    if (v) { this.noteVectors.set(path, v); return "indexed"; }
+    this.noteVectors.delete(path);
+    return "empty";
   }
 
   remove(path: string): void { this.noteVectors.delete(path); }
@@ -64,18 +79,20 @@ export class LiveIndexer {
     paths: string[],
     read: (p: string) => Promise<string>,
     onProgress?: (done: number, indexed: number, total: number) => void,
-  ): Promise<void> {
+  ): Promise<HealReport> {
     const fresh = new Map<string, Float32Array>();
-    let indexed = 0;
+    const report: HealReport = { added: 0, skippedEmpty: [], failed: [] };
     for (let i = 0; i < paths.length; i++) {
       try {
         const v = await this.embedNote(await read(paths[i]));
-        if (v) { fresh.set(paths[i], v); indexed++; }
-      } catch { /* unlesbar/Embed-Fehler überspringen */ }
-      onProgress?.(i + 1, indexed, paths.length);
+        if (v) { fresh.set(paths[i], v); report.added++; }
+        else report.skippedEmpty.push(paths[i]);
+      } catch { report.failed.push(paths[i]); }
+      onProgress?.(i + 1, report.added, paths.length);
     }
     this.noteVectors = fresh;
     this.ready = true;
+    return report;
   }
 
   /**
@@ -87,17 +104,18 @@ export class LiveIndexer {
     missing: string[],
     read: (p: string) => Promise<string>,
     onProgress?: (done: number, indexed: number, total: number) => void,
-  ): Promise<number> {
-    let indexed = 0;
+  ): Promise<HealReport> {
+    const report: HealReport = { added: 0, skippedEmpty: [], failed: [] };
     for (let i = 0; i < missing.length; i++) {
       try {
         const v = await this.embedNote(await read(missing[i]));
-        if (v) { this.noteVectors.set(missing[i], v); indexed++; }
-      } catch { /* unlesbar/Embed-Fehler überspringen */ }
-      onProgress?.(i + 1, indexed, missing.length);
+        if (v) { this.noteVectors.set(missing[i], v); report.added++; }
+        else report.skippedEmpty.push(missing[i]);
+      } catch { report.failed.push(missing[i]); }
+      onProgress?.(i + 1, report.added, missing.length);
     }
     this.ready = true;
-    return indexed;
+    return report;
   }
 
   buildIndex(): VaultIndex {

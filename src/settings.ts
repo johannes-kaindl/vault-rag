@@ -49,8 +49,8 @@ export interface VaultRagPluginHost extends Plugin {
   changeIndexDir(newDir: string): Promise<void>;
   listBackups(): Promise<{ name: string; count: number }[]>;
   restoreBackup(name: string): Promise<void>;
-  indexHealthReadout(embedded: number, total: number, healthy: boolean): string;
-  indexDelta(): { embedded: number; total: number; healthy: boolean };
+  indexHealthReadout(embedded: number, total: number, healthy: boolean, emptyCount?: number): string;
+  indexDelta(): { embedded: number; total: number; healthy: boolean; emptyCount: number };
   mcpServerRunning(): boolean;
   mcpServerAddress(): string | null;
   restartMcpServer(): Promise<void>;
@@ -792,10 +792,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  bündelt alle Wiederherstellungs-Aktionen (Zustand, Delta-Heal, Backup, Voll-Reindex) an
    *  einer Stelle — kein zweiter Reindex-Button mehr in „Index". */
   private buildRobustnessSection(containerEl: HTMLElement): void {
-    const { embedded, total, healthy } = this.plugin.indexDelta();
+    const { embedded, total, healthy, emptyCount } = this.plugin.indexDelta();
     new Setting(containerEl)
       .setName("Index-Zustand")
-      .setDesc(this.plugin.indexHealthReadout(embedded, total, healthy))
+      .setDesc(this.plugin.indexHealthReadout(embedded, total, healthy, emptyCount))
       .addButton(b => b
         .setButtonText("Vervollständigen")
         .setDisabled(!healthy || embedded >= total)

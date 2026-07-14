@@ -13,8 +13,9 @@ All notable changes to this project are documented here. The format follows
   confusing "0 notes added" while the button stayed enabled. The delta now excludes them
   (with an explicit "N empty notes ignored" hint), the self-heal reports honestly
   ("X added · Y empty skipped · Z failed"), and the auto-heal prompt on load only fires
-  for genuinely embeddable gaps. Live edits keep the classification current: emptying a
-  note moves it out of the tally, filling it moves it back in.
+  for genuinely embeddable gaps. The heal progress popup counts only real embedding work
+  (e.g. "1/1" instead of "119/179"). Live edits keep the classification current: emptying
+  a note moves it out of the tally, filling it moves it back in.
 
 ## [0.15.0] — 2026-07-12
 

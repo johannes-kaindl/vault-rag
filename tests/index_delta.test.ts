@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage } from "../src/index_delta";
+import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "../src/index_delta";
 
 describe("indexDeltaReadout", () => {
   it("zeigt embedded/total mit de-DE-Tausendertrennung", () => {
@@ -52,6 +52,20 @@ describe("classifyChunkless", () => {
   it("unlesbare Dateien gelten nicht als leer", async () => {
     const r = await classifyChunkless(["weg.md"], async () => { throw new Error("weg"); });
     expect(r).toEqual([]);
+  });
+});
+
+describe("splitHealTargets", () => {
+  it("bekannte leere Pfade fliegen aus dem Heal-Lauf (Fortschritt zählt nur Embeddbares)", () => {
+    const missing = ["leer1.md", "voll.md", "leer2.md"];
+    const empty = new Set(["leer1.md", "leer2.md"]);
+    expect(splitHealTargets(missing, empty)).toEqual({
+      embeddable: ["voll.md"],
+      knownEmpty: ["leer1.md", "leer2.md"],
+    });
+  });
+  it("ohne bekannte leere bleibt alles embeddbar", () => {
+    expect(splitHealTargets(["a.md"], new Set())).toEqual({ embeddable: ["a.md"], knownEmpty: [] });
   });
 });
 

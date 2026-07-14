@@ -41,6 +41,20 @@ export async function classifyChunkless(
   return out;
 }
 
+/** Teilt die missing-Pfade in Heal-Arbeit und bereits als leer bekannte Pfade: leere werden
+ *  nicht erneut embeddet (embedNote → null wäre garantiert) und verfälschen so weder den
+ *  Fortschritts-Zähler noch die Abschluss-Meldung. Frisch klassifiziert wird bei jedem
+ *  loadIndex; neue Leere unter den embeddable fängt healMissing selbst (skippedEmpty). */
+export function splitHealTargets(
+  missing: string[],
+  emptyPaths: ReadonlySet<string>,
+): { embeddable: string[]; knownEmpty: string[] } {
+  return {
+    embeddable: missing.filter(p => !emptyPaths.has(p)),
+    knownEmpty: missing.filter(p => emptyPaths.has(p)),
+  };
+}
+
 /** Ehrliche Heal-Abschluss-Meldung: weist leere und fehlgeschlagene Notizen getrennt aus,
  *  statt sie stumm in „0 ergänzt" zu verstecken. */
 export function healResultMessage(added: number, skippedEmpty: number, failed: number): string {

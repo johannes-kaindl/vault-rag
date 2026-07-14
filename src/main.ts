@@ -29,7 +29,7 @@ import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexV
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
-import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage } from "./index_delta";
+import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
 import { RetrievalFacade } from "./retrieval_facade";
 
@@ -821,15 +821,19 @@ export default class VaultRagPlugin extends Plugin {
     const indexPaths = [...(this.index ? this.index.paths : [])];
     const { missing } = diffIndexVsVault(indexPaths, vaultPaths);
     if (missing.length === 0) { new Notice("Index ist vollständig — nichts zu tun."); return; }
-    const notice = new Notice(`Vervollständige Index… 0/${missing.length}`, 0);
+    // Bekannte leere Pfade nicht erneut embedden — Fortschritt/Meldung zählen sonst 179
+    // statt der 1 echten Lücke (inkonsistent zur Index-Zustand-Zeile).
+    const { embeddable, knownEmpty } = splitHealTargets(missing, this.emptyNotePaths);
+    if (embeddable.length === 0) { new Notice(healResultMessage(0, knownEmpty.length, 0)); return; }
+    const notice = new Notice(`Vervollständige Index… 0/${embeddable.length}`, 0);
     const statusReveal = !this.statusBarEl;
     if (statusReveal) this.setStatusBarVisible(true);
     this.embeddingProgress.isEmbedding = true;
-    this.embeddingProgress.reindex = { done: 0, total: missing.length };
+    this.embeddingProgress.reindex = { done: 0, total: embeddable.length };
     this.updateStatusBar();
     try {
       const report = await this.liveIndexer.healMissing(
-        missing,
+        embeddable,
         (p) => this.app.vault.adapter.read(p),
         (done, _indexed, tot) => {
           this.embeddingProgress.reindex = { done, total: tot };
@@ -837,14 +841,14 @@ export default class VaultRagPlugin extends Plugin {
           notice.setMessage(`Vervollständige Index… ${done}/${tot}`);
         },
       );
-      // Der Heal-Lauf hat alle missing-Pfade gelesen → frischeste Leer-Klassifikation.
-      this.emptyNotePaths = new Set(report.skippedEmpty);
+      // Leer-Set aktualisieren: bekannte Leere bleiben, frisch entdeckte kommen dazu.
+      this.emptyNotePaths = new Set([...knownEmpty, ...report.skippedEmpty]);
       this.index = this.liveIndexer.buildIndex();
       await this.liveIndexer.persist("heal");
       this.indexHealthy = true;
       this.refresh();
       void this.snapshotIndex();
-      notice.setMessage(healResultMessage(report.added, report.skippedEmpty.length, report.failed.length));
+      notice.setMessage(healResultMessage(report.added, knownEmpty.length + report.skippedEmpty.length, report.failed.length));
     } catch (e) {
       console.warn("vault-rag: healVault failed", e);
       notice.setMessage("Vervollständigen fehlgeschlagen.");

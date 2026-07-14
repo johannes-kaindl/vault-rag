@@ -232,7 +232,7 @@ describe("LiveIndexer", () => {
       indexer.markFresh();
       await indexer.update("a.md", "#A");         // vorhanden
       const contents: Record<string, string> = { "b.md": "#B", "c.md": "#C" };
-      const added = await indexer.healMissing(["b.md", "c.md"], async (p) => contents[p]);
+      const { added } = await indexer.healMissing(["b.md", "c.md"], async (p) => contents[p]);
       expect(added).toBe(2);
       const idx = indexer.buildIndex();
       expect(idx.count).toBe(3);
@@ -244,7 +244,7 @@ describe("LiveIndexer", () => {
     it("überspringt unlesbare Dateien ohne Abbruch", async () => {
       const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "m");
       indexer.markFresh();
-      const added = await indexer.healMissing(["x.md", "y.md"], async (p) => {
+      const { added } = await indexer.healMissing(["x.md", "y.md"], async (p) => {
         if (p === "x.md") throw new Error("weg");
         return "#Y";
       });
@@ -258,6 +258,52 @@ describe("LiveIndexer", () => {
       const seen: Array<[number, number, number]> = [];
       await indexer.healMissing(["a.md", "b.md"], async () => "#X", (d, i, t) => seen.push([d, i, t]));
       expect(seen[seen.length - 1]).toEqual([2, 2, 2]);
+    });
+
+    it("klassifiziert ergänzt / leer übersprungen / fehlgeschlagen", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "m");
+      indexer.markFresh();
+      const contents: Record<string, string> = {
+        "voll.md": "# A\nInhalt",
+        "leer.md": "---\ntitle: leer\n---\n   ",
+      };
+      const result = await indexer.healMissing(["voll.md", "leer.md", "weg.md"], async (p) => {
+        if (!(p in contents)) throw new Error("weg");
+        return contents[p];
+      });
+      expect(result.added).toBe(1);
+      expect(result.skippedEmpty).toEqual(["leer.md"]);
+      expect(result.failed).toEqual(["weg.md"]);
+      // leer.md darf NICHT im Index landen
+      expect(indexer.buildIndex().paths).toEqual(["voll.md"]);
+    });
+  });
+
+  describe("LiveIndexer.update Klassifikation", () => {
+    it("meldet 'indexed' für Notiz mit Inhalt und 'empty' für chunk-lose", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "m");
+      indexer.init(emptyIndex());
+      expect(await indexer.update("a.md", "# Inhalt")).toBe("indexed");
+      expect(await indexer.update("a.md", "---\ntitle: x\n---\n")).toBe("empty");
+      expect(indexer.noteCount).toBe(0);
+    });
+  });
+
+  describe("LiveIndexer.reindexAll Klassifikation", () => {
+    it("meldet skippedEmpty und failed wie healMissing", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "m");
+      indexer.markFresh();
+      const contents: Record<string, string> = {
+        "voll.md": "# A\nInhalt",
+        "leer.md": "---\ntitle: leer\n---\n",
+      };
+      const result = await indexer.reindexAll(["voll.md", "leer.md", "weg.md"], async (p) => {
+        if (!(p in contents)) throw new Error("weg");
+        return contents[p];
+      });
+      expect(result.added).toBe(1);
+      expect(result.skippedEmpty).toEqual(["leer.md"]);
+      expect(result.failed).toEqual(["weg.md"]);
     });
   });
 });

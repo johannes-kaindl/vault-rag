@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.15.2] — 2026-07-19
+
 ### Fixed
 - **Device-local index backups no longer accumulate indefinitely.** A backup snapshot could
   race against a concurrent live index write and leave an incomplete, empty folder behind

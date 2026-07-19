@@ -13,7 +13,7 @@ import { VaultAdapter, IndexLoader, parseIndex } from "../src/index";
 import { LiveIndexer } from "../src/live_indexer";
 import { EmbeddingClient } from "../src/embedder";
 import { classifyLoadResult, assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/index_guard";
-import { migrateIndex, INDEX_REQUIRED_FILES } from "../src/index_migrate";
+import { migrateIndex, INDEX_REQUIRED_FILES, hasAllRequiredFiles } from "../src/index_migrate";
 import { selectBackupsToDelete } from "../src/index_backup";
 
 const DIM = 256;
@@ -132,6 +132,24 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
       "2026-07-03T00-00-00-000Z", "2026-07-04T00-00-00-000Z",
     ];
     expect(selectBackupsToDelete(names, 3)).toEqual(["2026-07-01T00-00-00-000Z"]);
+  });
+
+  it("Unvollständige Backup-Kopie (Quelldatei verschwindet während der Kopie) hinterlässt keine Ordner-Leiche", async () => {
+    await buildGoodIndex();
+    const adapter = fsAdapter();
+    const backupDir = path.join(root, ".obsidian/plugins/vault-retrieval/index-backups/2026-07-19T00-00-00-000Z");
+    // Quelle nach dem Kopierbeginn unvollständig machen: notes.i8 löschen, BEVOR migrateIndex läuft
+    // (simuliert eine Race, bei der die Quelldatei genau in diesem Moment fehlt/unlesbar ist).
+    await fs.rm(path.join(indexDir, "notes.i8"));
+    await migrateIndex(adapter, indexDir, backupDir);
+    // migrateIndex überspringt die fehlende Datei still — Zielordner ist unvollständig.
+    const listing = await fs.readdir(backupDir);
+    expect(hasAllRequiredFiles(listing.map(f => `${backupDir}/${f}`))).toBe(false);
+    // Das ist exakt der Zustand, den snapshotIndex() jetzt erkennt + aufräumt (main.ts-Verhalten,
+    // hier auf Modul-Ebene nachgebildet, da main.ts nicht headless ausführbar ist):
+    for (const f of listing) await fs.rm(path.join(backupDir, f));
+    await fs.rmdir(backupDir);
+    await expect(fs.access(backupDir)).rejects.toThrow();
   });
 
   it("Delta-Heal: unvollständiger Index (40) wird additiv auf 100 vervollständigt", async () => {

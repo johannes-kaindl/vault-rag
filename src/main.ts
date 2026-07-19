@@ -557,13 +557,22 @@ export default class VaultRagPlugin extends Plugin {
     const from = editor.getCursor("from");
     const to = editor.getCursor("to");
 
+    // Umgebende Leerzeichen (z.B. eine Trailing-Newline aus Shift+Down über die letzte
+    // Tabellenzeile) NICHT mit in den Transform geben — alle Transforms liefern getrimmten
+    // Output — sondern beim Zurückschreiben wieder anfügen, sonst verschluckt replaceRange
+    // sie und die Folgezeile rutscht in den umformatierten Block. Der All-Whitespace-Fall
+    // ist durch den obigen !text.trim()-Guard bereits ausgeschlossen.
+    const lead = /^\s*/.exec(text)![0];
+    const trail = /\s*$/.exec(text)![0];
+    const core = text.slice(lead.length, text.length - trail.length);
+
     const def = await pickTransform(this.app);
     if (!def) return;
 
     if (def.kind === "mechanical") {
-      const result = def.run(text);
-      if (result == null) { new Notice("Auswahl passt nicht für diesen Transform (keine Markdown-Tabelle?)."); return; }
-      editor.replaceRange(result, from, to);
+      const result = def.run(core);
+      if (result == null) { new Notice(`„${def.label}" passt nicht zur Auswahl.`); return; }
+      editor.replaceRange(lead + result + trail, from, to);
       return;
     }
 
@@ -573,10 +582,10 @@ export default class VaultRagPlugin extends Plugin {
       if (instr == null) return;
       instruction = instr;
     }
-    const messages = def.buildMessages(text, instruction);
+    const messages = def.buildMessages(core, instruction);
 
     new ReformatPreviewModal(this.app, {
-      original: text,
+      original: core,
       stream: (onToken, signal) => this.chatClient
         .stream(messages, onToken, () => {}, signal, {
           model: this.settings.chatModel,
@@ -585,7 +594,7 @@ export default class VaultRagPlugin extends Plugin {
           maxTokens: REFORMAT_MAX_TOKENS,
         })
         .then(r => r.content),
-      onApply: (result) => editor.replaceRange(result, from, to),
+      onApply: (result) => editor.replaceRange(lead + result + trail, from, to),
     }).open();
   }
 

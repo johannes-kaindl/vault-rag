@@ -40,3 +40,14 @@ export function onlyContainsIndexFiles(files: string[], folders: string[]): bool
   const known = new Set(INDEX_ALL_FILES);
   return files.every(p => known.has(p.split("/").pop() ?? p));
 }
+
+/**
+ * True, wenn `files` (volle Pfade, Obsidian `DataAdapter.list`-Format) alle Pflichtdateien
+ * (`INDEX_REQUIRED_FILES`) als Basename enthält — Backup-/Kopiervorgang gilt nur dann als
+ * vollständig. Verhindert, dass eine durch eine Race abgebrochene `migrateIndex`-Kopie (z. B.
+ * Quelldatei wird währenddessen von Sync überschrieben) als gültiges Backup gezählt wird.
+ */
+export function hasAllRequiredFiles(files: string[]): boolean {
+  const present = new Set(files.map(p => p.split("/").pop() ?? p));
+  return INDEX_REQUIRED_FILES.every(f => present.has(f));
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { VaultAdapter } from "../src/index";
-import { migrateIndex, onlyContainsIndexFiles, INDEX_ALL_FILES } from "../src/index_migrate";
+import { migrateIndex, onlyContainsIndexFiles, INDEX_ALL_FILES, hasAllRequiredFiles } from "../src/index_migrate";
 
 function makeMemAdapter(seed: Record<string, string | ArrayBuffer> = {}): VaultAdapter & { store: Map<string, string | ArrayBuffer>; mkdirs: string[] } {
   const store = new Map<string, string | ArrayBuffer>(Object.entries(seed));
@@ -63,5 +63,20 @@ describe("onlyContainsIndexFiles", () => {
   });
   it("leeres Listing → true (Ordner darf gelöscht werden)", () => {
     expect(onlyContainsIndexFiles([], [])).toBe(true);
+  });
+});
+
+describe("hasAllRequiredFiles", () => {
+  it("alle drei Pflichtdateien vorhanden → true", () => {
+    expect(hasAllRequiredFiles(["dest/notes.i8", "dest/paths.json", "dest/manifest.json"])).toBe(true);
+  });
+  it("manifest.json fehlt → false", () => {
+    expect(hasAllRequiredFiles(["dest/notes.i8", "dest/paths.json"])).toBe(false);
+  });
+  it("leere Liste (fehlgeschlagene Kopie) → false", () => {
+    expect(hasAllRequiredFiles([])).toBe(false);
+  });
+  it("zusätzliche optionale Datei (pending.json) ändert nichts an true", () => {
+    expect(hasAllRequiredFiles(["dest/notes.i8", "dest/paths.json", "dest/manifest.json", "dest/pending.json"])).toBe(true);
   });
 });

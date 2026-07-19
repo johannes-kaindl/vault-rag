@@ -185,4 +185,26 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     expect(assertSafeToPersist(100, 99, "live").allowed).toBe(true);
     expect(assertSafeToPersist(100, 98, "live").allowed).toBe(false);
   });
+
+  it("Sync-Race gegen echtes Dateisystem: markFresh + später auf Platte erscheinender großer Index blockt live-persist, kein Clobber", async () => {
+    // Simuliert exakt das iPhone-Startup-Szenario: dieses LiveIndexer-Objekt sieht beim eigenen
+    // loadIndex() kein Manifest (Sync war noch nicht fertig) → markFresh(). ERST DANACH landet
+    // der echte, große Index auf der Platte (Sync holt ihn nach) — bevor dieses Gerät seinen
+    // ersten Live-Edit persistiert.
+    const adapter = fsAdapter();
+    const stranded = new LiveIndexer(adapter, indexDir, fakeEmbedder(), "fake-model");
+    stranded.markFresh();
+
+    // Sync liefert jetzt den echten 100-Notizen-Index nach (von einem ANDEREN LiveIndexer/Gerät
+    // geschrieben, "stranded" hat davon nichts mitbekommen):
+    await buildGoodIndex();
+    expect(await countOnDisk(indexDir)).toBe(100);
+
+    // Erster Live-Edit auf dem "frischen" Gerät:
+    await stranded.update("note-000.md", await read("note-000.md"));
+    await expect(stranded.persist("live")).rejects.toBeInstanceOf(PersistBlockedError);
+
+    // Der echte Index auf Platte ist UNBERÜHRT:
+    expect(await countOnDisk(indexDir)).toBe(100);
+  });
 });

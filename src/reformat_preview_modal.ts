@@ -60,6 +60,7 @@ export class ReformatPreviewModal extends Modal {
 
   onClose(): void {
     this.controller?.abort();
+    this.controller = null;
     this.contentEl.empty();
   }
 }

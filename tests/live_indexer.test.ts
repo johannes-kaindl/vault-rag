@@ -338,7 +338,7 @@ describe("LiveIndexer persist-Guard", () => {
     const big = oneNoteIndex("a.md"); // count 1 – wir brauchen >1; baue 3 per reindex
     indexer.markFresh();
     await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B"); await indexer.update("c.md", "#C");
-    await indexer.persist("live");           // diskCount = 3
+    await indexer.persist("live");           // Diskzustand jetzt 3 (written-Store)
     // jetzt Map leeren (simuliert verwirrten Zustand) und live-persist → Sturz 3→0
     indexer.remove("a.md"); indexer.remove("b.md"); indexer.remove("c.md");
     await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "shrink" });
@@ -350,7 +350,7 @@ describe("LiveIndexer persist-Guard", () => {
     const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
     indexer.markFresh();
     await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B");
-    await indexer.persist("live");           // diskCount = 2
+    await indexer.persist("live");           // Diskzustand jetzt 2 (written-Store)
     indexer.remove("a.md"); indexer.remove("b.md");
     await expect(indexer.persist("reindex")).resolves.toBeUndefined(); // 2→0 erlaubt
   });
@@ -360,7 +360,7 @@ describe("LiveIndexer persist-Guard", () => {
     const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
     indexer.markFresh();
     await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B");
-    await indexer.persist("live");           // diskCount = 2
+    await indexer.persist("live");           // Diskzustand jetzt 2 (written-Store)
     indexer.remove("b.md");
     await expect(indexer.persist("live")).resolves.toBeUndefined(); // 2→1 (-1) erlaubt
   });

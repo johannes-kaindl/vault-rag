@@ -103,7 +103,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     await buildGoodIndex();
     const idx = await new IndexLoader(fsAdapter(), indexDir).load();
     const li = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
-    li.init(idx); // ready=true, diskCount=100
+    li.init(idx); // ready=true; persist("live") liest den Diskzustand jetzt live (100)
     for (const p of paths.slice(1)) li.remove(p); // auf 1 schrumpfen (simulierte Korruption)
     await expect(li.persist("live")).rejects.toMatchObject({ kind: "shrink" });
     expect(await countOnDisk(indexDir)).toBe(100); // Platte unberührt
@@ -163,7 +163,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     // Laden + Diff gegen den vollen Vault (100).
     const idx = await new IndexLoader(fsAdapter(), indexDir).load();
     const li = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
-    li.init(idx); // diskCount=40
+    li.init(idx); // Diskzustand (40) wird bei persist("live") live nachgelesen
     const { missing } = diffIndexVsVault([...idx.paths], paths);
     expect(missing.length).toBe(60);
 

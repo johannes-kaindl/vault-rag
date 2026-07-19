@@ -459,7 +459,9 @@ export default class VaultRagPlugin extends Plugin {
 
   /** Kopiert den aktuellen Index geräte-lokal (Plugin-Ordner, synct nicht) und rotiert auf 3.
    *  Läuft über runIndexOp (Fix Backup-Rotation): verhindert, dass ein Snapshot mitten in einen
-   *  laufenden Live-Persist hineinkopiert und dadurch eine unvollständige Kopie erzeugt. */
+   *  laufenden Live-Persist hineinkopiert und dadurch eine unvollständige Kopie erzeugt.
+   *  runIndexOp ist NICHT reentrant — alle Aufrufer müssen `void this.snapshotIndex()`
+   *  (fire-and-forget) bleiben, nie von innerhalb eines runIndexOp-Callbacks awaiten (Deadlock). */
   async snapshotIndex(): Promise<void> {
     if (!this.index || !this.indexHealthy) return; // nur bekannt-guten Zustand sichern
     return this.runIndexOp(async () => {

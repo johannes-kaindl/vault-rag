@@ -87,4 +87,8 @@ describe("PersistBlockedError", () => {
     expect(e).toBeInstanceOf(Error);
     expect(e.kind).toBe("shrink");
   });
+  it("trägt kind 'unreadable'", () => {
+    const e = new PersistBlockedError("unreadable", "y");
+    expect(e.kind).toBe("unreadable");
+  });
 });

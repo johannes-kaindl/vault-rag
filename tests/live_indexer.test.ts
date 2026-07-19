@@ -10,11 +10,18 @@ const SCALE = 127;
 function makeAdapter(): VaultAdapter & { written: Map<string, ArrayBuffer | string> } {
   const written = new Map<string, ArrayBuffer | string>();
   return {
-    read: vi.fn().mockRejectedValue(new Error("not found")),
-    readBinary: vi.fn(),
+    read: vi.fn(async (p: string) => {
+      if (!written.has(p)) throw new Error("not found: " + p);
+      return written.get(p) as string;
+    }),
+    readBinary: vi.fn(async (p: string) => {
+      if (!written.has(p)) throw new Error("not found: " + p);
+      return written.get(p) as ArrayBuffer;
+    }),
     write: vi.fn(async (p: string, d: string) => { written.set(p, d); }),
     writeBinary: vi.fn(async (p: string, d: ArrayBuffer) => { written.set(p, d); }),
     mkdir: vi.fn(),
+    exists: vi.fn(async (p: string) => written.has(p)),
     written,
   } as any;
 }
@@ -324,14 +331,14 @@ describe("LiveIndexer persist-Guard", () => {
     expect(a.written.has("_vaultrag/manifest.json")).toBe(true);
   });
 
-  it("init setzt diskCount → Clobber (großer Index, dann leer) wird geblockt", async () => {
+  it("Clobber via In-Memory-Leerung wird gegen den echten Diskzustand geblockt (3→0)", async () => {
     const a = makeAdapter();
     const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
     // 3-Noten-Index simulieren via init
     const big = oneNoteIndex("a.md"); // count 1 – wir brauchen >1; baue 3 per reindex
     indexer.markFresh();
     await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B"); await indexer.update("c.md", "#C");
-    await indexer.persist("live");           // diskCount = 3
+    await indexer.persist("live");           // Diskzustand jetzt 3 (written-Store)
     // jetzt Map leeren (simuliert verwirrten Zustand) und live-persist → Sturz 3→0
     indexer.remove("a.md"); indexer.remove("b.md"); indexer.remove("c.md");
     await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "shrink" });
@@ -343,17 +350,17 @@ describe("LiveIndexer persist-Guard", () => {
     const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
     indexer.markFresh();
     await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B");
-    await indexer.persist("live");           // diskCount = 2
+    await indexer.persist("live");           // Diskzustand jetzt 2 (written-Store)
     indexer.remove("a.md"); indexer.remove("b.md");
     await expect(indexer.persist("reindex")).resolves.toBeUndefined(); // 2→0 erlaubt
   });
 
-  it("erfolgreicher persist aktualisiert diskCount (Löschungen bleiben möglich)", async () => {
+  it("nach erfolgreichem persist erlaubt der (jetzt aktuelle) Diskzustand eine Ein-Schritt-Löschung", async () => {
     const a = makeAdapter();
     const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
     indexer.markFresh();
     await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B");
-    await indexer.persist("live");           // diskCount = 2
+    await indexer.persist("live");           // Diskzustand jetzt 2 (written-Store)
     indexer.remove("b.md");
     await expect(indexer.persist("live")).resolves.toBeUndefined(); // 2→1 (-1) erlaubt
   });
@@ -384,5 +391,28 @@ describe("LiveIndexer persist-Guard", () => {
     indexer.init(oneNoteIndex("a.md")); // z.B. erfolgreicher Reload/Recovery
     expect(indexer.isReady()).toBe(true);
     await expect(indexer.persist("live")).resolves.toBeUndefined();
+  });
+
+  it("Sync-Race: markFresh (kein sichtbares Manifest) + später erscheinender großer Index auf Platte blockt live-persist (kein Clobber)", async () => {
+    const a = makeAdapter();
+    // Simuliert: der echte Index kommt gerade erst per Obsidian Sync an (z. B. iPhone-Start,
+    // Manifest war beim eigenen loadIndex() noch nicht da) — DIESES LiveIndexer-Objekt hat ihn
+    // nie über init() gesehen, sondern wurde per markFresh() als "frisch" eingestuft.
+    a.written.set("_vaultrag/manifest.json", JSON.stringify({ count: 4700 }));
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A"); // 1 Notiz im Speicher
+    await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "shrink" });
+    // Der echte Index auf Platte bleibt unangetastet:
+    expect(JSON.parse(a.written.get("_vaultrag/manifest.json") as string).count).toBe(4700);
+  });
+
+  it("Manifest vorhanden, aber gerade unlesbar/korrupt (Race mit fremdem Schreibvorgang) → blockt mit 'unreadable'", async () => {
+    const a = makeAdapter();
+    a.written.set("_vaultrag/manifest.json", "{ das ist kein valides JSON");
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A");
+    await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "unreadable" });
   });
 });

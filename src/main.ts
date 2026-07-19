@@ -21,7 +21,7 @@ import type { ApplyMode } from "./note_restructurer";
 import { TemplateRanker } from "./template_ranker";
 import type { TemplateRank } from "./template_ranker";
 import { buildHideCss, normalizeIndexDir } from "./index_dir";
-import { migrateIndex, onlyContainsIndexFiles, INDEX_REQUIRED_FILES } from "./index_migrate";
+import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIRED_FILES } from "./index_migrate";
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
@@ -457,29 +457,50 @@ export default class VaultRagPlugin extends Plugin {
 
   private backupsRoot(): string { return `${this.manifest.dir}/${BACKUP_SUBDIR}`; }
 
-  /** Kopiert den aktuellen Index geräte-lokal (Plugin-Ordner, synct nicht) und rotiert auf 3. */
+  /** Kopiert den aktuellen Index geräte-lokal (Plugin-Ordner, synct nicht) und rotiert auf 3.
+   *  Läuft über runIndexOp (Fix Backup-Rotation): verhindert, dass ein Snapshot mitten in einen
+   *  laufenden Live-Persist hineinkopiert und dadurch eine unvollständige Kopie erzeugt.
+   *  runIndexOp ist NICHT reentrant — alle Aufrufer müssen `void this.snapshotIndex()`
+   *  (fire-and-forget) bleiben, nie von innerhalb eines runIndexOp-Callbacks awaiten (Deadlock). */
   async snapshotIndex(): Promise<void> {
     if (!this.index || !this.indexHealthy) return; // nur bekannt-guten Zustand sichern
+    return this.runIndexOp(async () => {
+      try {
+        const root = this.backupsRoot();
+        // Zeitstempel aus dem Manifest (fällt sonst auf lastMtime zurück).
+        let builtAt = "";
+        try { const m = JSON.parse(await this.app.vault.adapter.read(`${this.settings.indexDir}/manifest.json`)) as { built_at?: string }; builtAt = m.built_at ?? ""; } catch { /* ignore */ }
+        if (!builtAt) builtAt = new Date(this.lastMtime || Date.now()).toISOString();
+        const name = backupDirName(builtAt);
+        const dest = `${root}/${name}`;
+        if (await this.app.vault.adapter.exists(`${dest}/manifest.json`)) return; // schon gesichert
+        await migrateIndex(this.app.vault.adapter, this.settings.indexDir, dest);
+        if (!(await this.backupComplete(dest))) {
+          // Race (z. B. Quelldatei wurde währenddessen von Sync überschrieben) — keine
+          // Ordner-Leiche stehen lassen. Der nächste reguläre Snapshot-Versuch holt es nach.
+          await this.removeBackupDir(root, name);
+          return;
+        }
+        // Rotation: vorhandene Backup-Verzeichnisse listen → älteste über 3 löschen.
+        const existing = await this.backupNames();
+        for (const del of selectBackupsToDelete(existing, 3)) {
+          await this.removeBackupDir(root, del);
+        }
+      } catch (e) { console.warn("vault-rag: snapshotIndex failed", e); }
+    });
+  }
+
+  private async backupComplete(dest: string): Promise<boolean> {
+    const listing = await this.app.vault.adapter.list(dest);
+    return hasAllRequiredFiles(listing.files ?? []);
+  }
+
+  private async removeBackupDir(root: string, name: string): Promise<void> {
     try {
-      const root = this.backupsRoot();
-      // Zeitstempel aus dem Manifest (fällt sonst auf lastMtime zurück).
-      let builtAt = "";
-      try { const m = JSON.parse(await this.app.vault.adapter.read(`${this.settings.indexDir}/manifest.json`)) as { built_at?: string }; builtAt = m.built_at ?? ""; } catch { /* ignore */ }
-      if (!builtAt) builtAt = new Date(this.lastMtime || Date.now()).toISOString();
-      const name = backupDirName(builtAt);
-      const dest = `${root}/${name}`;
-      if (await this.app.vault.adapter.exists(`${dest}/manifest.json`)) return; // schon gesichert
-      await migrateIndex(this.app.vault.adapter, this.settings.indexDir, dest);
-      // Rotation: vorhandene Backup-Verzeichnisse listen → älteste über 3 löschen.
-      const existing = await this.backupNames();
-      for (const del of selectBackupsToDelete(existing, 3)) {
-        try {
-          const listing = await this.app.vault.adapter.list(`${root}/${del}`);
-          for (const f of listing.files ?? []) await this.app.vault.adapter.remove(f);
-          await this.app.vault.adapter.rmdir(`${root}/${del}`, false);
-        } catch { /* Rotations-Fehler nicht fatal */ }
-      }
-    } catch (e) { console.warn("vault-rag: snapshotIndex failed", e); }
+      const listing = await this.app.vault.adapter.list(`${root}/${name}`);
+      for (const f of listing.files ?? []) await this.app.vault.adapter.remove(f);
+      await this.app.vault.adapter.rmdir(`${root}/${name}`, false);
+    } catch { /* Rotations-/Cleanup-Fehler nicht fatal */ }
   }
 
   private async backupNames(): Promise<string[]> {

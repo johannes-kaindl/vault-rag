@@ -669,6 +669,22 @@ Expected: PASS, alle 22 Fälle (20 bestehende + 2 neue) grün.
 Run: `grep -rn "diskCount" src/ tests/`
 Expected: keine Treffer mehr.
 
+- [ ] **Step 9b: `AGENTS.md`-Modulbeschreibung nachziehen**
+
+`AGENTS.md:95` beschreibt `persist(reason)` noch als „gegen `index_guard` geguarded
+(ready/diskCount)" — das Klammer-Detail wird mit diesem Task falsch. Zeile 93-96 ersetzen durch:
+
+```
+live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename · buildIndex ·
+                  persist(reason) (Write-Order: notes.i8 → paths.json → manifest.json), gegen
+                  `index_guard` geguarded (ready + Live-Disk-Read des tatsächlichen Counts vor
+                  jedem live-Persist statt gecachtem Zustand) · healMissing (additiver Delta-Reindex
+```
+
+(nur die dritte Zeile ändert sich inhaltlich; die erste/zweite/vierte bleiben wortgleich —
+Kontext beim Ersetzen mit angeben, da „healMissing (additiver Delta-Reindex" sonst nicht eindeutig
+lokalisierbar ist.)
+
 - [ ] **Step 10: Typecheck + Lint + volle Suite**
 
 Run: `npm run typecheck && npm run lint && npm test`
@@ -677,7 +693,7 @@ Expected: alle drei PASS.
 - [ ] **Step 11: Commit**
 
 ```bash
-git add src/live_indexer.ts tests/live_indexer.test.ts
+git add src/live_indexer.ts tests/live_indexer.test.ts AGENTS.md
 git commit -m "$(cat <<'EOF'
 fix(live_indexer): Live-Disk-Check statt gecachtem diskCount
 

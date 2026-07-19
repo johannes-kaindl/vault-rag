@@ -92,7 +92,8 @@ http.ts           httpJson() über Obsidians requestUrl — einziger obsidian-Im
 pending_queue.ts  PendingQueue → Dirty-List in pending.json; drain-on-reconnect.
 live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename · buildIndex ·
                   persist(reason) (Write-Order: notes.i8 → paths.json → manifest.json), gegen
-                  `index_guard` geguarded (ready/diskCount) · healMissing (additiver Delta-Reindex
+                  `index_guard` geguarded (ready + Live-Disk-Read des tatsächlichen Counts vor
+                  jedem live-Persist statt gecachtem Zustand) · healMissing (additiver Delta-Reindex
                   für Self-Heal) · markUnready/markFresh (Gefahrenzustand-Schalter) · noteCount-Getter.
 settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab (Sektionen, Slider,
                   Debounce, Ausschluss-Editor, Live-Progress-Refresh alle 2 s).

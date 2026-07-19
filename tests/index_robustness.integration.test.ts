@@ -13,7 +13,7 @@ import { VaultAdapter, IndexLoader, parseIndex } from "../src/index";
 import { LiveIndexer } from "../src/live_indexer";
 import { EmbeddingClient } from "../src/embedder";
 import { classifyLoadResult, assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/index_guard";
-import { migrateIndex, INDEX_REQUIRED_FILES } from "../src/index_migrate";
+import { migrateIndex, INDEX_REQUIRED_FILES, hasAllRequiredFiles } from "../src/index_migrate";
 import { selectBackupsToDelete } from "../src/index_backup";
 
 const DIM = 256;
@@ -26,6 +26,7 @@ function fsAdapter(): VaultAdapter {
     write: async (p, d) => { await fs.mkdir(path.dirname(p), { recursive: true }); await fs.writeFile(p, d); },
     writeBinary: async (p, d) => { await fs.mkdir(path.dirname(p), { recursive: true }); await fs.writeFile(p, Buffer.from(d)); },
     mkdir: async (p) => { await fs.mkdir(p, { recursive: true }); },
+    exists: async (p) => { try { await fs.access(p); return true; } catch { return false; } },
   };
 }
 
@@ -102,7 +103,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     await buildGoodIndex();
     const idx = await new IndexLoader(fsAdapter(), indexDir).load();
     const li = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
-    li.init(idx); // ready=true, diskCount=100
+    li.init(idx); // ready=true; persist("live") liest den Diskzustand jetzt live (100)
     for (const p of paths.slice(1)) li.remove(p); // auf 1 schrumpfen (simulierte Korruption)
     await expect(li.persist("live")).rejects.toMatchObject({ kind: "shrink" });
     expect(await countOnDisk(indexDir)).toBe(100); // Platte unberührt
@@ -133,6 +134,24 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     expect(selectBackupsToDelete(names, 3)).toEqual(["2026-07-01T00-00-00-000Z"]);
   });
 
+  it("Unvollständige Backup-Kopie (Quelldatei verschwindet während der Kopie) hinterlässt keine Ordner-Leiche", async () => {
+    await buildGoodIndex();
+    const adapter = fsAdapter();
+    const backupDir = path.join(root, ".obsidian/plugins/vault-retrieval/index-backups/2026-07-19T00-00-00-000Z");
+    // Quelle nach dem Kopierbeginn unvollständig machen: notes.i8 löschen, BEVOR migrateIndex läuft
+    // (simuliert eine Race, bei der die Quelldatei genau in diesem Moment fehlt/unlesbar ist).
+    await fs.rm(path.join(indexDir, "notes.i8"));
+    await migrateIndex(adapter, indexDir, backupDir);
+    // migrateIndex überspringt die fehlende Datei still — Zielordner ist unvollständig.
+    const listing = await fs.readdir(backupDir);
+    expect(hasAllRequiredFiles(listing.map(f => `${backupDir}/${f}`))).toBe(false);
+    // Das ist exakt der Zustand, den snapshotIndex() jetzt erkennt + aufräumt (main.ts-Verhalten,
+    // hier auf Modul-Ebene nachgebildet, da main.ts nicht headless ausführbar ist):
+    for (const f of listing) await fs.rm(path.join(backupDir, f));
+    await fs.rmdir(backupDir);
+    await expect(fs.access(backupDir)).rejects.toThrow();
+  });
+
   it("Delta-Heal: unvollständiger Index (40) wird additiv auf 100 vervollständigt", async () => {
     // Kleineren gültigen Index (erste 40) aufbauen + persistieren.
     const li0 = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
@@ -144,7 +163,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     // Laden + Diff gegen den vollen Vault (100).
     const idx = await new IndexLoader(fsAdapter(), indexDir).load();
     const li = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
-    li.init(idx); // diskCount=40
+    li.init(idx); // Diskzustand (40) wird bei persist("live") live nachgelesen
     const { missing } = diffIndexVsVault([...idx.paths], paths);
     expect(missing.length).toBe(60);
 
@@ -165,5 +184,27 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     // Guard-Semantik für serielle Live-Ops: -1 ok, -2 blockt.
     expect(assertSafeToPersist(100, 99, "live").allowed).toBe(true);
     expect(assertSafeToPersist(100, 98, "live").allowed).toBe(false);
+  });
+
+  it("Sync-Race gegen echtes Dateisystem: markFresh + später auf Platte erscheinender großer Index blockt live-persist, kein Clobber", async () => {
+    // Simuliert exakt das iPhone-Startup-Szenario: dieses LiveIndexer-Objekt sieht beim eigenen
+    // loadIndex() kein Manifest (Sync war noch nicht fertig) → markFresh(). ERST DANACH landet
+    // der echte, große Index auf der Platte (Sync holt ihn nach) — bevor dieses Gerät seinen
+    // ersten Live-Edit persistiert.
+    const adapter = fsAdapter();
+    const stranded = new LiveIndexer(adapter, indexDir, fakeEmbedder(), "fake-model");
+    stranded.markFresh();
+
+    // Sync liefert jetzt den echten 100-Notizen-Index nach (von einem ANDEREN LiveIndexer/Gerät
+    // geschrieben, "stranded" hat davon nichts mitbekommen):
+    await buildGoodIndex();
+    expect(await countOnDisk(indexDir)).toBe(100);
+
+    // Erster Live-Edit auf dem "frischen" Gerät:
+    await stranded.update("note-000.md", await read("note-000.md"));
+    await expect(stranded.persist("live")).rejects.toBeInstanceOf(PersistBlockedError);
+
+    // Der echte Index auf Platte ist UNBERÜHRT:
+    expect(await countOnDisk(indexDir)).toBe(100);
   });
 });

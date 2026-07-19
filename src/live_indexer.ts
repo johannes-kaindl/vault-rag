@@ -24,7 +24,6 @@ export class LiveIndexer {
   private noteVectors = new Map<string, Float32Array>();
   private loadedManifest: IndexManifest | null = null;
   private ready = false;
-  private diskCount = 0;
 
   constructor(
     private adapter: VaultAdapter,
@@ -41,7 +40,6 @@ export class LiveIndexer {
       if (v) this.noteVectors.set(path, v.slice());
     }
     this.ready = true;
-    this.diskCount = index.count;
   }
 
   private async embedNote(content: string): Promise<Float32Array | null> {
@@ -70,7 +68,7 @@ export class LiveIndexer {
   isReady(): boolean { return this.ready; }
 
   /** No-Index-Pfad: kein Index auf Platte → leerer Indexer darf gefahrlos aufbauen. */
-  markFresh(): void { this.ready = true; this.diskCount = 0; }
+  markFresh(): void { this.ready = true; }
 
   /** Setzt den Indexer in den Nicht-bereit-Zustand (Gefahrenzustand mid-session) → live-persist blockt. */
   markUnready(): void { this.ready = false; }
@@ -143,9 +141,18 @@ export class LiveIndexer {
     if (!this.ready && reason === "live") {
       throw new PersistBlockedError("not-ready", "Persist verweigert: Index ist nicht initialisiert (Load-Fehler) — der gute Index auf Platte bleibt erhalten.");
     }
-    const decision = assertSafeToPersist(this.diskCount, nextCount, reason);
-    if (!decision.allowed) {
-      throw new PersistBlockedError(decision.kind ?? "shrink", decision.message ?? "Persist verweigert.");
+    if (reason === "live") {
+      // Live-Wahrheit statt gecachtem Zustand prüfen: verhindert, dass ein veralteter
+      // In-Memory-Stand (z. B. nach markFresh() während ein Sync-Download noch lief) einen
+      // inzwischen echten, größeren Index auf Platte überschreibt.
+      const diskCountNow = await this.readDiskCount();
+      if (diskCountNow === null) {
+        throw new PersistBlockedError("unreadable", "Persist verweigert: Der Index auf Platte ist gerade nicht lesbar (z. B. laufender Sync/Parallel-Schreibvorgang) — der gute Index bleibt unangetastet, ein erneuter Versuch folgt automatisch.");
+      }
+      const decision = assertSafeToPersist(diskCountNow, nextCount, reason);
+      if (!decision.allowed) {
+        throw new PersistBlockedError(decision.kind ?? "shrink", decision.message ?? "Persist verweigert.");
+      }
     }
     const paths = [...this.noteVectors.keys()].sort();
     const n = paths.length;
@@ -177,6 +184,21 @@ export class LiveIndexer {
     };
     await this.adapter.write(`${this.indexDir}/manifest.json`, JSON.stringify(manifest, null, 2));
     this.ready = true;
-    this.diskCount = nextCount;
+  }
+
+  /** Liest den aktuellen Notiz-Count direkt aus der Platte (nicht aus dem In-Memory-Zustand).
+   *  `null` = "Zustand unbekannt, sicherheitshalber blocken" (Manifest da, aber nicht lesbar/
+   *  parsebar — z. B. während ein fremder Prozess/Sync es gerade neu schreibt). Kein Manifest
+   *  vorhanden gilt hingegen als legitim frisch (`0`). */
+  private async readDiskCount(): Promise<number | null> {
+    const manifestPath = `${this.indexDir}/manifest.json`;
+    let exists: boolean;
+    try { exists = await this.adapter.exists(manifestPath); } catch { return null; }
+    if (!exists) return 0;
+    try {
+      const raw = await this.adapter.read(manifestPath);
+      const parsed = JSON.parse(raw) as { count?: number };
+      return typeof parsed.count === "number" ? parsed.count : null;
+    } catch { return null; }
   }
 }

@@ -29,6 +29,7 @@ import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexV
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { pickTransform, promptInstruction } from "./reformat_picker";
+import { splitSelectionAffix } from "./reformat_mechanical";
 import { ReformatPreviewModal } from "./reformat_preview_modal";
 import { REFORMAT_MAX_TOKENS } from "./reformat_prompts";
 import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
@@ -562,9 +563,7 @@ export default class VaultRagPlugin extends Plugin {
     // Output — sondern beim Zurückschreiben wieder anfügen, sonst verschluckt replaceRange
     // sie und die Folgezeile rutscht in den umformatierten Block. Der All-Whitespace-Fall
     // ist durch den obigen !text.trim()-Guard bereits ausgeschlossen.
-    const lead = /^\s*/.exec(text)![0];
-    const trail = /\s*$/.exec(text)![0];
-    const core = text.slice(lead.length, text.length - trail.length);
+    const { lead, core, trail } = splitSelectionAffix(text);
 
     const def = await pickTransform(this.app);
     if (!def) return;

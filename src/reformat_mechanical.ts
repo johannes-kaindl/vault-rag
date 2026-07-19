@@ -71,3 +71,16 @@ export function wrapInCallout(md: string, type: string): string {
   const body = md.split("\n").map(l => `> ${l}`).join("\n");
   return `> [!${type}]\n${body}`;
 }
+
+export interface SelectionAffix { lead: string; core: string; trail: string }
+
+/** Zerlegt eine Auswahl in erhaltenswerten Rand-Whitespace und den zu transformierenden Kern.
+ *  `lead` behält nur den Zeilenumbruch-Anteil (ein reiner Spalten-Einzug gehört zum Kern,
+ *  sonst würde er nur an die erste Ergebniszeile geklebt). */
+export function splitSelectionAffix(text: string): SelectionAffix {
+  const rawLead = /^\s*/.exec(text)![0];
+  const trail = /\s*$/.exec(text)![0];
+  const lead = rawLead.slice(0, rawLead.lastIndexOf("\n") + 1);
+  const core = text.slice(lead.length, text.length - trail.length);
+  return { lead, core, trail };
+}

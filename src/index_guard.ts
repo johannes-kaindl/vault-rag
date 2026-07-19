@@ -62,7 +62,7 @@ export function diffIndexVsVault(indexPaths: string[], vaultPaths: string[]): { 
 }
 
 export class PersistBlockedError extends Error {
-  constructor(readonly kind: "not-ready" | "shrink", message: string) {
+  constructor(readonly kind: "not-ready" | "shrink" | "unreadable", message: string) {
     super(message);
     this.name = "PersistBlockedError";
   }

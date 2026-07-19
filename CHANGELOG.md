@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Reformat a selection.** A new "Abschnitt umformatieren" command (and editor context-menu
+  entry) turns a selected block into a different shape: mechanical transforms (table ↔
+  columns/rows transpose, table → bullet list, wrap in callout) apply instantly with no LLM
+  round-trip, while shape-changing ones (→ list, → prose, → table, → Mermaid diagram, or a free-
+  text instruction) stream a preview from your local chat LLM that you review before applying.
+
 ## [0.15.2] — 2026-07-19
 
 ### Fixed

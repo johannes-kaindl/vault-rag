@@ -210,3 +210,20 @@
 .okit-collapsible-chevron { display: inline-flex; color: var(--text-muted); }
 .okit-collapsible-body { padding-top: var(--size-4-2); }
 .okit-collapsible-body.is-collapsed { display: none; }
+
+.vault-rag-reformat-original,
+.vault-rag-reformat-result {
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  background: var(--background-secondary);
+  padding: var(--size-4-2);
+  border-radius: var(--radius-s);
+}
+.vault-rag-reformat-label {
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--size-2-1);
+}
+.vault-rag-reformat-instruction {
+  width: 100%;
+}

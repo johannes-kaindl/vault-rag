@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Device-local index backups no longer accumulate indefinitely.** A backup snapshot could
+  race against a concurrent live index write and leave an incomplete, empty folder behind
+  instead of a real backup — and since rotation only ran after a successful copy, each failed
+  attempt left another orphan. A real vault had accumulated 1127 backup folders instead of the
+  intended 3 (1124 of them empty). Snapshots are now serialized against live index writes, and
+  an incomplete copy is discarded immediately instead of left behind.
+- **The shared index could get wiped out after using a second device (e.g. iPhone).** The
+  live-persist safety guard checked a cached in-memory note count instead of the actual index
+  on disk. If the plugin started before Obsidian Sync finished delivering the shared index, a
+  subsequent edit could overwrite the real, larger index with a tiny one — which then
+  propagated the loss to every synced device. The guard now reads the real index from disk
+  immediately before every live write.
+
 ## [0.15.1] — 2026-07-14
 
 ### Fixed

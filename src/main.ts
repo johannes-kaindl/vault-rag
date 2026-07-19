@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, FileSystemAdapter, requestUrl } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, FileSystemAdapter, requestUrl, Editor } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
@@ -28,6 +28,9 @@ import type { HubPanel, TabId } from "./hub_panel";
 import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexVsVault } from "./index_guard";
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
+import { pickTransform, promptInstruction } from "./reformat_picker";
+import { ReformatPreviewModal } from "./reformat_preview_modal";
+import { REFORMAT_MAX_TOKENS } from "./reformat_prompts";
 import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
 import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
@@ -244,6 +247,20 @@ export default class VaultRagPlugin extends Plugin {
         return ok;
       },
     });
+
+    this.addCommand({
+      id: "reformat-selection",
+      name: "Abschnitt umformatieren",
+      editorCallback: (editor: Editor) => void this.reformatSelection(editor),
+    });
+
+    this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor) => {
+      if (!editor.getSelection().trim()) return;
+      menu.addItem(item => item
+        .setTitle("Abschnitt umformatieren")
+        .setIcon("wand")
+        .onClick(() => void this.reformatSelection(editor)));
+    }));
 
     this.app.workspace.onLayoutReady(() => this.migrateOldLeaves());
   }
@@ -530,6 +547,46 @@ export default class VaultRagPlugin extends Plugin {
     await migrateIndex(this.app.vault.adapter, src, this.settings.indexDir);
     await this.loadIndex();
     new Notice(this.indexHealthy ? "Index aus Backup wiederhergestellt." : "Wiederhergestellter Index ließ sich nicht laden.");
+  }
+
+  /** Umformatieren-Flow: Selektion → Picker → mechanisch anwenden ODER LLM-Vorschau. */
+  private async reformatSelection(editor: Editor): Promise<void> {
+    const text = editor.getSelection();
+    if (!text.trim()) { new Notice("Bitte einen Abschnitt markieren."); return; }
+    // Range beim Auslösen festhalten — Picker/Modal ziehen den Editor-Fokus ab.
+    const from = editor.getCursor("from");
+    const to = editor.getCursor("to");
+
+    const def = await pickTransform(this.app);
+    if (!def) return;
+
+    if (def.kind === "mechanical") {
+      const result = def.run(text);
+      if (result == null) { new Notice("Auswahl passt nicht für diesen Transform (keine Markdown-Tabelle?)."); return; }
+      editor.replaceRange(result, from, to);
+      return;
+    }
+
+    let instruction: string | undefined;
+    if (def.freetext) {
+      const instr = await promptInstruction(this.app);
+      if (instr == null) return;
+      instruction = instr;
+    }
+    const messages = def.buildMessages(text, instruction);
+
+    new ReformatPreviewModal(this.app, {
+      original: text,
+      stream: (onToken, signal) => this.chatClient
+        .stream(messages, onToken, () => {}, signal, {
+          model: this.settings.chatModel,
+          temperature: 0.2,
+          suppressThinking: true,
+          maxTokens: REFORMAT_MAX_TOKENS,
+        })
+        .then(r => r.content),
+      onApply: (result) => editor.replaceRange(result, from, to),
+    }).open();
   }
 
   /** Kompakter Zustands-Text für die Robustheits-Sektion in den Einstellungen. */

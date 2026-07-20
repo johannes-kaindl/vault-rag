@@ -70,13 +70,18 @@ async function handleMcp(req: HttpRequest, res: HttpResponse, tools: McpTools, v
   );
 }
 
-/** Startet den in-Plugin HTTP-MCP-Server auf 127.0.0.1. Lazy dynamic import("node:http")
+/** Startet den in-Plugin HTTP-MCP-Server auf 127.0.0.1. Lazy require("node:http")
  *  hinter dem Platform.isDesktop-Guard, damit auf Mobile nie ein Node-Builtin geladen wird. */
 export async function startMcpServer(opts: { port: number; token: string; tools: McpTools; version: string }): Promise<McpServerHandle> {
   // Defense-in-Depth: der Aufrufer gated bereits (main.ts), aber node:http darf auf Mobile
   // unter keinen Umständen geladen werden.
   if (!Platform.isDesktop) throw new Error("MCP-Server ist Desktop-only");
-  const http = await import("node:http");
+  // ACHTUNG: bewusst require(), nicht await import() — Obsidian lädt main.js als CommonJS,
+  // dort löst Electron/Chromium ein dynamisches import() eines node:-Builtins als Netzwerk-Fetch
+  // auf statt über require. Laufzeitfehler im echten Obsidian: "Failed to fetch dynamically
+  // imported module: node:http" (vitest unter Node zeigt das nicht). Nicht erneut auf import()
+  // umstellen — siehe eslint.config.mjs für den Regel-Override.
+  const http = require("node:http") as typeof import("node:http");
   let boundPort = opts.port;
   const server = http.createServer((req: HttpRequest, res: HttpResponse) => {
     void (async () => {

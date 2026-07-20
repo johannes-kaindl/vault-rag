@@ -227,3 +227,42 @@
 .vault-rag-reformat-instruction {
   width: 100%;
 }
+
+.vault-rag-reformat-panel {
+  padding: var(--size-4-2);
+}
+.vault-rag-reformat-status {
+  margin-bottom: var(--size-4-3);
+  padding: var(--size-4-2);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+}
+.vault-rag-reformat-sel {
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+.vault-rag-reformat-meta,
+.vault-rag-reformat-blocked {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.vault-rag-reformat-group-title {
+  margin: var(--size-4-3) 0 var(--size-2-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+}
+.vault-rag-reformat-btn {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--size-2-2);
+  text-align: left;
+}
+.vault-rag-reformat-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.vault-rag-reformat-panel-instruction {
+  width: 100%;
+  margin-bottom: var(--size-2-2);
+}

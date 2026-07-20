@@ -39,7 +39,11 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
 Interface an, nie direkt die Obsidian-API → in Node testbar ohne DOM-Mock (PROF-OBS-03/04).
 **Dieses Interface nicht ohne Not ändern** — Tests und `LiveIndexer` hängen daran.
 
-Nur `main.ts`, `hub_view.ts`, `settings.ts` und `http.ts` importieren `obsidian` —
+`obsidian` wird nur an der Kante importiert: `main.ts`, `hub_view.ts`, `settings.ts`, `http.ts`
+sowie die dünnen Modal-/Picker-Wrapper (`note_picker.ts`, `template_picker.ts`,
+`reformat_picker.ts`, `reformat_preview_modal.ts`) und das `reformat_panel.ts`. Diese Wrapper
+sind **bewusst nicht unit-getestet** — das Test-Gewicht trägt der pure Kern; neue obsidian-Views
+folgen diesem Muster statt Tests mit DOM-Mocks aufzubauen. Historisch —
 `hub_view.ts` + `main.ts` sind die einzigen View-Layer-obsidian-Importe (Hub-Konsolidierung,
 siehe „Abweichungen"). Die vier Hub-Panels (`view.ts`/`search_view.ts`/`chat_view.ts`/
 `smart_apply_view.ts`) sind obsidian-frei bis auf `setIcon` (`chat_view.ts`, `smart_apply_view.ts`)
@@ -114,6 +118,31 @@ settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings · DEFAULT_
 mcp/              In-Plugin HTTP-MCP-Server (Loopback, `/mcp`, StreamableHTTP): `http_server.ts` ·
                   `register_tools.ts` · `tools.ts` (dünner Adapter über RetrievalFacade) · `auth.ts`.
                   Kein Node-Adapter/kein stdio mehr.
+reformat_mechanical.ts  Pure Markdown-Struktur-Transforms (Slice C.1): `transposeTable` (Tabelle
+                  kippen) · `tableToList` · `wrapInCallout` · `splitSelectionAffix` (Rand-Whitespace
+                  vom Kern trennen; ein reiner Spalten-Einzug gehört zum KERN, sonst klebt er nur
+                  an der ersten Ergebniszeile). Interner `parseTable`-Helper. **Pipes werden beim
+                  Rendern re-escaped** — sonst zerreißt eine `\|`-Zelle die Tabelle (s. Gotchas).
+reformat_prompts.ts     Pure Prompt-Builder je LLM-Zielformat (`buildTransformMessages`) +
+                  `REFORMAT_MAX_TOKENS`. Anti-Fabrication im System-Prompt; NICHT verwandt mit
+                  `note_restructurer.ANTI_FABRICATION` (das ist SmartApplys JSON-Protokoll).
+reformat_transforms.ts  `TRANSFORMS`-Registry — **einzige Wahrheit** für Picker UND Sidebar-Panel.
+                  Diskriminierte Union über `kind`: mechanisch trägt `run(text) → string|null`
+                  (null = Struktur passt nicht), llm trägt `buildMessages`; genau ein Eintrag
+                  hat `freetext: true`.
+reformat_selection_state.ts  Pure Bereitschafts-/Anzeige-Logik (Slice C.2): `ReformatReadiness`
+                  (ready/reading-mode/no-selection/no-editor) · `readinessMessage` (EINE Wahrheit
+                  für Notice und Panel-Kopfzeile) · `canRun` · `selectionPreview` ·
+                  `isRangeStale` · `groupTransforms` (teilt die Registry in die zwei Panel-Gruppen).
+reformat_progress.ts    Pure `waitingMessage(elapsedMs)` für die Vorschau, solange kein Token da
+                  ist. Bewusst ohne Diagnose — der Endpoint sagt nicht, ob geladen oder gedacht wird.
+reformat_picker.ts      `pickTransform` (FuzzySuggestModal über die Registry) + `promptInstruction`
+                  (Freitext-Modal). obsidian-gekoppelt, nach `note_picker.ts`-Muster.
+reformat_preview_modal.ts  `ReformatPreviewModal` — Ur-Text vs. gestreamtes Ergebnis, Anwenden/
+                  Neu/Verwerfen. Stale-Run-Guard (`this.controller !== ctrl`) auf allen Pfaden;
+                  `onClose` nullt den Controller, sonst wäre der Guard nach dem Schließen wirkungslos.
+reformat_panel.ts       `ReformatPanel` (HubPanel, 5. Tab) — rendert die Gruppen aus `TRANSFORMS`,
+                  zeigt Auswahl-Vorschau bzw. den Grund, deaktiviert alle Buttons wenn `canRun` false.
 main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab registrieren, file-Events
                   (modify/delete/rename), 3 s-Debounce, 60 s-Drain, EmbeddingProgress + Statusleiste.
                   Zusätzlich Index-Robustheit: `loadIndex` klassifiziert per `index_guard` in
@@ -123,6 +152,11 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
                   (`diffIndexVsVault` + `LiveIndexer.healMissing`) bei erkannter Lücke an,
                   `snapshotIndex`/`listBackups`/`restoreBackup` verwalten die geräte-lokalen
                   Index-Backups (`index_backup.ts`).
+                  Reformat (Slice C): `captureSelection` schreibt die Editor-Auswahl laufend mit
+                  (entprellter `selectionchange`-Listener + `active-leaf-change`), weil
+                  `workspace.activeEditor` null ist, sobald der Fokus im Sidebar-Panel liegt;
+                  `runTransform` ist der gemeinsame Weg für Command, Kontextmenü und Panel und
+                  guarded jedes `replaceRange` mit `captureIsLive` + `isRangeStale`.
 ```
 
 **Index-Format (Slice A, unveränderlich):** `notes.i8` (Int8-Matrix) · `paths.json` · `manifest.json`.
@@ -146,7 +180,7 @@ persistierter Wert (falls key + storage vorhanden) sonst defaultCollapsed (Fallb
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (631 Tests, 47 Files)
+npm test                          # vitest run     (684 Tests, 52 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
 npx vitest run tests/<datei>      # eine Test-Datei
@@ -218,6 +252,23 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 - **MCP-Server läuft in-Plugin (HTTP)** statt als separater stdio-CLI: desktop-only via
   `Platform.isMobile`-Gate, Loopback (`127.0.0.1`) + Bearer-Token, läuft nur solange Obsidian
   offen ist (kein eigenständiger Prozess); Spec `docs/superpowers/specs/2026-07-09-mcp-server-design.md`.
+- **`editorCallback` blendet einen Command aus der Palette aus**, sobald kein Markdown-Editor
+  fokussiert ist — Lesemodus, Fokus in der Sidebar, Canvas/Graph/PDF/Settings. Für den Nutzer sieht
+  das aus, als wäre der Command **verschwunden** (real passiert, Slice C.2). Wenn ein Command auch
+  ohne Editor auffindbar bleiben soll: `callback` nehmen und den Grund per Notice erklären
+  (`readinessMessage` in `reformat_selection_state.ts` ist dafür die eine Wahrheit). Im Lesemodus
+  ist Umformatieren **grundsätzlich** unmöglich — Obsidian stellt dort keinen Editor-State bereit,
+  die sichtbare Markierung ist eine DOM-Selektion.
+- **Ein `Editor` gehört zur View, nicht zur Datei.** Öffnet man im selben Pane eine andere Notiz,
+  bleibt **dieselbe** `Editor`-Instanz bestehen. Wer sich eine Auswahl merkt, darf sich deshalb
+  nicht auf die Editor-Identität verlassen: bei zufällig passendem Text (Template-Notizen,
+  Boilerplate-Header) landet die Ersetzung sonst in der **falschen Notiz**. `captureIsLive`
+  (`main.ts`) prüft daher Editor-Identität **und** `getMode() === "source"` **und** `file.path`.
+- **Escapte Pipes müssen beim Rendern re-escaped werden.** `\|` in einer Markdown-Tabellenzelle wird
+  beim Parsen zu `|`; schreibt man es un-escaped zurück, zerfällt eine Zelle in zwei, Header- und
+  Delimiter-Spaltenzahl divergieren und der Inhalt ist beim nächsten Edit dauerhaft zerrissen.
+  Besonders heikel, weil mechanische Transforms **ohne Vorschau sofort** ersetzen. `renderTable`
+  (`reformat_mechanical.ts`) escapet; ein Round-Trip-Test pinnt die Parse/Render-Symmetrie.
 
 ## Memory
 

@@ -13,6 +13,10 @@ export default tseslint.config(
   ...obsidianmd.configs.recommended,
   {
     rules: {
+      // obsidianmd/no-nodejs-modules ist auf severity "warning" in recommended konfiguriert.
+      // Ein ungeguardeter Top-Level-import "node:fs" würde zur Laufzeit auf Obsidian Mobile
+      // fehlschlagen — dieser Build-Fehler muss laut werden, nicht nur warnen.
+      "obsidianmd/no-nodejs-modules": "error",
       // Deutsche UI: Substantive werden großgeschrieben. Die Regel erwartet englische
       // sentence-case ("Verwandte notizen") und ist hier sprachlich falsch — der offizielle
       // Obsidian-Review flaggt sie ebenfalls nicht.

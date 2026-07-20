@@ -1218,7 +1218,7 @@ export default class VaultRagPlugin extends Plugin {
       const { startMcpServer } = await import("./mcp/http_server");
       // Symlink-Escape-Schutz (Fix 1): vault.adapter.read folgt OS-Symlinks — eine .md-Symlink
       // innerhalb des Vaults, die nach außen zeigt, würde sonst Fremd-Dateiinhalt an externe
-      // Agents leaken. Desktop-only, dynamisch importiert, damit Mobile nie node:fs/path lädt.
+      // Agents leaken. Desktop-only, dynamisch importiert.
       const { makeVaultReadGuard } = await import("./mcp/vault_read_guard");
       const adapter = this.app.vault.adapter;
       if (adapter instanceof FileSystemAdapter) {

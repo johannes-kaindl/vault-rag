@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, FileSystemAdapter, requestUrl, Editor } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, FileSystemAdapter, requestUrl, Editor, EditorPosition, MarkdownView } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
@@ -29,9 +29,11 @@ import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexV
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { pickTransform, promptInstruction } from "./reformat_picker";
+import type { TransformDef } from "./reformat_transforms";
 import { splitSelectionAffix } from "./reformat_mechanical";
 import { ReformatPreviewModal } from "./reformat_preview_modal";
 import { REFORMAT_MAX_TOKENS } from "./reformat_prompts";
+import { ReformatReadiness, readinessMessage, canRun, isRangeStale } from "./reformat_selection_state";
 import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
 import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
@@ -44,6 +46,10 @@ export interface EmbeddingProgress {
   /** Während eines Voll-Reindex: Fortschritt durch die Notiz-Liste; sonst null. */
   reindex: { done: number; total: number } | null;
 }
+
+/** Entprellung des selectionchange-Listeners: hoch genug gegen Tipp-Rauschen,
+ *  niedrig genug, dass das Panel dem Markieren unmittelbar folgt. */
+const SELECTION_DEBOUNCE_MS = 150;
 
 export default class VaultRagPlugin extends Plugin {
   settings!: VaultRagSettings;
@@ -78,6 +84,10 @@ export default class VaultRagPlugin extends Plugin {
   private mcpServer: McpServerHandle | null = null;
   private mcpLastStartError: string | null = null;
   private mcpOpChain: Promise<void> = Promise.resolve();
+  private lastCapture: { editor: Editor; from: EditorPosition; to: EditorPosition; text: string } | null = null;
+  private lastReadiness: ReformatReadiness = { kind: "no-editor" };
+  private selectionDebounce: number | null = null;
+  private reformatPanel: { refresh(): void } | null = null;
 
   /** Serialisiert mutierende Index-Operationen (mutate+build+persist), damit der persist-Guard
    *  nicht durch nebenläufige Events (z.B. Ordner-Bulk-Delete) fälschlich Shrink meldet und kein
@@ -101,6 +111,41 @@ export default class VaultRagPlugin extends Plugin {
     const f = this.app.vault.getAbstractFileByPath(p);
     if (f instanceof TFile) void this.app.workspace.getLeaf(false).openFile(f);
   };
+
+  /** Liest den Editor-Zustand und schreibt Auswahl + Bereitschaft mit.
+   *  Wichtig: liegt gerade KEIN Markdown-View vorn (z.B. weil der Fokus im Sidebar-Panel
+   *  ist), bleibt der zuletzt gemerkte Stand stehen — genau dafür existiert die Mitschrift.
+   *  `workspace.activeEditor` ist laut API in diesem Moment null. */
+  private captureSelection(): void {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) return;
+    if (view.getMode() !== "source") {
+      this.lastReadiness = { kind: "reading-mode" };
+      this.lastCapture = null;
+      return;
+    }
+    const editor = view.editor;
+    const text = editor.getSelection();
+    if (!text.trim()) {
+      this.lastReadiness = { kind: "no-selection" };
+      this.lastCapture = null;
+      return;
+    }
+    this.lastCapture = { editor, from: editor.getCursor("from"), to: editor.getCursor("to"), text };
+    this.lastReadiness = { kind: "ready", text };
+  }
+
+  /** Gehört der gemerkte Editor noch zu einer offenen Markdown-Ansicht? Schützt davor,
+   *  in einen abgehängten Editor zu schreiben, nachdem die Notiz geschlossen wurde. */
+  private captureIsLive(editor: Editor): boolean {
+    return this.app.workspace.getLeavesOfType("markdown")
+      .some(leaf => leaf.view instanceof MarkdownView && leaf.view.editor === editor);
+  }
+
+  /** Aktueller Bereitschaftszustand — vom Sidebar-Panel gelesen. */
+  reformatReadiness(): ReformatReadiness {
+    return this.lastReadiness;
+  }
 
   async onload() {
     const loaded = await this.loadData() as (Partial<VaultRagSettings> & { embeddingEndpoint?: string; chatEndpoint?: string }) | null;
@@ -252,7 +297,11 @@ export default class VaultRagPlugin extends Plugin {
     this.addCommand({
       id: "reformat-selection",
       name: "Abschnitt umformatieren",
-      editorCallback: (editor: Editor) => void this.reformatSelection(editor),
+      // Bewusst `callback` statt `editorCallback`: editorCallback blendet den Command
+      // aus der Palette aus, sobald kein Editor aktiv ist (Lesemodus, Fokus in der
+      // Sidebar) — er verschwand dadurch kommentarlos. Jetzt immer sichtbar und
+      // selbsterklärend über readinessMessage().
+      callback: () => void this.reformatFromCommand(),
     });
 
     this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor) => {
@@ -260,8 +309,20 @@ export default class VaultRagPlugin extends Plugin {
       menu.addItem(item => item
         .setTitle("Abschnitt umformatieren")
         .setIcon("wand")
-        .onClick(() => void this.reformatSelection(editor)));
+        .onClick(() => void this.reformatFromCommand()));
     }));
+
+    this.registerDomEvent(activeDocument, "selectionchange", () => {
+      if (this.selectionDebounce !== null) window.clearTimeout(this.selectionDebounce);
+      this.selectionDebounce = window.setTimeout(() => {
+        this.selectionDebounce = null;
+        this.captureSelection();
+        this.reformatPanel?.refresh();
+      }, SELECTION_DEBOUNCE_MS);
+    });
+    this.register(() => {
+      if (this.selectionDebounce !== null) window.clearTimeout(this.selectionDebounce);
+    });
 
     this.app.workspace.onLayoutReady(() => this.migrateOldLeaves());
   }
@@ -550,38 +611,42 @@ export default class VaultRagPlugin extends Plugin {
     new Notice(this.indexHealthy ? "Index aus Backup wiederhergestellt." : "Wiederhergestellter Index ließ sich nicht laden.");
   }
 
-  /** Umformatieren-Flow: Selektion → Picker → mechanisch anwenden ODER LLM-Vorschau. */
-  private async reformatSelection(editor: Editor): Promise<void> {
-    const text = editor.getSelection();
-    if (!text.trim()) { new Notice("Bitte einen Abschnitt markieren."); return; }
-    // Range beim Auslösen festhalten — Picker/Modal ziehen den Editor-Fokus ab.
-    const from = editor.getCursor("from");
-    const to = editor.getCursor("to");
-
-    // Umgebende Leerzeichen (z.B. eine Trailing-Newline aus Shift+Down über die letzte
-    // Tabellenzeile) NICHT mit in den Transform geben — alle Transforms liefern getrimmten
-    // Output — sondern beim Zurückschreiben wieder anfügen, sonst verschluckt replaceRange
-    // sie und die Folgezeile rutscht in den umformatierten Block. Der All-Whitespace-Fall
-    // ist durch den obigen !text.trim()-Guard bereits ausgeschlossen.
-    const { lead, core, trail } = splitSelectionAffix(text);
-
+  /** Command-/Kontextmenü-Weg: Zustand frisch erfassen, Picker zeigen, ausführen. */
+  private async reformatFromCommand(): Promise<void> {
+    this.captureSelection();
+    if (!canRun(this.lastReadiness)) { new Notice(readinessMessage(this.lastReadiness)); return; }
     const def = await pickTransform(this.app);
     if (!def) return;
+    await this.runTransform(def);
+  }
+
+  /** Führt einen Transform auf der gemerkten Auswahl aus — gemeinsamer Weg für Command,
+   *  Kontextmenü und Sidebar-Panel (eine Ausführungs-Wahrheit). */
+  async runTransform(def: TransformDef, instruction?: string): Promise<void> {
+    const cap = this.lastCapture;
+    if (!cap || !canRun(this.lastReadiness)) { new Notice(readinessMessage(this.lastReadiness)); return; }
+    if (!this.captureIsLive(cap.editor)) { new Notice("Die Notiz ist nicht mehr offen — bitte neu markieren."); return; }
+    if (isRangeStale(cap.editor.getRange(cap.from, cap.to), cap.text)) {
+      new Notice("Die Auswahl hat sich geändert — bitte neu markieren."); return;
+    }
+
+    // Umgebende Leerzeichen nicht in den Transform geben, beim Zurückschreiben wieder anfügen.
+    const { lead, core, trail } = splitSelectionAffix(cap.text);
 
     if (def.kind === "mechanical") {
       const result = def.run(core);
       if (result == null) { new Notice(`„${def.label}" passt nicht zur Auswahl.`); return; }
-      editor.replaceRange(lead + result + trail, from, to);
+      cap.editor.replaceRange(lead + result + trail, cap.from, cap.to);
       return;
     }
 
-    let instruction: string | undefined;
-    if (def.freetext) {
-      const instr = await promptInstruction(this.app);
-      if (instr == null) return;
-      instruction = instr;
+    let instr = instruction;
+    if (def.freetext && instr === undefined) {
+      const typed = await promptInstruction(this.app);
+      if (typed == null) return;
+      instr = typed;
     }
-    const messages = def.buildMessages(core, instruction);
+    const messages = def.buildMessages(core, instr);
 
     new ReformatPreviewModal(this.app, {
       original: core,
@@ -593,7 +658,14 @@ export default class VaultRagPlugin extends Plugin {
           maxTokens: REFORMAT_MAX_TOKENS,
         })
         .then(r => r.content),
-      onApply: (result) => editor.replaceRange(lead + result + trail, from, to),
+      onApply: (result) => {
+        // Erneut prüfen: zwischen Öffnen des Modals und „Anwenden" kann editiert worden sein.
+        if (!this.captureIsLive(cap.editor) || isRangeStale(cap.editor.getRange(cap.from, cap.to), cap.text)) {
+          new Notice("Die Auswahl hat sich geändert — nichts eingefügt.");
+          return;
+        }
+        cap.editor.replaceRange(lead + result + trail, cap.from, cap.to);
+      },
     }).open();
   }
 

@@ -3,7 +3,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-DOCS)
 [![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fcodeberg.org&label=release)](https://codeberg.org/jkaindl/vault-rag/releases)
-![Platform](https://img.shields.io/badge/platform-Obsidian%201.4%2B%20·%20desktop%20%26%20mobile-7c3aed)
+![Platform](https://img.shields.io/badge/platform-Obsidian%201.13%2B%20·%20desktop%20%26%20mobile-7c3aed)
 
 **Retrieval over your own vault — related notes, semantic search, and grounded chat — running locally and offline.**
 
@@ -22,7 +22,7 @@ Vault Retrieval turns your notes into a searchable knowledge base without sendin
 
 ## Requirements
 
-- **Obsidian 1.4+** (desktop or mobile).
+- **Obsidian 1.13+** (desktop or mobile).
 - An **embedding index** in `<vault>/_vaultrag/` (default path; configurable in settings and hidden in the file explorer by default) — produced by your indexing backend and synced with the vault. The related-notes panel and semantic search need only this index; no running server.
 - For **chat** (and live re-indexing): an **OpenAI-compatible local LLM endpoint** ([Ollama](https://ollama.com) for embeddings, [LM Studio](https://lmstudio.ai) for chat). New to local LLMs? The **[local LLM setup guide](https://uplink.jkaindl.de/llm-setup)** walks you through it. Configurable in settings; nothing leaves your machine.
 

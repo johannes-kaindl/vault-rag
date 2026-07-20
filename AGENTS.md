@@ -180,7 +180,7 @@ persistierter Wert (falls key + storage vorhanden) sonst defaultCollapsed (Fallb
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (684 Tests, 52 Files)
+npm test                          # vitest run     (688 Tests, 52 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
 npx vitest run tests/<datei>      # eine Test-Datei

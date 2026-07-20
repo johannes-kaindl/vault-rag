@@ -24,11 +24,21 @@ export default tseslint.config(
   // (kein Inline-eslint-disable, weil der Obsidian-Review das verbietet.)
   { files: ["src/settings.ts"], rules: { "@typescript-eslint/no-deprecated": "off" } },
   // In-Plugin MCP-HTTP-Server: nutzt node:-Builtins (desktop-only, lazy require) sowie
-  // die Node-Globals Buffer/require. Nur diese zwei Regeln sind hier abgeschaltet — alle
-  // anderen Regeln (inkl. obsidianmd/*) gelten weiterhin für diese Dateien.
+  // die Node-Globals Buffer/require. Der node:http-Fund von obsidianmd/no-nodejs-modules
+  // ist ein bekannter Rest, den ein Folge-Task aufräumt.
   {
-    files: ["src/mcp/http_server.ts", "src/mcp/vault_read_guard.ts"],
+    files: ["src/mcp/http_server.ts"],
     languageOptions: { globals: { Buffer: "readonly", require: "readonly" } },
-    rules: { "import/no-nodejs-modules": "off" },
+  },
+  // main.ts laedt node:fs/promises und node:path nur lazy in doStartMcpServer, hinter dem
+  // Platform.isMobile-Return (siehe dort) — Mobile durchläuft diesen Codepfad nie. Datei-
+  // Override statt Inline-eslint-disable, weil der Obsidian-Review Inline-disables verbietet.
+  {
+    files: ["src/main.ts"],
+    languageOptions: { globals: { require: "readonly" } },
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+      "obsidianmd/no-nodejs-modules": "off",
+    },
   },
 );

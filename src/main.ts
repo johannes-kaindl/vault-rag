@@ -1222,7 +1222,15 @@ export default class VaultRagPlugin extends Plugin {
       const { makeVaultReadGuard } = await import("./mcp/vault_read_guard");
       const adapter = this.app.vault.adapter;
       if (adapter instanceof FileSystemAdapter) {
-        this.guardedRead = makeVaultReadGuard(adapter.getBasePath(), (p) => adapter.read(p));
+        // Node-Builtins erst hier laden: dieser Pfad ist durch das Platform.isMobile-Return
+        // oben bereits als Desktop-only abgesichert.
+        const nodeFs = require("node:fs/promises") as typeof import("node:fs/promises");
+        const nodePath = require("node:path") as typeof import("node:path");
+        this.guardedRead = makeVaultReadGuard(adapter.getBasePath(), (p) => adapter.read(p), {
+          realpath: nodeFs.realpath,
+          join: nodePath.join,
+          sep: nodePath.sep,
+        });
       }
       const tools = new McpTools(this.facade);
       this.mcpServer = await startMcpServer({ port: this.settings.mcpPort, token, tools, version: this.manifest.version });

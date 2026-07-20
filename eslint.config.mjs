@@ -30,15 +30,4 @@ export default tseslint.config(
     files: ["src/mcp/http_server.ts"],
     languageOptions: { globals: { Buffer: "readonly", require: "readonly" } },
   },
-  // main.ts laedt node:fs/promises und node:path nur lazy in doStartMcpServer, hinter dem
-  // Platform.isMobile-Return (siehe dort) — Mobile durchläuft diesen Codepfad nie. Datei-
-  // Override statt Inline-eslint-disable, weil der Obsidian-Review Inline-disables verbietet.
-  {
-    files: ["src/main.ts"],
-    languageOptions: { globals: { require: "readonly" } },
-    rules: {
-      "@typescript-eslint/no-require-imports": "off",
-      "obsidianmd/no-nodejs-modules": "off",
-    },
-  },
 );

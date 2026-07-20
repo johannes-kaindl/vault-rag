@@ -69,4 +69,16 @@ describe("makeVaultReadGuard mit injiziertem io", () => {
     const guard = makeVaultReadGuard("/vault", read, fakeIo);
     await expect(guard("leak.md")).rejects.toThrow(/Symlink|Vault/);
   });
+
+  it("wirft fuer ein Geschwisterverzeichnis, dessen Name den Vault-Pfad als Praefix hat", async () => {
+    // Regressionsschutz fuer io.sep: ohne den Separator in der Prefix-Pruefung wuerde
+    // "/vaultother/x.md".startsWith("/vault") faelschlich durchgehen.
+    const siblingIo = {
+      realpath: async (p: string) => (p.endsWith("sibling.md") ? "/vaultother/x.md" : p),
+      join: (...parts: string[]) => parts.join("/"),
+      sep: "/",
+    };
+    const guard = makeVaultReadGuard("/vault", read, siblingIo);
+    await expect(guard("sibling.md")).rejects.toThrow(/Symlink|Vault/);
+  });
 });

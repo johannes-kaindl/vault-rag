@@ -132,7 +132,7 @@ export class RestoreBackupModal extends Modal {
     if (this.entries.length === 0) { contentEl.createEl("p", { text: "Keine Backups vorhanden." }); return; }
     for (const e of this.entries) {
       const row = new Setting(contentEl).setName(`${e.count.toLocaleString("de-DE")} Notizen`).setDesc(e.name);
-      row.addButton(b => b.setButtonText("Wiederherstellen").setWarning().onClick(() => { this.close(); this.onPick(e.name); }));
+      row.addButton(b => b.setButtonText("Wiederherstellen").setDestructive().onClick(() => { this.close(); this.onPick(e.name); }));
     }
   }
   onClose(): void { this.contentEl.empty(); }
@@ -181,7 +181,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   /** Re-Render nach einem Daten-Refresh (z.B. „Modelle laden“). */
   private rerender(): void {
-    // display() ist seit 1.13 deprecated, bleibt aber der Render-Pfad für minAppVersion 1.7.2.
+    // display() ist seit 1.13 deprecated, bleibt aber der Render-Pfad, bis die deklarative
+    // Settings-API in einem eigenen Slice die Umstellung übernimmt.
     this.display();
   }
 
@@ -827,7 +828,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Vault neu indizieren")
       .setDesc("Baut den kompletten Index von Grund auf neu — der letzte Ausweg.")
-      .addButton(b => b.setButtonText("Neu indizieren").setWarning().onClick(() => {
+      .addButton(b => b.setButtonText("Neu indizieren").setDestructive().onClick(() => {
         new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open();
       }));
   }
@@ -878,7 +879,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .setDesc(this.showMcpToken ? token : maskToken(token))
       .addButton(b => b.setButtonText(this.showMcpToken ? "Verbergen" : "Anzeigen")
         .onClick(() => { this.showMcpToken = !this.showMcpToken; this.display(); }))
-      .addButton(b => b.setButtonText("Neu generieren").setWarning()
+      .addButton(b => b.setButtonText("Neu generieren").setDestructive()
         .onClick(async () => {
           await this.plugin.rotateMcpToken();
           new Notice("Neuer Token — alte Clients müssen neu verbunden werden");

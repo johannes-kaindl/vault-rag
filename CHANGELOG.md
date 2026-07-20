@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.1] — 2026-07-20
+
 ### Changed
 - **Bumped `minAppVersion` to 1.13.0.** Installations on Obsidian below 1.13 will no longer receive
   updates. Reason: `setDestructive()` — used for the three destructive-action buttons below — only

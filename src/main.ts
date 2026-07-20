@@ -34,6 +34,7 @@ import { splitSelectionAffix } from "./reformat_mechanical";
 import { ReformatPreviewModal } from "./reformat_preview_modal";
 import { REFORMAT_MAX_TOKENS } from "./reformat_prompts";
 import { ReformatReadiness, readinessMessage, canRun, isRangeStale } from "./reformat_selection_state";
+import { ReformatPanel } from "./reformat_panel";
 import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
 import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
@@ -87,7 +88,7 @@ export default class VaultRagPlugin extends Plugin {
   private lastCapture: { editor: Editor; from: EditorPosition; to: EditorPosition; text: string } | null = null;
   private lastReadiness: ReformatReadiness = { kind: "no-editor" };
   private selectionDebounce: number | null = null;
-  private reformatPanel: { refresh(): void } | null = null;
+  private reformatPanel: ReformatPanel | null = null;
 
   /** Serialisiert mutierende Index-Operationen (mutate+build+persist), damit der persist-Guard
    *  nicht durch nebenläufige Events (z.B. Ordner-Bulk-Delete) fälschlich Shrink meldet und kein
@@ -283,6 +284,7 @@ export default class VaultRagPlugin extends Plugin {
     this.addCommand({ id: "open-related", name: "Verwandte Notizen öffnen", callback: () => void this.openHub("related") });
     this.addCommand({ id: "open-semantic-search", name: "Semantische Suche öffnen", callback: () => void this.openHub("search") });
     this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => void this.openHub("chat") });
+    this.addCommand({ id: "open-reformat", name: "Umformatieren-Panel öffnen", callback: () => void this.openHub("reformat") });
     this.addCommand({
       id: "smart-apply-active-note",
       name: "Smart Apply auf aktive Notiz",
@@ -393,6 +395,12 @@ export default class VaultRagPlugin extends Plugin {
         templateDefaultMode: (templatePath: string) => this.templateDefaultMode(templatePath),
       }));
     }
+    const reformat = new ReformatPanel({
+      getReadiness: () => this.reformatReadiness(),
+      run: (def, instruction) => void this.runTransform(def, instruction),
+    });
+    this.reformatPanel = reformat;
+    panels.push(reformat);
     return panels;
   }
 

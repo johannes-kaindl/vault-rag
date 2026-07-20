@@ -1,4 +1,4 @@
-export type TabId = "related" | "search" | "chat" | "smart-apply";
+export type TabId = "related" | "search" | "chat" | "smart-apply" | "reformat";
 
 /** Ein Panel im Vault-Retrieval-Hub. Kein ItemView — bekommt seinen Container injiziert,
  *  bleibt gemountet (State-Persistenz), wird nur per display:none aus-/eingeblendet. */

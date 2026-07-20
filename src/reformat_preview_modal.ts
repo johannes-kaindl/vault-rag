@@ -1,4 +1,5 @@
 import { App, Modal, ButtonComponent } from "obsidian";
+import { waitingMessage } from "./reformat_progress";
 
 export interface ReformatPreviewOpts {
   /** Der markierte Ur-Text (nur Anzeige). */
@@ -15,8 +16,13 @@ export class ReformatPreviewModal extends Modal {
   private result = "";
   private resultEl: HTMLElement | null = null;
   private applyBtn: ButtonComponent | null = null;
+  private waitTimer: number | null = null;
 
   constructor(app: App, private opts: ReformatPreviewOpts) { super(app); }
+
+  private stopWaitTimer(): void {
+    if (this.waitTimer !== null) { window.clearInterval(this.waitTimer); this.waitTimer = null; }
+  }
 
   onOpen(): void {
     const { contentEl } = this;
@@ -36,23 +42,38 @@ export class ReformatPreviewModal extends Modal {
 
   private async run(): Promise<void> {
     this.controller?.abort();
+    this.stopWaitTimer();
     const ctrl = new AbortController();
     this.controller = ctrl;
     this.result = "";
-    this.resultEl?.setText("");
     this.applyBtn?.setDisabled(true);
+
+    // Wartezustand bis zum ersten Token: ohne ihn ist ein kalter Modell-Start nicht von
+    // einem Haenger zu unterscheiden — der leere Ergebnisbereich sagt nichts.
+    const startedAt = Date.now();
+    let firstToken = false;
+    this.resultEl?.setText(waitingMessage(0));
+    this.waitTimer = window.setInterval(() => {
+      if (this.controller !== ctrl || firstToken) return;
+      this.resultEl?.setText(waitingMessage(Date.now() - startedAt));
+    }, 1000);
+
     try {
       const out = await this.opts.stream((t) => {
         if (this.controller !== ctrl) return;
+        // Erstes Token: Wartetext verwerfen, ab hier zeigt der Stream sich selbst.
+        if (!firstToken) { firstToken = true; this.stopWaitTimer(); }
         this.result += t;
         this.resultEl?.setText(this.result);
       }, ctrl.signal);
       if (this.controller !== ctrl) return;
+      this.stopWaitTimer();
       this.result = out;
       this.resultEl?.setText(out);
       this.applyBtn?.setDisabled(out.trim().length === 0);
     } catch (e) {
       if (this.controller !== ctrl) return;
+      this.stopWaitTimer();
       this.resultEl?.setText(`Fehler: ${e instanceof Error ? e.message : String(e)}`);
       this.applyBtn?.setDisabled(true);
     }
@@ -61,6 +82,7 @@ export class ReformatPreviewModal extends Modal {
   onClose(): void {
     this.controller?.abort();
     this.controller = null;
+    this.stopWaitTimer();
     this.contentEl.empty();
   }
 }

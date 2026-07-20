@@ -94,6 +94,60 @@ Eskalationsstufen, falls das die Regel nicht befriedigt (in dieser Reihenfolge):
 2. Begründetes `eslint-disable-next-line` mit Kommentar, dass ein type-only Import
    nachweislich keinen Runtime-Code erzeugt.
 
+## Präzisierung während der Umsetzung (2026-07-20, nach Task 4)
+
+**Wie `obsidianmd/no-nodejs-modules` tatsächlich prüft.** Maßgeblich ist die Regelquelle
+`node_modules/eslint-plugin-obsidianmd/dist/lib/rules/noNodejsModules.js` (Plugin 0.4.1) — nicht
+ihre Testfälle, die nur ungeschützte Fälle abdecken und den Eindruck erwecken, die Regel sei
+kontextblind. Sie ist es nicht:
+
+- `CallExpression` (`require`) und `ImportExpression` (dynamisches `import`) laufen durch
+  `isGuardedByPlatformIsDesktop`. Ein Aufruf innerhalb von `if (Platform.isDesktop) { … }` wird
+  akzeptiert; zwischenliegende Blöcke unterbrechen die Vorfahren-Suche nicht.
+- `hasGuardAtFunctionStart` akzeptiert zusätzlich exklusiv `!Platform.isDesktop` als **erste**
+  Anweisung einer Funktion. Ein `if (Platform.isMobile || …) return;` erfüllt das **nicht** —
+  daran scheiterte der erste Versuch in `doStartMcpServer`.
+- Nur statische `ImportDeclaration` wird bedingungslos gemeldet, unabhängig von jedem Guard.
+
+Daraus folgt die Umsetzungsregel für diesen Slice: **Node-Builtins innerhalb eines
+`if (Platform.isDesktop)`-Blocks laden** (bzw. hinter einem `!Platform.isDesktop`-Throw als erster
+Anweisung). Der Guard ist entscheidend, nicht die Lade-Syntax — `isGuardedByPlatformIsDesktop`
+gilt für `CallExpression` (`require`) genauso wie für `ImportExpression` (`await import`). Ein
+Override, der die Regel für eine ganze Datei abschaltet, ist ausdrücklich **kein** akzeptabler
+Ersatz: er würde in `src/main.ts` gerade den Fall verstecken, der Mobile wirklich bricht — einen
+künftigen Top-Level-`import` eines Node-Builtins.
+
+> [!warning] `await import()` von Node-Builtins ist in Obsidian zur Laufzeit kaputt
+> Empirisch belegt am 2026-07-20 in laufendem Obsidian. Der erste Umsetzungsversuch stellte
+> `require("node:…")` auf `await import("node:…")` um — beides erfüllt die Lint-Regel, und alle
+> 688 Tests, Lint, Typecheck und Build waren grün. Im echten Obsidian schlug der MCP-Start dann
+> fehl mit:
+>
+> `⚠ MCP-Server konnte nicht starten (Failed to fetch dynamically imported module: node:fs/promises)`
+>
+> Grund: Obsidian lädt `main.js` als CommonJS. Ein dynamisches `import()` wird dort von
+> Electron/Chromium als **Netzwerk-Fetch** aufgelöst, nicht über den require-Mechanismus; für
+> `node:`-Builtins scheitert das. `esbuild` reicht das `import()` unverändert durch, weil die
+> Builtins als `external` markiert sind.
+>
+> **Verbindlich: `require("node:…")` innerhalb des `Platform.isDesktop`-Guards verwenden.** Der
+> dafür nötige Verzicht auf `@typescript-eslint/no-require-imports` (enger Datei-Override, ohne
+> `obsidianmd/no-nodejs-modules` anzurühren) ist der korrekte Preis. Ein funktionierendes Feature
+> schlägt eine saubere Lint-Zeile.
+>
+> **Vitest kann diesen Fehler nicht fangen** — die Tests laufen unter Node, wo
+> `import("node:fs/promises")` trivial funktioniert. Jede Änderung am Ladeweg von Node-Builtins
+> braucht daher einen manuellen Start in echtem Obsidian, bevor sie als fertig gilt.
+
+Für `src/mcp/http_server.ts:3` bleibt die statische Form `import type { … } from "node:http"` damit
+der einzige irreduzible Fall. Er ist nur durch Entfernen des Imports lösbar — also durch die in
+Schritt 4 vorgesehene Eskalationsstufe 1 (strukturelle Typen). Das ist Aufgabe von Task 5.
+
+Der Kurs aus Schritt 4 (Injection statt Top-Level-Import) bleibt unabhängig davon richtig:
+`vault_read_guard.ts` wird dadurch pur und ohne echtes Dateisystem testbar. Der Symlink-Guard
+selbst stand zur Disposition und wurde bewusst behalten — er schließt ein real gefixtes Leck
+(Symlink im Vault → Fremdinhalt an externe MCP-Agents).
+
 ## Nicht im Scope
 
 - **`getSettingDefinitions()`** — eigener Slice. Offene Frage für dessen Brainstorming: Lassen
@@ -106,7 +160,7 @@ Eskalationsstufen, falls das die Regel nicht befriedigt (in dieser Reihenfolge):
 ## Verifikation
 
 - `npm run lint` mit 0.4.1: grün, und die vier Warnings waren vor den Fixes reproduzierbar
-- Volle Testsuite (684 Tests): grün
+- Volle Testsuite (688 Tests): grün
 - `npm run build`: grün
 - Manuelle GUI-Prüfung der drei Destructive-Buttons in den Settings
 

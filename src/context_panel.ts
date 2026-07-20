@@ -26,10 +26,10 @@ export class ContextPanel {
   mount(el: HTMLElement): void {
     el.empty();
     const head = el.createDiv({ cls: "vault-rag-ctx-head" });
-    this.countEl = head.createEl("span", { cls: "vault-rag-ctx-count", text: "Kontext (0)" });
+    this.countEl = head.createSpan({ cls: "vault-rag-ctx-count", text: "Kontext (0)" });
     const kWrap = head.createDiv({ cls: "vault-rag-ctx-k" });
     kWrap.createEl("button", { cls: "vault-rag-ctx-kdec", text: "−" }).addEventListener("click", () => this.setAutoK(this.autoK - 1));
-    this.kEl = kWrap.createEl("span", { cls: "vault-rag-ctx-kval", text: `Auto ${this.autoK}` });
+    this.kEl = kWrap.createSpan({ cls: "vault-rag-ctx-kval", text: `Auto ${this.autoK}` });
     kWrap.createEl("button", { cls: "vault-rag-ctx-kinc", text: "+" }).addEventListener("click", () => this.setAutoK(this.autoK + 1));
     head.createEl("button", { cls: "vault-rag-ctx-active", text: "+ Aktive Notiz" }).addEventListener("click", () => this.addActive());
     head.createEl("button", { cls: "vault-rag-ctx-pick", text: "+ Notiz" }).addEventListener("click", () => void this.addViaPicker());
@@ -82,11 +82,11 @@ export class ContextPanel {
     const el = this.listEl; if (!el) return; el.empty();
     this.countEl?.setText(`Kontext (${this.currentPaths().length})`);
     for (const p of this.pinned) {
-      const chip = el.createEl("span", { cls: "vault-rag-ctx-chip is-pinned", text: `📌 ${this.basename(p)} ✕` });
+      const chip = el.createSpan({ cls: "vault-rag-ctx-chip is-pinned", text: `📌 ${this.basename(p)} ✕` });
       chip.addEventListener("click", () => this.unpin(p));
     }
     for (const p of this.autoDocs) {
-      const chip = el.createEl("span", { cls: "vault-rag-ctx-chip is-auto", text: `${this.basename(p)} ✕` });
+      const chip = el.createSpan({ cls: "vault-rag-ctx-chip is-auto", text: `${this.basename(p)} ✕` });
       chip.addEventListener("click", () => this.excludeAuto(p));
     }
   }

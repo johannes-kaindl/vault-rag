@@ -1218,11 +1218,28 @@ export default class VaultRagPlugin extends Plugin {
       const { startMcpServer } = await import("./mcp/http_server");
       // Symlink-Escape-Schutz (Fix 1): vault.adapter.read folgt OS-Symlinks — eine .md-Symlink
       // innerhalb des Vaults, die nach außen zeigt, würde sonst Fremd-Dateiinhalt an externe
-      // Agents leaken. Desktop-only, dynamisch importiert, damit Mobile nie node:fs/path lädt.
+      // Agents leaken. Desktop-only, dynamisch importiert.
       const { makeVaultReadGuard } = await import("./mcp/vault_read_guard");
       const adapter = this.app.vault.adapter;
       if (adapter instanceof FileSystemAdapter) {
-        this.guardedRead = makeVaultReadGuard(adapter.getBasePath(), (p) => adapter.read(p));
+        // Node-Builtins nur hinter explizitem Platform.isDesktop-Guard laden (zusätzlich zum
+        // Platform.isMobile-Return oben): so erkennt obsidianmd/no-nodejs-modules den Import
+        // selbst als abgesichert, ohne Datei-weiten Regel-Override.
+        if (Platform.isDesktop) {
+          // ACHTUNG: bewusst require(), nicht await import() — sieht unsauberer aus, ist es
+          // aber nicht: Obsidian lädt main.js als CommonJS, und ein dynamisches import() eines
+          // node:-Builtins wird von Electron/Chromium dort als Netzwerk-Fetch aufgelöst statt
+          // über den require-Mechanismus. Laufzeitfehler im echten Obsidian (vitest unter Node
+          // sieht das nicht): "Failed to fetch dynamically imported module: node:fs/promises".
+          // Nicht erneut auf import() umstellen — siehe eslint.config.mjs für den Regel-Override.
+          const nodeFs = require("node:fs/promises") as typeof import("node:fs/promises");
+          const nodePath = require("node:path") as typeof import("node:path");
+          this.guardedRead = makeVaultReadGuard(adapter.getBasePath(), (p) => adapter.read(p), {
+            realpath: nodeFs.realpath,
+            join: nodePath.join,
+            sep: nodePath.sep,
+          });
+        }
       }
       const tools = new McpTools(this.facade);
       this.mcpServer = await startMcpServer({ port: this.settings.mcpPort, token, tools, version: this.manifest.version });

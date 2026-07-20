@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Bumped `minAppVersion` to 1.13.0.** Installations on Obsidian below 1.13 will no longer receive
+  updates. Reason: `setDestructive()` — used for the three destructive-action buttons below — only
+  exists from 1.13 onward.
+- Cleared the remaining Obsidian community-store review warnings: `createSpan(…)` instead of
+  `createEl("span", …)` at 7 call sites, and `setDestructive()` instead of the deprecated
+  `setWarning()` at 3 call sites (reindex, MCP token regeneration, backup restore).
+- Removed every `node:` import flagged by the store review's `no-nodejs-modules` lint. Node
+  operations are now injected into the read-guard instead of imported at module top level, desktop-
+  only code paths load Node built-ins via `await import(…)` inside `Platform.isDesktop` checks
+  or with early platform guards instead of static imports or `require`, and the `node:http` type
+  import was replaced with local structural interfaces. `npm run lint` now reports zero
+  `no-nodejs-modules` occurrences.
+- The MCP server now throws explicitly when started outside a desktop platform, instead of relying
+  solely on its caller's guard.
+
+### Not changed
+Four points the store review flags are properties of the plugin or its dependencies, not bugs, and
+were left as-is:
+- **Direct Filesystem Access** — `fs.realpath` in the MCP server's symlink-escape guard; desktop-only
+  and scoped to that one check.
+- **Vault Enumeration** — the core function of a retrieval plugin.
+- **Clipboard Access** — write-only (`writeText`), always user-initiated; the clipboard is never read.
+- **Dynamic Code Execution** — `new Function` comes from `ajv`, pulled in via
+  `@modelcontextprotocol/sdk`; not code of this plugin.
+
+Also out of scope for this slice: `getSettingDefinitions()` (the declarative settings search
+available from Obsidian 1.13) and the `display()` deprecation it would resolve — both are reserved
+for a separate slice.
+
 ## [0.16.0] — 2026-07-20
 
 ### Added

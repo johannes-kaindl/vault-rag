@@ -677,12 +677,30 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   private buildSmartApplyModel(s: Setting): void {
     s.setName("Smart-Apply-Modell")
-      .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.')
-      .addText(t => t.setPlaceholder('leer = Chat-Modell').setValue(this.plugin.settings.smartApplyModel)
-        .onChange(async (v: string) => {
-          this.plugin.settings.smartApplyModel = v.trim();
-          await this.plugin.saveSettings();
-        }));
+      .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.');
+    void this.plugin.chatClient?.listModels().then((models: string[]) => {
+      const cur = this.plugin.settings.smartApplyModel;
+      if (models.length) {
+        // Leer-Option zuerst: der leere Wert ist bedeutungstragend (= Chat-Modell erben).
+        const list = cur && !models.includes(cur) ? [cur, ...models] : models;
+        s.addDropdown(d => {
+          d.addOption("", "Chat-Modell verwenden");
+          list.forEach((m: string) => { d.addOption(m, m); });
+          d.setValue(cur).onChange(async (v: string) => {
+            this.plugin.settings.smartApplyModel = v;
+            await this.plugin.saveSettings();
+          });
+        });
+      } else {
+        s.setDesc('Server offline — Modellname eintippen (leer = Chat-Modell), dann „Modelle laden"');
+        s.addText(t => t.setPlaceholder("leer = Chat-Modell").setValue(cur)
+          .onChange(async (v: string) => {
+            this.plugin.settings.smartApplyModel = v.trim();
+            await this.plugin.saveSettings();
+          }));
+        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.rerender()));
+      }
+    });
   }
 
   private buildSmartApplySuppress(s: Setting): void {

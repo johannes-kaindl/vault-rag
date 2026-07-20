@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-07-20
+
 ### Added
 - **Reformat a selection.** A new "Abschnitt umformatieren" command (and editor context-menu
   entry) turns a selected block into a different shape: mechanical transforms (table ↔

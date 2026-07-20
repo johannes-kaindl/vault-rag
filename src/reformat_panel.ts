@@ -39,7 +39,7 @@ export class ReformatPanel implements HubPanel {
     if (ft) {
       container.createDiv({ cls: "vault-rag-reformat-group-title", text: "Eigene Anweisung" });
       const row = container.createDiv({ cls: "vault-rag-reformat-freetext" });
-      const ta = row.createEl("textarea", { cls: "vault-rag-reformat-instruction" });
+      const ta = row.createEl("textarea", { cls: "vault-rag-reformat-panel-instruction" });
       ta.setAttr("rows", "2");
       ta.setAttr("placeholder", "z.B. mach eine Vergleichstabelle mit Pro/Contra");
       this.instructionEl = ta;

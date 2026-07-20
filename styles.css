@@ -262,7 +262,7 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
-.vault-rag-reformat-instruction {
+.vault-rag-reformat-panel-instruction {
   width: 100%;
   margin-bottom: var(--size-2-2);
 }

@@ -17,6 +17,11 @@ All notable changes to this project are documented here. The format follows
   disabled with a plain-language reason when there is nothing to act on.
 - **Model dropdown for Smart Apply.** The Smart Apply model is picked from the endpoint's model
   list instead of typed by hand, with an explicit "use chat model" option.
+- **Waiting state in the reformat preview.** Until the first token arrives, the result area shows
+  a running seconds counter, so a cold model start is distinguishable from a hang; after five
+  seconds it adds a hint that the first call may still be loading the model. It deliberately does
+  not claim the model *is* loading — the endpoint does not tell us whether it is loading or just
+  thinking.
 
 ### Fixed
 - **"Abschnitt umformatieren" no longer disappears from the command palette.** It used

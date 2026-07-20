@@ -61,6 +61,8 @@ async function handleMcp(req: HttpRequest, res: HttpResponse, tools: McpTools, v
   // auf den vom SDK erwarteten Parametertyp umgeht nur den fehlenden node:http-Typimport in
   // dieser Datei (s. HttpRequest/HttpResponse oben) und ist über Parameters<> an die tatsächliche
   // SDK-Signatur gebunden, statt einen eigenen (potenziell abweichenden) Typ zu behaupten.
+  // Warnung für @modelcontextprotocol/sdk-Updates: Falls ein neues Member gefordert wird,
+  // meldet der Cast einen Typfehler nicht — Interfaces selbst gegen die SDK-Signatur prüfen.
   await transport.handleRequest(
     req as unknown as Parameters<typeof transport.handleRequest>[0],
     res as unknown as Parameters<typeof transport.handleRequest>[1],

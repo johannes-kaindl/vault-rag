@@ -16,8 +16,9 @@ All notable changes to this project are documented here. The format follows
 - Removed every `node:` import flagged by the store review's `no-nodejs-modules` lint. Node
   operations are now injected into the read-guard instead of imported at module top level, desktop-
   only code paths load Node built-ins via `await import(…)` inside `Platform.isDesktop` checks
-  instead of static imports or `require`, and the `node:http` type import was replaced with local
-  structural interfaces. `npm run lint` now reports zero `no-nodejs-modules` occurrences.
+  or with early platform guards instead of static imports or `require`, and the `node:http` type
+  import was replaced with local structural interfaces. `npm run lint` now reports zero
+  `no-nodejs-modules` occurrences.
 - The MCP server now throws explicitly when started outside a desktop platform, instead of relying
   solely on its caller's guard.
 

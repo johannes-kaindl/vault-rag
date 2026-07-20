@@ -138,7 +138,7 @@ selbst stand zur Disposition und wurde bewusst behalten — er schließt ein rea
 ## Verifikation
 
 - `npm run lint` mit 0.4.1: grün, und die vier Warnings waren vor den Fixes reproduzierbar
-- Volle Testsuite (684 Tests): grün
+- Volle Testsuite (688 Tests): grün
 - `npm run build`: grün
 - Manuelle GUI-Prüfung der drei Destructive-Buttons in den Settings
 

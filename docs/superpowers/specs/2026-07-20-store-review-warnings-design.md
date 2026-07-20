@@ -94,6 +94,36 @@ Eskalationsstufen, falls das die Regel nicht befriedigt (in dieser Reihenfolge):
 2. Begründetes `eslint-disable-next-line` mit Kommentar, dass ein type-only Import
    nachweislich keinen Runtime-Code erzeugt.
 
+## Korrektur während der Umsetzung (2026-07-20, nach Task 4)
+
+**Die node:-Warning ist nicht eliminierbar, nur verschiebbar.** Diese Spec ging davon aus, dass
+Injection bzw. ein sichtbarer Platform-Guard die Meldung beseitigt. Das ist falsch.
+
+Belegt an der Regel-Implementierung: `obsidianmd/no-nodejs-modules` ist `eslint-plugin-import`s
+`no-nodejs-modules` unter neuem Namen (`node_modules/eslint-plugin-obsidianmd/dist/tests/importRules.test.js`).
+Ihre Testfälle zeigen, dass sie **jeden** node:-Import und jedes `require` eines Node-Moduls
+kontextfrei flaggt — `const path = require('path')` ist dort explizit ein Invalid-Fall. Eine
+Erkennung von `Platform.isDesktop`-Guards existiert nicht; die Formulierung „Use a dynamic
+import() or require() guarded by Platform.isDesktop" im Store-Review ist Prosa für den
+menschlichen Leser, nicht das Prüfkriterium der Regel. Die einzigen Auswege wären die
+`allow`-Option der Regel oder ein Override — beides wirkt nur lokal, nicht im Store-Review.
+
+Solange das Plugin `fs.realpath` für den Symlink-Escape-Schutz braucht, bleibt also mindestens
+eine node:-Meldung bestehen. Entschieden (vom Nutzer, 2026-07-20): **Kurs beibehalten.** Begründung:
+
+- `vault_read_guard.ts` wird durch die Injection pur und ohne echtes Dateisystem testbar — ein
+  Qualitätsgewinn, der unabhängig von der Warning trägt.
+- Die node:-Nutzung sitzt danach konzentriert in `src/main.ts`, unmittelbar unter dem
+  `Platform.isMobile`-Return, statt verstreut als Top-Level-Import in einem Modul. Für den
+  **menschlichen** Store-Reviewer ist genau das das entscheidende Argument.
+- Der Symlink-Guard aufzugeben stand zur Wahl und wurde verworfen: er schließt ein real
+  gefixtes Leck (Symlink im Vault → Fremdinhalt an externe MCP-Agents).
+
+Folge für den Scope: Die verbleibende node:-Meldung wird ein **fünfter dokumentierter Nicht-Fix**
+im Changelog, gleichrangig mit `fs`, Vault-Enumeration, Clipboard und `new Function`. Der Slice
+beseitigt damit zwei der vier Warnings vollständig (`prefer-create-el`, `setWarning`), verbessert
+die dritte strukturell (node:) und vertagt die vierte bewusst (`getSettingDefinitions`).
+
 ## Nicht im Scope
 
 - **`getSettingDefinitions()`** — eigener Slice. Offene Frage für dessen Brainstorming: Lassen

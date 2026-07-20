@@ -85,7 +85,7 @@ export default class VaultRagPlugin extends Plugin {
   private mcpServer: McpServerHandle | null = null;
   private mcpLastStartError: string | null = null;
   private mcpOpChain: Promise<void> = Promise.resolve();
-  private lastCapture: { editor: Editor; from: EditorPosition; to: EditorPosition; text: string } | null = null;
+  private lastCapture: { editor: Editor; path: string; from: EditorPosition; to: EditorPosition; text: string } | null = null;
   private lastReadiness: ReformatReadiness = { kind: "no-editor" };
   private selectionDebounce: number | null = null;
   private reformatPanel: ReformatPanel | null = null;
@@ -125,6 +125,8 @@ export default class VaultRagPlugin extends Plugin {
       this.lastCapture = null;
       return;
     }
+    const file = view.file;
+    if (!file) { this.lastReadiness = { kind: "no-editor" }; this.lastCapture = null; return; }
     const editor = view.editor;
     const text = editor.getSelection();
     if (!text.trim()) {
@@ -132,15 +134,19 @@ export default class VaultRagPlugin extends Plugin {
       this.lastCapture = null;
       return;
     }
-    this.lastCapture = { editor, from: editor.getCursor("from"), to: editor.getCursor("to"), text };
+    this.lastCapture = { editor, path: file.path, from: editor.getCursor("from"), to: editor.getCursor("to"), text };
     this.lastReadiness = { kind: "ready", text };
   }
 
-  /** Gehört der gemerkte Editor noch zu einer offenen Markdown-Ansicht? Schützt davor,
-   *  in einen abgehängten Editor zu schreiben, nachdem die Notiz geschlossen wurde. */
-  private captureIsLive(editor: Editor): boolean {
-    return this.app.workspace.getLeavesOfType("markdown")
-      .some(leaf => leaf.view instanceof MarkdownView && leaf.view.editor === editor);
+  /** Gehört der gemerkte Editor noch zu einer offenen Markdown-Ansicht — mit derselben
+   *  Datei und weiterhin im Bearbeiten-Modus? Der Editor allein genügt nicht: er gehört
+   *  zur View, nicht zur Datei, und überlebt einen Notiz-Wechsel im selben Pane. */
+  private captureIsLive(cap: NonNullable<typeof this.lastCapture>): boolean {
+    return this.app.workspace.getLeavesOfType("markdown").some(leaf =>
+      leaf.view instanceof MarkdownView
+      && leaf.view.editor === cap.editor
+      && leaf.view.getMode() === "source"
+      && leaf.view.file?.path === cap.path);
   }
 
   /** Aktueller Bereitschaftszustand — vom Sidebar-Panel gelesen. */
@@ -306,6 +312,9 @@ export default class VaultRagPlugin extends Plugin {
       callback: () => void this.reformatFromCommand(),
     });
 
+    // Der übergebene `editor` dient nur als Sichtbarkeits-Guard; die Aktion löst den
+    // aktiven View erneut auf (eine Ausführungs-Wahrheit). In einem Split, in dem der
+    // Fokus dem Rechtsklick nicht folgt, meldet sie dann ehrlich „Nichts markiert.".
     this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor) => {
       if (!editor.getSelection().trim()) return;
       menu.addItem(item => item
@@ -314,6 +323,8 @@ export default class VaultRagPlugin extends Plugin {
         .onClick(() => void this.reformatFromCommand()));
     }));
 
+    // Bindet nur das beim Laden aktive Dokument: Auswahlen in einem Obsidian-Pop-out-Fenster
+    // aktualisieren die Mitschrift nicht. Ungefährlich — die Guards verweigern dann.
     this.registerDomEvent(activeDocument, "selectionchange", () => {
       if (this.selectionDebounce !== null) window.clearTimeout(this.selectionDebounce);
       this.selectionDebounce = window.setTimeout(() => {
@@ -325,6 +336,13 @@ export default class VaultRagPlugin extends Plugin {
     this.register(() => {
       if (this.selectionDebounce !== null) window.clearTimeout(this.selectionDebounce);
     });
+
+    // Notiz-/Pane-Wechsel bewegt die DOM-Selektion nicht zwingend — ohne dieses Event
+    // zeigte das Panel nach einem Wechsel weiter die alte Auswahl als „bereit" an.
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
+      this.captureSelection();
+      this.reformatPanel?.refresh();
+    }));
 
     this.app.workspace.onLayoutReady(() => this.migrateOldLeaves());
   }
@@ -633,7 +651,7 @@ export default class VaultRagPlugin extends Plugin {
   async runTransform(def: TransformDef, instruction?: string): Promise<void> {
     const cap = this.lastCapture;
     if (!cap || !canRun(this.lastReadiness)) { new Notice(readinessMessage(this.lastReadiness)); return; }
-    if (!this.captureIsLive(cap.editor)) { new Notice("Die Notiz ist nicht mehr offen — bitte neu markieren."); return; }
+    if (!this.captureIsLive(cap)) { new Notice("Die Notiz ist nicht mehr offen — bitte neu markieren."); return; }
     if (isRangeStale(cap.editor.getRange(cap.from, cap.to), cap.text)) {
       new Notice("Die Auswahl hat sich geändert — bitte neu markieren."); return;
     }
@@ -668,7 +686,7 @@ export default class VaultRagPlugin extends Plugin {
         .then(r => r.content),
       onApply: (result) => {
         // Erneut prüfen: zwischen Öffnen des Modals und „Anwenden" kann editiert worden sein.
-        if (!this.captureIsLive(cap.editor) || isRangeStale(cap.editor.getRange(cap.from, cap.to), cap.text)) {
+        if (!this.captureIsLive(cap) || isRangeStale(cap.editor.getRange(cap.from, cap.to), cap.text)) {
           new Notice("Die Auswahl hat sich geändert — nichts eingefügt.");
           return;
         }

@@ -109,13 +109,35 @@ kontextblind. Sie ist es nicht:
   daran scheiterte der erste Versuch in `doStartMcpServer`.
 - Nur statische `ImportDeclaration` wird bedingungslos gemeldet, unabhängig von jedem Guard.
 
-Daraus folgt die Umsetzungsregel für diesen Slice: **Node-Builtins ausschließlich per
-`await import(…)` innerhalb eines `if (Platform.isDesktop)`-Blocks laden.** Das erfüllt die Regel
-legitim, vermeidet zusätzlich `@typescript-eslint/no-require-imports` (kein `require` mehr) und
-macht jeden dateiweiten ESLint-Override überflüssig. Ein Override, der die Regel für eine ganze
-Datei abschaltet, ist ausdrücklich **kein** akzeptabler Ersatz: er würde in `src/main.ts` gerade
-den Fall verstecken, der Mobile wirklich bricht — einen künftigen Top-Level-`import` eines
-Node-Builtins.
+Daraus folgt die Umsetzungsregel für diesen Slice: **Node-Builtins innerhalb eines
+`if (Platform.isDesktop)`-Blocks laden** (bzw. hinter einem `!Platform.isDesktop`-Throw als erster
+Anweisung). Der Guard ist entscheidend, nicht die Lade-Syntax — `isGuardedByPlatformIsDesktop`
+gilt für `CallExpression` (`require`) genauso wie für `ImportExpression` (`await import`). Ein
+Override, der die Regel für eine ganze Datei abschaltet, ist ausdrücklich **kein** akzeptabler
+Ersatz: er würde in `src/main.ts` gerade den Fall verstecken, der Mobile wirklich bricht — einen
+künftigen Top-Level-`import` eines Node-Builtins.
+
+> [!warning] `await import()` von Node-Builtins ist in Obsidian zur Laufzeit kaputt
+> Empirisch belegt am 2026-07-20 in laufendem Obsidian. Der erste Umsetzungsversuch stellte
+> `require("node:…")` auf `await import("node:…")` um — beides erfüllt die Lint-Regel, und alle
+> 688 Tests, Lint, Typecheck und Build waren grün. Im echten Obsidian schlug der MCP-Start dann
+> fehl mit:
+>
+> `⚠ MCP-Server konnte nicht starten (Failed to fetch dynamically imported module: node:fs/promises)`
+>
+> Grund: Obsidian lädt `main.js` als CommonJS. Ein dynamisches `import()` wird dort von
+> Electron/Chromium als **Netzwerk-Fetch** aufgelöst, nicht über den require-Mechanismus; für
+> `node:`-Builtins scheitert das. `esbuild` reicht das `import()` unverändert durch, weil die
+> Builtins als `external` markiert sind.
+>
+> **Verbindlich: `require("node:…")` innerhalb des `Platform.isDesktop`-Guards verwenden.** Der
+> dafür nötige Verzicht auf `@typescript-eslint/no-require-imports` (enger Datei-Override, ohne
+> `obsidianmd/no-nodejs-modules` anzurühren) ist der korrekte Preis. Ein funktionierendes Feature
+> schlägt eine saubere Lint-Zeile.
+>
+> **Vitest kann diesen Fehler nicht fangen** — die Tests laufen unter Node, wo
+> `import("node:fs/promises")` trivial funktioniert. Jede Änderung am Ladeweg von Node-Builtins
+> braucht daher einen manuellen Start in echtem Obsidian, bevor sie als fertig gilt.
 
 Für `src/mcp/http_server.ts:3` bleibt die statische Form `import type { … } from "node:http"` damit
 der einzige irreduzible Fall. Er ist nur durch Entfernen des Imports lösbar — also durch die in

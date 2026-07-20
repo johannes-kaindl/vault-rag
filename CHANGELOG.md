@@ -12,6 +12,18 @@ All notable changes to this project are documented here. The format follows
   columns/rows transpose, table → bullet list, wrap in callout) apply instantly with no LLM
   round-trip, while shape-changing ones (→ list, → prose, → table, → Mermaid diagram, or a free-
   text instruction) stream a preview from your local chat LLM that you review before applying.
+- **Reformat sidebar tab.** The transforms are now launchable from a "Umformatieren" tab in the
+  Vault Retrieval sidebar, grouped by effect (instant/offline vs. preview/LLM). Buttons are
+  disabled with a plain-language reason when there is nothing to act on.
+- **Model dropdown for Smart Apply.** The Smart Apply model is picked from the endpoint's model
+  list instead of typed by hand, with an explicit "use chat model" option.
+
+### Fixed
+- **"Abschnitt umformatieren" no longer disappears from the command palette.** It used
+  `editorCallback`, which Obsidian hides whenever no editor is focused — reading mode, or focus in
+  the sidebar. It is now always listed and explains why it cannot run.
+- **Replacements are guarded against a stale selection.** If the text at the captured position
+  changed between selecting and applying, nothing is written and a notice explains why.
 
 ## [0.15.2] — 2026-07-19
 

@@ -56,7 +56,7 @@ npm run build      # → main.js
 2. Open **Semantic search** (ribbon: 🔭) to query the vault by meaning.
 3. Open **Vault Chat** (ribbon: 💬), point the chat endpoint at your local LLM in settings, and ask away. Edit the live-context list to control which notes ground the answer.
 4. *(Optional)* Enable **Smart Apply** in settings, then open its cockpit (ribbon: 🪄). Pick a template from the relevance-ranked list and apply it to the active note — review the diff, then accept, re-generate, or pick another template.
-5. Select a block of text, then run **Abschnitt umformatieren** from the command palette or the editor right-click menu — or open the **Umformatieren** tab in the sidebar and click a transform. Mechanical ones apply immediately; LLM ones open a streamed preview to review before applying. Reformatting needs editing mode: in reading mode Obsidian exposes no editor selection, so the buttons stay disabled and say so. If you edit the note while a preview is open, the replacement is refused rather than applied at the wrong spot.
+5. Select a block of text, then run **Abschnitt umformatieren** from the command palette or the editor right-click menu — or open the **Umformatieren** tab in the sidebar and click a transform. Mechanical ones apply immediately; LLM ones open a streamed preview to review before applying. Reformatting needs editing mode; in reading mode the buttons stay disabled and say so. If you edit the note while a preview is open, the replacement is refused rather than applied at the wrong spot.
 
 ### Configuration
 

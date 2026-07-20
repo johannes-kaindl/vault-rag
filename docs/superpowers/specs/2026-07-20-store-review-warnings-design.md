@@ -94,35 +94,37 @@ Eskalationsstufen, falls das die Regel nicht befriedigt (in dieser Reihenfolge):
 2. Begründetes `eslint-disable-next-line` mit Kommentar, dass ein type-only Import
    nachweislich keinen Runtime-Code erzeugt.
 
-## Korrektur während der Umsetzung (2026-07-20, nach Task 4)
+## Präzisierung während der Umsetzung (2026-07-20, nach Task 4)
 
-**Die node:-Warning ist nicht eliminierbar, nur verschiebbar.** Diese Spec ging davon aus, dass
-Injection bzw. ein sichtbarer Platform-Guard die Meldung beseitigt. Das ist falsch.
+**Wie `obsidianmd/no-nodejs-modules` tatsächlich prüft.** Maßgeblich ist die Regelquelle
+`node_modules/eslint-plugin-obsidianmd/dist/lib/rules/noNodejsModules.js` (Plugin 0.4.1) — nicht
+ihre Testfälle, die nur ungeschützte Fälle abdecken und den Eindruck erwecken, die Regel sei
+kontextblind. Sie ist es nicht:
 
-Belegt an der Regel-Implementierung: `obsidianmd/no-nodejs-modules` ist `eslint-plugin-import`s
-`no-nodejs-modules` unter neuem Namen (`node_modules/eslint-plugin-obsidianmd/dist/tests/importRules.test.js`).
-Ihre Testfälle zeigen, dass sie **jeden** node:-Import und jedes `require` eines Node-Moduls
-kontextfrei flaggt — `const path = require('path')` ist dort explizit ein Invalid-Fall. Eine
-Erkennung von `Platform.isDesktop`-Guards existiert nicht; die Formulierung „Use a dynamic
-import() or require() guarded by Platform.isDesktop" im Store-Review ist Prosa für den
-menschlichen Leser, nicht das Prüfkriterium der Regel. Die einzigen Auswege wären die
-`allow`-Option der Regel oder ein Override — beides wirkt nur lokal, nicht im Store-Review.
+- `CallExpression` (`require`) und `ImportExpression` (dynamisches `import`) laufen durch
+  `isGuardedByPlatformIsDesktop`. Ein Aufruf innerhalb von `if (Platform.isDesktop) { … }` wird
+  akzeptiert; zwischenliegende Blöcke unterbrechen die Vorfahren-Suche nicht.
+- `hasGuardAtFunctionStart` akzeptiert zusätzlich exklusiv `!Platform.isDesktop` als **erste**
+  Anweisung einer Funktion. Ein `if (Platform.isMobile || …) return;` erfüllt das **nicht** —
+  daran scheiterte der erste Versuch in `doStartMcpServer`.
+- Nur statische `ImportDeclaration` wird bedingungslos gemeldet, unabhängig von jedem Guard.
 
-Solange das Plugin `fs.realpath` für den Symlink-Escape-Schutz braucht, bleibt also mindestens
-eine node:-Meldung bestehen. Entschieden (vom Nutzer, 2026-07-20): **Kurs beibehalten.** Begründung:
+Daraus folgt die Umsetzungsregel für diesen Slice: **Node-Builtins ausschließlich per
+`await import(…)` innerhalb eines `if (Platform.isDesktop)`-Blocks laden.** Das erfüllt die Regel
+legitim, vermeidet zusätzlich `@typescript-eslint/no-require-imports` (kein `require` mehr) und
+macht jeden dateiweiten ESLint-Override überflüssig. Ein Override, der die Regel für eine ganze
+Datei abschaltet, ist ausdrücklich **kein** akzeptabler Ersatz: er würde in `src/main.ts` gerade
+den Fall verstecken, der Mobile wirklich bricht — einen künftigen Top-Level-`import` eines
+Node-Builtins.
 
-- `vault_read_guard.ts` wird durch die Injection pur und ohne echtes Dateisystem testbar — ein
-  Qualitätsgewinn, der unabhängig von der Warning trägt.
-- Die node:-Nutzung sitzt danach konzentriert in `src/main.ts`, unmittelbar unter dem
-  `Platform.isMobile`-Return, statt verstreut als Top-Level-Import in einem Modul. Für den
-  **menschlichen** Store-Reviewer ist genau das das entscheidende Argument.
-- Der Symlink-Guard aufzugeben stand zur Wahl und wurde verworfen: er schließt ein real
-  gefixtes Leck (Symlink im Vault → Fremdinhalt an externe MCP-Agents).
+Für `src/mcp/http_server.ts:3` bleibt die statische Form `import type { … } from "node:http"` damit
+der einzige irreduzible Fall. Er ist nur durch Entfernen des Imports lösbar — also durch die in
+Schritt 4 vorgesehene Eskalationsstufe 1 (strukturelle Typen). Das ist Aufgabe von Task 5.
 
-Folge für den Scope: Die verbleibende node:-Meldung wird ein **fünfter dokumentierter Nicht-Fix**
-im Changelog, gleichrangig mit `fs`, Vault-Enumeration, Clipboard und `new Function`. Der Slice
-beseitigt damit zwei der vier Warnings vollständig (`prefer-create-el`, `setWarning`), verbessert
-die dritte strukturell (node:) und vertagt die vierte bewusst (`getSettingDefinitions`).
+Der Kurs aus Schritt 4 (Injection statt Top-Level-Import) bleibt unabhängig davon richtig:
+`vault_read_guard.ts` wird dadurch pur und ohne echtes Dateisystem testbar. Der Symlink-Guard
+selbst stand zur Disposition und wurde bewusst behalten — er schließt ein real gefixtes Leck
+(Symlink im Vault → Fremdinhalt an externe MCP-Agents).
 
 ## Nicht im Scope
 

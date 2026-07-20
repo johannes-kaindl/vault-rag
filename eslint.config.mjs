@@ -23,11 +23,10 @@ export default tseslint.config(
   // deklarative Settings-API in einem eigenen späteren Slice kommt.
   // (kein Inline-eslint-disable, weil der Obsidian-Review das verbietet.)
   { files: ["src/settings.ts"], rules: { "@typescript-eslint/no-deprecated": "off" } },
-  // In-Plugin MCP-HTTP-Server: nutzt node:-Builtins (desktop-only, lazy require) sowie
-  // die Node-Globals Buffer/require. Der node:http-Fund von obsidianmd/no-nodejs-modules
-  // ist ein bekannter Rest, den ein Folge-Task aufräumt.
+  // In-Plugin MCP-HTTP-Server: nutzt node:-Builtins (desktop-only, lazy dynamic import()
+  // hinter Platform.isDesktop-Guard) sowie das Node-Global Buffer beim Body-Parsing.
   {
     files: ["src/mcp/http_server.ts"],
-    languageOptions: { globals: { Buffer: "readonly", require: "readonly" } },
+    languageOptions: { globals: { Buffer: "readonly" } },
   },
 );

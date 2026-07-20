@@ -92,3 +92,17 @@ describe("MCP HTTP-Server", () => {
     expect(r.status).toBe(403);
   });
 });
+
+describe("startMcpServer auf Mobile", () => {
+  it("wirft, statt einen Node-Server zu starten", async () => {
+    const { Platform } = await import("obsidian");
+    Platform.isDesktop = false;
+    try {
+      await expect(
+        startMcpServer({ port: 0, token: "t", tools: new McpTools(deps), version: "0.0.0" }),
+      ).rejects.toThrow(/Desktop/);
+    } finally {
+      Platform.isDesktop = true;
+    }
+  });
+});

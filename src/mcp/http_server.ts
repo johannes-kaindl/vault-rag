@@ -1,6 +1,6 @@
+import { Platform } from "obsidian";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { McpTools } from "./tools";
 import { registerTools } from "./register_tools";
 import { isAuthorized } from "./auth";
@@ -9,7 +9,27 @@ export interface McpServerHandle { port: number; close(): Promise<void>; }
 
 const BIND_HOST = "127.0.0.1";
 
-function readBody(req: IncomingMessage): Promise<unknown> {
+/** Strukturelle Ersatz-Typen für node:http IncomingMessage/ServerResponse, damit diese
+ *  Datei nicht mehr statisch aus "node:http" importiert (obsidianmd/no-nodejs-modules
+ *  meldet jeden statischen Import bedingungslos, auch `import type`). Nur die Members,
+ *  die hier tatsächlich genutzt werden. */
+interface HttpRequest {
+  url?: string;
+  method?: string;
+  headers: { authorization?: string } & Record<string, string | string[] | undefined>;
+  on(event: "data", listener: (chunk: Buffer) => void): this;
+  on(event: "end", listener: () => void): this;
+  on(event: "error", listener: (err: Error) => void): this;
+}
+
+interface HttpResponse {
+  headersSent: boolean;
+  writeHead(statusCode: number, headers?: Record<string, string>): this;
+  end(chunk?: string): void;
+  on(event: "close", listener: () => void): this;
+}
+
+function readBody(req: HttpRequest): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => chunks.push(c));
@@ -26,7 +46,7 @@ function readBody(req: IncomingMessage): Promise<unknown> {
  *  DNS-Rebinding-Schutz per allowedHosts als Defense-in-Depth (der Bearer-Token ist
  *  bereits die primäre Schranke; keine allowedOrigins, da Clients wie Claude Code
  *  keine Browser sind und ggf. keinen Origin-Header senden). */
-async function handleMcp(req: IncomingMessage, res: ServerResponse, tools: McpTools, version: string, port: number): Promise<void> {
+async function handleMcp(req: HttpRequest, res: HttpResponse, tools: McpTools, version: string, port: number): Promise<void> {
   const server = new McpServer({ name: "vault-retrieval", version });
   registerTools(server, tools);
   const transport = new StreamableHTTPServerTransport({
@@ -37,16 +57,26 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse, tools: McpTo
   res.on("close", () => { void transport.close(); void server.close(); });
   await server.connect(transport);
   const body = await readBody(req);
-  await transport.handleRequest(req, res, body);
+  // req/res sind zur Laufzeit echte node:http-Objekte (aus http.createServer, s.u.); der Cast
+  // auf den vom SDK erwarteten Parametertyp umgeht nur den fehlenden node:http-Typimport in
+  // dieser Datei (s. HttpRequest/HttpResponse oben) und ist über Parameters<> an die tatsächliche
+  // SDK-Signatur gebunden, statt einen eigenen (potenziell abweichenden) Typ zu behaupten.
+  await transport.handleRequest(
+    req as unknown as Parameters<typeof transport.handleRequest>[0],
+    res as unknown as Parameters<typeof transport.handleRequest>[1],
+    body,
+  );
 }
 
-/** Startet den in-Plugin HTTP-MCP-Server auf 127.0.0.1. Lazy require("node:http"),
- *  damit auf Mobile (wo der Start gegated ist) nie ein Node-Builtin geladen wird. */
+/** Startet den in-Plugin HTTP-MCP-Server auf 127.0.0.1. Lazy dynamic import("node:http")
+ *  hinter dem Platform.isDesktop-Guard, damit auf Mobile nie ein Node-Builtin geladen wird. */
 export async function startMcpServer(opts: { port: number; token: string; tools: McpTools; version: string }): Promise<McpServerHandle> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-assignment -- desktop-only, lazy: node:http nie auf Mobile laden (require global ist unbekannten Typs, Signatur via node:http-Typen unten sichergestellt)
-  const http: typeof import("node:http") = require("node:http");
+  // Defense-in-Depth: der Aufrufer gated bereits (main.ts), aber node:http darf auf Mobile
+  // unter keinen Umständen geladen werden.
+  if (!Platform.isDesktop) throw new Error("MCP-Server ist Desktop-only");
+  const http = await import("node:http");
   let boundPort = opts.port;
-  const server = http.createServer((req: IncomingMessage, res: ServerResponse) => {
+  const server = http.createServer((req: HttpRequest, res: HttpResponse) => {
     void (async () => {
       try {
         const url = req.url ?? "";

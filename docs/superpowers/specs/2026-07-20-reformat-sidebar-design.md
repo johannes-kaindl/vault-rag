@@ -88,8 +88,20 @@ Folgt dem `HubPanel`-Vertrag (`mount/onShow/onHide/onFileOpen/destroy`) und UI-S
 
 **Auswahl-Mitschrift (Kern des Panels):** Ein entprellter `selectionchange`-Listener hält
 `{ file, from, to, text, mode }` fest, solange ein Markdown-Editor aktiv ist. Der Button-Klick
-benutzt diesen gemerkten Stand statt `activeEditor` (das dann null sein kann). Der Listener
-läuft nur, solange der Tab sichtbar ist (`onShow`/`onHide`).
+benutzt diesen gemerkten Stand statt `activeEditor` (das dann null sein kann).
+
+**Nachtrag 2026-07-20 (Whole-Branch-Review):** Ursprünglich war hier vorgesehen, den Listener
+nur bei sichtbarem Tab laufen zu lassen (`onShow`/`onHide`). Verworfen: `refresh()` liest nur
+den gemerkten Stand und erfasst ihn nicht neu — ein gated Listener würde den Tab also mit
+**kaltem** Zustand öffnen. Der Listener läuft daher über die gesamte Plugin-Laufzeit (Kosten
+vernachlässigbar: 150 ms Entprellung, billiger Rumpf). Zusätzlich invalidiert ein
+`active-leaf-change`-Listener die Mitschrift bei Notiz-/Pane-Wechsel — ohne ihn zeigte das
+Panel nach einem Wechsel über die Suche weiter die alte Auswahl als „bereit" an.
+
+**Ebenfalls aus dem Review:** Die Mitschrift muss den **Dateipfad** und den **Modus** mitführen,
+nicht nur den `Editor`. Ein `Editor` gehört zur View, nicht zur Datei, und überlebt einen
+Notiz-Wechsel im selben Pane — ohne Pfad-Prüfung könnten beide Guards passieren und die
+Ersetzung in der falschen Notiz landen.
 
 **Zustände:** Ist keine brauchbare Auswahl vorhanden, sind **alle Buttons deaktiviert** und die
 Kopfzeile nennt den Grund — „Formatierung im Lese-Modus nicht möglich." bzw. „Nichts markiert."

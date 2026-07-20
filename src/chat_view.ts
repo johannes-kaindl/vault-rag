@@ -222,7 +222,7 @@ export class ChatPanel implements HubPanel {
       if (m.sources && m.sources.length) {
         const row = el.createDiv({ cls: "vault-rag-chat-sources" });
         for (const p of m.sources) {
-          const chip = row.createEl("span", { cls: "vault-rag-chat-source", text: p.split("/").pop()?.replace(/\.md$/, "") ?? p });
+          const chip = row.createSpan({ cls: "vault-rag-chat-source", text: p.split("/").pop()?.replace(/\.md$/, "") ?? p });
           chip.addEventListener("click", () => this.deps.openPath(p));
         }
       }

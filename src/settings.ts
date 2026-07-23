@@ -26,9 +26,12 @@ export function applyEndpointEdit(endpoints: string[], index: number, value: str
 }
 
 /** Roter/destruktiver Button, versionssicher: setDestructive() ab Obsidian 1.13, sonst die
- *  mod-warning-DOM-Klasse (kein deprecated setWarning, kein Lint-Warning, roter Look überall). */
+ *  mod-warning-DOM-Klasse (kein deprecated setWarning, kein Lint-Warning, roter Look überall).
+ *  Der Cast auf einen anonymen Typ nimmt `obsidianmd/no-unsupported-api` die Sicht auf
+ *  ButtonComponent.setDestructive (1.13-only). */
 export function applyDestructive(b: ButtonComponent): ButtonComponent {
-  if (typeof (b as { setDestructive?: () => unknown }).setDestructive === "function") b.setDestructive();
+  const bx = b as unknown as { setDestructive?: () => void };
+  if (typeof bx.setDestructive === "function") bx.setDestructive();
   else b.buttonEl.addClass("mod-warning");
   return b;
 }
@@ -207,6 +210,15 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private renderImperative(): void {
     this.containerEl.empty();
     for (const item of this.getSettingDefinitions()) this.renderDefinitionItem(this.containerEl, item);
+  }
+
+  /** Re-Render des Tabs. Ab 1.13 exponiert das deklarative Framework update(); auf dem <1.13-Fallback
+   *  existiert die Methode nicht → renderImperative() erneut laufen. Der Cast auf einen anonymen Typ
+   *  nimmt `obsidianmd/no-unsupported-api` die Sicht auf SettingTab.update (1.13-only). */
+  private refreshUi(): void {
+    const self = this as unknown as { update?: () => void };
+    if (typeof self.update === "function") self.update();
+    else this.renderImperative();
   }
 
   private renderDefinitionItem(containerEl: HTMLElement, item: SettingDefinitionItem): void {
@@ -440,7 +452,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
           void this.plugin.resolveAndReconnectEmbedder();
         }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.update()));
+        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
       }
     });
   };
@@ -499,7 +511,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           await this.plugin.changeIndexDir(norm);
           new Notice(`Index verschoben nach „${norm}".`);
         } finally { b.setButtonText("Übernehmen"); b.setDisabled(false); }
-        this.update();
+        this.refreshUi();
       }));
   };
 
@@ -529,7 +541,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         if (v) this.plugin.ensureMcpToken();
         await this.plugin.saveSettings();
         await this.plugin.restartMcpServer();
-        this.update();
+        this.refreshUi();
       }));
 
     new Setting(containerEl)
@@ -547,7 +559,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           if (this.mcpPortRestartTimer !== null) window.clearTimeout(this.mcpPortRestartTimer);
           this.mcpPortRestartTimer = window.setTimeout(() => {
             this.mcpPortRestartTimer = null;
-            void this.plugin.restartMcpServer().then(() => this.update());
+            void this.plugin.restartMcpServer().then(() => this.refreshUi());
           }, 800);
         }));
 
@@ -565,12 +577,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .setName("Token")
       .setDesc(this.showMcpToken ? token : maskToken(token))
       .addButton(b => b.setButtonText(this.showMcpToken ? "Verbergen" : "Anzeigen")
-        .onClick(() => { this.showMcpToken = !this.showMcpToken; this.update(); }))
+        .onClick(() => { this.showMcpToken = !this.showMcpToken; this.refreshUi(); }))
       .addButton(b => applyDestructive(b.setButtonText("Neu generieren"))
         .onClick(async () => {
           await this.plugin.rotateMcpToken();
           new Notice("Neuer Token — alte Clients müssen neu verbunden werden");
-          this.update();
+          this.refreshUi();
         }));
 
     new Setting(containerEl)
@@ -600,7 +612,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .addDropdown(d => {
         for (const c of MCP_CLIENTS) d.addOption(c.id, c.label);
         d.setValue(this.mcpClient);
-        d.onChange((v: string) => { this.mcpClient = v as McpClientId; this.update(); });
+        d.onChange((v: string) => { this.mcpClient = v as McpClientId; this.refreshUi(); });
       })
       .addButton(b => b.setButtonText("Kopieren")
         .onClick(() => {
@@ -656,7 +668,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             void this.plugin.resolveAndReconnectChat();
           }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.update()));
+        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
       }
       this.showInfo(this.plugin.settings.chatModel);
       this.showCaps(this.plugin.settings.chatModel);
@@ -734,7 +746,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
             this.plugin.settings.smartApplyModel = v.trim();
             await this.plugin.saveSettings();
           }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.update()));
+        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
       }
     });
   };
@@ -800,7 +812,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           opts.set(updated);
           void this.plugin.saveSettings()
             .then(() => opts.reconnect())
-            .then(() => this.update());
+            .then(() => this.refreshUi());
         });
       });
       // Löschen: expliziter Mülleimer-Button (nicht am leeren Add-Feld). Das Status-Icon links
@@ -813,7 +825,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
             opts.set(applyEndpointEdit(opts.get(), i, "", false));
             void this.plugin.saveSettings()
               .then(() => opts.reconnect())
-              .then(() => this.update());
+              .then(() => this.refreshUi());
           }));
       }
       // Pro-Feld-Status in A11y-Form (Form + Text + Farbe): loader → check/x, aktiver markiert.
@@ -849,10 +861,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
           opts.set(applyEndpointEdit(cur, cur.length, preset.url, true));
           void this.plugin.saveSettings()
             .then(() => opts.reconnect())
-            .then(() => this.update());
+            .then(() => this.refreshUi());
         }));
     });
-    actions.addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.update()));
+    actions.addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.refreshUi()));
   }
 
   /** Capability-Chips (Lucide-Icons) in die controlEl der Fähigkeiten-Zeile. */

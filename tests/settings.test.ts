@@ -329,6 +329,18 @@ describe("getSettingDefinitions – Struktur", () => {
   });
 });
 
+describe("resolvedOnOpen – Re-Resolve beim Tab-Öffnen", () => {
+  it("getSettingDefinitions() feuert resolveAndReconnectChat genau einmal pro Öffnen, erneut nach hide()", () => {
+    const { tab, host } = makeTab();
+    tab.getSettingDefinitions();
+    tab.getSettingDefinitions();
+    expect(host.resolveAndReconnectChat).toHaveBeenCalledTimes(1);
+    tab.hide();
+    tab.getSettingDefinitions();
+    expect(host.resolveAndReconnectChat).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("renderImperative (display-Fallback für <1.13)", () => {
   it("rendert alle 7 Gruppen ohne Crash", () => {
     const { tab } = makeTab();

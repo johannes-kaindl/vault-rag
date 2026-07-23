@@ -172,6 +172,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
   // Ab 1.13 ruft das Framework diese vor dem Zerlegen einer Zeile selbst auf; renderImperative()
   // muss denselben Vertrag einhalten und sie vor jedem Rebuild abräumen (siehe dort).
   private rowCleanups: Array<() => void> = [];
+  // Einmal pro Tab-Öffnen (nicht pro Re-Render) Embedder+Chat re-resolven — ersetzt das
+  // resolvedOnOpen-Gate aus dem alten display(). getSettingDefinitions() läuft sowohl im
+  // nativen Pfad (Framework ruft pro update() erneut auf) als auch im Fallback
+  // (renderImperative() pro Rebuild) — das Flag macht in beiden EINMAL pro Öffnen daraus;
+  // hide() setzt es zurück, damit das nächste Öffnen wieder re-resolved.
+  private resolvedOnOpen = false;
 
   constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
 
@@ -201,6 +207,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
+    if (!this.resolvedOnOpen) {
+      this.resolvedOnOpen = true;
+      void this.plugin.resolveAndReconnectEmbedder();
+      void this.plugin.resolveAndReconnectChat();
+    }
     return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup()];
   }
 
@@ -380,7 +391,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       { name: "Temperatur", desc: "Kreativität vs. Bestimmtheit (0 = deterministisch, höher = kreativer)",
         control: { type: "slider", key: "chatTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
       { name: "System-Prompt", desc: "Grundanweisung an das Modell. Der Notiz-Kontext wird automatisch angehängt.",
-        control: { type: "textarea", key: "chatSystemPrompt" } },
+        control: { type: "textarea", key: "chatSystemPrompt", rows: 8 } },
       { name: "Eingabe-Position", desc: "Wo die Chat-Eingabe sitzt (greift beim nächsten Öffnen des Panels)",
         control: { type: "dropdown", key: "chatInputPosition", options: { bottom: "Unten", top: "Oben" } } },
       { name: "Thinking unterdrücken",
@@ -789,6 +800,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     for (const id of this.pollIntervals) window.clearInterval(id);
     this.pollIntervals = [];
     if (this.mcpPortRestartTimer !== null) { window.clearTimeout(this.mcpPortRestartTimer); this.mcpPortRestartTimer = null; }
+    this.resolvedOnOpen = false;
     super.hide();
   }
 

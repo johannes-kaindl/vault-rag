@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { DEFAULT_SETTINGS, VaultRagSettings, migrateEndpointList, applyEndpointEdit, applyDestructive, VaultRagSettingTab } from "../src/settings";
+import { makeFakeEl } from "./__mocks__/obsidian";
 
 describe("settings", () => {
   it("hat sinnvolle Defaults", () => {
@@ -177,6 +178,14 @@ function makeFakeHost() {
     // Endpoint-/Modell-/MCP-Methoden für render-Hatches (in Struktur-Tests nicht aufgerufen):
     resolveAndReconnectEmbedder: vi.fn().mockResolvedValue(undefined),
     resolveAndReconnectChat: vi.fn().mockResolvedValue(undefined),
+    // Von renderImperative (display-Fallback) synchron aufgerufene render-Hatch-Methoden —
+    // ungemockt würden sie beim Walk sofort werfen (undefined ist keine Funktion).
+    embedderReady: vi.fn().mockResolvedValue(true),
+    indexDelta: vi.fn().mockReturnValue({ embedded: 0, total: 0, healthy: true, emptyCount: 0 }),
+    indexHealthReadout: vi.fn().mockReturnValue(""),
+    mcpServerRunning: vi.fn().mockReturnValue(false),
+    mcpServerAddress: vi.fn().mockReturnValue(null),
+    mcpStartError: vi.fn().mockReturnValue(null),
   } as any;
 }
 
@@ -317,5 +326,19 @@ describe("getSettingDefinitions – Struktur", () => {
     expect(items.find(i => i.control?.key === "templateDir").control.type).toBe("folder");
     expect(items.filter(i => typeof i.render === "function").length).toBe(1); // Modell
     expect(items.filter(i => !i.control && !i.render && !i.action).length).toBe(1); // Verbindungs-Hinweis (empty)
+  });
+});
+
+describe("renderImperative (display-Fallback für <1.13)", () => {
+  it("rendert alle 7 Gruppen ohne Crash", () => {
+    const { tab } = makeTab();
+    tab.containerEl = makeFakeEl() as any;   // falls nicht schon gesetzt
+    expect(() => tab.display()).not.toThrow();
+  });
+  it("display() liest aus getSettingDefinitions (kein separater Baum)", () => {
+    const { tab } = makeTab();
+    const spy = vi.spyOn(tab, "getSettingDefinitions");
+    tab.display();
+    expect(spy).toHaveBeenCalled();
   });
 });

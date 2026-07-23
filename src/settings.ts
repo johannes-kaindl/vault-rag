@@ -1,5 +1,5 @@
 import { AbstractInputSuggest, App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, TFolder, setIcon, setTooltip } from "obsidian";
-import type { SettingDefinitionItem, SettingDefinitionGroup } from "obsidian";
+import type { SettingDefinitionItem, SettingDefinitionGroup, SettingDefinition, SettingControl } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
@@ -195,6 +195,76 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup()];
+  }
+
+  // ── Imperativer Fallback (Obsidian < 1.13) ──────────────────────────────
+  // Ab 1.13 ruft der Host getSettingDefinitions() selbst auf und display() wird nie
+  // aufgerufen; auf ≤1.12 fehlt getSettingDefinitions als Renderpfad, dort ruft der Host
+  // stattdessen display(). renderImperative() liest DIESELBE Struktur und zeichnet sie mit
+  // der klassischen Setting-API — eine Wahrheit, kein zweiter Definitionsbaum.
+  display(): void { this.renderImperative(); }
+
+  private renderImperative(): void {
+    this.containerEl.empty();
+    for (const item of this.getSettingDefinitions()) this.renderDefinitionItem(this.containerEl, item);
+  }
+
+  private renderDefinitionItem(containerEl: HTMLElement, item: SettingDefinitionItem): void {
+    if ((item as SettingDefinitionGroup).type === "group") {
+      const g = item as SettingDefinitionGroup;
+      if (g.heading) new Setting(containerEl).setName(g.heading).setHeading();
+      for (const sub of g.items ?? []) this.renderDefinitionItem(containerEl, sub);
+      return;
+    }
+    const def = item as SettingDefinition & { render?: unknown; action?: unknown; control?: SettingControl };
+    const s = new Setting(containerEl);
+    if (def.name) s.setName(def.name);
+    if (def.desc) s.setDesc(def.desc);
+    if (typeof def.render === "function") { (def.render as (s: Setting, g?: unknown) => void)(s); return; }
+    if (typeof def.action === "function") {
+      const action = def.action;
+      s.addButton(b => b.setButtonText(def.name).onClick(() => action(s.settingEl, 0)));
+      return;
+    }
+    if (def.control) this.renderControl(s, def.name, def.control);
+    // empty: nur name/desc (bereits gesetzt)
+  }
+
+  /** Rendert einen einzelnen deklarativen Control-Typ mit der klassischen Setting-API.
+   *  `setDynamicTooltip()` ist bewusst NICHT verwendet (deprecated seit 1.13 — der Slider-Wert
+   *  ist heute inline im Namen sichtbar, s. displayFormat); der Fallback zeigt den Wert deshalb
+   *  ausschließlich über denselben Namens-Mechanismus wie die Deklarativ-API. */
+  private renderControl(s: Setting, name: string, c: SettingControl): void {
+    const key = c.key;
+    const cur = this.getControlValue(key);
+    const save = (v: unknown): void => { void this.setControlValue(key, v); };
+    switch (c.type) {
+      case "slider": {
+        const fmt = c.displayFormat;
+        const label = (v: number): void => { if (fmt) s.setName(`${name}: ${fmt(v)}`); };
+        label(cur as number);
+        s.addSlider(sl => sl.setLimits(c.min, c.max, c.step).setValue(cur as number)
+          .onChange((v: number) => { save(v); label(v); }));
+        break;
+      }
+      case "toggle":
+        s.addToggle(t => t.setValue(cur as boolean).onChange(save));
+        break;
+      case "dropdown":
+        s.addDropdown(d => { for (const [k, v] of Object.entries(c.options)) d.addOption(k, v); d.setValue(cur as string).onChange(save); });
+        break;
+      case "textarea":
+        s.addTextArea(t => { t.setValue(cur as string).onChange(save); if (c.rows) t.inputEl.rows = c.rows; });
+        break;
+      case "folder":
+        s.addText(t => { t.setPlaceholder(c.placeholder ?? "").setValue(cur as string).onChange(save);
+          new FolderSuggest(this.app, t.inputEl).onSelect((p: string) => { t.setValue(p); save(p); }); });
+        break;
+      case "text":
+      default:
+        s.addText(t => t.setPlaceholder((c as { placeholder?: string }).placeholder ?? "").setValue(cur as string).onChange(save));
+        break;
+    }
   }
 
   /** Macht die von der API übergebene Setting-Row zu einem neutralen Block-Container:

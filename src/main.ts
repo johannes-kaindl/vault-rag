@@ -697,7 +697,7 @@ export default class VaultRagPlugin extends Plugin {
 
   /** Kompakter Zustands-Text für die Robustheits-Sektion in den Einstellungen. */
   indexHealthReadout(embedded: number, total: number, healthy: boolean, emptyCount = 0): string {
-    if (!healthy) return "⚠ Laden fehlgeschlagen — beschädigter Index erkannt (Schreibschutz aktiv)";
+    if (!healthy) return "⚠ Embedding-Index beschädigt — Laden fehlgeschlagen (Schreibschutz aktiv; deine Notizen sind unberührt)";
     return indexDeltaReadout(embedded, total, emptyCount);
   }
 
@@ -764,7 +764,7 @@ export default class VaultRagPlugin extends Plugin {
       this.liveIndexer.markUnready();
       this.indexHealthy = false;
       this.syncProgress();
-      new Notice("⚠ vault-rag: Index beschädigt/nicht ladbar — Schreibschutz aktiv. Über die Einstellungen wiederherstellen oder neu indizieren.", 10000);
+      new Notice("⚠ Vault Retrieval: Der Embedding-Index für die Ähnlichkeitssuche ist beschädigt — deine Notizen sind unberührt, nur der Suchindex. Schreibschutz aktiv. Über die Plugin-Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
     }
   }
 
@@ -835,7 +835,7 @@ export default class VaultRagPlugin extends Plugin {
         } catch (e) {
           if (e instanceof PersistBlockedError) {
             this.indexHealthy = false;
-            new Notice("⚠ vault-rag: Schreibschutz — Index wirkt beschädigt, Änderung vorgemerkt statt überschrieben.", 8000);
+            new Notice("⚠ Vault Retrieval: Embedding-Index wirkt beschädigt — Änderung vorgemerkt statt überschrieben (Schreibschutz). Deine Notizen sind unberührt.", 8000);
           }
           await this.pendingQueue.add(path);
           this.syncProgress();
@@ -1070,7 +1070,7 @@ export default class VaultRagPlugin extends Plugin {
   private updateStatusBar(): void {
     if (!this.statusBarEl) return;
     if (!this.indexHealthy) {
-      this.statusBarEl.setText("⚠ Index beschädigt");
+      this.statusBarEl.setText("⚠ Suchindex beschädigt");
       return;
     }
     const p = this.embeddingProgress;

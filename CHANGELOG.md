@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Settings tab migrated to Obsidian 1.13's declarative `getSettingDefinitions()` API.** Simple rows
+  (sliders, toggles, dropdowns, the template-folder picker, the system-prompt textarea) are now
+  declarative controls and therefore appear in Obsidian's **global settings search** on 1.13+. Dynamic
+  rows (endpoint lists, model probing, the live embedding-status poll, model details/capabilities, the
+  MCP section, the model-coupled context-budget slider) run through imperative render-hatches. The
+  seven sections are no longer collapsible — the global search replaces collapsing.
+- **Lowered `minAppVersion` back to 1.12.7 and made the tab dual-track.** On Obsidian ≥1.13 the tab
+  renders declaratively and searchably; on ≤1.12 a `display()` fallback renders the *same*
+  `getSettingDefinitions()` structure imperatively (one source of truth). Every 1.13-only API
+  (`SettingTab.update`, `ButtonComponent.setDestructive`) is feature-detected at runtime, so the build
+  is lint-clean under 1.12.7 without deprecated-API use. This reverses the 0.16.1 bump to 1.13.0, which
+  — because 1.13 is currently only a Catalyst preview — effectively withheld updates from most users.
+
+### Fixed
+- Index-corruption notices now clearly name the **embedding/search index** and state that your notes
+  are unaffected, instead of the ambiguous "vault-rag: Index" that read like the Obsidian vault index.
+
 ## [0.16.1] — 2026-07-20
 
 ### Changed

@@ -266,4 +266,13 @@ describe("getSettingDefinitions – Struktur", () => {
     expect(items.filter(i => typeof i.render === "function").length).toBe(1);
     expect(items.filter(i => typeof i.action === "function").length).toBe(2);
   });
+
+  it("MCP-Gruppe: genau ein render-Hatch", () => {
+    const { tab } = makeTab();
+    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "MCP-Server");
+    expect(g).toBeTruthy();
+    const items = g.items as any[];
+    expect(items.length).toBe(1);
+    expect(typeof items[0].render).toBe("function");
+  });
 });

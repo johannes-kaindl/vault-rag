@@ -189,7 +189,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup()];
+    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup()];
   }
 
   /** Macht die von der API übergebene Setting-Row zu einem neutralen Block-Container:
@@ -253,6 +253,15 @@ export class VaultRagSettingTab extends PluginSettingTab {
       { name: "Vault neu indizieren",
         desc: "Baut den kompletten Index von Grund auf neu — der letzte Ausweg.",
         action: () => { new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open(); } },
+    ] };
+  }
+
+  /** Die MCP-Sektion ist zustandsreich (bedingte Zeilen bei mcpEnabled, Token-Toggle,
+   *  Port-Debounce-Restart, Client-Dropdown, Snippet-`<pre>`) — deshalb EIN render-Hatch statt
+   *  einzelner Controls, der den kompletten bisherigen buildMcpSection-Body zeichnet. */
+  private mcpGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "MCP-Server", items: [
+      { name: "MCP-Server", desc: "", render: this.renderMcpSection },
     ] };
   }
 
@@ -374,6 +383,102 @@ export class VaultRagSettingTab extends PluginSettingTab {
         .setButtonText("Vervollständigen")
         .setDisabled(!healthy || embedded >= total)
         .onClick(() => { void this.plugin.healVault(); }));
+  };
+
+  /** render-Hatch: komplette MCP-Sektion. Body = bisheriger buildMcpSection-Body, in hostFor
+   *  gezeichnet, jedes this.display() → this.update(). Bedingte Zeilen (nur bei mcpEnabled) und
+   *  der Client-Snippet-`<pre>`-Block bleiben unverändert. */
+  private renderMcpSection = (setting: Setting): void => {
+    const containerEl = this.hostFor(setting);
+    new Setting(containerEl)
+      .setName("MCP-Server aktivieren")
+      .setDesc("Lokaler HTTP-Server, über den externe LLM-Agents (z. B. Claude Code) den Vault durchsuchen. Nur Desktop, nur solange Obsidian läuft. Loopback (127.0.0.1) + Token.")
+      .addToggle(t => t.setValue(this.plugin.settings.mcpEnabled).onChange(async (v: boolean) => {
+        this.plugin.settings.mcpEnabled = v;
+        if (v) this.plugin.ensureMcpToken();
+        await this.plugin.saveSettings();
+        await this.plugin.restartMcpServer();
+        this.update();
+      }));
+
+    new Setting(containerEl)
+      .setName("Port")
+      .setDesc("Loopback-Port des MCP-Servers (Default 8123). Änderung startet den Server neu.")
+      .addText(t => t.setPlaceholder("8123").setValue(String(this.plugin.settings.mcpPort))
+        .onChange(async (v: string) => {
+          const n = parseInt(v, 10);
+          if (!Number.isFinite(n) || n < 1 || n > 65535) return;
+          this.plugin.settings.mcpPort = n;
+          await this.plugin.saveSettings();
+          // Debounce (Fix 2): sonst würde jeder Tastendruck einen eigenen Server-Restart
+          // auslösen (mirrors scheduleEmbed's Debounce-Idee in main.ts) — Speichern bleibt
+          // sofort, nur der Neustart wartet ~800ms auf Tipp-Ruhe.
+          if (this.mcpPortRestartTimer !== null) window.clearTimeout(this.mcpPortRestartTimer);
+          this.mcpPortRestartTimer = window.setTimeout(() => {
+            this.mcpPortRestartTimer = null;
+            void this.plugin.restartMcpServer().then(() => this.update());
+          }, 800);
+        }));
+
+    const detail = this.plugin.mcpStartError();
+    const status = this.plugin.mcpServerRunning()
+      ? `läuft · ${this.plugin.mcpServerAddress() ?? ""}`
+      : (this.plugin.settings.mcpEnabled ? `aus — ${detail ?? "Start fehlgeschlagen"}` : "aus");
+    new Setting(containerEl).setName("Status").setDesc(status);
+
+    if (!this.plugin.settings.mcpEnabled) return;
+
+    const token = this.plugin.settings.mcpToken;
+
+    new Setting(containerEl)
+      .setName("Token")
+      .setDesc(this.showMcpToken ? token : maskToken(token))
+      .addButton(b => b.setButtonText(this.showMcpToken ? "Verbergen" : "Anzeigen")
+        .onClick(() => { this.showMcpToken = !this.showMcpToken; this.update(); }))
+      .addButton(b => b.setButtonText("Neu generieren").setDestructive()
+        .onClick(async () => {
+          await this.plugin.rotateMcpToken();
+          new Notice("Neuer Token — alte Clients müssen neu verbunden werden");
+          this.update();
+        }));
+
+    new Setting(containerEl)
+      .setName("Verbindung testen")
+      .setDesc("Prüft den Server über den Loopback-Endpunkt — wie ein externer Client.")
+      .addButton(b => b.setButtonText("Testen")
+        .onClick(async () => {
+          b.setDisabled(true);
+          const res = await this.plugin.mcpSelfCheck();
+          b.setDisabled(false);
+          const msg = res === "ok" ? "✓ 3 Tools erreichbar"
+            : res === "unauthorized" ? "Token stimmt nicht"
+            : res === "unreachable" ? "Server nicht erreichbar (aus? Port?)"
+            : "Antwort ist kein MCP";
+          new Notice(`MCP-Selbsttest: ${msg}`);
+        }));
+
+    new Setting(containerEl)
+      .setName("Angebotene Tools")
+      .setDesc("search · related · read_note — read-only Zugriff auf den Vault-Index.");
+
+    const url = this.plugin.mcpServerAddress() ?? `http://127.0.0.1:${this.plugin.settings.mcpPort}/mcp`;
+
+    new Setting(containerEl)
+      .setName("Client-Setup")
+      .setDesc("Config für deinen MCP-Client — Client wählen, dann kopieren.")
+      .addDropdown(d => {
+        for (const c of MCP_CLIENTS) d.addOption(c.id, c.label);
+        d.setValue(this.mcpClient);
+        d.onChange((v: string) => { this.mcpClient = v as McpClientId; this.update(); });
+      })
+      .addButton(b => b.setButtonText("Kopieren")
+        .onClick(() => {
+          void navigator.clipboard.writeText(buildClientSnippet(this.mcpClient, { url, token }));
+          new Notice("MCP-Config kopiert");
+        }));
+
+    const pre = containerEl.createEl("pre", { cls: "vault-rag-mcp-snippet" });
+    pre.setText(buildClientSnippet(this.mcpClient, { url, token: maskToken(token) }));
   };
 
   hide(): void {

@@ -238,4 +238,14 @@ describe("getSettingDefinitions – Struktur", () => {
     const keys = (search!.items as any[]).filter(i => i.control).map(i => i.control.key);
     expect(keys).toEqual(["k", "minSim", "exclude"]);
   });
+
+  it("Live-Embedding-Gruppe: Debounce/Statusleiste deklarativ, 3 render-Hatches", () => {
+    const { tab } = makeTab();
+    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Live-Embedding");
+    expect(g).toBeTruthy();
+    const items = g.items as any[];
+    const controlKeys = items.filter(i => i.control).map(i => i.control.key);
+    expect(controlKeys).toEqual(["debounceMs", "showStatusBar"]);
+    expect(items.filter(i => typeof i.render === "function").length).toBe(3); // Endpunkte, Modell, Status
+  });
 });

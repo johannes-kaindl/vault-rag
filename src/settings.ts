@@ -153,6 +153,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private updateBudgetMax: (maxChars: number) => void = () => {};
   private infoValue: HTMLElement | null = null;
   private capSetting: Setting | null = null;
+  // Von render-Hatches gestartete Status-Polls (z.B. renderEmbeddingStatus) — Cleanup folgt in
+  // Task 9 (hide()-Härtung); die Hatches selbst geben ihre Cleanup-Funktion an den Aufrufer zurück.
+  private pollIntervals: number[] = [];
   // Endpunkte nur beim ECHTEN Tab-Öffnen auflösen, nicht bei jedem Re-Render: blur/Trash/
   // „Verbindung prüfen"/rerender rufen display() direkt, und die Edit-Handler reconnecten
   // bereits explizit — sonst 3 Resolves pro Edit (verbreitert das liveIndexer-Race-Fenster).
@@ -186,7 +189,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return [this.searchGroup()];
+    return [this.searchGroup(), this.embeddingGroup()];
   }
 
   /** Macht die von der API übergebene Setting-Row zu einem neutralen Block-Container:
@@ -213,6 +216,98 @@ export class VaultRagSettingTab extends PluginSettingTab {
         control: { type: "text", key: "exclude", placeholder: "Templates/, Archive/" } },
     ] };
   }
+
+  private embeddingGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Live-Embedding", items: [
+      { name: "Embedding-Endpunkte", desc: "", render: this.renderEmbeddingEndpoints },
+      { name: "Embedding-Modell", desc: "Modellname wie auf dem Endpoint verfügbar", render: this.renderEmbeddingModel },
+      { name: "Embedding-Status", desc: "", render: this.renderEmbeddingStatus },
+      { name: "Debounce", desc: "Wartezeit nach dem letzten Speichern, bevor neu eingebettet wird",
+        control: { type: "slider", key: "debounceMs", min: 500, max: 10000, step: 500,
+          displayFormat: (v: number) => `${v / 1000} s` } },
+      { name: "Fortschritt in Statusleiste", desc: "Zeigt Embedding-Status in der unteren Obsidian-Leiste",
+        control: { type: "toggle", key: "showStatusBar" } },
+    ] };
+  }
+
+  /** render-Hatch: Embedding-Endpunkt-Liste. Body = bisheriger buildEndpointList, in hostFor
+   *  gezeichnet, this.display() → this.update(). */
+  private renderEmbeddingEndpoints = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    this.buildEndpointList({
+      containerEl: host,
+      label: "Embedding-Endpunkte",
+      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Ollama- oder MLX-Server-URLs (Desktop oder LAN/VPN-erreichbar).",
+      placeholder: "http://localhost:11434",
+      get: () => this.plugin.settings.embeddingEndpoints,
+      set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
+      active: () => this.plugin.activeEmbeddingEndpoint,
+      probe: (ep) => new EmbeddingClient(ep, this.plugin.settings.embeddingModel).probe(),
+      reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
+    });
+  };
+
+  /** render-Hatch: Embedding-Modell-Dropdown. Body = bisheriger buildEmbeddingModel, aber zeichnet
+   *  in einer frischen Setting im hostFor-Container statt auf der übergebenen; rerender() → update(). */
+  private renderEmbeddingModel = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Embedding-Modell").setDesc("Modellname wie auf dem Endpoint verfügbar");
+    void this.plugin.embedder?.listModels().then((models: string[]) => {
+      const cur = this.plugin.settings.embeddingModel;
+      if (models.length) {
+        const list = models.includes(cur) ? models : [cur, ...models];
+        s.addDropdown(d => {
+          list.forEach((m: string) => { d.addOption(m, m); });
+          d.setValue(cur).onChange((v: string) => {
+            this.plugin.settings.embeddingModel = v;
+            void this.plugin.saveSettings();
+            void this.plugin.resolveAndReconnectEmbedder();
+          });
+        });
+      } else {
+        s.addText(t => t.setPlaceholder("qwen3-embedding:8b").setValue(cur).onChange(async (v: string) => {
+          this.plugin.settings.embeddingModel = v.trim();
+          await this.plugin.saveSettings();
+          void this.plugin.resolveAndReconnectEmbedder();
+        }));
+        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.update()));
+      }
+    });
+  };
+
+  /** render-Hatch: Embedding-Status-Zeile mit 2s-Poll. Body = bisheriger buildEmbeddingStatus;
+   *  das Intervall wird NICHT mehr in this.refreshInterval gehalten, sondern in pollIntervals
+   *  gesammelt und als Cleanup-Funktion zurückgegeben (Task 9 räumt sie in hide() ab). */
+  private renderEmbeddingStatus = (setting: Setting): (() => void) => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Embedding-Status");
+    const val = s.controlEl.createSpan({ cls: "vault-rag-info-value" });
+    const dot = val.createSpan({ cls: "vault-rag-conn-dot" });
+    const text = val.createSpan();
+    let connected: boolean | null = null;
+    const render = (): void => {
+      dot.toggleClass("is-checking", connected === null);
+      dot.toggleClass("is-ok", connected === true);
+      dot.toggleClass("is-error", connected === false);
+      // Form (Icon) trägt den Status, Farbe nur sekundär — lesbar auch bei Farbsehschwäche (WCAG 1.4.1).
+      setIcon(dot, connected === null ? "loader" : connected ? "circle-check" : "circle-x");
+      const active = this.plugin.activeEmbeddingEndpoint;
+      const conn = connected === null ? "prüfe…" : connected ? (active ? `verbunden via ${active}` : "verbunden") : "offline";
+      const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
+      // Nur die eingebettete Zahl hier — der echte Rückstand (fehlende Notizen) lebt als EINE
+      // Wahrheit in der Index-Zustand-Zeile (Index-Robustheit). „pending" war die transiente
+      // Offline-Queue und kollidierte optisch mit dem Deckungs-Delta.
+      const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet` : "";
+      const act = p?.isEmbedding ? "Embedding läuft" : "";
+      text.setText([conn, act, counts].filter(Boolean).join(" · "));
+    };
+    render();
+    // Status-Poll stützt sich auf dieselbe Reachability-Logik wie main.ts (ping → Re-Resolve → ping).
+    void this.plugin.embedderReady().then((ok: boolean) => { connected = ok; render(); });
+    const interval = window.setInterval(render, 2000);
+    this.pollIntervals.push(interval);
+    return () => { window.clearInterval(interval); };
+  };
 
   hide(): void {
     this.clearInterval();
@@ -341,7 +436,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           opts.set(updated);
           void this.plugin.saveSettings()
             .then(() => opts.reconnect())
-            .then(() => this.display());
+            .then(() => this.update());
         });
       });
       // Löschen: expliziter Mülleimer-Button (nicht am leeren Add-Feld). Das Status-Icon links
@@ -354,7 +449,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
             opts.set(applyEndpointEdit(opts.get(), i, "", false));
             void this.plugin.saveSettings()
               .then(() => opts.reconnect())
-              .then(() => this.display());
+              .then(() => this.update());
           }));
       }
       // Pro-Feld-Status in A11y-Form (Form + Text + Farbe): loader → check/x, aktiver markiert.
@@ -390,10 +485,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
           opts.set(applyEndpointEdit(cur, cur.length, preset.url, true));
           void this.plugin.saveSettings()
             .then(() => opts.reconnect())
-            .then(() => this.display());
+            .then(() => this.update());
         }));
     });
-    actions.addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.display()));
+    actions.addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.update()));
   }
 
   private buildEmbeddingEndpointList(containerEl: HTMLElement): void {

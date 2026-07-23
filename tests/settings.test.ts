@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { DEFAULT_SETTINGS, VaultRagSettings, migrateEndpointList, applyEndpointEdit, VaultRagSettingTab } from "../src/settings";
+import { DEFAULT_SETTINGS, VaultRagSettings, migrateEndpointList, applyEndpointEdit, applyDestructive, VaultRagSettingTab } from "../src/settings";
 
 describe("settings", () => {
   it("hat sinnvolle Defaults", () => {
@@ -132,6 +132,21 @@ describe("applyEndpointEdit", () => {
 
   it("trimmt und filtert leere Einträge im Ergebnis", () => {
     expect(applyEndpointEdit(["  http://a  ", "http://b"], 1, "  http://c  ", false)).toEqual(["http://a", "http://c"]);
+  });
+});
+
+describe("applyDestructive", () => {
+  it("nutzt setDestructive, wenn vorhanden (1.13+)", () => {
+    let called = false;
+    const b = { setDestructive() { called = true; return this; }, buttonEl: { addClass() { throw new Error("nicht erwartet"); } } };
+    applyDestructive(b as any);
+    expect(called).toBe(true);
+  });
+  it("fällt auf mod-warning-Klasse zurück, wenn setDestructive fehlt (1.12.7)", () => {
+    const classes: string[] = [];
+    const b = { buttonEl: { addClass(c: string) { classes.push(c); } } };  // kein setDestructive
+    applyDestructive(b as any);
+    expect(classes).toContain("mod-warning");
   });
 });
 

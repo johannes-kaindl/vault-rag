@@ -25,6 +25,14 @@ export function applyEndpointEdit(endpoints: string[], index: number, value: str
   return next.map(e => e.trim()).filter(e => e);
 }
 
+/** Roter/destruktiver Button, versionssicher: setDestructive() ab Obsidian 1.13, sonst die
+ *  mod-warning-DOM-Klasse (kein deprecated setWarning, kein Lint-Warning, roter Look überall). */
+export function applyDestructive(b: ButtonComponent): ButtonComponent {
+  if (typeof (b as { setDestructive?: () => unknown }).setDestructive === "function") b.setDestructive();
+  else b.buttonEl.addClass("mod-warning");
+  return b;
+}
+
 type Caps = { vision: string; thinking: { support: string; confidence: string } };
 
 /** Die Plugin-Oberfläche, die der Settings-Tab nutzt — getypt statt `any`. */
@@ -131,7 +139,7 @@ export class RestoreBackupModal extends Modal {
     if (this.entries.length === 0) { contentEl.createEl("p", { text: "Keine Backups vorhanden." }); return; }
     for (const e of this.entries) {
       const row = new Setting(contentEl).setName(`${e.count.toLocaleString("de-DE")} Notizen`).setDesc(e.name);
-      row.addButton(b => b.setButtonText("Wiederherstellen").setDestructive().onClick(() => { this.close(); this.onPick(e.name); }));
+      row.addButton(b => applyDestructive(b.setButtonText("Wiederherstellen")).onClick(() => { this.close(); this.onPick(e.name); }));
     }
   }
   onClose(): void { this.contentEl.empty(); }
@@ -488,7 +496,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .setDesc(this.showMcpToken ? token : maskToken(token))
       .addButton(b => b.setButtonText(this.showMcpToken ? "Verbergen" : "Anzeigen")
         .onClick(() => { this.showMcpToken = !this.showMcpToken; this.update(); }))
-      .addButton(b => b.setButtonText("Neu generieren").setDestructive()
+      .addButton(b => applyDestructive(b.setButtonText("Neu generieren"))
         .onClick(async () => {
           await this.plugin.rotateMcpToken();
           new Notice("Neuer Token — alte Clients müssen neu verbunden werden");

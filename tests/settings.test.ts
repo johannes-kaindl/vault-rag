@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { DEFAULT_SETTINGS, VaultRagSettings, migrateEndpointList, applyEndpointEdit } from "../src/settings";
+import { describe, it, expect, vi } from "vitest";
+import { DEFAULT_SETTINGS, VaultRagSettings, migrateEndpointList, applyEndpointEdit, VaultRagSettingTab } from "../src/settings";
 
 describe("settings", () => {
   it("hat sinnvolle Defaults", () => {
@@ -141,5 +141,65 @@ describe("DEFAULT_SETTINGS Endpunkte", () => {
   });
   it("Embedding-Default bleibt Ollama :11434", () => {
     expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual(["http://localhost:11434"]);
+  });
+});
+
+const DECLARATIVE_KEYS = [
+  "k","minSim","exclude","debounceMs","showStatusBar","hideIndexFolder",
+  "chatK","chatTemperature","chatSystemPrompt","chatInputPosition","suppressThinking","enterSends",
+  "smartApplyEnabled","templateDir","smartApplyTemperature","smartApplySuppressThinking",
+  "smartApplyMaxTokens","smartApplyDefaultMode",
+] as const;
+
+function makeFakeHost() {
+  return {
+    settings: structuredClone(DEFAULT_SETTINGS),
+    saveSettings: vi.fn().mockResolvedValue(undefined),
+    refresh: vi.fn(),
+    refreshSmartApplyRanking: vi.fn(),
+    setStatusBarVisible: vi.fn(),
+    refreshIndexFolderHiding: vi.fn(),
+    // Endpoint-/Modell-/MCP-Methoden für render-Hatches (in Struktur-Tests nicht aufgerufen):
+    resolveAndReconnectEmbedder: vi.fn().mockResolvedValue(undefined),
+    resolveAndReconnectChat: vi.fn().mockResolvedValue(undefined),
+  } as any;
+}
+
+function makeTab(host = makeFakeHost()) {
+  return { tab: new VaultRagSettingTab({} as any, host), host };
+}
+
+describe("getControlValue/setControlValue", () => {
+  it("round-trippt jeden deklarativen Key ohne Store-Drift", async () => {
+    const { tab, host } = makeTab();
+    for (const key of DECLARATIVE_KEYS) {
+      const before = structuredClone(host.settings[key]);
+      await tab.setControlValue(key, tab.getControlValue(key));
+      expect(host.settings[key]).toEqual(before);
+    }
+  });
+
+  it("exclude: string ↔ string[] Coercion", async () => {
+    const { tab, host } = makeTab();
+    expect(tab.getControlValue("exclude")).toBe("Templates/, Archive/");
+    await tab.setControlValue("exclude", "A/, B/");
+    expect(host.settings.exclude).toEqual(["A/", "B/"]);
+  });
+
+  it("templateDir: Trailing-Slash-Normalisierung + Ranking-Refresh", async () => {
+    const { tab, host } = makeTab();
+    await tab.setControlValue("templateDir", "Vorlagen");
+    expect(host.settings.templateDir).toBe("Vorlagen/");
+    expect(host.refreshSmartApplyRanking).toHaveBeenCalled();
+  });
+
+  it("Seiteneffekte: k→refresh, showStatusBar→setStatusBarVisible, hideIndexFolder→refreshIndexFolderHiding", async () => {
+    const { tab, host } = makeTab();
+    await tab.setControlValue("k", 30);
+    expect(host.refresh).toHaveBeenCalled();
+    await tab.setControlValue("showStatusBar", true);
+    expect(host.setStatusBarVisible).toHaveBeenCalledWith(true);
+    await tab.setControlValue("hideIndexFolder", false);
+    expect(host.refreshIndexFolderHiding).toHaveBeenCalled();
   });
 });

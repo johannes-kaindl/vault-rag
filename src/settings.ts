@@ -8,7 +8,7 @@ import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import { collapsibleSection, type CollapsibleStorage } from "./vendor/kit/collapsible";
 import type { ApplyMode } from "./note_restructurer";
-import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, type VaultRagSettings } from "./settings_core";
+import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
 
@@ -158,6 +158,33 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private resolvedOnOpen = false;
 
   constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
+
+  // ── Deklarative Settings-API (Obsidian 1.13) ────────────────────────────
+  // Fundament für die schrittweise Migration von display() auf
+  // getSettingDefinitions(): Lese-/Schreibschicht mit Coercion (exclude
+  // string↔string[], templateDir-Normalisierung) + Seiteneffekten (refresh,
+  // setStatusBarVisible, refreshIndexFolderHiding, refreshSmartApplyRanking).
+  getControlValue(key: string): unknown {
+    const s = this.plugin.settings as unknown as Record<string, unknown>;
+    if (key === "exclude") return (s.exclude as string[]).join(", ");
+    return s[key];
+  }
+
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    const s = this.plugin.settings as unknown as Record<string, unknown>;
+    if (key === "exclude") s.exclude = splitExcludePaths(value as string);
+    else if (key === "templateDir") s.templateDir = normalizeTemplateDir(value as string);
+    else s[key] = value;
+    await this.plugin.saveSettings();
+    switch (key) {
+      case "k": case "minSim": this.plugin.refresh(); break;
+      case "showStatusBar": this.plugin.setStatusBarVisible(s.showStatusBar as boolean); break;
+      case "hideIndexFolder": this.plugin.refreshIndexFolderHiding(); break;
+      case "templateDir": this.plugin.refreshSmartApplyRanking(); break;
+    }
+  }
+
+  getSettingDefinitions(): import("obsidian").SettingDefinitionItem[] { return []; }
 
   hide(): void {
     this.clearInterval();

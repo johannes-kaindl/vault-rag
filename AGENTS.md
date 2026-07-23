@@ -99,8 +99,12 @@ live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename ·
                   `index_guard` geguarded (ready + Live-Disk-Read des tatsächlichen Counts vor
                   jedem live-Persist statt gecachtem Zustand) · healMissing (additiver Delta-Reindex
                   für Self-Heal) · markUnready/markFresh (Gefahrenzustand-Schalter) · noteCount-Getter.
-settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab (Sektionen, Slider,
-                  Debounce, Ausschluss-Editor, Live-Progress-Refresh alle 2 s).
+settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab — vollständig deklarativ
+                  (Obsidian 1.13 `getSettingDefinitions()`, 7 Gruppen, durchsuchbar): einfache
+                  Zeilen sind `control`-Definitionen, `get/setControlValue` liest/schreibt sie
+                  (mit Coercion + Seiteneffekten wie refresh/setStatusBarVisible). Dynamische
+                  Zeilen (Endpoint-Listen, Modell-Dropdowns, Status-Poll alle 2 s, MCP-Sektion)
+                  sind render-Hatches. Kein `display()` mehr — der Render-Pfad ist rein deklarativ.
 view.ts           RelatedPanel (HubPanel) — rendert Hits (`renderHits`, auch von search_view.ts
                   genutzt), Klick öffnet Notiz.
 search_view.ts    SearchPanel (HubPanel) — Wortsuche über den Index (Debounce 400 ms, Min. 3 Zeichen).
@@ -173,6 +177,9 @@ vault-rag verdrahtet ihn an `settings.uiCollapsed` (Record<string, boolean>, per
 `resolveCollapsed(key, defaultCollapsed, storage)` ist pure (kein DOM), entscheidet über Startzustand:
 persistierter Wert (falls key + storage vorhanden) sonst defaultCollapsed (Fallback: true). CSS
 (`COLLAPSIBLE_CSS`) wird über obsidian-Kit bereitgestellt und in `styles.css` übernommen.
+**Seit der Migration auf `getSettingDefinitions()` (native Gruppen ersetzen die einklappbaren
+Sektionen) wird diese Datei von `settings.ts` nicht mehr importiert/genutzt** — sie bleibt im Repo
+für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei ausgedünnt).
 
 ## Commands
 

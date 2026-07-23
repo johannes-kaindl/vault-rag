@@ -7,8 +7,6 @@ import { reasoningHappened, isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
-import { collapsibleSection, type CollapsibleStorage } from "./vendor/kit/collapsible";
-import type { ApplyMode } from "./note_restructurer";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
@@ -140,12 +138,13 @@ export class RestoreBackupModal extends Modal {
 }
 
 /**
- * Settings-Tab. Die Zeilen-Logik lebt in `build*`-Methoden, die EINEN `Setting` füllen; `display()`
- * rendert sie flach. Querverweise zwischen Zeilen (Modelldetails↔Budget-Slider, Suppress-Test↔
- * Fähigkeiten) laufen über Render-State-Felder, die `resetRenderState()` pro Render-Zyklus neu setzt.
+ * Settings-Tab. `getSettingDefinitions()` liefert die deklarative Struktur (7 Gruppen); einfache
+ * Zeilen sind reine `control`-Definitionen, dynamische Zeilen (Endpoint-Listen, Modell-Dropdowns,
+ * Status-Polls, MCP-Sektion) sind `render`-Hatches. Querverweise zwischen Zeilen (Modelldetails↔
+ * Budget-Slider, Suppress-Test↔Fähigkeiten) laufen über Render-State-Felder (`lastCaps`,
+ * `infoValue`, `capSetting`, `updateBudgetMax`), die render-Hatches beim Zeichnen neu setzen.
  */
 export class VaultRagSettingTab extends PluginSettingTab {
-  private refreshInterval: number | null = null;
   private mcpPortRestartTimer: number | null = null;
   private showMcpToken = false;
   private mcpClient: McpClientId = "claude-code";
@@ -153,13 +152,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private updateBudgetMax: (maxChars: number) => void = () => {};
   private infoValue: HTMLElement | null = null;
   private capSetting: Setting | null = null;
-  // Von render-Hatches gestartete Status-Polls (z.B. renderEmbeddingStatus) — Cleanup folgt in
-  // Task 9 (hide()-Härtung); die Hatches selbst geben ihre Cleanup-Funktion an den Aufrufer zurück.
+  // Von render-Hatches gestartete Status-Polls (z.B. renderEmbeddingStatus) — Cleanup läuft primär
+  // über die von den Hatches zurückgegebene Cleanup-Funktion (render-Cleanup); hide() räumt
+  // zusätzlich defensiv alle hier gesammelten Intervalle ab (API garantiert Cleanup beim
+  // Fenster-Zerstören nicht).
   private pollIntervals: number[] = [];
-  // Endpunkte nur beim ECHTEN Tab-Öffnen auflösen, nicht bei jedem Re-Render: blur/Trash/
-  // „Verbindung prüfen"/rerender rufen display() direkt, und die Edit-Handler reconnecten
-  // bereits explizit — sonst 3 Resolves pro Edit (verbreitert das liveIndexer-Race-Fenster).
-  private resolvedOnOpen = false;
 
   constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
 
@@ -327,8 +324,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     ] };
   }
 
-  /** render-Hatch: Embedding-Endpunkt-Liste. Body = bisheriger buildEndpointList, in hostFor
-   *  gezeichnet, this.display() → this.update(). */
+  /** render-Hatch: Embedding-Endpunkt-Liste. Zeichnet in hostFor über buildEndpointList. */
   private renderEmbeddingEndpoints = (setting: Setting): void => {
     const host = this.hostFor(setting);
     this.buildEndpointList({
@@ -344,8 +340,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     });
   };
 
-  /** render-Hatch: Embedding-Modell-Dropdown. Body = bisheriger buildEmbeddingModel, aber zeichnet
-   *  in einer frischen Setting im hostFor-Container statt auf der übergebenen; rerender() → update(). */
+  /** render-Hatch: Embedding-Modell-Dropdown. Zeichnet eine frische Setting im hostFor-Container. */
   private renderEmbeddingModel = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Embedding-Modell").setDesc("Modellname wie auf dem Endpoint verfügbar");
@@ -372,9 +367,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     });
   };
 
-  /** render-Hatch: Embedding-Status-Zeile mit 2s-Poll. Body = bisheriger buildEmbeddingStatus;
-   *  das Intervall wird NICHT mehr in this.refreshInterval gehalten, sondern in pollIntervals
-   *  gesammelt und als Cleanup-Funktion zurückgegeben (Task 9 räumt sie in hide() ab). */
+  /** render-Hatch: Embedding-Status-Zeile mit 2s-Poll. Das Intervall wird in pollIntervals
+   *  gesammelt und als Cleanup-Funktion zurückgegeben — hide() räumt pollIntervals defensiv ab. */
   private renderEmbeddingStatus = (setting: Setting): (() => void) => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Embedding-Status");
@@ -406,8 +400,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     return () => { window.clearInterval(interval); };
   };
 
-  /** render-Hatch: Index-Ordner-Pfad + „Übernehmen". Body = bisheriger buildIndexDir-Body, in
-   *  hostFor gezeichnet, this.display() → this.update(). */
+  /** render-Hatch: Index-Ordner-Pfad + „Übernehmen". */
   private renderIndexDir = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host);
@@ -432,9 +425,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
       }));
   };
 
-  /** render-Hatch: Index-Zustand-Zeile. Body = bisherige erste Zeile aus buildRobustnessSection
-   *  (dynamische Desc via indexHealthReadout + „Vervollständigen"-Button); indexDelta() wird bei
-   *  jedem Render/update() frisch geholt. */
+  /** render-Hatch: Index-Zustand-Zeile (dynamische Desc via indexHealthReadout +
+   *  „Vervollständigen"-Button); indexDelta() wird bei jedem Render/update() frisch geholt. */
   private renderIndexHealth = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const { embedded, total, healthy, emptyCount } = this.plugin.indexDelta();
@@ -447,9 +439,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
         .onClick(() => { void this.plugin.healVault(); }));
   };
 
-  /** render-Hatch: komplette MCP-Sektion. Body = bisheriger buildMcpSection-Body, in hostFor
-   *  gezeichnet, jedes this.display() → this.update(). Bedingte Zeilen (nur bei mcpEnabled) und
-   *  der Client-Snippet-`<pre>`-Block bleiben unverändert. */
+  /** render-Hatch: komplette MCP-Sektion. Bedingte Zeilen (nur bei mcpEnabled) und der
+   *  Client-Snippet-`<pre>`-Block sitzen alle in diesem einen Hatch. */
   private renderMcpSection = (setting: Setting): void => {
     const containerEl = this.hostFor(setting);
     new Setting(containerEl)
@@ -543,8 +534,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     pre.setText(buildClientSnippet(this.mcpClient, { url, token: maskToken(token) }));
   };
 
-  /** render-Hatch: Chat-Endpunkt-Liste. Body = bisheriger buildChatEndpointList, in hostFor
-   *  gezeichnet, this.display() → this.update(). */
+  /** render-Hatch: Chat-Endpunkt-Liste. Zeichnet in hostFor über buildEndpointList. */
   private renderChatEndpoints = (setting: Setting): void => {
     const host = this.hostFor(setting);
     this.buildEndpointList({
@@ -560,8 +550,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     });
   };
 
-  /** render-Hatch: Chat-Modell-Dropdown. Body = bisheriger buildChatModel, aber zeichnet in einer
-   *  frischen Setting im hostFor-Container statt auf der übergebenen; rerender() → update(). Löst
+  /** render-Hatch: Chat-Modell-Dropdown. Zeichnet eine frische Setting im hostFor-Container. Löst
    *  showInfo/showCaps aus — die schreiben in infoValue/lastCaps, gelesen von den render-Hatches
    *  Modelldetails/Fähigkeiten (Cross-Referenz über Render-State, kein direkter Aufruf). */
   private renderChatModel = (setting: Setting): void => {
@@ -596,16 +585,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
     });
   };
 
-  /** render-Hatch: Modelldetails-Zeile. Body = bisheriger buildModelDetails — setzt infoValue,
-   *  das showInfo() (aus renderChatModel) asynchron befüllt. */
+  /** render-Hatch: Modelldetails-Zeile. Setzt infoValue, das showInfo() (aus renderChatModel)
+   *  asynchron befüllt. */
   private renderModelDetails = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Modelldetails");
     this.infoValue = s.controlEl.createSpan({ cls: "vault-rag-info-value", text: "…" });
   };
 
-  /** render-Hatch: Fähigkeiten-Zeile. Body = bisheriger buildCaps — setzt capSetting, das
-   *  showCaps() (renderChatModel) und runThinkingTest() bei einer Caps-Upgrade re-rendern. */
+  /** render-Hatch: Fähigkeiten-Zeile. Setzt capSetting, das showCaps() (renderChatModel) und
+   *  runThinkingTest() bei einer Caps-Upgrade re-rendern. */
   private renderCapsRow = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Fähigkeiten");
@@ -615,7 +604,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   /** render-Hatch: Kontext-Budget-Slider. Bleibt render-Hatch (nicht deklarativ), weil die
    *  Obergrenze modell-gekoppelt ist: updateBudgetMax() (aufgerufen aus showInfo, sobald das
-   *  Modell-Fenster bekannt ist) klemmt Limits/Wert live nach. Body = bisheriger buildBudget. */
+   *  Modell-Fenster bekannt ist) klemmt Limits/Wert live nach. */
   private renderBudget = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host);
@@ -642,9 +631,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
       });
   };
 
-  /** render-Hatch: Smart-Apply-Modell-Dropdown. Body = bisheriger buildSmartApplyModel, in
-   *  hostFor gezeichnet, this.rerender() → this.update(). Leer-Option zuerst: der leere Wert ist
-   *  bedeutungstragend (= Chat-Modell erben). */
+  /** render-Hatch: Smart-Apply-Modell-Dropdown. Zeichnet in hostFor. Leer-Option zuerst: der
+   *  leere Wert ist bedeutungstragend (= Chat-Modell erben). */
   private renderSmartApplyModel = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Smart-Apply-Modell")
@@ -696,98 +684,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   hide(): void {
-    this.clearInterval();
+    for (const id of this.pollIntervals) window.clearInterval(id);
+    this.pollIntervals = [];
     if (this.mcpPortRestartTimer !== null) { window.clearTimeout(this.mcpPortRestartTimer); this.mcpPortRestartTimer = null; }
-    this.resolvedOnOpen = false;
     super.hide();
-  }
-
-  private clearInterval(): void {
-    if (this.refreshInterval !== null) { window.clearInterval(this.refreshInterval); this.refreshInterval = null; }
-  }
-
-  private resetRenderState(): void {
-    // Intervall NUR in buildEmbeddingStatus (clear-then-start) starten + in hide() stoppen —
-    // hier nicht anfassen.
-    this.lastCaps = { vision: "no", thinking: { support: "none", confidence: "no" } };
-    this.updateBudgetMax = () => {};
-    this.infoValue = null;
-    this.capSetting = null;
-  }
-
-  /** Re-Render nach einem Daten-Refresh (z.B. „Modelle laden“). */
-  private rerender(): void {
-    // display() ist seit 1.13 deprecated, bleibt aber der Render-Pfad, bis die deklarative
-    // Settings-API in einem eigenen Slice die Umstellung übernimmt.
-    this.display();
-  }
-
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-    this.resetRenderState();
-    // Verbindungs-Moment NUR beim Tab-Öffnen (nicht bei Re-Renders): aktive Endpunkte aus den
-    // Fallback-Listen auflösen (fire-and-forget; Status-Icons + Status-Poll spiegeln das Ergebnis).
-    if (!this.resolvedOnOpen) {
-      this.resolvedOnOpen = true;
-      void this.plugin.resolveAndReconnectEmbedder();
-      void this.plugin.resolveAndReconnectChat();
-    }
-    const storage: CollapsibleStorage = {
-      getCollapsed: (key: string): boolean | undefined =>
-        key in this.plugin.settings.uiCollapsed ? this.plugin.settings.uiCollapsed[key] : undefined,
-      setCollapsed: (key: string, collapsed: boolean): void => {
-        this.plugin.settings.uiCollapsed[key] = collapsed;
-        void this.plugin.saveSettings();
-      },
-    };
-
-    const searchBody = collapsibleSection(containerEl, { title: "Suche", key: "search", storage });
-    this.buildK(new Setting(searchBody));
-    this.buildMinSim(new Setting(searchBody));
-    this.buildExclude(new Setting(searchBody));
-
-    // Live-Embedding startet beim ersten Mal offen — hier trägt man den Endpunkt ein, ohne
-    // den man vault-rag nicht einrichten kann. Danach gewinnt der persistierte User-Zustand.
-    const embeddingBody = collapsibleSection(containerEl, { title: "Live-Embedding", key: "embedding", storage, defaultCollapsed: false });
-    this.buildEmbeddingEndpointList(embeddingBody);
-    this.buildEmbeddingModel(new Setting(embeddingBody));
-    this.buildEmbeddingStatus(new Setting(embeddingBody));
-    this.buildDebounce(new Setting(embeddingBody));
-    this.buildStatusBar(new Setting(embeddingBody));
-
-    const indexBody = collapsibleSection(containerEl, { title: "Index", key: "index", storage });
-    this.buildIndexDir(new Setting(indexBody));
-    this.buildHideIndexFolder(new Setting(indexBody));
-
-    const robustnessBody = collapsibleSection(containerEl, { title: "Index-Robustheit", key: "index-robustness", storage });
-    this.buildRobustnessSection(robustnessBody);
-
-    const mcpBody = collapsibleSection(containerEl, { title: "MCP-Server", key: "mcp", storage });
-    this.buildMcpSection(mcpBody);
-
-    const chatBody = collapsibleSection(containerEl, { title: "Chat", key: "chat", storage });
-    this.buildChatEndpointList(chatBody);
-    this.buildChatModel(new Setting(chatBody));
-    this.buildModelDetails(new Setting(chatBody));
-    this.buildCaps(new Setting(chatBody));
-    this.buildChatK(new Setting(chatBody));
-    this.buildBudget(new Setting(chatBody));
-    this.buildTemp(new Setting(chatBody));
-    this.buildSystemPrompt(new Setting(chatBody));
-    this.buildInputPos(new Setting(chatBody));
-    this.buildThinking(new Setting(chatBody));
-    this.buildEnter(new Setting(chatBody));
-
-    const smartApplyBody = collapsibleSection(containerEl, { title: "Smart Apply", key: "smartapply", storage });
-    this.buildSmartApplyEnabled(new Setting(smartApplyBody));
-    this.buildSmartApplyConnectionNote(new Setting(smartApplyBody));
-    this.buildTemplateDir(new Setting(smartApplyBody));
-    this.buildSmartApplyTemperature(new Setting(smartApplyBody));
-    this.buildSmartApplyModel(new Setting(smartApplyBody));
-    this.buildSmartApplySuppress(new Setting(smartApplyBody));
-    this.buildSmartApplyMaxTokens(new Setting(smartApplyBody));
-    this.buildSmartApplyDefaultMode(new Setting(smartApplyBody));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
@@ -877,34 +777,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
     actions.addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.update()));
   }
 
-  private buildEmbeddingEndpointList(containerEl: HTMLElement): void {
-    this.buildEndpointList({
-      containerEl,
-      label: "Embedding-Endpunkte",
-      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Ollama- oder MLX-Server-URLs (Desktop oder LAN/VPN-erreichbar).",
-      placeholder: "http://localhost:11434",
-      get: () => this.plugin.settings.embeddingEndpoints,
-      set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
-      active: () => this.plugin.activeEmbeddingEndpoint,
-      probe: (ep) => new EmbeddingClient(ep, this.plugin.settings.embeddingModel).probe(),
-      reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
-    });
-  }
-
-  private buildChatEndpointList(containerEl: HTMLElement): void {
-    this.buildEndpointList({
-      containerEl,
-      label: "Chat-Endpunkte",
-      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. OpenAI-kompatible LLM-Server (MLX/LM-Studio), getrennt von den Embedding-Endpunkten.",
-      placeholder: "http://localhost:1234",
-      get: () => this.plugin.settings.chatEndpoints,
-      set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
-      active: () => this.plugin.activeChatEndpoint,
-      probe: (ep) => new ChatClient(ep, this.plugin.settings.chatModel).probe(),
-      reconnect: () => this.plugin.resolveAndReconnectChat(),
-    });
-  }
-
   /** Capability-Chips (Lucide-Icons) in die controlEl der Fähigkeiten-Zeile. */
   private renderCaps(setting: Setting, c: Caps): void {
     const el = setting.controlEl; el.empty();
@@ -924,8 +796,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   private showInfo(model: string): void {
-    // Tolerant gegenüber stale .then nach einem update()/display()-Re-Render: resetRenderState()
-    // nullt die Felder, die Null-Guards no-oppen dann; bei gleichem Modell ist der Inhalt idempotent.
+    // Tolerant gegenüber stale .then nach einem Re-Render (this.infoValue wird pro render-Hatch
+    // neu gesetzt): der Null-Guard no-oppt dann; bei gleichem Modell ist der Inhalt idempotent.
     void this.plugin.chatClient?.modelInfo(model).then((info: { contextLength?: number; quantization?: string; state?: string } | null) => {
       if (!this.infoValue) return;
       if (info) {
@@ -944,520 +816,5 @@ export class VaultRagSettingTab extends PluginSettingTab {
       this.lastCaps = resolveCapabilities(meta, model, {});
       if (this.capSetting) this.renderCaps(this.capSetting, this.lastCaps);
     });
-  }
-
-  // ── Builder: Suche ────────────────────────────────────────────────────
-  private buildK(s: Setting): void {
-    s.setName(`Anzahl verwandter Notizen: ${this.plugin.settings.k}`)
-      .setDesc("Wie viele ähnliche Notizen im Panel angezeigt werden (5–50)")
-      .addSlider(sl => sl.setLimits(5, 50, 1).setValue(this.plugin.settings.k)        .onChange(async (v: number) => {
-          this.plugin.settings.k = v;
-          s.setName(`Anzahl verwandter Notizen: ${v}`);
-          await this.plugin.saveSettings();
-          this.plugin.refresh();
-        }));
-  }
-
-  private buildMinSim(s: Setting): void {
-    s.setName(`Mindest-Ähnlichkeit: ${Math.round(this.plugin.settings.minSim * 100)} %`)
-      .setDesc("Notizen unterhalb dieser Schwelle werden ausgeblendet — niedriger = mehr Treffer, unschärfer")
-      .addSlider(sl => sl.setLimits(0, 0.9, 0.05).setValue(this.plugin.settings.minSim)        .onChange(async (v: number) => {
-          this.plugin.settings.minSim = v;
-          s.setName(`Mindest-Ähnlichkeit: ${Math.round(v * 100)} %`);
-          await this.plugin.saveSettings();
-          this.plugin.refresh();
-        }));
-  }
-
-  private buildExclude(s: Setting): void {
-    s.setName("Ausschluss-Pfade")
-      .setDesc("Kommagetrennte Pfade, die nicht eingebettet werden (z.B. Templates/, Archive/). Versteckte Pfade (Konfig-Ordner, Papierkorb) sind immer automatisch ausgeschlossen.")
-      .addText(t => t.setPlaceholder("Templates/, Archive/").setValue(this.plugin.settings.exclude.join(", "))
-        .onChange(async (v: string) => {
-          this.plugin.settings.exclude = v.split(",").map((x: string) => x.trim()).filter(Boolean);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  // ── Builder: Live-Embedding ───────────────────────────────────────────
-  private buildEmbeddingModel(s: Setting): void {
-    s.setName("Embedding-Modell").setDesc("Modellname wie auf dem Endpoint verfügbar");
-    void this.plugin.embedder?.listModels().then((models: string[]) => {
-      const cur = this.plugin.settings.embeddingModel;
-      if (models.length) {
-        const list = models.includes(cur) ? models : [cur, ...models];
-        s.addDropdown(d => {
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange((v: string) => {
-            this.plugin.settings.embeddingModel = v;
-            void this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectEmbedder();
-          });
-        });
-      } else {
-        s.addText(t => t.setPlaceholder("qwen3-embedding:8b").setValue(cur).onChange(async (v: string) => {
-          this.plugin.settings.embeddingModel = v.trim();
-          await this.plugin.saveSettings();
-          void this.plugin.resolveAndReconnectEmbedder();
-        }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.rerender()));
-      }
-    });
-  }
-
-  private buildDebounce(s: Setting): void {
-    s.setName(`Debounce: ${this.plugin.settings.debounceMs / 1000} s`)
-      .setDesc("Wartezeit nach dem letzten Speichern, bevor neu eingebettet wird")
-      .addSlider(sl => sl.setLimits(500, 10000, 500).setValue(this.plugin.settings.debounceMs)        .onChange(async (v: number) => {
-          this.plugin.settings.debounceMs = v;
-          s.setName(`Debounce: ${v / 1000} s`);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  // ── Builder: Chat ─────────────────────────────────────────────────────
-  private buildChatModel(s: Setting): void {
-    s.setName("Chat-Modell").setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
-    void this.plugin.chatClient?.listModels().then((models: string[]) => {
-      if (models.length) {
-        const cur = this.plugin.settings.chatModel;
-        const list = models.includes(cur) ? models : [cur, ...models];
-        s.addDropdown(d => {
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange((v: string) => {
-            this.plugin.settings.chatModel = v;
-            void this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectChat();
-            this.showInfo(v);
-            this.showCaps(v);
-          });
-        });
-      } else {
-        s.setDesc('Server offline — Modellname eintippen, dann „Modelle laden“');
-        s.addText(t => t.setPlaceholder("qwen3").setValue(this.plugin.settings.chatModel)
-          .onChange(async (v: string) => {
-            this.plugin.settings.chatModel = v.trim();
-            await this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectChat();
-          }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.rerender()));
-      }
-      this.showInfo(this.plugin.settings.chatModel);
-      this.showCaps(this.plugin.settings.chatModel);
-    });
-  }
-
-  private buildModelDetails(s: Setting): void {
-    s.setName("Modelldetails");
-    this.infoValue = s.controlEl.createSpan({ cls: "vault-rag-info-value", text: "…" });
-  }
-
-  private buildCaps(s: Setting): void {
-    s.setName("Fähigkeiten");
-    this.capSetting = s;
-    this.renderCaps(s, this.lastCaps);
-  }
-
-  private buildChatK(s: Setting): void {
-    s.setName(`Kontext-Notizen: ${this.plugin.settings.chatK}`)
-      .setDesc("Wie viele Notizen als Kontext in den Chat gehen (Auto-RAG)")
-      .addSlider(sl => sl.setLimits(1, 20, 1).setValue(this.plugin.settings.chatK)        .onChange(async (v: number) => {
-          this.plugin.settings.chatK = v;
-          s.setName(`Kontext-Notizen: ${v}`);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  private buildBudget(s: Setting): void {
-    s.setName(`Kontext-Budget: ${this.plugin.settings.contextCharBudget.toLocaleString("de-DE")} Zeichen`)
-      .setDesc("Maximale Gesamtlänge des Notiz-Kontexts (anteilig verteilt). Obergrenze richtet sich nach dem Modell-Fenster.")
-      .addSlider(sl => {
-        sl.setLimits(2000, 32000, 1000).setValue(this.plugin.settings.contextCharBudget)          .onChange(async (v: number) => {
-            this.plugin.settings.contextCharBudget = v;
-            s.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
-            await this.plugin.saveSettings();
-          });
-        // Sobald das Modell-Fenster bekannt ist (showInfo): Slider-Max daran koppeln + Wert klemmen.
-        this.updateBudgetMax = (maxChars: number): void => {
-          const max = Math.max(8000, Math.round(maxChars / 1000) * 1000);
-          sl.setLimits(2000, max, 1000);
-          const val = Math.min(this.plugin.settings.contextCharBudget, max);
-          sl.setValue(val);
-          s.setName(`Kontext-Budget: ${val.toLocaleString("de-DE")} / max ~${max.toLocaleString("de-DE")} Zeichen`);
-          if (val !== this.plugin.settings.contextCharBudget) {
-            this.plugin.settings.contextCharBudget = val;   // nur bei echter Klemmung schreiben
-            void this.plugin.saveSettings();
-          }
-        };
-      });
-  }
-
-  private buildTemp(s: Setting): void {
-    s.setName(`Temperatur: ${this.plugin.settings.chatTemperature}`)
-      .setDesc("Kreativität vs. Bestimmtheit (0 = deterministisch, höher = kreativer)")
-      .addSlider(sl => sl.setLimits(0, 2, 0.1).setValue(this.plugin.settings.chatTemperature)        .onChange(async (v: number) => {
-          this.plugin.settings.chatTemperature = v;
-          s.setName(`Temperatur: ${v}`);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  private buildSystemPrompt(s: Setting): void {
-    s.setName("System-Prompt")
-      .setDesc("Grundanweisung an das Modell. Der Notiz-Kontext wird automatisch angehängt.")
-      .addTextArea(t => {
-        t.setValue(this.plugin.settings.chatSystemPrompt).onChange(async (v: string) => {
-          this.plugin.settings.chatSystemPrompt = v;
-          await this.plugin.saveSettings();
-        });
-        t.inputEl.rows = 8;
-        t.inputEl.addClass("vault-rag-prompt-textarea");
-      });
-  }
-
-  private buildInputPos(s: Setting): void {
-    s.setName("Eingabe-Position")
-      .setDesc("Wo die Chat-Eingabe sitzt (greift beim nächsten Öffnen des Panels)")
-      .addDropdown(d => d.addOption("bottom", "Unten").addOption("top", "Oben").setValue(this.plugin.settings.chatInputPosition)
-        .onChange(async (v: string) => {
-          this.plugin.settings.chatInputPosition = v as "bottom" | "top";
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  private buildThinking(s: Setting): void {
-    s.setName("Thinking unterdrücken")
-      .setDesc("Standard für neue Chats. Sendet Suppress-Hints (reasoning_effort/enable_thinking). Pro Chat im Panel umschaltbar. „Testen“ prüft, ob das Modell wirklich abschaltet.")
-      .addToggle(t => t.setValue(this.plugin.settings.suppressThinking).onChange(async (v: boolean) => {
-        this.plugin.settings.suppressThinking = v;
-        await this.plugin.saveSettings();
-      }))
-      .addButton(b => b.setButtonText("Testen").onClick(async () => {
-        const model = this.plugin.settings.chatModel;
-        if (isAlwaysOnThinker(model)) { new Notice("Dieses Modell denkt immer (nur low/medium/high)."); return; }
-        b.setButtonText("Teste…"); b.setDisabled(true);
-        try {
-          const res = await this.plugin.chatClient.stream(
-            [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
-            () => {}, () => {}, undefined, { model, suppressThinking: true });
-          const happened = reasoningHappened(res.content, res.reasoning);
-          new Notice(happened ? "Modell denkt trotz „aus“" : "Thinking wird unterdrückt");
-          if (happened) {
-            // Live-Nachweis, dass das Modell denkt → Fähigkeiten-Zeile hochstufen.
-            this.lastCaps = { ...this.lastCaps, thinking: { support: "always", confidence: "confirmed" } };
-            if (this.capSetting) this.renderCaps(this.capSetting, this.lastCaps);
-          }
-        } catch {
-          new Notice("Chat-Endpoint nicht erreichbar");
-        } finally { b.setButtonText("Testen"); b.setDisabled(false); }
-      }));
-  }
-
-  private buildEnter(s: Setting): void {
-    s.setName("Enter sendet")
-      .setDesc("An: Enter sendet, Shift+Enter macht eine neue Zeile. Aus: umgekehrt.")
-      .addToggle(t => t.setValue(this.plugin.settings.enterSends).onChange(async (v: boolean) => {
-        this.plugin.settings.enterSends = v;
-        await this.plugin.saveSettings();
-      }));
-  }
-
-  // ── Builder: Smart Apply ──────────────────────────────────────────────
-  private buildSmartApplyEnabled(s: Setting): void {
-    s.setName("Smart Apply aktivieren")
-      .setDesc("Schaltet den Befehl, das Ribbon-Icon und das Panel frei: eine unstrukturierte Notiz hinter einem Diff-Gate in die Struktur einer Vorlage überführen. Greift beim nächsten Neuladen des Plugins.")
-      .addToggle(t => t.setValue(this.plugin.settings.smartApplyEnabled).onChange(async (v: boolean) => {
-        this.plugin.settings.smartApplyEnabled = v;
-        await this.plugin.saveSettings();
-      }));
-  }
-
-  /** Reiner Hinweis — Smart Apply nutzt die bestehende Chat-Verbindung; keine eigenen Endpoint-Felder. */
-  private buildSmartApplyConnectionNote(s: Setting): void {
-    s.setName("Verbindung")
-      .setDesc('Smart Apply nutzt die Chat-Verbindung (Endpoint, Modell) aus dem Abschnitt „Chat“ — kein eigener Endpoint nötig.');
-  }
-
-  private buildTemplateDir(s: Setting): void {
-    s.setName("Vorlagen-Ordner")
-      .setDesc('Ordner mit den Vorlagen — Markdown-Dateien darin und in Unterordnern werden berücksichtigt. Ausgenommen sind Folder Notes (Datei trägt den Namen ihres Ordners, z.B. Projekt/Projekt.md).')
-      .addText(t => {
-        t.setPlaceholder("Templates/").setValue(this.plugin.settings.templateDir);
-        const normalize = (v: string): string => {
-          const trimmed = v.trim();
-          if (trimmed === "") return "";
-          return trimmed.endsWith("/") ? trimmed : trimmed + "/";
-        };
-        const save = async (v: string): Promise<void> => {
-          this.plugin.settings.templateDir = normalize(v);
-          await this.plugin.saveSettings();
-          this.plugin.refreshSmartApplyRanking();   // offenes Cockpit sofort neu ranken (kein Reload)
-        };
-        t.onChange(save);
-        new FolderSuggest(this.app, t.inputEl).onSelect(async (path: string) => {
-          t.setValue(normalize(path));
-          await save(path);
-        });
-      });
-  }
-
-  private buildSmartApplyTemperature(s: Setting): void {
-    s.setName(`Smart-Apply-Temperatur: ${this.plugin.settings.smartApplyTemperature}`)
-      .setDesc("Temperatur für den Umsortier-Call (0 = deterministisch — empfohlen für reproduzierbare Vorschläge).")
-      .addSlider(sl => sl.setLimits(0, 2, 0.1).setValue(this.plugin.settings.smartApplyTemperature)
-        .onChange(async (v: number) => {
-          this.plugin.settings.smartApplyTemperature = v;
-          s.setName(`Smart-Apply-Temperatur: ${v}`);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  private buildSmartApplyModel(s: Setting): void {
-    s.setName("Smart-Apply-Modell")
-      .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.');
-    void this.plugin.chatClient?.listModels().then((models: string[]) => {
-      const cur = this.plugin.settings.smartApplyModel;
-      if (models.length) {
-        // Leer-Option zuerst: der leere Wert ist bedeutungstragend (= Chat-Modell erben).
-        const list = cur && !models.includes(cur) ? [cur, ...models] : models;
-        s.addDropdown(d => {
-          d.addOption("", "Chat-Modell verwenden");
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange(async (v: string) => {
-            this.plugin.settings.smartApplyModel = v;
-            await this.plugin.saveSettings();
-          });
-        });
-      } else {
-        s.setDesc('Server offline — Modellname eintippen (leer = Chat-Modell), dann „Modelle laden"');
-        s.addText(t => t.setPlaceholder("leer = Chat-Modell").setValue(cur)
-          .onChange(async (v: string) => {
-            this.plugin.settings.smartApplyModel = v.trim();
-            await this.plugin.saveSettings();
-          }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.rerender()));
-      }
-    });
-  }
-
-  private buildSmartApplySuppress(s: Setting): void {
-    s.setName("Thinking unterdrücken (Smart Apply)")
-      .setDesc("Sendet Suppress-Hints fuer den Smart-Apply-Call — sinnvoll bei Thinking-Modellen, die auch strukturiert schreiben koennen.")
-      .addToggle(t => t.setValue(this.plugin.settings.smartApplySuppressThinking).onChange(async (v: boolean) => {
-        this.plugin.settings.smartApplySuppressThinking = v;
-        await this.plugin.saveSettings();
-      }));
-  }
-
-  private buildSmartApplyMaxTokens(s: Setting): void {
-    s.setName(`Smart-Apply-Max-Tokens: ${this.plugin.settings.smartApplyMaxTokens}`)
-      .setDesc("Maximale Anzahl generierter Tokens fuer den Umsortier-Call (512–16384). Hoeher = sicher fuer grosse Notizen mit vielen Bloecken.")
-      .addSlider(sl => sl.setLimits(512, 16384, 512).setValue(this.plugin.settings.smartApplyMaxTokens)
-        .onChange(async (v: number) => {
-          this.plugin.settings.smartApplyMaxTokens = v;
-          s.setName(`Smart-Apply-Max-Tokens: ${v}`);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  private buildSmartApplyDefaultMode(s: Setting): void {
-    s.setName("Smart-Apply-Standardmodus")
-      .setDesc("Für Vorlagen ohne eigene Modus-Angabe. Additiv/Transformativ lässt das LLM Werte erschließen und ergänzen (mit Konfidenz).")
-      .addDropdown(d => d
-        .addOption("deterministisch", "Deterministisch (nur zuordnen)")
-        .addOption("additiv", "Additiv (erschließen + ergänzen)")
-        .setValue(this.plugin.settings.smartApplyDefaultMode)
-        .onChange(async (v) => { this.plugin.settings.smartApplyDefaultMode = v as ApplyMode; await this.plugin.saveSettings(); }));
-  }
-
-  /** Kompakte einzeilige Embedding-Status-Zeile (bei den Embedding-Settings): EIN konsistent
-   *  gefärbter Verbindungspunkt + aktiver Endpunkt + Zähler, live aktualisiert. Kein Control → Wert in controlEl ok. */
-  private buildEmbeddingStatus(s: Setting): void {
-    s.setName("Embedding-Status");
-    const val = s.controlEl.createSpan({ cls: "vault-rag-info-value" });
-    const dot = val.createSpan({ cls: "vault-rag-conn-dot" });
-    const text = val.createSpan();
-    let connected: boolean | null = null;
-    const render = (): void => {
-      dot.toggleClass("is-checking", connected === null);
-      dot.toggleClass("is-ok", connected === true);
-      dot.toggleClass("is-error", connected === false);
-      // Form (Icon) trägt den Status, Farbe nur sekundär — lesbar auch bei Farbsehschwäche (WCAG 1.4.1).
-      setIcon(dot, connected === null ? "loader" : connected ? "circle-check" : "circle-x");
-      const active = this.plugin.activeEmbeddingEndpoint;
-      const conn = connected === null ? "prüfe…" : connected ? (active ? `verbunden via ${active}` : "verbunden") : "offline";
-      const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
-      // Nur die eingebettete Zahl hier — der echte Rückstand (fehlende Notizen) lebt als EINE
-      // Wahrheit in der Index-Zustand-Zeile (Index-Robustheit). „pending" war die transiente
-      // Offline-Queue und kollidierte optisch mit dem Deckungs-Delta.
-      const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet` : "";
-      const act = p?.isEmbedding ? "Embedding läuft" : "";
-      text.setText([conn, act, counts].filter(Boolean).join(" · "));
-    };
-    render();
-    // Status-Poll stützt sich auf dieselbe Reachability-Logik wie main.ts (ping → Re-Resolve → ping).
-    void this.plugin.embedderReady().then((ok: boolean) => { connected = ok; render(); });
-    this.clearInterval();
-    this.refreshInterval = window.setInterval(render, 2000);
-  }
-
-  private buildStatusBar(s: Setting): void {
-    s.setName("Fortschritt in Statusleiste")
-      .setDesc("Zeigt Embedding-Status in der unteren Obsidian-Leiste")
-      .addToggle(t => t.setValue(this.plugin.settings.showStatusBar).onChange(async (v: boolean) => {
-        this.plugin.settings.showStatusBar = v;
-        await this.plugin.saveSettings();
-        this.plugin.setStatusBarVisible(v);
-      }));
-  }
-
-  private buildIndexDir(s: Setting): void {
-    let typed = this.plugin.settings.indexDir;
-    s.setName("Index-Ordner")
-      .setDesc('Wo der Vektor-Index gespeichert wird. Synct cross-device (inkl. iPhone) nur mit der Obsidian-Sync-Option „Sync all other types". Ein Pfad mit „." am Anfang wird von Obsidian Sync ignoriert.')
-      .addText(t => {
-        t.setPlaceholder("_vaultrag").setValue(this.plugin.settings.indexDir);
-        t.onChange((v: string) => { typed = v; });
-        new FolderSuggest(this.app, t.inputEl).onSelect((path: string) => { typed = path; t.setValue(path); });
-      })
-      .addButton(b => b.setButtonText("Übernehmen").onClick(async () => {
-        const norm = normalizeIndexDir(typed);
-        if (norm === "" || norm === normalizeIndexDir(this.plugin.settings.indexDir)) return;
-        if (isDotPath(norm)) new Notice('Index-Ordner beginnt mit „." — synct dann nicht cross-device (auch nicht aufs iPhone).');
-        b.setButtonText("Verschiebe…"); b.setDisabled(true);
-        try {
-          await this.plugin.changeIndexDir(norm);
-          new Notice(`Index verschoben nach „${norm}".`);
-        } finally { b.setButtonText("Übernehmen"); b.setDisabled(false); }
-        this.display();
-      }));
-  }
-
-  private buildHideIndexFolder(s: Setting): void {
-    s.setName("Index-Ordner im Datei-Explorer ausblenden")
-      .setDesc("Versteckt den Index-Ordner kosmetisch im Datei-Explorer. Daten, Sync und Suche bleiben unberührt. Standardmäßig an.")
-      .addToggle(t => t.setValue(this.plugin.settings.hideIndexFolder).onChange(async (v: boolean) => {
-        this.plugin.settings.hideIndexFolder = v;
-        await this.plugin.saveSettings();
-        this.plugin.refreshIndexFolderHiding();
-      }));
-  }
-
-  /** „Vault neu indizieren" lebt bewusst hier statt in der Index-Sektion (Config): Robustheit
-   *  bündelt alle Wiederherstellungs-Aktionen (Zustand, Delta-Heal, Backup, Voll-Reindex) an
-   *  einer Stelle — kein zweiter Reindex-Button mehr in „Index". */
-  private buildRobustnessSection(containerEl: HTMLElement): void {
-    const { embedded, total, healthy, emptyCount } = this.plugin.indexDelta();
-    new Setting(containerEl)
-      .setName("Index-Zustand")
-      .setDesc(this.plugin.indexHealthReadout(embedded, total, healthy, emptyCount))
-      .addButton(b => b
-        .setButtonText("Vervollständigen")
-        .setDisabled(!healthy || embedded >= total)
-        .onClick(() => { void this.plugin.healVault(); }));
-    new Setting(containerEl)
-      .setName("Aus Backup wiederherstellen")
-      .setDesc("Geräte-lokale Sicherungen des Index (letzte 3). Ersetzt den aktuellen Index.")
-      .addButton(b => b.setButtonText("Backups…").onClick(() => { void (async () => {
-        new RestoreBackupModal(this.app, await this.plugin.listBackups(), (n) => void this.plugin.restoreBackup(n)).open();
-      })(); }));
-    new Setting(containerEl)
-      .setName("Vault neu indizieren")
-      .setDesc("Baut den kompletten Index von Grund auf neu — der letzte Ausweg.")
-      .addButton(b => b.setButtonText("Neu indizieren").setDestructive().onClick(() => {
-        new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open();
-      }));
-  }
-
-  private buildMcpSection(containerEl: HTMLElement): void {
-    new Setting(containerEl)
-      .setName("MCP-Server aktivieren")
-      .setDesc("Lokaler HTTP-Server, über den externe LLM-Agents (z. B. Claude Code) den Vault durchsuchen. Nur Desktop, nur solange Obsidian läuft. Loopback (127.0.0.1) + Token.")
-      .addToggle(t => t.setValue(this.plugin.settings.mcpEnabled).onChange(async (v: boolean) => {
-        this.plugin.settings.mcpEnabled = v;
-        if (v) this.plugin.ensureMcpToken();
-        await this.plugin.saveSettings();
-        await this.plugin.restartMcpServer();
-        this.display();
-      }));
-
-    new Setting(containerEl)
-      .setName("Port")
-      .setDesc("Loopback-Port des MCP-Servers (Default 8123). Änderung startet den Server neu.")
-      .addText(t => t.setPlaceholder("8123").setValue(String(this.plugin.settings.mcpPort))
-        .onChange(async (v: string) => {
-          const n = parseInt(v, 10);
-          if (!Number.isFinite(n) || n < 1 || n > 65535) return;
-          this.plugin.settings.mcpPort = n;
-          await this.plugin.saveSettings();
-          // Debounce (Fix 2): sonst würde jeder Tastendruck einen eigenen Server-Restart
-          // auslösen (mirrors scheduleEmbed's Debounce-Idee in main.ts) — Speichern bleibt
-          // sofort, nur der Neustart wartet ~800ms auf Tipp-Ruhe.
-          if (this.mcpPortRestartTimer !== null) window.clearTimeout(this.mcpPortRestartTimer);
-          this.mcpPortRestartTimer = window.setTimeout(() => {
-            this.mcpPortRestartTimer = null;
-            void this.plugin.restartMcpServer().then(() => this.display());
-          }, 800);
-        }));
-
-    const detail = this.plugin.mcpStartError();
-    const status = this.plugin.mcpServerRunning()
-      ? `läuft · ${this.plugin.mcpServerAddress() ?? ""}`
-      : (this.plugin.settings.mcpEnabled ? `aus — ${detail ?? "Start fehlgeschlagen"}` : "aus");
-    new Setting(containerEl).setName("Status").setDesc(status);
-
-    if (!this.plugin.settings.mcpEnabled) return;
-
-    const token = this.plugin.settings.mcpToken;
-
-    new Setting(containerEl)
-      .setName("Token")
-      .setDesc(this.showMcpToken ? token : maskToken(token))
-      .addButton(b => b.setButtonText(this.showMcpToken ? "Verbergen" : "Anzeigen")
-        .onClick(() => { this.showMcpToken = !this.showMcpToken; this.display(); }))
-      .addButton(b => b.setButtonText("Neu generieren").setDestructive()
-        .onClick(async () => {
-          await this.plugin.rotateMcpToken();
-          new Notice("Neuer Token — alte Clients müssen neu verbunden werden");
-          this.display();
-        }));
-
-    new Setting(containerEl)
-      .setName("Verbindung testen")
-      .setDesc("Prüft den Server über den Loopback-Endpunkt — wie ein externer Client.")
-      .addButton(b => b.setButtonText("Testen")
-        .onClick(async () => {
-          b.setDisabled(true);
-          const res = await this.plugin.mcpSelfCheck();
-          b.setDisabled(false);
-          const msg = res === "ok" ? "✓ 3 Tools erreichbar"
-            : res === "unauthorized" ? "Token stimmt nicht"
-            : res === "unreachable" ? "Server nicht erreichbar (aus? Port?)"
-            : "Antwort ist kein MCP";
-          new Notice(`MCP-Selbsttest: ${msg}`);
-        }));
-
-    new Setting(containerEl)
-      .setName("Angebotene Tools")
-      .setDesc("search · related · read_note — read-only Zugriff auf den Vault-Index.");
-
-    const url = this.plugin.mcpServerAddress() ?? `http://127.0.0.1:${this.plugin.settings.mcpPort}/mcp`;
-
-    new Setting(containerEl)
-      .setName("Client-Setup")
-      .setDesc("Config für deinen MCP-Client — Client wählen, dann kopieren.")
-      .addDropdown(d => {
-        for (const c of MCP_CLIENTS) d.addOption(c.id, c.label);
-        d.setValue(this.mcpClient);
-        d.onChange((v: string) => { this.mcpClient = v as McpClientId; this.display(); });
-      })
-      .addButton(b => b.setButtonText("Kopieren")
-        .onClick(() => {
-          void navigator.clipboard.writeText(buildClientSnippet(this.mcpClient, { url, token }));
-          new Notice("MCP-Config kopiert");
-        }));
-
-    const pre = containerEl.createEl("pre", { cls: "vault-rag-mcp-snippet" });
-    pre.setText(buildClientSnippet(this.mcpClient, { url, token: maskToken(token) }));
   }
 }

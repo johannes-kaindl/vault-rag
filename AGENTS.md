@@ -104,7 +104,12 @@ settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab —
                   Zeilen sind `control`-Definitionen, `get/setControlValue` liest/schreibt sie
                   (mit Coercion + Seiteneffekten wie refresh/setStatusBarVisible). Dynamische
                   Zeilen (Endpoint-Listen, Modell-Dropdowns, Status-Poll alle 2 s, MCP-Sektion)
-                  sind render-Hatches. Kein `display()` mehr — der Render-Pfad ist rein deklarativ.
+                  sind render-Hatches. **Zweigleisig:** ab 1.13 rendert das Framework deklarativ +
+                  durchsuchbar; auf ≤1.12 (minAppVersion 1.12.7 — 1.13 ist Catalyst-Preview) läuft
+                  `display() { renderImperative() }`, das dieselbe `getSettingDefinitions()`-Struktur
+                  imperativ zeichnet (eine Wahrheit). 1.13-only-APIs (`update`/`setDestructive`) sind
+                  hinter Runtime-Feature-Checks versteckt (`refreshUi`/`applyDestructive`) → lint 0
+                  auch bei 1.12.7. On-Open-Endpunkt-Resolve hängt am ersten render-Hatch, nicht am Getter.
 view.ts           RelatedPanel (HubPanel) — rendert Hits (`renderHits`, auch von search_view.ts
                   genutzt), Klick öffnet Notiz.
 search_view.ts    SearchPanel (HubPanel) — Wortsuche über den Index (Debounce 400 ms, Min. 3 Zeichen).

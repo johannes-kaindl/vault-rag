@@ -207,12 +207,18 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    if (!this.resolvedOnOpen) {
-      this.resolvedOnOpen = true;
-      void this.plugin.resolveAndReconnectEmbedder();
-      void this.plugin.resolveAndReconnectChat();
-    }
     return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup()];
+  }
+
+  /** Einmal-pro-Öffnen die aktiven Endpunkte auflösen. An ein echtes Render-Signal (erster
+   *  render-Hatch) gehängt statt an getSettingDefinitions() — Letzteres enumeriert die native
+   *  1.13-Settings-Suche auch ohne unser Tab anzuzeigen, was das Gate zu früh verbrauchen würde.
+   *  Läuft in beiden Pfaden (nativ: Framework ruft den Hatch beim Anzeigen; Fallback: renderImperative). */
+  private ensureResolvedOnOpen(): void {
+    if (this.resolvedOnOpen) return;
+    this.resolvedOnOpen = true;
+    void this.plugin.resolveAndReconnectEmbedder();
+    void this.plugin.resolveAndReconnectChat();
   }
 
   // ── Imperativer Fallback (Obsidian < 1.13) ──────────────────────────────
@@ -225,10 +231,20 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private renderImperative(): void {
     // Vorherigen Durchlauf abräumen, bevor die Zeilen zerlegt werden — sonst laufen z.B. die
     // 2s-Polls von renderEmbeddingStatus bei jedem refreshUi()-Rebuild unbegrenzt weiter (Leak).
-    for (const c of this.rowCleanups) c();
-    this.rowCleanups = [];
+    this.runRowCleanups();
     this.containerEl.empty();
     for (const item of this.getSettingDefinitions()) this.renderDefinitionItem(this.containerEl, item);
+  }
+
+  /** Führt alle gesammelten Row-Cleanups aus und leert die Liste. Guarded — eine werfende
+   *  Cleanup-Funktion darf weder den Rebuild in renderImperative() (vor containerEl.empty())
+   *  noch das Abräumen in hide() abbrechen; sonst blieben nachfolgende Cleanups hängen bzw.
+   *  die alte UI dupliziert stehen. */
+  private runRowCleanups(): void {
+    for (const c of this.rowCleanups) {
+      try { c(); } catch { /* Cleanup best-effort — ein Fehler darf den Rest nicht blockieren */ }
+    }
+    this.rowCleanups = [];
   }
 
   /** Re-Render des Tabs. Ab 1.13 exponiert das deklarative Framework update(); auf dem <1.13-Fallback
@@ -439,6 +455,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   /** render-Hatch: Embedding-Endpunkt-Liste. Zeichnet in hostFor über buildEndpointList. */
   private renderEmbeddingEndpoints = (setting: Setting): void => {
+    this.ensureResolvedOnOpen();
     const host = this.hostFor(setting);
     this.buildEndpointList({
       containerEl: host,
@@ -800,6 +817,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     for (const id of this.pollIntervals) window.clearInterval(id);
     this.pollIntervals = [];
     if (this.mcpPortRestartTimer !== null) { window.clearTimeout(this.mcpPortRestartTimer); this.mcpPortRestartTimer = null; }
+    this.runRowCleanups();
     this.resolvedOnOpen = false;
     super.hide();
   }

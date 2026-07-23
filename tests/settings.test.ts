@@ -330,14 +330,23 @@ describe("getSettingDefinitions – Struktur", () => {
 });
 
 describe("resolvedOnOpen – Re-Resolve beim Tab-Öffnen", () => {
-  it("getSettingDefinitions() feuert resolveAndReconnectChat genau einmal pro Öffnen, erneut nach hide()", () => {
+  it("getSettingDefinitions() allein feuert resolveAndReconnectChat NICHT (Getter ist rein)", () => {
     const { tab, host } = makeTab();
     tab.getSettingDefinitions();
     tab.getSettingDefinitions();
+    expect(host.resolveAndReconnectChat).not.toHaveBeenCalled();
+  });
+
+  it("display() feuert resolveAndReconnectChat genau einmal pro Öffnen (über den ersten render-Hatch), erneut nach hide()", () => {
+    const { tab, host } = makeTab();
+    tab.containerEl = makeFakeEl() as any;
+    tab.display();
+    tab.display();
     expect(host.resolveAndReconnectChat).toHaveBeenCalledTimes(1);
     tab.hide();
-    tab.getSettingDefinitions();
+    tab.display();
     expect(host.resolveAndReconnectChat).toHaveBeenCalledTimes(2);
+    tab.hide();   // räumt den 2s-Poll aus renderEmbeddingStatus ab (sonst Timer-Leak über das Test-Teardown)
   });
 });
 

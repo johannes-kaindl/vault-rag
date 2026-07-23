@@ -189,7 +189,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return [this.searchGroup(), this.embeddingGroup()];
+    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup()];
   }
 
   /** Macht die von der API übergebene Setting-Row zu einem neutralen Block-Container:
@@ -227,6 +227,32 @@ export class VaultRagSettingTab extends PluginSettingTab {
           displayFormat: (v: number) => `${v / 1000} s` } },
       { name: "Fortschritt in Statusleiste", desc: "Zeigt Embedding-Status in der unteren Obsidian-Leiste",
         control: { type: "toggle", key: "showStatusBar" } },
+    ] };
+  }
+
+  private indexGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Index", items: [
+      { name: "Index-Ordner", desc: "", render: this.renderIndexDir },
+      { name: "Index-Ordner im Datei-Explorer ausblenden",
+        desc: "Versteckt den Index-Ordner kosmetisch im Datei-Explorer. Daten, Sync und Suche bleiben unberührt. Standardmäßig an.",
+        control: { type: "toggle", key: "hideIndexFolder" } },
+    ] };
+  }
+
+  /** „Vault neu indizieren" lebt bewusst hier statt in der Index-Sektion (Config): Robustheit
+   *  bündelt alle Wiederherstellungs-Aktionen (Zustand, Delta-Heal, Backup, Voll-Reindex) an
+   *  einer Stelle — kein zweiter Reindex-Button mehr in „Index". */
+  private robustnessGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Index-Robustheit", items: [
+      { name: "Index-Zustand", desc: "", render: this.renderIndexHealth },
+      { name: "Aus Backup wiederherstellen",
+        desc: "Geräte-lokale Sicherungen des Index (letzte 3). Ersetzt den aktuellen Index.",
+        action: () => { void (async () => {
+          new RestoreBackupModal(this.app, await this.plugin.listBackups(), (n) => void this.plugin.restoreBackup(n)).open();
+        })(); } },
+      { name: "Vault neu indizieren",
+        desc: "Baut den kompletten Index von Grund auf neu — der letzte Ausweg.",
+        action: () => { new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open(); } },
     ] };
   }
 
@@ -307,6 +333,47 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const interval = window.setInterval(render, 2000);
     this.pollIntervals.push(interval);
     return () => { window.clearInterval(interval); };
+  };
+
+  /** render-Hatch: Index-Ordner-Pfad + „Übernehmen". Body = bisheriger buildIndexDir-Body, in
+   *  hostFor gezeichnet, this.display() → this.update(). */
+  private renderIndexDir = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host);
+    let typed = this.plugin.settings.indexDir;
+    s.setName("Index-Ordner")
+      .setDesc('Wo der Vektor-Index gespeichert wird. Synct cross-device (inkl. iPhone) nur mit der Obsidian-Sync-Option „Sync all other types". Ein Pfad mit „." am Anfang wird von Obsidian Sync ignoriert.')
+      .addText(t => {
+        t.setPlaceholder("_vaultrag").setValue(this.plugin.settings.indexDir);
+        t.onChange((v: string) => { typed = v; });
+        new FolderSuggest(this.app, t.inputEl).onSelect((path: string) => { typed = path; t.setValue(path); });
+      })
+      .addButton(b => b.setButtonText("Übernehmen").onClick(async () => {
+        const norm = normalizeIndexDir(typed);
+        if (norm === "" || norm === normalizeIndexDir(this.plugin.settings.indexDir)) return;
+        if (isDotPath(norm)) new Notice('Index-Ordner beginnt mit „." — synct dann nicht cross-device (auch nicht aufs iPhone).');
+        b.setButtonText("Verschiebe…"); b.setDisabled(true);
+        try {
+          await this.plugin.changeIndexDir(norm);
+          new Notice(`Index verschoben nach „${norm}".`);
+        } finally { b.setButtonText("Übernehmen"); b.setDisabled(false); }
+        this.update();
+      }));
+  };
+
+  /** render-Hatch: Index-Zustand-Zeile. Body = bisherige erste Zeile aus buildRobustnessSection
+   *  (dynamische Desc via indexHealthReadout + „Vervollständigen"-Button); indexDelta() wird bei
+   *  jedem Render/update() frisch geholt. */
+  private renderIndexHealth = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const { embedded, total, healthy, emptyCount } = this.plugin.indexDelta();
+    new Setting(host)
+      .setName("Index-Zustand")
+      .setDesc(this.plugin.indexHealthReadout(embedded, total, healthy, emptyCount))
+      .addButton(b => b
+        .setButtonText("Vervollständigen")
+        .setDisabled(!healthy || embedded >= total)
+        .onClick(() => { void this.plugin.healVault(); }));
   };
 
   hide(): void {

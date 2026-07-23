@@ -248,4 +248,22 @@ describe("getSettingDefinitions – Struktur", () => {
     expect(controlKeys).toEqual(["debounceMs", "showStatusBar"]);
     expect(items.filter(i => typeof i.render === "function").length).toBe(3); // Endpunkte, Modell, Status
   });
+
+  it("Index-Gruppe: Index-Ordner render-Hatch + hideIndexFolder toggle", () => {
+    const { tab } = makeTab();
+    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Index");
+    expect(g).toBeTruthy();
+    const items = g.items as any[];
+    expect(items.filter(i => typeof i.render === "function").length).toBe(1);
+    expect(items.filter(i => i.control).map(i => i.control.key)).toEqual(["hideIndexFolder"]);
+  });
+
+  it("Index-Robustheit-Gruppe: 1 render-Hatch (Zustand) + 2 action-Zeilen", () => {
+    const { tab } = makeTab();
+    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Index-Robustheit");
+    expect(g).toBeTruthy();
+    const items = g.items as any[];
+    expect(items.filter(i => typeof i.render === "function").length).toBe(1);
+    expect(items.filter(i => typeof i.action === "function").length).toBe(2);
+  });
 });

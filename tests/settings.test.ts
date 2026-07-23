@@ -203,3 +203,39 @@ describe("getControlValue/setControlValue", () => {
     expect(host.refreshIndexFolderHiding).toHaveBeenCalled();
   });
 });
+
+describe("getSettingDefinitions – Struktur", () => {
+  function groups(tab: VaultRagSettingTab) {
+    const defs = tab.getSettingDefinitions() as any[];
+    return defs.filter(d => d.type === "group");
+  }
+  function controlKeys(tab: VaultRagSettingTab): string[] {
+    return groups(tab).flatMap(g => (g.items ?? []))
+      .filter((i: any) => i.control).map((i: any) => i.control.key);
+  }
+
+  it("liefert nur Groups auf oberster Ebene", () => {
+    const { tab } = makeTab();
+    const defs = tab.getSettingDefinitions() as any[];
+    expect(defs.length).toBeGreaterThan(0);
+    for (const d of defs) expect(d.type).toBe("group");
+  });
+
+  it("jeder Control-Key existiert in DEFAULT_SETTINGS und round-trippt", async () => {
+    const { tab, host } = makeTab();
+    for (const key of controlKeys(tab)) {
+      expect(key in host.settings).toBe(true);
+      const before = structuredClone(host.settings[key]);
+      await tab.setControlValue(key, tab.getControlValue(key));
+      expect(host.settings[key]).toEqual(before);
+    }
+  });
+
+  it("Suche-Gruppe hat k, minSim, exclude", () => {
+    const { tab } = makeTab();
+    const search = groups(tab).find(g => g.heading === "Suche");
+    expect(search).toBeTruthy();
+    const keys = (search!.items as any[]).filter(i => i.control).map(i => i.control.key);
+    expect(keys).toEqual(["k", "minSim", "exclude"]);
+  });
+});

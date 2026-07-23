@@ -1,4 +1,5 @@
 import { AbstractInputSuggest, App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, TFolder, setIcon, setTooltip } from "obsidian";
+import type { SettingDefinitionItem, SettingDefinitionGroup } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
@@ -184,7 +185,34 @@ export class VaultRagSettingTab extends PluginSettingTab {
     }
   }
 
-  getSettingDefinitions(): import("obsidian").SettingDefinitionItem[] { return []; }
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [this.searchGroup()];
+  }
+
+  /** Macht die von der API übergebene Setting-Row zu einem neutralen Block-Container:
+   *  render-Hatches, die mehrere Rows zeichnen, dürfen sonst nicht in die Zwei-Spalten-.setting-item.
+   *  Achtung: leert settingEl → Desc muss der Hatch selbst neu setzen. */
+  private hostFor(setting: Setting): HTMLElement {
+    setting.settingEl.empty();
+    setting.settingEl.removeClass("setting-item");
+    return setting.settingEl;
+  }
+
+  private searchGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Suche", items: [
+      { name: "Anzahl verwandter Notizen",
+        desc: "Wie viele ähnliche Notizen im Panel angezeigt werden (5–50)",
+        control: { type: "slider", key: "k", min: 5, max: 50, step: 1,
+          displayFormat: (v: number) => String(v) } },
+      { name: "Mindest-Ähnlichkeit",
+        desc: "Notizen unterhalb dieser Schwelle werden ausgeblendet — niedriger = mehr Treffer, unschärfer",
+        control: { type: "slider", key: "minSim", min: 0, max: 0.9, step: 0.05,
+          displayFormat: (v: number) => `${Math.round(v * 100)} %` } },
+      { name: "Ausschluss-Pfade",
+        desc: "Kommagetrennte Pfade, die nicht eingebettet werden (z.B. Templates/, Archive/). Versteckte Pfade (Konfig-Ordner, Papierkorb) sind immer automatisch ausgeschlossen.",
+        control: { type: "text", key: "exclude", placeholder: "Templates/, Archive/" } },
+    ] };
+  }
 
   hide(): void {
     this.clearInterval();

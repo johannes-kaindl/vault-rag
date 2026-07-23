@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-07-23
+
 ### Changed
 - **Settings tab migrated to Obsidian 1.13's declarative `getSettingDefinitions()` API.** Simple rows
   (sliders, toggles, dropdowns, the template-folder picker, the system-prompt textarea) are now

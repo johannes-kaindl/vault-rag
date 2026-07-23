@@ -31,7 +31,7 @@
 
 ---
 
-### Task F1: `applyDestructive()`-Helfer + 2 Stellen umstellen
+### Task 1: `applyDestructive()`-Helfer + 2 Stellen umstellen
 
 Die zwei `setDestructive()`-Direktaufrufe crashen auf 1.12.7 (Methode existiert dort nicht). Ein Feature-Check-Helfer macht sie versionssicher und warning-frei.
 
@@ -105,7 +105,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task F2: `display()`-Fallback — `renderImperative`-Walker + Mock + Smoke-Test
+### Task 2: `display()`-Fallback — `renderImperative`-Walker + Mock + Smoke-Test
 
 Der Kern des Sub-Slices. `display()` kommt zurück und rendert `getSettingDefinitions()` imperativ für ≤1.12.
 
@@ -250,30 +250,82 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task F3: `minAppVersion` → 1.12.7 + versions.json
+### Task 3: 1.12.7 scharfschalten — `refreshUi`-Wrapper + 1.13-API verstecken + `minAppVersion`
+
+**Warum mehr als nur manifest:** Mit `minAppVersion 1.12.7` wirft `obsidianmd/no-unsupported-api`
+**14 Errors** — `SettingTab.update` (13× `this.update()` aus den render-Hatches) und
+`ButtonComponent.setDestructive` brauchen beide 1.13.0. Der Fix ist das kanonische
+`markdown-presentation`-Muster: 1.13-only-Aufrufe hinter einen Cast auf einen anonymen Typ legen,
+sodass die Regel die Herkunft (`SettingTab`/`ButtonComponent`) nicht mehr sieht, plus Runtime-Guard.
 
 **Files:**
-- Modify: `manifest.json`, `versions.json`
+- Modify: `src/settings.ts`, `manifest.json`, `versions.json`
 
-- [ ] **Step 1: Update manifest**
+**Interfaces:**
+- Produces: `private refreshUi(): void`
 
-In `manifest.json`: `"minAppVersion": "1.13.0"` → `"minAppVersion": "1.12.7"`.
+- [ ] **Step 1: `refreshUi()`-Wrapper einführen**
 
-- [ ] **Step 2: Update versions.json**
+In `VaultRagSettingTab` (Muster verbatim aus `markdown-presentation/src/settings.ts:287-291`):
 
-`versions.json` bildet Plugin-Version → min-Obsidian-Version ab. Der jüngste Eintrag ist `"0.16.1": "1.13.0"`. Füge einen Eintrag für die **nächste** Plugin-Version hinzu, die diesen Slice ausliefert — die konkrete Versionsnummer wird beim Release gesetzt; bis dahin trägt der neue Eintrag `1.12.7`. Wenn die Release-Version noch offen ist, im Commit-Body vermerken, dass der versions.json-Eintrag beim Release-Bump auf die reale Version gesetzt wird. Ändere **`0.16.1`** NICHT (bereits released).
+```ts
+/** Re-Render des Tabs. Ab 1.13 exponiert das deklarative Framework update(); auf dem <1.13-Fallback
+ *  existiert die Methode nicht → renderImperative() erneut laufen. Der Cast auf einen anonymen Typ
+ *  nimmt `obsidianmd/no-unsupported-api` die Sicht auf SettingTab.update (1.13-only). */
+private refreshUi(): void {
+  const self = this as unknown as { update?: () => void };
+  if (typeof self.update === "function") self.update();
+  else this.renderImperative();
+}
+```
 
-> Ambiguität (vom Controller aufzulösen, nicht raten): welche Plugin-Version dieser Slice trägt (z.B. 0.17.0). Wenn unklar, den Eintrag als Platzhalter mit klarer Commit-Notiz lassen und beim Release nachziehen.
+- [ ] **Step 2: Alle 13 `this.update()` → `this.refreshUi()`**
 
-- [ ] **Step 3: Verify**
+`grep -n "this.update()" src/settings.ts` → alle 13 Treffer auf `this.refreshUi()` umstellen
+(Modell-„Modelle laden", MCP-Toggle/Port/Token/Client, Endpoint blur/trash/preset/„Verbindung prüfen",
+Index-Ordner). Nach der Umstellung: `grep -c "this.update()" src/settings.ts` muss **0** sein.
 
-Run: `npx tsc --noEmit` (clean — manifest ist JSON, kein TS-Effekt), `npm run build` (baut, liest manifest), `npm test` (green). `node -e "const v=require('./versions.json'); console.log(v)"` — Eintrag prüfen.
+- [ ] **Step 3: `applyDestructive` — `setDestructive`-Aufruf verstecken**
 
-- [ ] **Step 4: Commit**
+Der aktuelle Helfer ruft `b.setDestructive()` auf `ButtonComponent` (sichtbar für no-unsupported-api).
+Über einen anonymen Cast verstecken:
+
+```ts
+export function applyDestructive(b: ButtonComponent): ButtonComponent {
+  const bx = b as unknown as { setDestructive?: () => void };
+  if (typeof bx.setDestructive === "function") bx.setDestructive();
+  else b.buttonEl.addClass("mod-warning");
+  return b;
+}
+```
+
+- [ ] **Step 4: `minAppVersion` → 1.12.7**
+
+`manifest.json`: `"minAppVersion": "1.13.0"` → `"minAppVersion": "1.12.7"`.
+
+- [ ] **Step 5: `versions.json`**
+
+Neuen Eintrag `"0.17.0": "1.12.7"` hinzufügen (die Version dieses Slices — vom Controller festgelegt).
+`"0.16.1": "1.13.0"` NICHT ändern (bereits released).
+
+- [ ] **Step 6: Verify — beide Pfade sauber**
 
 ```bash
-git add manifest.json versions.json
-git commit -m "chore(settings): minAppVersion 1.13.0 → 1.12.7 (1.13 ist nur Catalyst-Preview)
+npm run lint     # MUSS 0 warnings, 0 errors sein (jetzt mit 1.12.7 — die 14 no-unsupported-api-Errors
+                 # UND die no-deprecated-display-Warnung sind weg)
+npx tsc --noEmit # clean
+npm test         # green (710)
+npm run build    # baut
+```
+Wenn `no-unsupported-api` noch etwas flaggt: die verbleibende 1.13-only-Stelle über denselben
+anonymen-Cast-Trick verstecken (Runtime-Guard beibehalten). `displayFormat` in den control-Objekten
+ist ein Daten-Property (kein API-Aufruf) und wird NICHT geflaggt — nicht anfassen.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/settings.ts manifest.json versions.json
+git commit -m "feat(settings): 1.12.7-Fallback scharf — refreshUi + 1.13-API verstecken, minAppVersion 1.12.7
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```

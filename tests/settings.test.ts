@@ -275,4 +275,17 @@ describe("getSettingDefinitions – Struktur", () => {
     expect(items.length).toBe(1);
     expect(typeof items[0].render).toBe("function");
   });
+
+  it("Chat-Gruppe: deklarative Keys + render-Hatches + Testen-Action", () => {
+    const { tab } = makeTab();
+    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Chat");
+    expect(g).toBeTruthy();
+    const items = g.items as any[];
+    const keys = items.filter(i => i.control).map(i => i.control.key);
+    expect(keys).toEqual(["chatK", "chatTemperature", "chatSystemPrompt", "chatInputPosition", "suppressThinking", "enterSends"]);
+    // Endpunkte, Modell, Modelldetails, Fähigkeiten, Budget = 5 render-Hatches
+    expect(items.filter(i => typeof i.render === "function").length).toBe(5);
+    // „Testen" als eigene Action-Zeile
+    expect(items.filter(i => typeof i.action === "function").length).toBe(1);
+  });
 });

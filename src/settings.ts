@@ -189,7 +189,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup()];
+    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup()];
   }
 
   /** Macht die von der API übergebene Setting-Row zu einem neutralen Block-Container:
@@ -262,6 +262,35 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private mcpGroup(): SettingDefinitionGroup {
     return { type: "group", heading: "MCP-Server", items: [
       { name: "MCP-Server", desc: "", render: this.renderMcpSection },
+    ] };
+  }
+
+  /** Chat-Gruppe: Endpunkte/Modell/Modelldetails/Fähigkeiten/Budget bleiben render-Hatches
+   *  (Cross-Referenzen über lastCaps/infoValue/capSetting, Budget-Max ans Modell-Fenster
+   *  gekoppelt). „Thinking testen“ war ein Button IN der Toggle-Zeile — jetzt eigene
+   *  Action-Zeile, das Toggle selbst ist deklarativ. */
+  private chatGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Chat", items: [
+      { name: "Chat-Endpunkte", desc: "", render: this.renderChatEndpoints },
+      { name: "Chat-Modell", desc: "Modellname wie auf dem Chat-Endpoint verfügbar", render: this.renderChatModel },
+      { name: "Modelldetails", desc: "", render: this.renderModelDetails },
+      { name: "Fähigkeiten", desc: "", render: this.renderCapsRow },
+      { name: "Kontext-Notizen", desc: "Wie viele Notizen als Kontext in den Chat gehen (Auto-RAG)",
+        control: { type: "slider", key: "chatK", min: 1, max: 20, step: 1, displayFormat: (v: number) => String(v) } },
+      { name: "Kontext-Budget", desc: "", render: this.renderBudget },
+      { name: "Temperatur", desc: "Kreativität vs. Bestimmtheit (0 = deterministisch, höher = kreativer)",
+        control: { type: "slider", key: "chatTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
+      { name: "System-Prompt", desc: "Grundanweisung an das Modell. Der Notiz-Kontext wird automatisch angehängt.",
+        control: { type: "textarea", key: "chatSystemPrompt" } },
+      { name: "Eingabe-Position", desc: "Wo die Chat-Eingabe sitzt (greift beim nächsten Öffnen des Panels)",
+        control: { type: "dropdown", key: "chatInputPosition", options: { bottom: "Unten", top: "Oben" } } },
+      { name: "Thinking unterdrücken",
+        desc: "Standard für neue Chats. Sendet Suppress-Hints (reasoning_effort/enable_thinking). Pro Chat im Panel umschaltbar.",
+        control: { type: "toggle", key: "suppressThinking" } },
+      { name: "Thinking testen", desc: "Prüft, ob das Modell bei „unterdrücken“ wirklich abschaltet.",
+        action: () => { void this.runThinkingTest(); } },
+      { name: "Enter sendet", desc: "An: Enter sendet, Shift+Enter macht eine neue Zeile. Aus: umgekehrt.",
+        control: { type: "toggle", key: "enterSends" } },
     ] };
   }
 
@@ -480,6 +509,127 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const pre = containerEl.createEl("pre", { cls: "vault-rag-mcp-snippet" });
     pre.setText(buildClientSnippet(this.mcpClient, { url, token: maskToken(token) }));
   };
+
+  /** render-Hatch: Chat-Endpunkt-Liste. Body = bisheriger buildChatEndpointList, in hostFor
+   *  gezeichnet, this.display() → this.update(). */
+  private renderChatEndpoints = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    this.buildEndpointList({
+      containerEl: host,
+      label: "Chat-Endpunkte",
+      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. OpenAI-kompatible LLM-Server (MLX/LM-Studio), getrennt von den Embedding-Endpunkten.",
+      placeholder: "http://localhost:1234",
+      get: () => this.plugin.settings.chatEndpoints,
+      set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
+      active: () => this.plugin.activeChatEndpoint,
+      probe: (ep) => new ChatClient(ep, this.plugin.settings.chatModel).probe(),
+      reconnect: () => this.plugin.resolveAndReconnectChat(),
+    });
+  };
+
+  /** render-Hatch: Chat-Modell-Dropdown. Body = bisheriger buildChatModel, aber zeichnet in einer
+   *  frischen Setting im hostFor-Container statt auf der übergebenen; rerender() → update(). Löst
+   *  showInfo/showCaps aus — die schreiben in infoValue/lastCaps, gelesen von den render-Hatches
+   *  Modelldetails/Fähigkeiten (Cross-Referenz über Render-State, kein direkter Aufruf). */
+  private renderChatModel = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Chat-Modell").setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
+    void this.plugin.chatClient?.listModels().then((models: string[]) => {
+      if (models.length) {
+        const cur = this.plugin.settings.chatModel;
+        const list = models.includes(cur) ? models : [cur, ...models];
+        s.addDropdown(d => {
+          list.forEach((m: string) => { d.addOption(m, m); });
+          d.setValue(cur).onChange((v: string) => {
+            this.plugin.settings.chatModel = v;
+            void this.plugin.saveSettings();
+            void this.plugin.resolveAndReconnectChat();
+            this.showInfo(v);
+            this.showCaps(v);
+          });
+        });
+      } else {
+        s.setDesc('Server offline — Modellname eintippen, dann „Modelle laden“');
+        s.addText(t => t.setPlaceholder("qwen3").setValue(this.plugin.settings.chatModel)
+          .onChange(async (v: string) => {
+            this.plugin.settings.chatModel = v.trim();
+            await this.plugin.saveSettings();
+            void this.plugin.resolveAndReconnectChat();
+          }));
+        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.update()));
+      }
+      this.showInfo(this.plugin.settings.chatModel);
+      this.showCaps(this.plugin.settings.chatModel);
+    });
+  };
+
+  /** render-Hatch: Modelldetails-Zeile. Body = bisheriger buildModelDetails — setzt infoValue,
+   *  das showInfo() (aus renderChatModel) asynchron befüllt. */
+  private renderModelDetails = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Modelldetails");
+    this.infoValue = s.controlEl.createSpan({ cls: "vault-rag-info-value", text: "…" });
+  };
+
+  /** render-Hatch: Fähigkeiten-Zeile. Body = bisheriger buildCaps — setzt capSetting, das
+   *  showCaps() (renderChatModel) und runThinkingTest() bei einer Caps-Upgrade re-rendern. */
+  private renderCapsRow = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Fähigkeiten");
+    this.capSetting = s;
+    this.renderCaps(s, this.lastCaps);
+  };
+
+  /** render-Hatch: Kontext-Budget-Slider. Bleibt render-Hatch (nicht deklarativ), weil die
+   *  Obergrenze modell-gekoppelt ist: updateBudgetMax() (aufgerufen aus showInfo, sobald das
+   *  Modell-Fenster bekannt ist) klemmt Limits/Wert live nach. Body = bisheriger buildBudget. */
+  private renderBudget = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host);
+    s.setName(`Kontext-Budget: ${this.plugin.settings.contextCharBudget.toLocaleString("de-DE")} Zeichen`)
+      .setDesc("Maximale Gesamtlänge des Notiz-Kontexts (anteilig verteilt). Obergrenze richtet sich nach dem Modell-Fenster.")
+      .addSlider(sl => {
+        sl.setLimits(2000, 32000, 1000).setValue(this.plugin.settings.contextCharBudget)          .onChange(async (v: number) => {
+            this.plugin.settings.contextCharBudget = v;
+            s.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
+            await this.plugin.saveSettings();
+          });
+        // Sobald das Modell-Fenster bekannt ist (showInfo): Slider-Max daran koppeln + Wert klemmen.
+        this.updateBudgetMax = (maxChars: number): void => {
+          const max = Math.max(8000, Math.round(maxChars / 1000) * 1000);
+          sl.setLimits(2000, max, 1000);
+          const val = Math.min(this.plugin.settings.contextCharBudget, max);
+          sl.setValue(val);
+          s.setName(`Kontext-Budget: ${val.toLocaleString("de-DE")} / max ~${max.toLocaleString("de-DE")} Zeichen`);
+          if (val !== this.plugin.settings.contextCharBudget) {
+            this.plugin.settings.contextCharBudget = val;   // nur bei echter Klemmung schreiben
+            void this.plugin.saveSettings();
+          }
+        };
+      });
+  };
+
+  /** Body des früheren „Testen“-Buttons aus buildThinking (das Toggle daneben ist jetzt
+   *  deklarativ). Ohne Button-Disable-Handling — Rückmeldung nur noch über Notice. Bei
+   *  bestätigtem Thinking-Nachweis: Caps hochstufen + Fähigkeiten-Zeile neu zeichnen. */
+  private async runThinkingTest(): Promise<void> {
+    const model = this.plugin.settings.chatModel;
+    if (isAlwaysOnThinker(model)) { new Notice("Dieses Modell denkt immer (nur low/medium/high)."); return; }
+    try {
+      const res = await this.plugin.chatClient.stream(
+        [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
+        () => {}, () => {}, undefined, { model, suppressThinking: true });
+      const happened = reasoningHappened(res.content, res.reasoning);
+      new Notice(happened ? "Modell denkt trotz „aus“" : "Thinking wird unterdrückt");
+      if (happened) {
+        // Live-Nachweis, dass das Modell denkt → Fähigkeiten-Zeile hochstufen.
+        this.lastCaps = { ...this.lastCaps, thinking: { support: "always", confidence: "confirmed" } };
+        if (this.capSetting) this.renderCaps(this.capSetting, this.lastCaps);
+      }
+    } catch {
+      new Notice("Chat-Endpoint nicht erreichbar");
+    }
+  }
 
   hide(): void {
     this.clearInterval();

@@ -76,11 +76,17 @@ export async function startMcpServer(opts: { port: number; token: string; tools:
   // Defense-in-Depth: der Aufrufer gated bereits (main.ts), aber node:http darf auf Mobile
   // unter keinen Umständen geladen werden.
   if (!Platform.isDesktop) throw new Error("MCP-Server ist Desktop-only");
-  // ACHTUNG: bewusst require(), nicht await import() — Obsidian lädt main.js als CommonJS,
-  // dort löst Electron/Chromium ein dynamisches import() eines node:-Builtins als Netzwerk-Fetch
-  // auf statt über require. Laufzeitfehler im echten Obsidian: "Failed to fetch dynamically
-  // imported module: node:http" (vitest unter Node zeigt das nicht). Nicht erneut auf import()
-  // umstellen — siehe eslint.config.mjs für den Regel-Override.
+  // ACHTUNG: bewusst require(), und das ist die einzige tragfähige Variante — alle drei Wege
+  // wurden 2026-07-23 durchgemessen (Spec 2026-07-23):
+  //   - statischer `import * as http from "node:http"` → obsidianmd/no-nodejs-modules: ERROR
+  //     ("Use a dynamic import() or require() guarded by Platform.isDesktop instead").
+  //   - `await import("node:http")` → esbuild lässt es unverändert im Bundle stehen (kein
+  //     require-Transform trotz external+cjs); Electron löst es als Netzwerk-Fetch auf →
+  //     "Failed to fetch dynamically imported module: node:http" (vitest sieht das nicht).
+  //   - require() hinter Platform.isDesktop → läuft, und die obsidianmd-Regel verlangt genau
+  //     das (guard-aware, s. isGuardedByPlatformIsDesktop in noNodejsModules.js).
+  // Der Store-Scan flaggt den require-Stil als Warning — das ist ein Widerspruch in Obsidians
+  // eigenem Tooling und nicht auflösbar, ohne die Runtime zu brechen. Nicht "aufräumen".
   const http = require("node:http") as typeof import("node:http");
   let boundPort = opts.port;
   const server = http.createServer((req: HttpRequest, res: HttpResponse) => {

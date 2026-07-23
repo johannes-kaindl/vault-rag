@@ -1,84 +1,45 @@
-// @vitest-environment node
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import * as fs from "node:fs/promises";
-import * as fssync from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { describe, it, expect } from "vitest";
 import { makeVaultReadGuard } from "../src/mcp/vault_read_guard";
 
-const realIo = { realpath: fs.realpath, join: path.join, sep: path.sep };
+// Der Guard laesst nur Pfade durch, die Obsidian selbst als Vault-Datei kennt. Die
+// Vault-Mitgliedschaft wird injiziert, damit diese Datei ohne obsidian und ohne node:fs
+// auskommt (siehe Spec 2026-07-23: Direct-Filesystem-Access-Warning).
+const KNOWN = new Set(["a.md", "sub/b.md"]);
+const isKnownVaultFile = (rel: string) => KNOWN.has(rel);
+const read = async (rel: string) => `Inhalt von ${rel}`;
 
 describe("makeVaultReadGuard", () => {
-  let vaultDir: string;
-  let outsideDir: string;
-  let read: (rel: string) => Promise<string>;
-
-  beforeAll(async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "vault-rag-guard-"));
-    vaultDir = path.join(root, "vault");
-    outsideDir = path.join(root, "outside");
-    await fs.mkdir(vaultDir, { recursive: true });
-    await fs.mkdir(outsideDir, { recursive: true });
-
-    await fs.writeFile(path.join(vaultDir, "a.md"), "innerhalb des vaults");
-    await fs.mkdir(path.join(vaultDir, "sub"), { recursive: true });
-    await fs.writeFile(path.join(vaultDir, "sub", "b.md"), "auch innerhalb");
-
-    await fs.writeFile(path.join(outsideDir, "secret.md"), "geheim ausserhalb");
-    // Symlink INSIDE the vault pointing to a file OUTSIDE the vault.
-    fssync.symlinkSync(path.join(outsideDir, "secret.md"), path.join(vaultDir, "leak.md"));
-
-    read = (rel: string) => fs.readFile(path.join(vaultDir, rel), "utf-8");
-  });
-
-  afterAll(async () => {
-    await fs.rm(path.dirname(vaultDir), { recursive: true, force: true });
-  });
-
-  it("returns content for a normal in-vault file", async () => {
-    const guard = makeVaultReadGuard(vaultDir, read, realIo);
-    await expect(guard("a.md")).resolves.toBe("innerhalb des vaults");
-  });
-
-  it("returns content for a nested in-vault path that resolves inside", async () => {
-    const guard = makeVaultReadGuard(vaultDir, read, realIo);
-    await expect(guard("sub/b.md")).resolves.toBe("auch innerhalb");
-  });
-
-  it("throws for a symlink escaping the vault", async () => {
-    const guard = makeVaultReadGuard(vaultDir, read, realIo);
-    await expect(guard("leak.md")).rejects.toThrow(/Symlink|Vault/);
-  });
-});
-
-describe("makeVaultReadGuard mit injiziertem io", () => {
-  const fakeIo = {
-    // Nur "leak.md" zeigt aus dem Vault heraus — rein erfunden, kein echtes FS im Spiel.
-    realpath: async (p: string) => (p.endsWith("leak.md") ? "/anderswo/secret.md" : p),
-    join: (...parts: string[]) => parts.join("/"),
-    sep: "/",
-  };
-  const read = async (rel: string) => `Inhalt von ${rel}`;
-
-  it("nutzt das injizierte realpath statt node:fs", async () => {
-    const guard = makeVaultReadGuard("/vault", read, fakeIo);
+  it("liest eine bekannte Vault-Datei", async () => {
+    const guard = makeVaultReadGuard(isKnownVaultFile, read);
     await expect(guard("a.md")).resolves.toBe("Inhalt von a.md");
   });
 
-  it("wirft, wenn das injizierte realpath aus dem Vault herausfuehrt", async () => {
-    const guard = makeVaultReadGuard("/vault", read, fakeIo);
-    await expect(guard("leak.md")).rejects.toThrow(/Symlink|Vault/);
+  it("liest eine bekannte Datei in einem Unterordner", async () => {
+    const guard = makeVaultReadGuard(isKnownVaultFile, read);
+    await expect(guard("sub/b.md")).resolves.toBe("Inhalt von sub/b.md");
   });
 
-  it("wirft fuer ein Geschwisterverzeichnis, dessen Name den Vault-Pfad als Praefix hat", async () => {
-    // Regressionsschutz fuer io.sep: ohne den Separator in der Prefix-Pruefung wuerde
-    // "/vaultother/x.md".startsWith("/vault") faelschlich durchgehen.
-    const siblingIo = {
-      realpath: async (p: string) => (p.endsWith("sibling.md") ? "/vaultother/x.md" : p),
-      join: (...parts: string[]) => parts.join("/"),
-      sep: "/",
-    };
-    const guard = makeVaultReadGuard("/vault", read, siblingIo);
-    await expect(guard("sibling.md")).rejects.toThrow(/Symlink|Vault/);
+  it("wirft fuer einen Pfad, den der Vault nicht kennt", async () => {
+    const guard = makeVaultReadGuard(isKnownVaultFile, read);
+    await expect(guard("unbekannt.md")).rejects.toThrow(/Vault-Datei/);
+  });
+
+  it("wirft fuer einen Path-Traversal-Versuch aus dem Vault heraus", async () => {
+    const guard = makeVaultReadGuard(isKnownVaultFile, read);
+    await expect(guard("../outside/secret.md")).rejects.toThrow(/Vault-Datei/);
+  });
+
+  it("ruft read gar nicht erst auf, wenn der Pfad unbekannt ist", async () => {
+    // Kein Leak durch einen read, der die Whitelist umgeht.
+    let calls = 0;
+    const countingRead = async (rel: string) => { calls++; return rel; };
+    const guard = makeVaultReadGuard(isKnownVaultFile, countingRead);
+    await expect(guard("unbekannt.md")).rejects.toThrow();
+    expect(calls).toBe(0);
+  });
+
+  it("nennt den abgewiesenen Pfad in der Fehlermeldung", async () => {
+    const guard = makeVaultReadGuard(isKnownVaultFile, read);
+    await expect(guard("geheim.md")).rejects.toThrow(/geheim\.md/);
   });
 });

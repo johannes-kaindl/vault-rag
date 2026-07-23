@@ -124,6 +124,32 @@ token-authentifiziert und an `127.0.0.1` gebunden.
    bzw. `Platform.isDesktop=false` — Plugin lädt ohne Node-Fehler.
 6. Nach Release: Scorecard prüfen, dass beide ⚠️ Warnings verschwunden sind.
 
+## Nachtrag 2026-07-23 (Umsetzung): Fix 1 nur teilweise erreichbar
+
+Bei der Umsetzung wurde die Annahme von Fix 1 — „statischer Import ist sauber" — **widerlegt**.
+Alle drei Wege wurden durchgemessen:
+
+| Weg | `obsidianmd/no-nodejs-modules` | Store-Scan | Electron-Runtime |
+|---|---|---|---|
+| statischer `import * as http` | **Error**: *„Use a dynamic import() or require() guarded by Platform.isDesktop instead"* | vermutlich node-modules-Warning | läuft |
+| `await import("node:http")` | erlaubt | sauber | **bricht** — esbuild lässt den Ausdruck trotz `external`+`cjs` **untransformiert** im Bundle (`main.js:39090`), Electron löst ihn als Netzwerk-Fetch auf |
+| `require()` hinter Guard | **verlangt die Regel genau so** | ⚠️ „require forbidden" | läuft |
+
+**Das ist ein Widerspruch in Obsidians eigenem Tooling:** Die offizielle Lint-Regel schreibt
+`require()` hinter `Platform.isDesktop` vor, während der Store-Scan genau diesen Stil flaggt.
+Die require-Warning ist damit **nicht auflösbar**, ohne entweder die Runtime zu brechen oder
+sie gegen eine gleichwertige node-modules-Warning zu tauschen.
+
+**Tatsächliches Ergebnis:**
+- ⚠️ **Direct Filesystem Access → vollständig entfernt** (`node:fs` + `node:path` restlos raus).
+- ⚠️ **require() → von 3 Fundstellen auf 1 reduziert** (`main.ts:1235/1236` entfallen; bleibt
+  nur `http_server.ts` für `node:http`). Bewusst so belassen und im Code begründet.
+
+Der statische Import wurde **verworfen**, weil er zusätzlich verlangt hätte,
+`obsidianmd/no-nodejs-modules` lokal zu deaktivieren — genau das Sicherheitsnetz, das vor
+einem Mobile-Crash schützt (der Bereich hat mit 0.16.1 schon einmal die Runtime gebrochen).
+Eine nicht-blockende Kosmetik-Warning rechtfertigt das nicht.
+
 ## Offenes Risiko
 
 Falls der Scanner **auch das Bundle** `main.js` scannt (statt nur `src/`), bliebe das

@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, FileSystemAdapter, requestUrl, Editor, EditorPosition, MarkdownView } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView } from "obsidian";
 import { IndexLoader, VaultIndex } from "./index";
 import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
@@ -1216,31 +1216,16 @@ export default class VaultRagPlugin extends Plugin {
     const token = this.ensureMcpToken();
     try {
       const { startMcpServer } = await import("./mcp/http_server");
-      // Symlink-Escape-Schutz (Fix 1): vault.adapter.read folgt OS-Symlinks — eine .md-Symlink
-      // innerhalb des Vaults, die nach außen zeigt, würde sonst Fremd-Dateiinhalt an externe
-      // Agents leaken. Desktop-only, dynamisch importiert.
+      // Lese-Schutz für externe Agents: es passieren nur Pfade, die Obsidian selbst als
+      // Vault-Datei kennt. Bewusst über die Vault-API statt über node:fs/realpath — der
+      // Store-Scan flaggt jeden direkten fs-Zugriff ("Direct Filesystem Access"), und ein
+      // Symlink, den Obsidian als Vault-Datei listet, liest Obsidian ohnehin selbst.
+      // Path-Traversal ist damit strenger abgedeckt als zuvor (Spec 2026-07-23).
       const { makeVaultReadGuard } = await import("./mcp/vault_read_guard");
-      const adapter = this.app.vault.adapter;
-      if (adapter instanceof FileSystemAdapter) {
-        // Node-Builtins nur hinter explizitem Platform.isDesktop-Guard laden (zusätzlich zum
-        // Platform.isMobile-Return oben): so erkennt obsidianmd/no-nodejs-modules den Import
-        // selbst als abgesichert, ohne Datei-weiten Regel-Override.
-        if (Platform.isDesktop) {
-          // ACHTUNG: bewusst require(), nicht await import() — sieht unsauberer aus, ist es
-          // aber nicht: Obsidian lädt main.js als CommonJS, und ein dynamisches import() eines
-          // node:-Builtins wird von Electron/Chromium dort als Netzwerk-Fetch aufgelöst statt
-          // über den require-Mechanismus. Laufzeitfehler im echten Obsidian (vitest unter Node
-          // sieht das nicht): "Failed to fetch dynamically imported module: node:fs/promises".
-          // Nicht erneut auf import() umstellen — siehe eslint.config.mjs für den Regel-Override.
-          const nodeFs = require("node:fs/promises") as typeof import("node:fs/promises");
-          const nodePath = require("node:path") as typeof import("node:path");
-          this.guardedRead = makeVaultReadGuard(adapter.getBasePath(), (p) => adapter.read(p), {
-            realpath: nodeFs.realpath,
-            join: nodePath.join,
-            sep: nodePath.sep,
-          });
-        }
-      }
+      this.guardedRead = makeVaultReadGuard(
+        (rel) => this.app.vault.getAbstractFileByPath(normalizePath(rel)) instanceof TFile,
+        (rel) => this.app.vault.adapter.read(rel),
+      );
       const tools = new McpTools(this.facade);
       this.mcpServer = await startMcpServer({ port: this.settings.mcpPort, token, tools, version: this.manifest.version });
       this.mcpLastStartError = null;

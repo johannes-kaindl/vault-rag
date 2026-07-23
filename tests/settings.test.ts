@@ -288,4 +288,19 @@ describe("getSettingDefinitions – Struktur", () => {
     // „Testen" als eigene Action-Zeile
     expect(items.filter(i => typeof i.action === "function").length).toBe(1);
   });
+
+  it("Smart-Apply-Gruppe: deklarative Keys inkl. folder + 1 render-Hatch + empty-Hinweis", () => {
+    const { tab } = makeTab();
+    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Smart Apply");
+    expect(g).toBeTruthy();
+    const items = g.items as any[];
+    const keys = items.filter(i => i.control).map(i => i.control.key);
+    expect(keys).toEqual([
+      "smartApplyEnabled", "templateDir", "smartApplyTemperature",
+      "smartApplySuppressThinking", "smartApplyMaxTokens", "smartApplyDefaultMode",
+    ]);
+    expect(items.find(i => i.control?.key === "templateDir").control.type).toBe("folder");
+    expect(items.filter(i => typeof i.render === "function").length).toBe(1); // Modell
+    expect(items.filter(i => !i.control && !i.render && !i.action).length).toBe(1); // Verbindungs-Hinweis (empty)
+  });
 });

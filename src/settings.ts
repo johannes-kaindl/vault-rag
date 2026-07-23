@@ -189,7 +189,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup()];
+    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup()];
   }
 
   /** Macht die von der API übergebene Setting-Row zu einem neutralen Block-Container:
@@ -291,6 +291,39 @@ export class VaultRagSettingTab extends PluginSettingTab {
         action: () => { void this.runThinkingTest(); } },
       { name: "Enter sendet", desc: "An: Enter sendet, Shift+Enter macht eine neue Zeile. Aus: umgekehrt.",
         control: { type: "toggle", key: "enterSends" } },
+    ] };
+  }
+
+  /** Smart-Apply-Gruppe: fast vollständig deklarativ. „Verbindung" ist eine reine Info-Zeile
+   *  (kein control/render/action — Smart Apply teilt sich den Chat-Endpoint, kein eigener nötig).
+   *  templateDir ist ein natives folder-Control (Vault-Ordner-Suggester); die Trailing-Slash-
+   *  Normalisierung passiert bereits in setControlValue (Task 2). Nur das Modell-Dropdown bleibt
+   *  ein render-Hatch (Cross-Referenz auf plugin.chatClient, Online/Offline-Fallback). */
+  private smartApplyGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Smart Apply", items: [
+      { name: "Smart Apply aktivieren",
+        desc: "Schaltet Befehl, Ribbon-Icon und Panel frei: eine unstrukturierte Notiz hinter einem Diff-Gate in die Struktur einer Vorlage überführen. Greift beim nächsten Neuladen des Plugins.",
+        control: { type: "toggle", key: "smartApplyEnabled" } },
+      { name: "Verbindung",
+        desc: 'Smart Apply nutzt die Chat-Verbindung (Endpoint, Modell) aus dem Abschnitt „Chat" — kein eigener Endpoint nötig.' },
+      { name: "Vorlagen-Ordner",
+        desc: "Ordner mit den Vorlagen — Markdown-Dateien darin und in Unterordnern werden berücksichtigt. Ausgenommen sind Folder Notes (Datei trägt den Namen ihres Ordners).",
+        control: { type: "folder", key: "templateDir", placeholder: "Templates/" } },
+      { name: "Smart-Apply-Temperatur",
+        desc: "Temperatur für den Umsortier-Call (0 = deterministisch — empfohlen für reproduzierbare Vorschläge).",
+        control: { type: "slider", key: "smartApplyTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
+      { name: "Smart-Apply-Modell", desc: 'Modell für den Umsortier-Call. Leer = Chat-Modell verwenden.',
+        render: this.renderSmartApplyModel },
+      { name: "Thinking unterdrücken (Smart Apply)",
+        desc: "Sendet Suppress-Hints für den Smart-Apply-Call — sinnvoll bei Thinking-Modellen, die auch strukturiert schreiben können.",
+        control: { type: "toggle", key: "smartApplySuppressThinking" } },
+      { name: "Smart-Apply-Max-Tokens",
+        desc: "Maximale Anzahl generierter Tokens für den Umsortier-Call (512–16384). Höher = sicher für große Notizen.",
+        control: { type: "slider", key: "smartApplyMaxTokens", min: 512, max: 16384, step: 512, displayFormat: (v: number) => String(v) } },
+      { name: "Smart-Apply-Standardmodus",
+        desc: "Für Vorlagen ohne eigene Modus-Angabe. Additiv lässt das LLM Werte erschließen und ergänzen (mit Konfidenz).",
+        control: { type: "dropdown", key: "smartApplyDefaultMode",
+          options: { deterministisch: "Deterministisch (nur zuordnen)", additiv: "Additiv (erschließen + ergänzen)" } } },
     ] };
   }
 
@@ -607,6 +640,37 @@ export class VaultRagSettingTab extends PluginSettingTab {
           }
         };
       });
+  };
+
+  /** render-Hatch: Smart-Apply-Modell-Dropdown. Body = bisheriger buildSmartApplyModel, in
+   *  hostFor gezeichnet, this.rerender() → this.update(). Leer-Option zuerst: der leere Wert ist
+   *  bedeutungstragend (= Chat-Modell erben). */
+  private renderSmartApplyModel = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Smart-Apply-Modell")
+      .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.');
+    void this.plugin.chatClient?.listModels().then((models: string[]) => {
+      const cur = this.plugin.settings.smartApplyModel;
+      if (models.length) {
+        const list = cur && !models.includes(cur) ? [cur, ...models] : models;
+        s.addDropdown(d => {
+          d.addOption("", "Chat-Modell verwenden");
+          list.forEach((m: string) => { d.addOption(m, m); });
+          d.setValue(cur).onChange(async (v: string) => {
+            this.plugin.settings.smartApplyModel = v;
+            await this.plugin.saveSettings();
+          });
+        });
+      } else {
+        s.setDesc('Server offline — Modellname eintippen (leer = Chat-Modell), dann „Modelle laden"');
+        s.addText(t => t.setPlaceholder("leer = Chat-Modell").setValue(cur)
+          .onChange(async (v: string) => {
+            this.plugin.settings.smartApplyModel = v.trim();
+            await this.plugin.saveSettings();
+          }));
+        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.update()));
+      }
+    });
   };
 
   /** Body des früheren „Testen“-Buttons aus buildThinking (das Toggle daneben ist jetzt

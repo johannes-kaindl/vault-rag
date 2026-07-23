@@ -334,11 +334,13 @@ describe("renderImperative (display-Fallback für <1.13)", () => {
     const { tab } = makeTab();
     tab.containerEl = makeFakeEl() as any;   // falls nicht schon gesetzt
     expect(() => tab.display()).not.toThrow();
+    tab.hide();   // räumt den 2s-Poll aus renderEmbeddingStatus ab (sonst Timer-Leak über das Test-Teardown)
   });
   it("display() liest aus getSettingDefinitions (kein separater Baum)", () => {
     const { tab } = makeTab();
     const spy = vi.spyOn(tab, "getSettingDefinitions");
     tab.display();
     expect(spy).toHaveBeenCalled();
+    tab.hide();   // räumt den 2s-Poll aus renderEmbeddingStatus ab (sonst Timer-Leak über das Test-Teardown)
   });
 });

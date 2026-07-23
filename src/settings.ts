@@ -168,6 +168,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
   // zusätzlich defensiv alle hier gesammelten Intervalle ab (API garantiert Cleanup beim
   // Fenster-Zerstören nicht).
   private pollIntervals: number[] = [];
+  // Cleanup-Funktionen, die render-Hatches beim Zeichnen zurückgeben (z.B. renderEmbeddingStatus).
+  // Ab 1.13 ruft das Framework diese vor dem Zerlegen einer Zeile selbst auf; renderImperative()
+  // muss denselben Vertrag einhalten und sie vor jedem Rebuild abräumen (siehe dort).
+  private rowCleanups: Array<() => void> = [];
 
   constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
 
@@ -208,6 +212,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
   display(): void { this.renderImperative(); }
 
   private renderImperative(): void {
+    // Vorherigen Durchlauf abräumen, bevor die Zeilen zerlegt werden — sonst laufen z.B. die
+    // 2s-Polls von renderEmbeddingStatus bei jedem refreshUi()-Rebuild unbegrenzt weiter (Leak).
+    for (const c of this.rowCleanups) c();
+    this.rowCleanups = [];
     this.containerEl.empty();
     for (const item of this.getSettingDefinitions()) this.renderDefinitionItem(this.containerEl, item);
   }
@@ -232,7 +240,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const s = new Setting(containerEl);
     if (def.name) s.setName(def.name);
     if (def.desc) s.setDesc(def.desc);
-    if (typeof def.render === "function") { (def.render as (s: Setting, g?: unknown) => void)(s); return; }
+    if (typeof def.render === "function") {
+      const cleanup = (def.render as (s: Setting, g?: unknown) => void | (() => void))(s);
+      if (typeof cleanup === "function") this.rowCleanups.push(cleanup);
+      return;
+    }
     if (typeof def.action === "function") {
       const action = def.action;
       s.addButton(b => b.setButtonText(def.name).onClick(() => action(s.settingEl, 0)));

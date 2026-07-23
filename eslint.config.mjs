@@ -23,10 +23,6 @@ export default tseslint.config(
       "obsidianmd/ui/sentence-case": "off",
     },
   },
-  // settings.display() ist seit 1.13 deprecated, bleibt aber der Render-Pfad, bis die
-  // deklarative Settings-API in einem eigenen späteren Slice kommt.
-  // (kein Inline-eslint-disable, weil der Obsidian-Review das verbietet.)
-  { files: ["src/settings.ts"], rules: { "@typescript-eslint/no-deprecated": "off" } },
   // In-Plugin MCP-HTTP-Server: nutzt node:-Builtins (desktop-only, lazy require() hinter
   // Platform.isDesktop-Guard) sowie das Node-Global Buffer beim Body-Parsing.
   {

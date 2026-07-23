@@ -1,4 +1,5 @@
 import { AbstractInputSuggest, App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, TFolder, setIcon, setTooltip } from "obsidian";
+import type { SettingDefinitionItem, SettingDefinitionGroup, SettingDefinition, SettingControl } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
@@ -6,9 +7,7 @@ import { reasoningHappened, isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
-import { collapsibleSection, type CollapsibleStorage } from "./vendor/kit/collapsible";
-import type { ApplyMode } from "./note_restructurer";
-import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, type VaultRagSettings } from "./settings_core";
+import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
 
@@ -24,6 +23,17 @@ export function applyEndpointEdit(endpoints: string[], index: number, value: str
   else if (v) { next[index] = v; }
   else { next.splice(index, 1); }
   return next.map(e => e.trim()).filter(e => e);
+}
+
+/** Roter/destruktiver Button, versionssicher: setDestructive() ab Obsidian 1.13, sonst die
+ *  mod-warning-DOM-Klasse (kein deprecated setWarning, kein Lint-Warning, roter Look überall).
+ *  Der Cast auf einen anonymen Typ nimmt `obsidianmd/no-unsupported-api` die Sicht auf
+ *  ButtonComponent.setDestructive (1.13-only). */
+export function applyDestructive(b: ButtonComponent): ButtonComponent {
+  const bx = b as unknown as { setDestructive?: () => void };
+  if (typeof bx.setDestructive === "function") bx.setDestructive();
+  else b.buttonEl.addClass("mod-warning");
+  return b;
 }
 
 type Caps = { vision: string; thinking: { support: string; confidence: string } };
@@ -132,19 +142,20 @@ export class RestoreBackupModal extends Modal {
     if (this.entries.length === 0) { contentEl.createEl("p", { text: "Keine Backups vorhanden." }); return; }
     for (const e of this.entries) {
       const row = new Setting(contentEl).setName(`${e.count.toLocaleString("de-DE")} Notizen`).setDesc(e.name);
-      row.addButton(b => b.setButtonText("Wiederherstellen").setDestructive().onClick(() => { this.close(); this.onPick(e.name); }));
+      row.addButton(b => applyDestructive(b.setButtonText("Wiederherstellen")).onClick(() => { this.close(); this.onPick(e.name); }));
     }
   }
   onClose(): void { this.contentEl.empty(); }
 }
 
 /**
- * Settings-Tab. Die Zeilen-Logik lebt in `build*`-Methoden, die EINEN `Setting` füllen; `display()`
- * rendert sie flach. Querverweise zwischen Zeilen (Modelldetails↔Budget-Slider, Suppress-Test↔
- * Fähigkeiten) laufen über Render-State-Felder, die `resetRenderState()` pro Render-Zyklus neu setzt.
+ * Settings-Tab. `getSettingDefinitions()` liefert die deklarative Struktur (7 Gruppen); einfache
+ * Zeilen sind reine `control`-Definitionen, dynamische Zeilen (Endpoint-Listen, Modell-Dropdowns,
+ * Status-Polls, MCP-Sektion) sind `render`-Hatches. Querverweise zwischen Zeilen (Modelldetails↔
+ * Budget-Slider, Suppress-Test↔Fähigkeiten) laufen über Render-State-Felder (`lastCaps`,
+ * `infoValue`, `capSetting`, `updateBudgetMax`), die render-Hatches beim Zeichnen neu setzen.
  */
 export class VaultRagSettingTab extends PluginSettingTab {
-  private refreshInterval: number | null = null;
   private mcpPortRestartTimer: number | null = null;
   private showMcpToken = false;
   private mcpClient: McpClientId = "claude-code";
@@ -152,106 +163,663 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private updateBudgetMax: (maxChars: number) => void = () => {};
   private infoValue: HTMLElement | null = null;
   private capSetting: Setting | null = null;
-  // Endpunkte nur beim ECHTEN Tab-Öffnen auflösen, nicht bei jedem Re-Render: blur/Trash/
-  // „Verbindung prüfen"/rerender rufen display() direkt, und die Edit-Handler reconnecten
-  // bereits explizit — sonst 3 Resolves pro Edit (verbreitert das liveIndexer-Race-Fenster).
+  // Von render-Hatches gestartete Status-Polls (z.B. renderEmbeddingStatus) — Cleanup läuft primär
+  // über die von den Hatches zurückgegebene Cleanup-Funktion (render-Cleanup); hide() räumt
+  // zusätzlich defensiv alle hier gesammelten Intervalle ab (API garantiert Cleanup beim
+  // Fenster-Zerstören nicht).
+  private pollIntervals: number[] = [];
+  // Cleanup-Funktionen, die render-Hatches beim Zeichnen zurückgeben (z.B. renderEmbeddingStatus).
+  // Ab 1.13 ruft das Framework diese vor dem Zerlegen einer Zeile selbst auf; renderImperative()
+  // muss denselben Vertrag einhalten und sie vor jedem Rebuild abräumen (siehe dort).
+  private rowCleanups: Array<() => void> = [];
+  // Einmal pro Tab-Öffnen (nicht pro Re-Render) Embedder+Chat re-resolven — ersetzt das
+  // resolvedOnOpen-Gate aus dem alten display(). getSettingDefinitions() läuft sowohl im
+  // nativen Pfad (Framework ruft pro update() erneut auf) als auch im Fallback
+  // (renderImperative() pro Rebuild) — das Flag macht in beiden EINMAL pro Öffnen daraus;
+  // hide() setzt es zurück, damit das nächste Öffnen wieder re-resolved.
   private resolvedOnOpen = false;
 
   constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
 
+  // ── Deklarative Settings-API (Obsidian 1.13) ────────────────────────────
+  // Fundament für die schrittweise Migration von display() auf
+  // getSettingDefinitions(): Lese-/Schreibschicht mit Coercion (exclude
+  // string↔string[], templateDir-Normalisierung) + Seiteneffekten (refresh,
+  // setStatusBarVisible, refreshIndexFolderHiding, refreshSmartApplyRanking).
+  getControlValue(key: string): unknown {
+    const s = this.plugin.settings as unknown as Record<string, unknown>;
+    if (key === "exclude") return (s.exclude as string[]).join(", ");
+    return s[key];
+  }
+
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    const s = this.plugin.settings as unknown as Record<string, unknown>;
+    if (key === "exclude") s.exclude = splitExcludePaths(value as string);
+    else if (key === "templateDir") s.templateDir = normalizeTemplateDir(value as string);
+    else s[key] = value;
+    await this.plugin.saveSettings();
+    switch (key) {
+      case "k": case "minSim": this.plugin.refresh(); break;
+      case "showStatusBar": this.plugin.setStatusBarVisible(s.showStatusBar as boolean); break;
+      case "hideIndexFolder": this.plugin.refreshIndexFolderHiding(); break;
+      case "templateDir": this.plugin.refreshSmartApplyRanking(); break;
+    }
+  }
+
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup()];
+  }
+
+  /** Einmal-pro-Öffnen die aktiven Endpunkte auflösen. An ein echtes Render-Signal (erster
+   *  render-Hatch) gehängt statt an getSettingDefinitions() — Letzteres enumeriert die native
+   *  1.13-Settings-Suche auch ohne unser Tab anzuzeigen, was das Gate zu früh verbrauchen würde.
+   *  Läuft in beiden Pfaden (nativ: Framework ruft den Hatch beim Anzeigen; Fallback: renderImperative). */
+  private ensureResolvedOnOpen(): void {
+    if (this.resolvedOnOpen) return;
+    this.resolvedOnOpen = true;
+    void this.plugin.resolveAndReconnectEmbedder();
+    void this.plugin.resolveAndReconnectChat();
+  }
+
+  // ── Imperativer Fallback (Obsidian < 1.13) ──────────────────────────────
+  // Ab 1.13 ruft der Host getSettingDefinitions() selbst auf und display() wird nie
+  // aufgerufen; auf ≤1.12 fehlt getSettingDefinitions als Renderpfad, dort ruft der Host
+  // stattdessen display(). renderImperative() liest DIESELBE Struktur und zeichnet sie mit
+  // der klassischen Setting-API — eine Wahrheit, kein zweiter Definitionsbaum.
+  display(): void { this.renderImperative(); }
+
+  private renderImperative(): void {
+    // Vorherigen Durchlauf abräumen, bevor die Zeilen zerlegt werden — sonst laufen z.B. die
+    // 2s-Polls von renderEmbeddingStatus bei jedem refreshUi()-Rebuild unbegrenzt weiter (Leak).
+    this.runRowCleanups();
+    this.containerEl.empty();
+    for (const item of this.getSettingDefinitions()) this.renderDefinitionItem(this.containerEl, item);
+  }
+
+  /** Führt alle gesammelten Row-Cleanups aus und leert die Liste. Guarded — eine werfende
+   *  Cleanup-Funktion darf weder den Rebuild in renderImperative() (vor containerEl.empty())
+   *  noch das Abräumen in hide() abbrechen; sonst blieben nachfolgende Cleanups hängen bzw.
+   *  die alte UI dupliziert stehen. */
+  private runRowCleanups(): void {
+    for (const c of this.rowCleanups) {
+      try { c(); } catch { /* Cleanup best-effort — ein Fehler darf den Rest nicht blockieren */ }
+    }
+    this.rowCleanups = [];
+  }
+
+  /** Re-Render des Tabs. Ab 1.13 exponiert das deklarative Framework update(); auf dem <1.13-Fallback
+   *  existiert die Methode nicht → renderImperative() erneut laufen. Der Cast auf einen anonymen Typ
+   *  nimmt `obsidianmd/no-unsupported-api` die Sicht auf SettingTab.update (1.13-only). */
+  private refreshUi(): void {
+    const self = this as unknown as { update?: () => void };
+    if (typeof self.update === "function") self.update();
+    else this.renderImperative();
+  }
+
+  private renderDefinitionItem(containerEl: HTMLElement, item: SettingDefinitionItem): void {
+    if ((item as SettingDefinitionGroup).type === "group") {
+      const g = item as SettingDefinitionGroup;
+      if (g.heading) new Setting(containerEl).setName(g.heading).setHeading();
+      for (const sub of g.items ?? []) this.renderDefinitionItem(containerEl, sub);
+      return;
+    }
+    const def = item as SettingDefinition & { render?: unknown; action?: unknown; control?: SettingControl };
+    const s = new Setting(containerEl);
+    if (def.name) s.setName(def.name);
+    if (def.desc) s.setDesc(def.desc);
+    if (typeof def.render === "function") {
+      const cleanup = (def.render as (s: Setting, g?: unknown) => void | (() => void))(s);
+      if (typeof cleanup === "function") this.rowCleanups.push(cleanup);
+      return;
+    }
+    if (typeof def.action === "function") {
+      const action = def.action;
+      s.addButton(b => b.setButtonText(def.name).onClick(() => action(s.settingEl, 0)));
+      return;
+    }
+    if (def.control) this.renderControl(s, def.name, def.control);
+    // empty: nur name/desc (bereits gesetzt)
+  }
+
+  /** Rendert einen einzelnen deklarativen Control-Typ mit der klassischen Setting-API.
+   *  `setDynamicTooltip()` ist bewusst NICHT verwendet (deprecated seit 1.13 — der Slider-Wert
+   *  ist heute inline im Namen sichtbar, s. displayFormat); der Fallback zeigt den Wert deshalb
+   *  ausschließlich über denselben Namens-Mechanismus wie die Deklarativ-API. */
+  private renderControl(s: Setting, name: string, c: SettingControl): void {
+    const key = c.key;
+    const cur = this.getControlValue(key);
+    const save = (v: unknown): void => { void this.setControlValue(key, v); };
+    switch (c.type) {
+      case "slider": {
+        const fmt = c.displayFormat;
+        const label = (v: number): void => { if (fmt) s.setName(`${name}: ${fmt(v)}`); };
+        label(cur as number);
+        s.addSlider(sl => sl.setLimits(c.min, c.max, c.step).setValue(cur as number)
+          .onChange((v: number) => { save(v); label(v); }));
+        break;
+      }
+      case "toggle":
+        s.addToggle(t => t.setValue(cur as boolean).onChange(save));
+        break;
+      case "dropdown":
+        s.addDropdown(d => { for (const [k, v] of Object.entries(c.options)) d.addOption(k, v); d.setValue(cur as string).onChange(save); });
+        break;
+      case "textarea":
+        s.addTextArea(t => { t.setValue(cur as string).onChange(save); if (c.rows) t.inputEl.rows = c.rows; });
+        break;
+      case "folder":
+        s.addText(t => { t.setPlaceholder(c.placeholder ?? "").setValue(cur as string).onChange(save);
+          new FolderSuggest(this.app, t.inputEl).onSelect((p: string) => { t.setValue(p); save(p); }); });
+        break;
+      case "text":
+      default:
+        s.addText(t => t.setPlaceholder((c as { placeholder?: string }).placeholder ?? "").setValue(cur as string).onChange(save));
+        break;
+    }
+  }
+
+  /** Macht die von der API übergebene Setting-Row zu einem neutralen Block-Container:
+   *  render-Hatches, die mehrere Rows zeichnen, dürfen sonst nicht in die Zwei-Spalten-.setting-item.
+   *  Achtung: leert settingEl → Desc muss der Hatch selbst neu setzen. */
+  private hostFor(setting: Setting): HTMLElement {
+    setting.settingEl.empty();
+    setting.settingEl.removeClass("setting-item");
+    return setting.settingEl;
+  }
+
+  private searchGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Suche", items: [
+      { name: "Anzahl verwandter Notizen",
+        desc: "Wie viele ähnliche Notizen im Panel angezeigt werden (5–50)",
+        control: { type: "slider", key: "k", min: 5, max: 50, step: 1,
+          displayFormat: (v: number) => String(v) } },
+      { name: "Mindest-Ähnlichkeit",
+        desc: "Notizen unterhalb dieser Schwelle werden ausgeblendet — niedriger = mehr Treffer, unschärfer",
+        control: { type: "slider", key: "minSim", min: 0, max: 0.9, step: 0.05,
+          displayFormat: (v: number) => `${Math.round(v * 100)} %` } },
+      { name: "Ausschluss-Pfade",
+        desc: "Kommagetrennte Pfade, die nicht eingebettet werden (z.B. Templates/, Archive/). Versteckte Pfade (Konfig-Ordner, Papierkorb) sind immer automatisch ausgeschlossen.",
+        control: { type: "text", key: "exclude", placeholder: "Templates/, Archive/" } },
+    ] };
+  }
+
+  private embeddingGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Live-Embedding", items: [
+      { name: "Embedding-Endpunkte", desc: "", render: this.renderEmbeddingEndpoints },
+      { name: "Embedding-Modell", desc: "Modellname wie auf dem Endpoint verfügbar", render: this.renderEmbeddingModel },
+      { name: "Embedding-Status", desc: "", render: this.renderEmbeddingStatus },
+      { name: "Debounce", desc: "Wartezeit nach dem letzten Speichern, bevor neu eingebettet wird",
+        control: { type: "slider", key: "debounceMs", min: 500, max: 10000, step: 500,
+          displayFormat: (v: number) => `${v / 1000} s` } },
+      { name: "Fortschritt in Statusleiste", desc: "Zeigt Embedding-Status in der unteren Obsidian-Leiste",
+        control: { type: "toggle", key: "showStatusBar" } },
+    ] };
+  }
+
+  private indexGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Index", items: [
+      { name: "Index-Ordner", desc: "", render: this.renderIndexDir },
+      { name: "Index-Ordner im Datei-Explorer ausblenden",
+        desc: "Versteckt den Index-Ordner kosmetisch im Datei-Explorer. Daten, Sync und Suche bleiben unberührt. Standardmäßig an.",
+        control: { type: "toggle", key: "hideIndexFolder" } },
+    ] };
+  }
+
+  /** „Vault neu indizieren" lebt bewusst hier statt in der Index-Sektion (Config): Robustheit
+   *  bündelt alle Wiederherstellungs-Aktionen (Zustand, Delta-Heal, Backup, Voll-Reindex) an
+   *  einer Stelle — kein zweiter Reindex-Button mehr in „Index". */
+  private robustnessGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Index-Robustheit", items: [
+      { name: "Index-Zustand", desc: "", render: this.renderIndexHealth },
+      { name: "Aus Backup wiederherstellen",
+        desc: "Geräte-lokale Sicherungen des Index (letzte 3). Ersetzt den aktuellen Index.",
+        action: () => { void (async () => {
+          new RestoreBackupModal(this.app, await this.plugin.listBackups(), (n) => void this.plugin.restoreBackup(n)).open();
+        })(); } },
+      { name: "Vault neu indizieren",
+        desc: "Baut den kompletten Index von Grund auf neu — der letzte Ausweg.",
+        action: () => { new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open(); } },
+    ] };
+  }
+
+  /** Die MCP-Sektion ist zustandsreich (bedingte Zeilen bei mcpEnabled, Token-Toggle,
+   *  Port-Debounce-Restart, Client-Dropdown, Snippet-`<pre>`) — deshalb EIN render-Hatch statt
+   *  einzelner Controls, der den kompletten bisherigen buildMcpSection-Body zeichnet. */
+  private mcpGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "MCP-Server", items: [
+      { name: "MCP-Server", desc: "", render: this.renderMcpSection },
+    ] };
+  }
+
+  /** Chat-Gruppe: Endpunkte/Modell/Modelldetails/Fähigkeiten/Budget bleiben render-Hatches
+   *  (Cross-Referenzen über lastCaps/infoValue/capSetting, Budget-Max ans Modell-Fenster
+   *  gekoppelt). „Thinking testen“ war ein Button IN der Toggle-Zeile — jetzt eigene
+   *  Action-Zeile, das Toggle selbst ist deklarativ. */
+  private chatGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Chat", items: [
+      { name: "Chat-Endpunkte", desc: "", render: this.renderChatEndpoints },
+      { name: "Chat-Modell", desc: "Modellname wie auf dem Chat-Endpoint verfügbar", render: this.renderChatModel },
+      { name: "Modelldetails", desc: "", render: this.renderModelDetails },
+      { name: "Fähigkeiten", desc: "", render: this.renderCapsRow },
+      { name: "Kontext-Notizen", desc: "Wie viele Notizen als Kontext in den Chat gehen (Auto-RAG)",
+        control: { type: "slider", key: "chatK", min: 1, max: 20, step: 1, displayFormat: (v: number) => String(v) } },
+      { name: "Kontext-Budget", desc: "", render: this.renderBudget },
+      { name: "Temperatur", desc: "Kreativität vs. Bestimmtheit (0 = deterministisch, höher = kreativer)",
+        control: { type: "slider", key: "chatTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
+      { name: "System-Prompt", desc: "Grundanweisung an das Modell. Der Notiz-Kontext wird automatisch angehängt.",
+        control: { type: "textarea", key: "chatSystemPrompt", rows: 8 } },
+      { name: "Eingabe-Position", desc: "Wo die Chat-Eingabe sitzt (greift beim nächsten Öffnen des Panels)",
+        control: { type: "dropdown", key: "chatInputPosition", options: { bottom: "Unten", top: "Oben" } } },
+      { name: "Thinking unterdrücken",
+        desc: "Standard für neue Chats. Sendet Suppress-Hints (reasoning_effort/enable_thinking). Pro Chat im Panel umschaltbar.",
+        control: { type: "toggle", key: "suppressThinking" } },
+      { name: "Thinking testen", desc: "Prüft, ob das Modell bei „unterdrücken“ wirklich abschaltet.",
+        action: () => { void this.runThinkingTest(); } },
+      { name: "Enter sendet", desc: "An: Enter sendet, Shift+Enter macht eine neue Zeile. Aus: umgekehrt.",
+        control: { type: "toggle", key: "enterSends" } },
+    ] };
+  }
+
+  /** Smart-Apply-Gruppe: fast vollständig deklarativ. „Verbindung" ist eine reine Info-Zeile
+   *  (kein control/render/action — Smart Apply teilt sich den Chat-Endpoint, kein eigener nötig).
+   *  templateDir ist ein natives folder-Control (Vault-Ordner-Suggester); die Trailing-Slash-
+   *  Normalisierung passiert bereits in setControlValue (Task 2). Nur das Modell-Dropdown bleibt
+   *  ein render-Hatch (Cross-Referenz auf plugin.chatClient, Online/Offline-Fallback). */
+  private smartApplyGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: "Smart Apply", items: [
+      { name: "Smart Apply aktivieren",
+        desc: "Schaltet Befehl, Ribbon-Icon und Panel frei: eine unstrukturierte Notiz hinter einem Diff-Gate in die Struktur einer Vorlage überführen. Greift beim nächsten Neuladen des Plugins.",
+        control: { type: "toggle", key: "smartApplyEnabled" } },
+      { name: "Verbindung",
+        desc: 'Smart Apply nutzt die Chat-Verbindung (Endpoint, Modell) aus dem Abschnitt „Chat" — kein eigener Endpoint nötig.' },
+      { name: "Vorlagen-Ordner",
+        desc: "Ordner mit den Vorlagen — Markdown-Dateien darin und in Unterordnern werden berücksichtigt. Ausgenommen sind Folder Notes (Datei trägt den Namen ihres Ordners).",
+        control: { type: "folder", key: "templateDir", placeholder: "Templates/" } },
+      { name: "Smart-Apply-Temperatur",
+        desc: "Temperatur für den Umsortier-Call (0 = deterministisch — empfohlen für reproduzierbare Vorschläge).",
+        control: { type: "slider", key: "smartApplyTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
+      { name: "Smart-Apply-Modell", desc: 'Modell für den Umsortier-Call. Leer = Chat-Modell verwenden.',
+        render: this.renderSmartApplyModel },
+      { name: "Thinking unterdrücken (Smart Apply)",
+        desc: "Sendet Suppress-Hints für den Smart-Apply-Call — sinnvoll bei Thinking-Modellen, die auch strukturiert schreiben können.",
+        control: { type: "toggle", key: "smartApplySuppressThinking" } },
+      { name: "Smart-Apply-Max-Tokens",
+        desc: "Maximale Anzahl generierter Tokens für den Umsortier-Call (512–16384). Höher = sicher für große Notizen.",
+        control: { type: "slider", key: "smartApplyMaxTokens", min: 512, max: 16384, step: 512, displayFormat: (v: number) => String(v) } },
+      { name: "Smart-Apply-Standardmodus",
+        desc: "Für Vorlagen ohne eigene Modus-Angabe. Additiv lässt das LLM Werte erschließen und ergänzen (mit Konfidenz).",
+        control: { type: "dropdown", key: "smartApplyDefaultMode",
+          options: { deterministisch: "Deterministisch (nur zuordnen)", additiv: "Additiv (erschließen + ergänzen)" } } },
+    ] };
+  }
+
+  /** render-Hatch: Embedding-Endpunkt-Liste. Zeichnet in hostFor über buildEndpointList. */
+  private renderEmbeddingEndpoints = (setting: Setting): void => {
+    this.ensureResolvedOnOpen();
+    const host = this.hostFor(setting);
+    this.buildEndpointList({
+      containerEl: host,
+      label: "Embedding-Endpunkte",
+      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Ollama- oder MLX-Server-URLs (Desktop oder LAN/VPN-erreichbar).",
+      placeholder: "http://localhost:11434",
+      get: () => this.plugin.settings.embeddingEndpoints,
+      set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
+      active: () => this.plugin.activeEmbeddingEndpoint,
+      probe: (ep) => new EmbeddingClient(ep, this.plugin.settings.embeddingModel).probe(),
+      reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
+    });
+  };
+
+  /** render-Hatch: Embedding-Modell-Dropdown. Zeichnet eine frische Setting im hostFor-Container. */
+  private renderEmbeddingModel = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Embedding-Modell").setDesc("Modellname wie auf dem Endpoint verfügbar");
+    void this.plugin.embedder?.listModels().then((models: string[]) => {
+      const cur = this.plugin.settings.embeddingModel;
+      if (models.length) {
+        const list = models.includes(cur) ? models : [cur, ...models];
+        s.addDropdown(d => {
+          list.forEach((m: string) => { d.addOption(m, m); });
+          d.setValue(cur).onChange((v: string) => {
+            this.plugin.settings.embeddingModel = v;
+            void this.plugin.saveSettings();
+            void this.plugin.resolveAndReconnectEmbedder();
+          });
+        });
+      } else {
+        s.addText(t => t.setPlaceholder("qwen3-embedding:8b").setValue(cur).onChange(async (v: string) => {
+          this.plugin.settings.embeddingModel = v.trim();
+          await this.plugin.saveSettings();
+          void this.plugin.resolveAndReconnectEmbedder();
+        }));
+        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
+      }
+    });
+  };
+
+  /** render-Hatch: Embedding-Status-Zeile mit 2s-Poll. Das Intervall wird in pollIntervals
+   *  gesammelt und als Cleanup-Funktion zurückgegeben — hide() räumt pollIntervals defensiv ab. */
+  private renderEmbeddingStatus = (setting: Setting): (() => void) => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Embedding-Status");
+    const val = s.controlEl.createSpan({ cls: "vault-rag-info-value" });
+    const dot = val.createSpan({ cls: "vault-rag-conn-dot" });
+    const text = val.createSpan();
+    let connected: boolean | null = null;
+    const render = (): void => {
+      dot.toggleClass("is-checking", connected === null);
+      dot.toggleClass("is-ok", connected === true);
+      dot.toggleClass("is-error", connected === false);
+      // Form (Icon) trägt den Status, Farbe nur sekundär — lesbar auch bei Farbsehschwäche (WCAG 1.4.1).
+      setIcon(dot, connected === null ? "loader" : connected ? "circle-check" : "circle-x");
+      const active = this.plugin.activeEmbeddingEndpoint;
+      const conn = connected === null ? "prüfe…" : connected ? (active ? `verbunden via ${active}` : "verbunden") : "offline";
+      const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
+      // Nur die eingebettete Zahl hier — der echte Rückstand (fehlende Notizen) lebt als EINE
+      // Wahrheit in der Index-Zustand-Zeile (Index-Robustheit). „pending" war die transiente
+      // Offline-Queue und kollidierte optisch mit dem Deckungs-Delta.
+      const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet` : "";
+      const act = p?.isEmbedding ? "Embedding läuft" : "";
+      text.setText([conn, act, counts].filter(Boolean).join(" · "));
+    };
+    render();
+    // Status-Poll stützt sich auf dieselbe Reachability-Logik wie main.ts (ping → Re-Resolve → ping).
+    void this.plugin.embedderReady().then((ok: boolean) => { connected = ok; render(); });
+    const interval = window.setInterval(render, 2000);
+    this.pollIntervals.push(interval);
+    return () => { window.clearInterval(interval); };
+  };
+
+  /** render-Hatch: Index-Ordner-Pfad + „Übernehmen". */
+  private renderIndexDir = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host);
+    let typed = this.plugin.settings.indexDir;
+    s.setName("Index-Ordner")
+      .setDesc('Wo der Vektor-Index gespeichert wird. Synct cross-device (inkl. iPhone) nur mit der Obsidian-Sync-Option „Sync all other types". Ein Pfad mit „." am Anfang wird von Obsidian Sync ignoriert.')
+      .addText(t => {
+        t.setPlaceholder("_vaultrag").setValue(this.plugin.settings.indexDir);
+        t.onChange((v: string) => { typed = v; });
+        new FolderSuggest(this.app, t.inputEl).onSelect((path: string) => { typed = path; t.setValue(path); });
+      })
+      .addButton(b => b.setButtonText("Übernehmen").onClick(async () => {
+        const norm = normalizeIndexDir(typed);
+        if (norm === "" || norm === normalizeIndexDir(this.plugin.settings.indexDir)) return;
+        if (isDotPath(norm)) new Notice('Index-Ordner beginnt mit „." — synct dann nicht cross-device (auch nicht aufs iPhone).');
+        b.setButtonText("Verschiebe…"); b.setDisabled(true);
+        try {
+          await this.plugin.changeIndexDir(norm);
+          new Notice(`Index verschoben nach „${norm}".`);
+        } finally { b.setButtonText("Übernehmen"); b.setDisabled(false); }
+        this.refreshUi();
+      }));
+  };
+
+  /** render-Hatch: Index-Zustand-Zeile (dynamische Desc via indexHealthReadout +
+   *  „Vervollständigen"-Button); indexDelta() wird bei jedem Render/update() frisch geholt. */
+  private renderIndexHealth = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const { embedded, total, healthy, emptyCount } = this.plugin.indexDelta();
+    new Setting(host)
+      .setName("Index-Zustand")
+      .setDesc(this.plugin.indexHealthReadout(embedded, total, healthy, emptyCount))
+      .addButton(b => b
+        .setButtonText("Vervollständigen")
+        .setDisabled(!healthy || embedded >= total)
+        .onClick(() => { void this.plugin.healVault(); }));
+  };
+
+  /** render-Hatch: komplette MCP-Sektion. Bedingte Zeilen (nur bei mcpEnabled) und der
+   *  Client-Snippet-`<pre>`-Block sitzen alle in diesem einen Hatch. */
+  private renderMcpSection = (setting: Setting): void => {
+    const containerEl = this.hostFor(setting);
+    new Setting(containerEl)
+      .setName("MCP-Server aktivieren")
+      .setDesc("Lokaler HTTP-Server, über den externe LLM-Agents (z. B. Claude Code) den Vault durchsuchen. Nur Desktop, nur solange Obsidian läuft. Loopback (127.0.0.1) + Token.")
+      .addToggle(t => t.setValue(this.plugin.settings.mcpEnabled).onChange(async (v: boolean) => {
+        this.plugin.settings.mcpEnabled = v;
+        if (v) this.plugin.ensureMcpToken();
+        await this.plugin.saveSettings();
+        await this.plugin.restartMcpServer();
+        this.refreshUi();
+      }));
+
+    new Setting(containerEl)
+      .setName("Port")
+      .setDesc("Loopback-Port des MCP-Servers (Default 8123). Änderung startet den Server neu.")
+      .addText(t => t.setPlaceholder("8123").setValue(String(this.plugin.settings.mcpPort))
+        .onChange(async (v: string) => {
+          const n = parseInt(v, 10);
+          if (!Number.isFinite(n) || n < 1 || n > 65535) return;
+          this.plugin.settings.mcpPort = n;
+          await this.plugin.saveSettings();
+          // Debounce (Fix 2): sonst würde jeder Tastendruck einen eigenen Server-Restart
+          // auslösen (mirrors scheduleEmbed's Debounce-Idee in main.ts) — Speichern bleibt
+          // sofort, nur der Neustart wartet ~800ms auf Tipp-Ruhe.
+          if (this.mcpPortRestartTimer !== null) window.clearTimeout(this.mcpPortRestartTimer);
+          this.mcpPortRestartTimer = window.setTimeout(() => {
+            this.mcpPortRestartTimer = null;
+            void this.plugin.restartMcpServer().then(() => this.refreshUi());
+          }, 800);
+        }));
+
+    const detail = this.plugin.mcpStartError();
+    const status = this.plugin.mcpServerRunning()
+      ? `läuft · ${this.plugin.mcpServerAddress() ?? ""}`
+      : (this.plugin.settings.mcpEnabled ? `aus — ${detail ?? "Start fehlgeschlagen"}` : "aus");
+    new Setting(containerEl).setName("Status").setDesc(status);
+
+    if (!this.plugin.settings.mcpEnabled) return;
+
+    const token = this.plugin.settings.mcpToken;
+
+    new Setting(containerEl)
+      .setName("Token")
+      .setDesc(this.showMcpToken ? token : maskToken(token))
+      .addButton(b => b.setButtonText(this.showMcpToken ? "Verbergen" : "Anzeigen")
+        .onClick(() => { this.showMcpToken = !this.showMcpToken; this.refreshUi(); }))
+      .addButton(b => applyDestructive(b.setButtonText("Neu generieren"))
+        .onClick(async () => {
+          await this.plugin.rotateMcpToken();
+          new Notice("Neuer Token — alte Clients müssen neu verbunden werden");
+          this.refreshUi();
+        }));
+
+    new Setting(containerEl)
+      .setName("Verbindung testen")
+      .setDesc("Prüft den Server über den Loopback-Endpunkt — wie ein externer Client.")
+      .addButton(b => b.setButtonText("Testen")
+        .onClick(async () => {
+          b.setDisabled(true);
+          const res = await this.plugin.mcpSelfCheck();
+          b.setDisabled(false);
+          const msg = res === "ok" ? "✓ 3 Tools erreichbar"
+            : res === "unauthorized" ? "Token stimmt nicht"
+            : res === "unreachable" ? "Server nicht erreichbar (aus? Port?)"
+            : "Antwort ist kein MCP";
+          new Notice(`MCP-Selbsttest: ${msg}`);
+        }));
+
+    new Setting(containerEl)
+      .setName("Angebotene Tools")
+      .setDesc("search · related · read_note — read-only Zugriff auf den Vault-Index.");
+
+    const url = this.plugin.mcpServerAddress() ?? `http://127.0.0.1:${this.plugin.settings.mcpPort}/mcp`;
+
+    new Setting(containerEl)
+      .setName("Client-Setup")
+      .setDesc("Config für deinen MCP-Client — Client wählen, dann kopieren.")
+      .addDropdown(d => {
+        for (const c of MCP_CLIENTS) d.addOption(c.id, c.label);
+        d.setValue(this.mcpClient);
+        d.onChange((v: string) => { this.mcpClient = v as McpClientId; this.refreshUi(); });
+      })
+      .addButton(b => b.setButtonText("Kopieren")
+        .onClick(() => {
+          void navigator.clipboard.writeText(buildClientSnippet(this.mcpClient, { url, token }));
+          new Notice("MCP-Config kopiert");
+        }));
+
+    const pre = containerEl.createEl("pre", { cls: "vault-rag-mcp-snippet" });
+    pre.setText(buildClientSnippet(this.mcpClient, { url, token: maskToken(token) }));
+  };
+
+  /** render-Hatch: Chat-Endpunkt-Liste. Zeichnet in hostFor über buildEndpointList. */
+  private renderChatEndpoints = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    this.buildEndpointList({
+      containerEl: host,
+      label: "Chat-Endpunkte",
+      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. OpenAI-kompatible LLM-Server (MLX/LM-Studio), getrennt von den Embedding-Endpunkten.",
+      placeholder: "http://localhost:1234",
+      get: () => this.plugin.settings.chatEndpoints,
+      set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
+      active: () => this.plugin.activeChatEndpoint,
+      probe: (ep) => new ChatClient(ep, this.plugin.settings.chatModel).probe(),
+      reconnect: () => this.plugin.resolveAndReconnectChat(),
+    });
+  };
+
+  /** render-Hatch: Chat-Modell-Dropdown. Zeichnet eine frische Setting im hostFor-Container. Löst
+   *  showInfo/showCaps aus — die schreiben in infoValue/lastCaps, gelesen von den render-Hatches
+   *  Modelldetails/Fähigkeiten (Cross-Referenz über Render-State, kein direkter Aufruf). */
+  private renderChatModel = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Chat-Modell").setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
+    void this.plugin.chatClient?.listModels().then((models: string[]) => {
+      if (models.length) {
+        const cur = this.plugin.settings.chatModel;
+        const list = models.includes(cur) ? models : [cur, ...models];
+        s.addDropdown(d => {
+          list.forEach((m: string) => { d.addOption(m, m); });
+          d.setValue(cur).onChange((v: string) => {
+            this.plugin.settings.chatModel = v;
+            void this.plugin.saveSettings();
+            void this.plugin.resolveAndReconnectChat();
+            this.showInfo(v);
+            this.showCaps(v);
+          });
+        });
+      } else {
+        s.setDesc('Server offline — Modellname eintippen, dann „Modelle laden“');
+        s.addText(t => t.setPlaceholder("qwen3").setValue(this.plugin.settings.chatModel)
+          .onChange(async (v: string) => {
+            this.plugin.settings.chatModel = v.trim();
+            await this.plugin.saveSettings();
+            void this.plugin.resolveAndReconnectChat();
+          }));
+        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
+      }
+      this.showInfo(this.plugin.settings.chatModel);
+      this.showCaps(this.plugin.settings.chatModel);
+    });
+  };
+
+  /** render-Hatch: Modelldetails-Zeile. Setzt infoValue, das showInfo() (aus renderChatModel)
+   *  asynchron befüllt. */
+  private renderModelDetails = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Modelldetails");
+    this.infoValue = s.controlEl.createSpan({ cls: "vault-rag-info-value", text: "…" });
+  };
+
+  /** render-Hatch: Fähigkeiten-Zeile. Setzt capSetting, das showCaps() (renderChatModel) und
+   *  runThinkingTest() bei einer Caps-Upgrade re-rendern. */
+  private renderCapsRow = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Fähigkeiten");
+    this.capSetting = s;
+    this.renderCaps(s, this.lastCaps);
+  };
+
+  /** render-Hatch: Kontext-Budget-Slider. Bleibt render-Hatch (nicht deklarativ), weil die
+   *  Obergrenze modell-gekoppelt ist: updateBudgetMax() (aufgerufen aus showInfo, sobald das
+   *  Modell-Fenster bekannt ist) klemmt Limits/Wert live nach. */
+  private renderBudget = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host);
+    s.setName(`Kontext-Budget: ${this.plugin.settings.contextCharBudget.toLocaleString("de-DE")} Zeichen`)
+      .setDesc("Maximale Gesamtlänge des Notiz-Kontexts (anteilig verteilt). Obergrenze richtet sich nach dem Modell-Fenster.")
+      .addSlider(sl => {
+        sl.setLimits(2000, 32000, 1000).setValue(this.plugin.settings.contextCharBudget)          .onChange(async (v: number) => {
+            this.plugin.settings.contextCharBudget = v;
+            s.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
+            await this.plugin.saveSettings();
+          });
+        // Sobald das Modell-Fenster bekannt ist (showInfo): Slider-Max daran koppeln + Wert klemmen.
+        this.updateBudgetMax = (maxChars: number): void => {
+          const max = Math.max(8000, Math.round(maxChars / 1000) * 1000);
+          sl.setLimits(2000, max, 1000);
+          const val = Math.min(this.plugin.settings.contextCharBudget, max);
+          sl.setValue(val);
+          s.setName(`Kontext-Budget: ${val.toLocaleString("de-DE")} / max ~${max.toLocaleString("de-DE")} Zeichen`);
+          if (val !== this.plugin.settings.contextCharBudget) {
+            this.plugin.settings.contextCharBudget = val;   // nur bei echter Klemmung schreiben
+            void this.plugin.saveSettings();
+          }
+        };
+      });
+  };
+
+  /** render-Hatch: Smart-Apply-Modell-Dropdown. Zeichnet in hostFor. Leer-Option zuerst: der
+   *  leere Wert ist bedeutungstragend (= Chat-Modell erben). */
+  private renderSmartApplyModel = (setting: Setting): void => {
+    const host = this.hostFor(setting);
+    const s = new Setting(host).setName("Smart-Apply-Modell")
+      .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.');
+    void this.plugin.chatClient?.listModels().then((models: string[]) => {
+      const cur = this.plugin.settings.smartApplyModel;
+      if (models.length) {
+        const list = cur && !models.includes(cur) ? [cur, ...models] : models;
+        s.addDropdown(d => {
+          d.addOption("", "Chat-Modell verwenden");
+          list.forEach((m: string) => { d.addOption(m, m); });
+          d.setValue(cur).onChange(async (v: string) => {
+            this.plugin.settings.smartApplyModel = v;
+            await this.plugin.saveSettings();
+          });
+        });
+      } else {
+        s.setDesc('Server offline — Modellname eintippen (leer = Chat-Modell), dann „Modelle laden"');
+        s.addText(t => t.setPlaceholder("leer = Chat-Modell").setValue(cur)
+          .onChange(async (v: string) => {
+            this.plugin.settings.smartApplyModel = v.trim();
+            await this.plugin.saveSettings();
+          }));
+        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
+      }
+    });
+  };
+
+  /** Body des früheren „Testen“-Buttons aus buildThinking (das Toggle daneben ist jetzt
+   *  deklarativ). Ohne Button-Disable-Handling — Rückmeldung nur noch über Notice. Bei
+   *  bestätigtem Thinking-Nachweis: Caps hochstufen + Fähigkeiten-Zeile neu zeichnen. */
+  private async runThinkingTest(): Promise<void> {
+    const model = this.plugin.settings.chatModel;
+    if (isAlwaysOnThinker(model)) { new Notice("Dieses Modell denkt immer (nur low/medium/high)."); return; }
+    try {
+      const res = await this.plugin.chatClient.stream(
+        [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
+        () => {}, () => {}, undefined, { model, suppressThinking: true });
+      const happened = reasoningHappened(res.content, res.reasoning);
+      new Notice(happened ? "Modell denkt trotz „aus“" : "Thinking wird unterdrückt");
+      if (happened) {
+        // Live-Nachweis, dass das Modell denkt → Fähigkeiten-Zeile hochstufen.
+        this.lastCaps = { ...this.lastCaps, thinking: { support: "always", confidence: "confirmed" } };
+        if (this.capSetting) this.renderCaps(this.capSetting, this.lastCaps);
+      }
+    } catch {
+      new Notice("Chat-Endpoint nicht erreichbar");
+    }
+  }
+
   hide(): void {
-    this.clearInterval();
+    for (const id of this.pollIntervals) window.clearInterval(id);
+    this.pollIntervals = [];
     if (this.mcpPortRestartTimer !== null) { window.clearTimeout(this.mcpPortRestartTimer); this.mcpPortRestartTimer = null; }
+    this.runRowCleanups();
     this.resolvedOnOpen = false;
     super.hide();
-  }
-
-  private clearInterval(): void {
-    if (this.refreshInterval !== null) { window.clearInterval(this.refreshInterval); this.refreshInterval = null; }
-  }
-
-  private resetRenderState(): void {
-    // Intervall NUR in buildEmbeddingStatus (clear-then-start) starten + in hide() stoppen —
-    // hier nicht anfassen.
-    this.lastCaps = { vision: "no", thinking: { support: "none", confidence: "no" } };
-    this.updateBudgetMax = () => {};
-    this.infoValue = null;
-    this.capSetting = null;
-  }
-
-  /** Re-Render nach einem Daten-Refresh (z.B. „Modelle laden“). */
-  private rerender(): void {
-    // display() ist seit 1.13 deprecated, bleibt aber der Render-Pfad, bis die deklarative
-    // Settings-API in einem eigenen Slice die Umstellung übernimmt.
-    this.display();
-  }
-
-  display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-    this.resetRenderState();
-    // Verbindungs-Moment NUR beim Tab-Öffnen (nicht bei Re-Renders): aktive Endpunkte aus den
-    // Fallback-Listen auflösen (fire-and-forget; Status-Icons + Status-Poll spiegeln das Ergebnis).
-    if (!this.resolvedOnOpen) {
-      this.resolvedOnOpen = true;
-      void this.plugin.resolveAndReconnectEmbedder();
-      void this.plugin.resolveAndReconnectChat();
-    }
-    const storage: CollapsibleStorage = {
-      getCollapsed: (key: string): boolean | undefined =>
-        key in this.plugin.settings.uiCollapsed ? this.plugin.settings.uiCollapsed[key] : undefined,
-      setCollapsed: (key: string, collapsed: boolean): void => {
-        this.plugin.settings.uiCollapsed[key] = collapsed;
-        void this.plugin.saveSettings();
-      },
-    };
-
-    const searchBody = collapsibleSection(containerEl, { title: "Suche", key: "search", storage });
-    this.buildK(new Setting(searchBody));
-    this.buildMinSim(new Setting(searchBody));
-    this.buildExclude(new Setting(searchBody));
-
-    // Live-Embedding startet beim ersten Mal offen — hier trägt man den Endpunkt ein, ohne
-    // den man vault-rag nicht einrichten kann. Danach gewinnt der persistierte User-Zustand.
-    const embeddingBody = collapsibleSection(containerEl, { title: "Live-Embedding", key: "embedding", storage, defaultCollapsed: false });
-    this.buildEmbeddingEndpointList(embeddingBody);
-    this.buildEmbeddingModel(new Setting(embeddingBody));
-    this.buildEmbeddingStatus(new Setting(embeddingBody));
-    this.buildDebounce(new Setting(embeddingBody));
-    this.buildStatusBar(new Setting(embeddingBody));
-
-    const indexBody = collapsibleSection(containerEl, { title: "Index", key: "index", storage });
-    this.buildIndexDir(new Setting(indexBody));
-    this.buildHideIndexFolder(new Setting(indexBody));
-
-    const robustnessBody = collapsibleSection(containerEl, { title: "Index-Robustheit", key: "index-robustness", storage });
-    this.buildRobustnessSection(robustnessBody);
-
-    const mcpBody = collapsibleSection(containerEl, { title: "MCP-Server", key: "mcp", storage });
-    this.buildMcpSection(mcpBody);
-
-    const chatBody = collapsibleSection(containerEl, { title: "Chat", key: "chat", storage });
-    this.buildChatEndpointList(chatBody);
-    this.buildChatModel(new Setting(chatBody));
-    this.buildModelDetails(new Setting(chatBody));
-    this.buildCaps(new Setting(chatBody));
-    this.buildChatK(new Setting(chatBody));
-    this.buildBudget(new Setting(chatBody));
-    this.buildTemp(new Setting(chatBody));
-    this.buildSystemPrompt(new Setting(chatBody));
-    this.buildInputPos(new Setting(chatBody));
-    this.buildThinking(new Setting(chatBody));
-    this.buildEnter(new Setting(chatBody));
-
-    const smartApplyBody = collapsibleSection(containerEl, { title: "Smart Apply", key: "smartapply", storage });
-    this.buildSmartApplyEnabled(new Setting(smartApplyBody));
-    this.buildSmartApplyConnectionNote(new Setting(smartApplyBody));
-    this.buildTemplateDir(new Setting(smartApplyBody));
-    this.buildSmartApplyTemperature(new Setting(smartApplyBody));
-    this.buildSmartApplyModel(new Setting(smartApplyBody));
-    this.buildSmartApplySuppress(new Setting(smartApplyBody));
-    this.buildSmartApplyMaxTokens(new Setting(smartApplyBody));
-    this.buildSmartApplyDefaultMode(new Setting(smartApplyBody));
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
@@ -286,7 +854,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           opts.set(updated);
           void this.plugin.saveSettings()
             .then(() => opts.reconnect())
-            .then(() => this.display());
+            .then(() => this.refreshUi());
         });
       });
       // Löschen: expliziter Mülleimer-Button (nicht am leeren Add-Feld). Das Status-Icon links
@@ -299,7 +867,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
             opts.set(applyEndpointEdit(opts.get(), i, "", false));
             void this.plugin.saveSettings()
               .then(() => opts.reconnect())
-              .then(() => this.display());
+              .then(() => this.refreshUi());
           }));
       }
       // Pro-Feld-Status in A11y-Form (Form + Text + Farbe): loader → check/x, aktiver markiert.
@@ -335,38 +903,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
           opts.set(applyEndpointEdit(cur, cur.length, preset.url, true));
           void this.plugin.saveSettings()
             .then(() => opts.reconnect())
-            .then(() => this.display());
+            .then(() => this.refreshUi());
         }));
     });
-    actions.addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.display()));
-  }
-
-  private buildEmbeddingEndpointList(containerEl: HTMLElement): void {
-    this.buildEndpointList({
-      containerEl,
-      label: "Embedding-Endpunkte",
-      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Ollama- oder MLX-Server-URLs (Desktop oder LAN/VPN-erreichbar).",
-      placeholder: "http://localhost:11434",
-      get: () => this.plugin.settings.embeddingEndpoints,
-      set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
-      active: () => this.plugin.activeEmbeddingEndpoint,
-      probe: (ep) => new EmbeddingClient(ep, this.plugin.settings.embeddingModel).probe(),
-      reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
-    });
-  }
-
-  private buildChatEndpointList(containerEl: HTMLElement): void {
-    this.buildEndpointList({
-      containerEl,
-      label: "Chat-Endpunkte",
-      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. OpenAI-kompatible LLM-Server (MLX/LM-Studio), getrennt von den Embedding-Endpunkten.",
-      placeholder: "http://localhost:1234",
-      get: () => this.plugin.settings.chatEndpoints,
-      set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
-      active: () => this.plugin.activeChatEndpoint,
-      probe: (ep) => new ChatClient(ep, this.plugin.settings.chatModel).probe(),
-      reconnect: () => this.plugin.resolveAndReconnectChat(),
-    });
+    actions.addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.refreshUi()));
   }
 
   /** Capability-Chips (Lucide-Icons) in die controlEl der Fähigkeiten-Zeile. */
@@ -388,8 +928,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   private showInfo(model: string): void {
-    // Tolerant gegenüber stale .then nach einem update()/display()-Re-Render: resetRenderState()
-    // nullt die Felder, die Null-Guards no-oppen dann; bei gleichem Modell ist der Inhalt idempotent.
+    // Tolerant gegenüber stale .then nach einem Re-Render (this.infoValue wird pro render-Hatch
+    // neu gesetzt): der Null-Guard no-oppt dann; bei gleichem Modell ist der Inhalt idempotent.
     void this.plugin.chatClient?.modelInfo(model).then((info: { contextLength?: number; quantization?: string; state?: string } | null) => {
       if (!this.infoValue) return;
       if (info) {
@@ -408,520 +948,5 @@ export class VaultRagSettingTab extends PluginSettingTab {
       this.lastCaps = resolveCapabilities(meta, model, {});
       if (this.capSetting) this.renderCaps(this.capSetting, this.lastCaps);
     });
-  }
-
-  // ── Builder: Suche ────────────────────────────────────────────────────
-  private buildK(s: Setting): void {
-    s.setName(`Anzahl verwandter Notizen: ${this.plugin.settings.k}`)
-      .setDesc("Wie viele ähnliche Notizen im Panel angezeigt werden (5–50)")
-      .addSlider(sl => sl.setLimits(5, 50, 1).setValue(this.plugin.settings.k)        .onChange(async (v: number) => {
-          this.plugin.settings.k = v;
-          s.setName(`Anzahl verwandter Notizen: ${v}`);
-          await this.plugin.saveSettings();
-          this.plugin.refresh();
-        }));
-  }
-
-  private buildMinSim(s: Setting): void {
-    s.setName(`Mindest-Ähnlichkeit: ${Math.round(this.plugin.settings.minSim * 100)} %`)
-      .setDesc("Notizen unterhalb dieser Schwelle werden ausgeblendet — niedriger = mehr Treffer, unschärfer")
-      .addSlider(sl => sl.setLimits(0, 0.9, 0.05).setValue(this.plugin.settings.minSim)        .onChange(async (v: number) => {
-          this.plugin.settings.minSim = v;
-          s.setName(`Mindest-Ähnlichkeit: ${Math.round(v * 100)} %`);
-          await this.plugin.saveSettings();
-          this.plugin.refresh();
-        }));
-  }
-
-  private buildExclude(s: Setting): void {
-    s.setName("Ausschluss-Pfade")
-      .setDesc("Kommagetrennte Pfade, die nicht eingebettet werden (z.B. Templates/, Archive/). Versteckte Pfade (Konfig-Ordner, Papierkorb) sind immer automatisch ausgeschlossen.")
-      .addText(t => t.setPlaceholder("Templates/, Archive/").setValue(this.plugin.settings.exclude.join(", "))
-        .onChange(async (v: string) => {
-          this.plugin.settings.exclude = v.split(",").map((x: string) => x.trim()).filter(Boolean);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  // ── Builder: Live-Embedding ───────────────────────────────────────────
-  private buildEmbeddingModel(s: Setting): void {
-    s.setName("Embedding-Modell").setDesc("Modellname wie auf dem Endpoint verfügbar");
-    void this.plugin.embedder?.listModels().then((models: string[]) => {
-      const cur = this.plugin.settings.embeddingModel;
-      if (models.length) {
-        const list = models.includes(cur) ? models : [cur, ...models];
-        s.addDropdown(d => {
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange((v: string) => {
-            this.plugin.settings.embeddingModel = v;
-            void this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectEmbedder();
-          });
-        });
-      } else {
-        s.addText(t => t.setPlaceholder("qwen3-embedding:8b").setValue(cur).onChange(async (v: string) => {
-          this.plugin.settings.embeddingModel = v.trim();
-          await this.plugin.saveSettings();
-          void this.plugin.resolveAndReconnectEmbedder();
-        }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.rerender()));
-      }
-    });
-  }
-
-  private buildDebounce(s: Setting): void {
-    s.setName(`Debounce: ${this.plugin.settings.debounceMs / 1000} s`)
-      .setDesc("Wartezeit nach dem letzten Speichern, bevor neu eingebettet wird")
-      .addSlider(sl => sl.setLimits(500, 10000, 500).setValue(this.plugin.settings.debounceMs)        .onChange(async (v: number) => {
-          this.plugin.settings.debounceMs = v;
-          s.setName(`Debounce: ${v / 1000} s`);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  // ── Builder: Chat ─────────────────────────────────────────────────────
-  private buildChatModel(s: Setting): void {
-    s.setName("Chat-Modell").setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
-    void this.plugin.chatClient?.listModels().then((models: string[]) => {
-      if (models.length) {
-        const cur = this.plugin.settings.chatModel;
-        const list = models.includes(cur) ? models : [cur, ...models];
-        s.addDropdown(d => {
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange((v: string) => {
-            this.plugin.settings.chatModel = v;
-            void this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectChat();
-            this.showInfo(v);
-            this.showCaps(v);
-          });
-        });
-      } else {
-        s.setDesc('Server offline — Modellname eintippen, dann „Modelle laden“');
-        s.addText(t => t.setPlaceholder("qwen3").setValue(this.plugin.settings.chatModel)
-          .onChange(async (v: string) => {
-            this.plugin.settings.chatModel = v.trim();
-            await this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectChat();
-          }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.rerender()));
-      }
-      this.showInfo(this.plugin.settings.chatModel);
-      this.showCaps(this.plugin.settings.chatModel);
-    });
-  }
-
-  private buildModelDetails(s: Setting): void {
-    s.setName("Modelldetails");
-    this.infoValue = s.controlEl.createSpan({ cls: "vault-rag-info-value", text: "…" });
-  }
-
-  private buildCaps(s: Setting): void {
-    s.setName("Fähigkeiten");
-    this.capSetting = s;
-    this.renderCaps(s, this.lastCaps);
-  }
-
-  private buildChatK(s: Setting): void {
-    s.setName(`Kontext-Notizen: ${this.plugin.settings.chatK}`)
-      .setDesc("Wie viele Notizen als Kontext in den Chat gehen (Auto-RAG)")
-      .addSlider(sl => sl.setLimits(1, 20, 1).setValue(this.plugin.settings.chatK)        .onChange(async (v: number) => {
-          this.plugin.settings.chatK = v;
-          s.setName(`Kontext-Notizen: ${v}`);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  private buildBudget(s: Setting): void {
-    s.setName(`Kontext-Budget: ${this.plugin.settings.contextCharBudget.toLocaleString("de-DE")} Zeichen`)
-      .setDesc("Maximale Gesamtlänge des Notiz-Kontexts (anteilig verteilt). Obergrenze richtet sich nach dem Modell-Fenster.")
-      .addSlider(sl => {
-        sl.setLimits(2000, 32000, 1000).setValue(this.plugin.settings.contextCharBudget)          .onChange(async (v: number) => {
-            this.plugin.settings.contextCharBudget = v;
-            s.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
-            await this.plugin.saveSettings();
-          });
-        // Sobald das Modell-Fenster bekannt ist (showInfo): Slider-Max daran koppeln + Wert klemmen.
-        this.updateBudgetMax = (maxChars: number): void => {
-          const max = Math.max(8000, Math.round(maxChars / 1000) * 1000);
-          sl.setLimits(2000, max, 1000);
-          const val = Math.min(this.plugin.settings.contextCharBudget, max);
-          sl.setValue(val);
-          s.setName(`Kontext-Budget: ${val.toLocaleString("de-DE")} / max ~${max.toLocaleString("de-DE")} Zeichen`);
-          if (val !== this.plugin.settings.contextCharBudget) {
-            this.plugin.settings.contextCharBudget = val;   // nur bei echter Klemmung schreiben
-            void this.plugin.saveSettings();
-          }
-        };
-      });
-  }
-
-  private buildTemp(s: Setting): void {
-    s.setName(`Temperatur: ${this.plugin.settings.chatTemperature}`)
-      .setDesc("Kreativität vs. Bestimmtheit (0 = deterministisch, höher = kreativer)")
-      .addSlider(sl => sl.setLimits(0, 2, 0.1).setValue(this.plugin.settings.chatTemperature)        .onChange(async (v: number) => {
-          this.plugin.settings.chatTemperature = v;
-          s.setName(`Temperatur: ${v}`);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  private buildSystemPrompt(s: Setting): void {
-    s.setName("System-Prompt")
-      .setDesc("Grundanweisung an das Modell. Der Notiz-Kontext wird automatisch angehängt.")
-      .addTextArea(t => {
-        t.setValue(this.plugin.settings.chatSystemPrompt).onChange(async (v: string) => {
-          this.plugin.settings.chatSystemPrompt = v;
-          await this.plugin.saveSettings();
-        });
-        t.inputEl.rows = 8;
-        t.inputEl.addClass("vault-rag-prompt-textarea");
-      });
-  }
-
-  private buildInputPos(s: Setting): void {
-    s.setName("Eingabe-Position")
-      .setDesc("Wo die Chat-Eingabe sitzt (greift beim nächsten Öffnen des Panels)")
-      .addDropdown(d => d.addOption("bottom", "Unten").addOption("top", "Oben").setValue(this.plugin.settings.chatInputPosition)
-        .onChange(async (v: string) => {
-          this.plugin.settings.chatInputPosition = v as "bottom" | "top";
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  private buildThinking(s: Setting): void {
-    s.setName("Thinking unterdrücken")
-      .setDesc("Standard für neue Chats. Sendet Suppress-Hints (reasoning_effort/enable_thinking). Pro Chat im Panel umschaltbar. „Testen“ prüft, ob das Modell wirklich abschaltet.")
-      .addToggle(t => t.setValue(this.plugin.settings.suppressThinking).onChange(async (v: boolean) => {
-        this.plugin.settings.suppressThinking = v;
-        await this.plugin.saveSettings();
-      }))
-      .addButton(b => b.setButtonText("Testen").onClick(async () => {
-        const model = this.plugin.settings.chatModel;
-        if (isAlwaysOnThinker(model)) { new Notice("Dieses Modell denkt immer (nur low/medium/high)."); return; }
-        b.setButtonText("Teste…"); b.setDisabled(true);
-        try {
-          const res = await this.plugin.chatClient.stream(
-            [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
-            () => {}, () => {}, undefined, { model, suppressThinking: true });
-          const happened = reasoningHappened(res.content, res.reasoning);
-          new Notice(happened ? "Modell denkt trotz „aus“" : "Thinking wird unterdrückt");
-          if (happened) {
-            // Live-Nachweis, dass das Modell denkt → Fähigkeiten-Zeile hochstufen.
-            this.lastCaps = { ...this.lastCaps, thinking: { support: "always", confidence: "confirmed" } };
-            if (this.capSetting) this.renderCaps(this.capSetting, this.lastCaps);
-          }
-        } catch {
-          new Notice("Chat-Endpoint nicht erreichbar");
-        } finally { b.setButtonText("Testen"); b.setDisabled(false); }
-      }));
-  }
-
-  private buildEnter(s: Setting): void {
-    s.setName("Enter sendet")
-      .setDesc("An: Enter sendet, Shift+Enter macht eine neue Zeile. Aus: umgekehrt.")
-      .addToggle(t => t.setValue(this.plugin.settings.enterSends).onChange(async (v: boolean) => {
-        this.plugin.settings.enterSends = v;
-        await this.plugin.saveSettings();
-      }));
-  }
-
-  // ── Builder: Smart Apply ──────────────────────────────────────────────
-  private buildSmartApplyEnabled(s: Setting): void {
-    s.setName("Smart Apply aktivieren")
-      .setDesc("Schaltet den Befehl, das Ribbon-Icon und das Panel frei: eine unstrukturierte Notiz hinter einem Diff-Gate in die Struktur einer Vorlage überführen. Greift beim nächsten Neuladen des Plugins.")
-      .addToggle(t => t.setValue(this.plugin.settings.smartApplyEnabled).onChange(async (v: boolean) => {
-        this.plugin.settings.smartApplyEnabled = v;
-        await this.plugin.saveSettings();
-      }));
-  }
-
-  /** Reiner Hinweis — Smart Apply nutzt die bestehende Chat-Verbindung; keine eigenen Endpoint-Felder. */
-  private buildSmartApplyConnectionNote(s: Setting): void {
-    s.setName("Verbindung")
-      .setDesc('Smart Apply nutzt die Chat-Verbindung (Endpoint, Modell) aus dem Abschnitt „Chat“ — kein eigener Endpoint nötig.');
-  }
-
-  private buildTemplateDir(s: Setting): void {
-    s.setName("Vorlagen-Ordner")
-      .setDesc('Ordner mit den Vorlagen — Markdown-Dateien darin und in Unterordnern werden berücksichtigt. Ausgenommen sind Folder Notes (Datei trägt den Namen ihres Ordners, z.B. Projekt/Projekt.md).')
-      .addText(t => {
-        t.setPlaceholder("Templates/").setValue(this.plugin.settings.templateDir);
-        const normalize = (v: string): string => {
-          const trimmed = v.trim();
-          if (trimmed === "") return "";
-          return trimmed.endsWith("/") ? trimmed : trimmed + "/";
-        };
-        const save = async (v: string): Promise<void> => {
-          this.plugin.settings.templateDir = normalize(v);
-          await this.plugin.saveSettings();
-          this.plugin.refreshSmartApplyRanking();   // offenes Cockpit sofort neu ranken (kein Reload)
-        };
-        t.onChange(save);
-        new FolderSuggest(this.app, t.inputEl).onSelect(async (path: string) => {
-          t.setValue(normalize(path));
-          await save(path);
-        });
-      });
-  }
-
-  private buildSmartApplyTemperature(s: Setting): void {
-    s.setName(`Smart-Apply-Temperatur: ${this.plugin.settings.smartApplyTemperature}`)
-      .setDesc("Temperatur für den Umsortier-Call (0 = deterministisch — empfohlen für reproduzierbare Vorschläge).")
-      .addSlider(sl => sl.setLimits(0, 2, 0.1).setValue(this.plugin.settings.smartApplyTemperature)
-        .onChange(async (v: number) => {
-          this.plugin.settings.smartApplyTemperature = v;
-          s.setName(`Smart-Apply-Temperatur: ${v}`);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  private buildSmartApplyModel(s: Setting): void {
-    s.setName("Smart-Apply-Modell")
-      .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.');
-    void this.plugin.chatClient?.listModels().then((models: string[]) => {
-      const cur = this.plugin.settings.smartApplyModel;
-      if (models.length) {
-        // Leer-Option zuerst: der leere Wert ist bedeutungstragend (= Chat-Modell erben).
-        const list = cur && !models.includes(cur) ? [cur, ...models] : models;
-        s.addDropdown(d => {
-          d.addOption("", "Chat-Modell verwenden");
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange(async (v: string) => {
-            this.plugin.settings.smartApplyModel = v;
-            await this.plugin.saveSettings();
-          });
-        });
-      } else {
-        s.setDesc('Server offline — Modellname eintippen (leer = Chat-Modell), dann „Modelle laden"');
-        s.addText(t => t.setPlaceholder("leer = Chat-Modell").setValue(cur)
-          .onChange(async (v: string) => {
-            this.plugin.settings.smartApplyModel = v.trim();
-            await this.plugin.saveSettings();
-          }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.rerender()));
-      }
-    });
-  }
-
-  private buildSmartApplySuppress(s: Setting): void {
-    s.setName("Thinking unterdrücken (Smart Apply)")
-      .setDesc("Sendet Suppress-Hints fuer den Smart-Apply-Call — sinnvoll bei Thinking-Modellen, die auch strukturiert schreiben koennen.")
-      .addToggle(t => t.setValue(this.plugin.settings.smartApplySuppressThinking).onChange(async (v: boolean) => {
-        this.plugin.settings.smartApplySuppressThinking = v;
-        await this.plugin.saveSettings();
-      }));
-  }
-
-  private buildSmartApplyMaxTokens(s: Setting): void {
-    s.setName(`Smart-Apply-Max-Tokens: ${this.plugin.settings.smartApplyMaxTokens}`)
-      .setDesc("Maximale Anzahl generierter Tokens fuer den Umsortier-Call (512–16384). Hoeher = sicher fuer grosse Notizen mit vielen Bloecken.")
-      .addSlider(sl => sl.setLimits(512, 16384, 512).setValue(this.plugin.settings.smartApplyMaxTokens)
-        .onChange(async (v: number) => {
-          this.plugin.settings.smartApplyMaxTokens = v;
-          s.setName(`Smart-Apply-Max-Tokens: ${v}`);
-          await this.plugin.saveSettings();
-        }));
-  }
-
-  private buildSmartApplyDefaultMode(s: Setting): void {
-    s.setName("Smart-Apply-Standardmodus")
-      .setDesc("Für Vorlagen ohne eigene Modus-Angabe. Additiv/Transformativ lässt das LLM Werte erschließen und ergänzen (mit Konfidenz).")
-      .addDropdown(d => d
-        .addOption("deterministisch", "Deterministisch (nur zuordnen)")
-        .addOption("additiv", "Additiv (erschließen + ergänzen)")
-        .setValue(this.plugin.settings.smartApplyDefaultMode)
-        .onChange(async (v) => { this.plugin.settings.smartApplyDefaultMode = v as ApplyMode; await this.plugin.saveSettings(); }));
-  }
-
-  /** Kompakte einzeilige Embedding-Status-Zeile (bei den Embedding-Settings): EIN konsistent
-   *  gefärbter Verbindungspunkt + aktiver Endpunkt + Zähler, live aktualisiert. Kein Control → Wert in controlEl ok. */
-  private buildEmbeddingStatus(s: Setting): void {
-    s.setName("Embedding-Status");
-    const val = s.controlEl.createSpan({ cls: "vault-rag-info-value" });
-    const dot = val.createSpan({ cls: "vault-rag-conn-dot" });
-    const text = val.createSpan();
-    let connected: boolean | null = null;
-    const render = (): void => {
-      dot.toggleClass("is-checking", connected === null);
-      dot.toggleClass("is-ok", connected === true);
-      dot.toggleClass("is-error", connected === false);
-      // Form (Icon) trägt den Status, Farbe nur sekundär — lesbar auch bei Farbsehschwäche (WCAG 1.4.1).
-      setIcon(dot, connected === null ? "loader" : connected ? "circle-check" : "circle-x");
-      const active = this.plugin.activeEmbeddingEndpoint;
-      const conn = connected === null ? "prüfe…" : connected ? (active ? `verbunden via ${active}` : "verbunden") : "offline";
-      const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
-      // Nur die eingebettete Zahl hier — der echte Rückstand (fehlende Notizen) lebt als EINE
-      // Wahrheit in der Index-Zustand-Zeile (Index-Robustheit). „pending" war die transiente
-      // Offline-Queue und kollidierte optisch mit dem Deckungs-Delta.
-      const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet` : "";
-      const act = p?.isEmbedding ? "Embedding läuft" : "";
-      text.setText([conn, act, counts].filter(Boolean).join(" · "));
-    };
-    render();
-    // Status-Poll stützt sich auf dieselbe Reachability-Logik wie main.ts (ping → Re-Resolve → ping).
-    void this.plugin.embedderReady().then((ok: boolean) => { connected = ok; render(); });
-    this.clearInterval();
-    this.refreshInterval = window.setInterval(render, 2000);
-  }
-
-  private buildStatusBar(s: Setting): void {
-    s.setName("Fortschritt in Statusleiste")
-      .setDesc("Zeigt Embedding-Status in der unteren Obsidian-Leiste")
-      .addToggle(t => t.setValue(this.plugin.settings.showStatusBar).onChange(async (v: boolean) => {
-        this.plugin.settings.showStatusBar = v;
-        await this.plugin.saveSettings();
-        this.plugin.setStatusBarVisible(v);
-      }));
-  }
-
-  private buildIndexDir(s: Setting): void {
-    let typed = this.plugin.settings.indexDir;
-    s.setName("Index-Ordner")
-      .setDesc('Wo der Vektor-Index gespeichert wird. Synct cross-device (inkl. iPhone) nur mit der Obsidian-Sync-Option „Sync all other types". Ein Pfad mit „." am Anfang wird von Obsidian Sync ignoriert.')
-      .addText(t => {
-        t.setPlaceholder("_vaultrag").setValue(this.plugin.settings.indexDir);
-        t.onChange((v: string) => { typed = v; });
-        new FolderSuggest(this.app, t.inputEl).onSelect((path: string) => { typed = path; t.setValue(path); });
-      })
-      .addButton(b => b.setButtonText("Übernehmen").onClick(async () => {
-        const norm = normalizeIndexDir(typed);
-        if (norm === "" || norm === normalizeIndexDir(this.plugin.settings.indexDir)) return;
-        if (isDotPath(norm)) new Notice('Index-Ordner beginnt mit „." — synct dann nicht cross-device (auch nicht aufs iPhone).');
-        b.setButtonText("Verschiebe…"); b.setDisabled(true);
-        try {
-          await this.plugin.changeIndexDir(norm);
-          new Notice(`Index verschoben nach „${norm}".`);
-        } finally { b.setButtonText("Übernehmen"); b.setDisabled(false); }
-        this.display();
-      }));
-  }
-
-  private buildHideIndexFolder(s: Setting): void {
-    s.setName("Index-Ordner im Datei-Explorer ausblenden")
-      .setDesc("Versteckt den Index-Ordner kosmetisch im Datei-Explorer. Daten, Sync und Suche bleiben unberührt. Standardmäßig an.")
-      .addToggle(t => t.setValue(this.plugin.settings.hideIndexFolder).onChange(async (v: boolean) => {
-        this.plugin.settings.hideIndexFolder = v;
-        await this.plugin.saveSettings();
-        this.plugin.refreshIndexFolderHiding();
-      }));
-  }
-
-  /** „Vault neu indizieren" lebt bewusst hier statt in der Index-Sektion (Config): Robustheit
-   *  bündelt alle Wiederherstellungs-Aktionen (Zustand, Delta-Heal, Backup, Voll-Reindex) an
-   *  einer Stelle — kein zweiter Reindex-Button mehr in „Index". */
-  private buildRobustnessSection(containerEl: HTMLElement): void {
-    const { embedded, total, healthy, emptyCount } = this.plugin.indexDelta();
-    new Setting(containerEl)
-      .setName("Index-Zustand")
-      .setDesc(this.plugin.indexHealthReadout(embedded, total, healthy, emptyCount))
-      .addButton(b => b
-        .setButtonText("Vervollständigen")
-        .setDisabled(!healthy || embedded >= total)
-        .onClick(() => { void this.plugin.healVault(); }));
-    new Setting(containerEl)
-      .setName("Aus Backup wiederherstellen")
-      .setDesc("Geräte-lokale Sicherungen des Index (letzte 3). Ersetzt den aktuellen Index.")
-      .addButton(b => b.setButtonText("Backups…").onClick(() => { void (async () => {
-        new RestoreBackupModal(this.app, await this.plugin.listBackups(), (n) => void this.plugin.restoreBackup(n)).open();
-      })(); }));
-    new Setting(containerEl)
-      .setName("Vault neu indizieren")
-      .setDesc("Baut den kompletten Index von Grund auf neu — der letzte Ausweg.")
-      .addButton(b => b.setButtonText("Neu indizieren").setDestructive().onClick(() => {
-        new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open();
-      }));
-  }
-
-  private buildMcpSection(containerEl: HTMLElement): void {
-    new Setting(containerEl)
-      .setName("MCP-Server aktivieren")
-      .setDesc("Lokaler HTTP-Server, über den externe LLM-Agents (z. B. Claude Code) den Vault durchsuchen. Nur Desktop, nur solange Obsidian läuft. Loopback (127.0.0.1) + Token.")
-      .addToggle(t => t.setValue(this.plugin.settings.mcpEnabled).onChange(async (v: boolean) => {
-        this.plugin.settings.mcpEnabled = v;
-        if (v) this.plugin.ensureMcpToken();
-        await this.plugin.saveSettings();
-        await this.plugin.restartMcpServer();
-        this.display();
-      }));
-
-    new Setting(containerEl)
-      .setName("Port")
-      .setDesc("Loopback-Port des MCP-Servers (Default 8123). Änderung startet den Server neu.")
-      .addText(t => t.setPlaceholder("8123").setValue(String(this.plugin.settings.mcpPort))
-        .onChange(async (v: string) => {
-          const n = parseInt(v, 10);
-          if (!Number.isFinite(n) || n < 1 || n > 65535) return;
-          this.plugin.settings.mcpPort = n;
-          await this.plugin.saveSettings();
-          // Debounce (Fix 2): sonst würde jeder Tastendruck einen eigenen Server-Restart
-          // auslösen (mirrors scheduleEmbed's Debounce-Idee in main.ts) — Speichern bleibt
-          // sofort, nur der Neustart wartet ~800ms auf Tipp-Ruhe.
-          if (this.mcpPortRestartTimer !== null) window.clearTimeout(this.mcpPortRestartTimer);
-          this.mcpPortRestartTimer = window.setTimeout(() => {
-            this.mcpPortRestartTimer = null;
-            void this.plugin.restartMcpServer().then(() => this.display());
-          }, 800);
-        }));
-
-    const detail = this.plugin.mcpStartError();
-    const status = this.plugin.mcpServerRunning()
-      ? `läuft · ${this.plugin.mcpServerAddress() ?? ""}`
-      : (this.plugin.settings.mcpEnabled ? `aus — ${detail ?? "Start fehlgeschlagen"}` : "aus");
-    new Setting(containerEl).setName("Status").setDesc(status);
-
-    if (!this.plugin.settings.mcpEnabled) return;
-
-    const token = this.plugin.settings.mcpToken;
-
-    new Setting(containerEl)
-      .setName("Token")
-      .setDesc(this.showMcpToken ? token : maskToken(token))
-      .addButton(b => b.setButtonText(this.showMcpToken ? "Verbergen" : "Anzeigen")
-        .onClick(() => { this.showMcpToken = !this.showMcpToken; this.display(); }))
-      .addButton(b => b.setButtonText("Neu generieren").setDestructive()
-        .onClick(async () => {
-          await this.plugin.rotateMcpToken();
-          new Notice("Neuer Token — alte Clients müssen neu verbunden werden");
-          this.display();
-        }));
-
-    new Setting(containerEl)
-      .setName("Verbindung testen")
-      .setDesc("Prüft den Server über den Loopback-Endpunkt — wie ein externer Client.")
-      .addButton(b => b.setButtonText("Testen")
-        .onClick(async () => {
-          b.setDisabled(true);
-          const res = await this.plugin.mcpSelfCheck();
-          b.setDisabled(false);
-          const msg = res === "ok" ? "✓ 3 Tools erreichbar"
-            : res === "unauthorized" ? "Token stimmt nicht"
-            : res === "unreachable" ? "Server nicht erreichbar (aus? Port?)"
-            : "Antwort ist kein MCP";
-          new Notice(`MCP-Selbsttest: ${msg}`);
-        }));
-
-    new Setting(containerEl)
-      .setName("Angebotene Tools")
-      .setDesc("search · related · read_note — read-only Zugriff auf den Vault-Index.");
-
-    const url = this.plugin.mcpServerAddress() ?? `http://127.0.0.1:${this.plugin.settings.mcpPort}/mcp`;
-
-    new Setting(containerEl)
-      .setName("Client-Setup")
-      .setDesc("Config für deinen MCP-Client — Client wählen, dann kopieren.")
-      .addDropdown(d => {
-        for (const c of MCP_CLIENTS) d.addOption(c.id, c.label);
-        d.setValue(this.mcpClient);
-        d.onChange((v: string) => { this.mcpClient = v as McpClientId; this.display(); });
-      })
-      .addButton(b => b.setButtonText("Kopieren")
-        .onClick(() => {
-          void navigator.clipboard.writeText(buildClientSnippet(this.mcpClient, { url, token }));
-          new Notice("MCP-Config kopiert");
-        }));
-
-    const pre = containerEl.createEl("pre", { cls: "vault-rag-mcp-snippet" });
-    pre.setText(buildClientSnippet(this.mcpClient, { url, token: maskToken(token) }));
   }
 }

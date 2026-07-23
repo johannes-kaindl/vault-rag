@@ -36,16 +36,71 @@ export function makeFakeEl(): any {
 }
 export class Plugin { app: any; manifest: any; constructor(app: any, m: any) { this.app = app; this.manifest = m; } async loadData() { return {}; } async saveData(_: any) {} addCommand(_: any) {} registerView(_: string, __: any) {} registerEvent(_: any) {} addSettingTab(_: any) {} addRibbonIcon(_: string, __: string, ___: any) { return makeFakeEl(); } }
 export class ItemView { app: any; contentEl: any; constructor(public leaf: any) { this.app = leaf?.app || {}; this.contentEl = makeFakeEl(); } getViewType() { return "unknown"; } getDisplayText() { return ""; } async onOpen() {} async onClose() {} registerEvent(_: any) {} }
-export class PluginSettingTab { app: any; plugin: any; containerEl: any; constructor(app: any, plugin: any) { this.app = app; this.plugin = plugin; this.containerEl = makeFakeEl(); } display() {} }
+export class PluginSettingTab { app: any; plugin: any; containerEl: any; constructor(app: any, plugin: any) { this.app = app; this.plugin = plugin; this.containerEl = makeFakeEl(); } display() {} update() {} hide() {} }
+class FakeSlider {
+  setLimits() { return this; }
+  setValue() { return this; }
+  setDynamicTooltip() { return this; }
+  onChange(_cb: (v: number) => void) { return this; }
+}
+class FakeToggle {
+  setValue() { return this; }
+  onChange(_cb: (v: boolean) => void) { return this; }
+  setDisabled() { return this; }
+}
+class FakeText {
+  inputEl = makeFakeEl();
+  setPlaceholder() { return this; }
+  setValue() { return this; }
+  getValue() { return ""; }
+  onChange(_cb: (v: string) => void) { return this; }
+}
+class FakeDropdown {
+  addOption() { return this; }
+  setValue() { return this; }
+  onChange(_cb: (v: string) => void) { return this; }
+}
+export class ButtonComponent {
+  buttonEl = makeFakeEl();
+  constructor(_containerEl?: any) {}
+  setButtonText() { return this; }
+  setClass() { return this; }
+  setCta() { return this; }
+  setDisabled() { return this; }
+  setIcon() { return this; }
+  setTooltip() { return this; }
+  setWarning() { return this; }
+  onClick(_cb: (evt?: any) => any) { return this; }
+}
+class FakeExtraButton {
+  extraSettingsEl = makeFakeEl();
+  setIcon() { return this; }
+  setTooltip() { return this; }
+  setDisabled() { return this; }
+  onClick(_cb: () => void) { return this; }
+}
 export class Setting {
-  constructor(public containerEl: any) {}
+  settingEl: any;
+  controlEl: any;
+  nameEl: any;
+  descEl: any;
+  constructor(public containerEl: any) {
+    this.settingEl = makeFakeEl();
+    this.controlEl = makeFakeEl();
+    this.nameEl = makeFakeEl();
+    this.descEl = makeFakeEl();
+  }
   setName(_: string) { return this; }
   setDesc(_: string) { return this; }
   setHeading() { return this; }
-  addText(cb: any) { cb({ setValue: () => ({ onChange: () => {} }), setPlaceholder: () => ({}) }); return this; }
-  addSlider(cb: any) { cb({ setLimits: () => ({ setValue: () => ({ onChange: () => {} }) }) }); return this; }
-  addToggle(cb: (t: unknown) => void) { cb({ setValue: () => this, onChange: () => this, setDisabled: () => this }); return this; }
-  addButton(cb: (b: unknown) => void) { cb({ setButtonText: () => this, setCta: () => this, onClick: () => this, setDisabled: () => this }); return this; }
+  setClass() { return this; }
+  addText(cb: (c: FakeText) => void) { cb(new FakeText()); return this; }
+  addTextArea(cb: (c: FakeText) => void) { cb(new FakeText()); return this; }
+  addSlider(cb: (c: FakeSlider) => void) { cb(new FakeSlider()); return this; }
+  addToggle(cb: (c: FakeToggle) => void) { cb(new FakeToggle()); return this; }
+  addDropdown(cb: (c: FakeDropdown) => void) { cb(new FakeDropdown()); return this; }
+  addButton(cb: (c: ButtonComponent) => void) { cb(new ButtonComponent()); return this; }
+  addExtraButton(cb: (c: FakeExtraButton) => void) { cb(new FakeExtraButton()); return this; }
 }
 export class TFile { path = ""; basename = ""; extension = "md"; }
 export class TFolder { path = ""; }
@@ -79,6 +134,7 @@ export class FuzzySuggestModal<T> {
   __close(): void { this.onClose(); }
 }
 export function setIcon(el: any, name: string): void { el?.setAttribute?.("data-icon", name); }
+export function setTooltip(el: any, text: string): void { el?.setAttribute?.("aria-label", text); }
 export class Notice { constructor(_message: string) {} }
 export class FileSystemAdapter { getBasePath() { return ""; } read() { return Promise.resolve(""); } }
 import { vi } from "vitest";

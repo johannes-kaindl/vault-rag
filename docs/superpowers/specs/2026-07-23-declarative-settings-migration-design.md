@@ -186,3 +186,66 @@ MCP-Token/Snippet, Endpoint-Listen) in echtem Obsidian prüfen.
 - `SettingDefinitionPage` (navigierbare Unterseiten) — im ganzen Dach ungenutzt; MCP/Robustheit
   bleiben inline-Groups.
 - Suchbarkeit des Budget-Sliders (render-Hatch-bedingt).
+
+---
+
+## NACHTRAG (2026-07-23): Prämissen-Korrektur — zweigleisig für 1.12.7
+
+**Status:** approved (Nutzer-Entscheidung nach dem Whole-Branch-Review).
+
+### Warum die ursprüngliche Prämisse falsch war
+
+Die Spec oben nahm an: „kein `display()`-Fallback nötig, weil `minAppVersion` 1.13.0 → jeder Nutzer
+mit `getSettingDefinitions` läuft ≥1.13." Das ist falsch: **Obsidian 1.13 ist bislang nur als
+Catalyst-Preview verfügbar.** Die Mehrheit der Nutzer läuft auf ≤1.12, wo `getSettingDefinitions()`
+nicht existiert und Obsidian weiterhin `display()` aufruft. Die reine deklarative Migration (Tasks 1–9)
+hätte diesen Nutzern **gar keine Settings-UI** gelassen — und der `minAppVersion 1.13.0`-Stand aus
+0.16.1 liefert Updates faktisch nur an Catalyst-Nutzer aus (versions.json hält alle anderen auf 0.16.0).
+
+### Entscheidung: zweigleisig (markdown-presentation-Muster)
+
+`getSettingDefinitions()` bleibt die **eine Wahrheit**. Zusätzlich ein schlanker `display()`-Fallback,
+der dieselbe Struktur imperativ rendert:
+
+- **`display() { this.renderImperative(); }`** — Obsidian ruft es nur auf ≤1.12 auf (bei non-leerem
+  `getSettingDefinitions` überspringt 1.13+ es, obsidian.d.ts). Der Override ist **warning-frei**:
+  `no-deprecated` flaggt Aufrufe, nicht Definitionen; belegt durch `markdown-presentation` (display +
+  getSettingDefinitions, Lint sauber). obsidian.d.ts segnet display() explizit als <1.13-Fallback ab.
+- **`renderImperative()`** durchläuft `getSettingDefinitions()` und rendert jeden Definition-Typ mit
+  der klassischen `Setting`-API: `group`→`setHeading()`+items · `control`→`addSlider/addToggle/addText/
+  addTextArea/addDropdown` (+FolderSuggest bei `folder`), gebunden an `get/setControlValue` ·
+  `render`→ruft den render-Hatch mit frischer `Setting` (Hatches sind bereits klassische API) ·
+  `action`→`addButton(name).onClick(action)` · `empty`→`setName/setDesc`.
+- **`displayFormat` als eine Wahrheit:** der native 1.13.1-Pfad zeigt den Slider-Wert inline; der
+  Fallback nutzt **denselben** `displayFormat`-Callback und platziert den Wert im Namen
+  (`setName(\`${name}: ${displayFormat(v)}\`)`). Kein doppelter Formatierungscode.
+
+### `minAppVersion` → 1.12.7
+
+manifest.json `1.13.0`→`1.12.7`; versions.json bekommt einen Eintrag für die nächste Version → 1.12.7.
+Korrigiert zugleich das 0.16.1-Ausschluss-Problem.
+
+### 1.13-only-APIs warning-frei absichern (kein `setWarning`, kein eslint-disable)
+
+Jays Anforderung „keine Warnings" wird durch **Vermeidung** erfüllt (apple-health-Philosophie), nicht
+durch Unterdrückung:
+
+- **`setDestructive()`** (2 Stellen: `RestoreBackupModal`, MCP-„Neu generieren") ist 1.13-only und
+  crasht auf 1.12.7. Ersetzt durch einen Runtime-Feature-Check-Helfer:
+  `typeof b.setDestructive === "function" ? b.setDestructive() : b.buttonEl.addClass("mod-warning")`.
+  `mod-warning` ist reine DOM-Klasse (keine API) → kein `no-deprecated`-Treffer; roter Look auf allen
+  Versionen. **Kein `setWarning` (deprecated), kein `requireApiVersion`, kein Lint-Override.**
+- **`displayFormat`** (1.13.1): native API ignoriert es auf <1.13.1; der Fallback nutzt es im Namen.
+
+### Tests
+
+Struktur-Tests bleiben. Neu: ein `renderImperative`-Smoke-Test über alle 7 Gruppen (jeder
+Definition-Typ rendert ohne Crash). Der Obsidian-Mock (`tests/__mocks__/obsidian.ts`) bekommt
+`Setting`-Stubs für `addSlider/addToggle/addText/addTextArea/addDropdown/addButton` (+ `ButtonComponent`
+mit `setButtonText/onClick/setClass/buttonEl`).
+
+### Warning-Freiheit ist Abnahmekriterium
+
+`npm run lint` (`eslint src`) muss **0 Warnings, 0 Errors** bleiben — verifiziert nach jeder Änderung,
+nicht nur am Ende. GUI-Abnahme dann auf **beiden** Pfaden (Catalyst 1.13 nativ + eine ≤1.12-Instanz
+für den Fallback, falls verfügbar).

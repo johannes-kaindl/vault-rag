@@ -1,23 +1,20 @@
-/** Die Node-Operationen, die der Guard braucht. Wird von aussen injiziert, damit diese
- *  Datei keinen node:-Import enthaelt (Obsidian-Mobile laedt keine Node-Builtins). */
-export interface GuardIo {
-  realpath(p: string): Promise<string>;
-  join(...parts: string[]): string;
-  sep: string;
-}
-
-/** Desktop-only Symlink-Escape-Schutz: liest eine vault-relative Datei nur, wenn ihr
- *  real aufgelöster Pfad unter dem Vault-Root bleibt (adapter.read folgt Symlinks). */
+/** Schutz für den MCP-Lesezugriff: es passieren nur Pfade, die Obsidian selbst als
+ *  Vault-Datei kennt. Die Vault-Mitgliedschaft wird injiziert, damit diese Datei weder
+ *  `obsidian` noch ein node:-Builtin importiert (Mobile lädt keine Node-Builtins, und der
+ *  Store-Scan flaggt jeden direkten fs-Zugriff als "Direct Filesystem Access").
+ *
+ *  Bewusster Trade-off (Spec 2026-07-23): Der frühere realpath-Check erkannte zusätzlich
+ *  Symlinks, die aus dem Vault herausführen. Das ist entfallen — ein Symlink, den Obsidian
+ *  selbst als Vault-Datei listet, wird gelesen. Das entspricht dem Verhalten von Obsidian
+ *  und vergleichbaren Plugins; Path-Traversal ist dafür strenger abgedeckt als zuvor, weil
+ *  nur real existierende Vault-Dateien durchkommen. */
 export function makeVaultReadGuard(
-  basePath: string,
+  isKnownVaultFile: (rel: string) => boolean,
   read: (rel: string) => Promise<string>,
-  io: GuardIo,
 ): (rel: string) => Promise<string> {
   return async (rel: string) => {
-    const full = io.join(basePath, rel);
-    const [realFull, realRoot] = await Promise.all([io.realpath(full), io.realpath(basePath)]);
-    if (realFull !== realRoot && !realFull.startsWith(realRoot + io.sep)) {
-      throw new Error(`Pfad verlässt den Vault (Symlink): "${rel}"`);
+    if (!isKnownVaultFile(rel)) {
+      throw new Error(`Keine bekannte Vault-Datei: "${rel}"`);
     }
     return read(rel);
   };

@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.1] — 2026-07-24
+
 ### Changed
 - **MCP read-guard now uses the Obsidian vault API instead of `node:fs`/`realpath`.** The
   desktop-only symlink-escape guard is replaced by a whitelist check

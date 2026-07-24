@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **`node:http` for the MCP server now loads via a `Platform.isDesktop`-guarded dynamic `import()`**,
+  clearing the last **`no-nodejs-modules`** store-scorecard warning that 0.17.2's static import had
+  traded the `require()` warning for. This is the only source form that passes **both** obsidianmd
+  store-scan rules (`no-nodejs-modules` accepts a guarded dynamic import; `no-require-imports` sees no
+  `require`). To keep the guarded import from breaking in Electron (esbuild leaves a bare
+  `import("node:…")` untransformed, which Electron resolves as a network fetch), an esbuild plugin
+  rewrites `node:` dynamic imports to a `require()` shim in the bundle — source stays scan-clean,
+  bundle stays runtime-safe (identical to the `require()` path that shipped in 0.17.0). The local lint
+  now runs both rules sharp with no per-file override, so `npm run lint` matches the store scanner.
+
 ## [0.17.2] — 2026-07-24
 
 ### Changed

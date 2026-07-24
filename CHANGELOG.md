@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.2] — 2026-07-24
+
 ### Changed
 - **`node:http` for the in-plugin MCP server is now a static `import` instead of a `require()`.**
   This clears the last **`require()` style import is forbidden** store-scorecard warning. Runtime is

@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **MCP read-guard now uses the Obsidian vault API instead of `node:fs`/`realpath`.** The
+  desktop-only symlink-escape guard is replaced by a whitelist check
+  (`vault.getAbstractFileByPath(normalizePath(path)) instanceof TFile`) — pure Obsidian API, no
+  Node built-in. This removes the **Direct Filesystem Access** store-scorecard warning and drops
+  `node:fs/promises` and `node:path` from the source entirely (`require()` usage reduced from three
+  sites to one; `node:http` for the in-plugin MCP server necessarily stays a `Platform.isDesktop`-
+  guarded `require()`, as the official lint rule mandates it while the scan flags it — a
+  documented contradiction in Obsidian's own tooling).
+
+### Security
+- **`read_note` over MCP no longer reads deleted notes** (`.trash/…`) or any path Obsidian does not
+  list as a vault file. The new guard is stricter against path-traversal (only real vault files
+  pass). Trade-off: an in-vault symlink pointing outside the vault — which Obsidian itself follows —
+  is no longer specifically blocked (parity with Obsidian and comparable plugins); the MCP server
+  remains token-authenticated and bound to `127.0.0.1`.
+
 ## [0.17.0] — 2026-07-23
 
 ### Changed

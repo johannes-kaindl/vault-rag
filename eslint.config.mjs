@@ -29,16 +29,8 @@ export default tseslint.config(
     files: ["src/mcp/http_server.ts"],
     languageOptions: { globals: { Buffer: "readonly" } },
   },
-  // http_server.ts importiert node:http statisch. Das landet in esbuilds __esm()-Lazy-Wrapper
-  // (verifiziert: `require("node:http")` innerhalb `init_http_server`), läuft also erst beim
-  // `await import("./mcp/http_server")` hinter dem Platform.isMobile-Return in main.ts — nie auf
-  // Mobile. no-nodejs-modules kann diese strukturelle Gating nicht statisch sehen (der Guard
-  // liegt im Aufrufer) und ist deshalb NUR für diese Datei aus; die Mobile-Sicherheit ist über
-  // main.ts + den throw in startMcpServer garantiert, nicht über die Lint-Regel. Der statische
-  // Import (statt require) hält den Store-Scan sauber — s. Kommentar in http_server.ts.
-  // main.ts steht hier bewusst NICHT: node:fs/node:path sind dort restlos entfallen.
-  {
-    files: ["src/mcp/http_server.ts"],
-    rules: { "obsidianmd/no-nodejs-modules": "off" },
-  },
+  // Kein node:-Override mehr: http_server.ts lädt node:http über einen `Platform.isDesktop`-
+  // guarded dynamic import (s. importNodeHttp dort), den obsidianmd/no-nodejs-modules AKZEPTIERT.
+  // node:fs/node:path sind aus main.ts restlos entfallen. Der lokale Lint ist damit deckungs-
+  // gleich mit dem Store-Scan (beide Regeln scharf) — kein Override kaschiert etwas.
 );

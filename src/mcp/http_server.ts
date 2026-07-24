@@ -1,15 +1,3 @@
-// node:http bewusst als statischer Import — er landet in esbuilds __esm()-Lazy-Wrapper für
-// dieses Modul (verifiziert im Bundle: `http = __toESM(require("node:http"))` innerhalb
-// `init_http_server`), läuft also erst, wenn main.ts `await import("./mcp/http_server")`
-// hinter dem `Platform.isMobile`-Return aufruft — nie beim Plugin-Load, nie auf Mobile.
-// Warum nicht anders (2026-07-24 durchgemessen, Spec 2026-07-23):
-//   - require("node:http") → identische Runtime, aber der Store-Scan flaggt den `require(`-Text.
-//   - await import("node:http") → esbuild lässt es UNtransformiert im Bundle → Electron
-//     löst es als Netzwerk-Fetch auf → "Failed to fetch dynamically imported module".
-// Der statische Import ist der einzige Weg, der runtime-sicher UND source-sauber ist; er kostet
-// nur den lokalen obsidianmd/no-nodejs-modules-Check (in eslint.config.mjs für diese Datei aus,
-// da die Desktop-Gating strukturell über main.ts + den throw unten garantiert ist).
-import * as http from "node:http";
 import { Platform } from "obsidian";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -82,12 +70,26 @@ async function handleMcp(req: HttpRequest, res: HttpResponse, tools: McpTools, v
   );
 }
 
-/** Startet den in-Plugin HTTP-MCP-Server auf 127.0.0.1. node:http kommt über den statischen
- *  Import oben (esbuild-__esm-lazy, Desktop-only — s. dort), nie auf Mobile geladen. */
+/** node:http nur im `Platform.isDesktop`-Zweig laden. Diese Guard-Form (dynamic import im
+ *  Ternary-Consequent) ist die EINZIGE, die BEIDE Store-Scan-Regeln besteht (2026-07-24
+ *  durchgemessen, Spec 2026-07-23):
+ *    - statischer `import "node:http"`  → obsidianmd/no-nodejs-modules (nie guard-fähig).
+ *    - `require("node:http")`           → @typescript-eslint/no-require-imports.
+ *    - `await import()` guarded         → besteht beide.
+ *  Damit der guarded Import in Electron nicht als Netzwerk-Fetch bricht, schreibt das
+ *  esbuild-Plugin `node-builtin-require` (esbuild.config.mjs) `node:*`-Importe im Bundle zu
+ *  `require()` um — der Source bleibt store-sauber, das Bundle runtime-sicher. */
+function importNodeHttp(): Promise<typeof import("node:http")> {
+  return Platform.isDesktop ? import("node:http") : Promise.reject(new Error("Desktop-only"));
+}
+
+/** Startet den in-Plugin HTTP-MCP-Server auf 127.0.0.1. node:http kommt über den guarded
+ *  dynamic import (s. importNodeHttp), nie auf Mobile geladen. */
 export async function startMcpServer(opts: { port: number; token: string; tools: McpTools; version: string }): Promise<McpServerHandle> {
   // Defense-in-Depth: der Aufrufer gated bereits (main.ts), aber node:http darf auf Mobile
   // unter keinen Umständen geladen werden.
   if (!Platform.isDesktop) throw new Error("MCP-Server ist Desktop-only");
+  const http = await importNodeHttp();
   let boundPort = opts.port;
   const server = http.createServer((req: HttpRequest, res: HttpResponse) => {
     void (async () => {

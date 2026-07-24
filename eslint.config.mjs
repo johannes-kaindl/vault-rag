@@ -29,16 +29,16 @@ export default tseslint.config(
     files: ["src/mcp/http_server.ts"],
     languageOptions: { globals: { Buffer: "readonly" } },
   },
-  // http_server.ts lädt node:http bewusst über require() hinter Platform.isDesktop — die
-  // einzige Variante, die läuft: ein statischer Import verstößt gegen
-  // obsidianmd/no-nodejs-modules, und `await import()` bleibt von esbuild untransformiert im
-  // Bundle und schlägt in Electron als Netzwerk-Fetch fehl (2026-07-23 durchgemessen, s.
-  // Kommentar in http_server.ts). Die obsidianmd-Regel verlangt genau diesen require-Guard;
-  // nur @typescript-eslint/no-require-imports — eine reine TS-Stilregel — muss dafür aus.
-  // main.ts steht hier bewusst NICHT mehr: node:fs/node:path sind dort restlos entfallen.
+  // http_server.ts importiert node:http statisch. Das landet in esbuilds __esm()-Lazy-Wrapper
+  // (verifiziert: `require("node:http")` innerhalb `init_http_server`), läuft also erst beim
+  // `await import("./mcp/http_server")` hinter dem Platform.isMobile-Return in main.ts — nie auf
+  // Mobile. no-nodejs-modules kann diese strukturelle Gating nicht statisch sehen (der Guard
+  // liegt im Aufrufer) und ist deshalb NUR für diese Datei aus; die Mobile-Sicherheit ist über
+  // main.ts + den throw in startMcpServer garantiert, nicht über die Lint-Regel. Der statische
+  // Import (statt require) hält den Store-Scan sauber — s. Kommentar in http_server.ts.
+  // main.ts steht hier bewusst NICHT: node:fs/node:path sind dort restlos entfallen.
   {
     files: ["src/mcp/http_server.ts"],
-    languageOptions: { globals: { require: "readonly" } },
-    rules: { "@typescript-eslint/no-require-imports": "off" },
+    rules: { "obsidianmd/no-nodejs-modules": "off" },
   },
 );

@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **`node:http` for the in-plugin MCP server is now a static `import` instead of a `require()`.**
+  This clears the last **`require()` style import is forbidden** store-scorecard warning. Runtime is
+  unchanged: esbuild places the import inside its `__esm()` lazy-init wrapper (`require("node:http")`
+  inside `init_http_server`), so it still runs only when `main.ts` calls
+  `await import("./mcp/http_server")` behind the `Platform.isMobile` guard — never at plugin load,
+  never on mobile. `obsidianmd/no-nodejs-modules` is disabled for this one file, since its mobile
+  safety is guaranteed structurally via `main.ts` rather than by the lint rule.
+
 ## [0.17.1] — 2026-07-24
 
 ### Changed

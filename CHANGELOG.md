@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.3] — 2026-07-24
+
 ### Changed
 - **`node:http` for the MCP server now loads via a `Platform.isDesktop`-guarded dynamic `import()`**,
   clearing the last **`no-nodejs-modules`** store-scorecard warning that 0.17.2's static import had

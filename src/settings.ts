@@ -7,6 +7,7 @@ import { reasoningHappened, isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
+import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
@@ -93,45 +94,6 @@ class FolderSuggest extends AbstractInputSuggest<string> {
     this.textInputEl.dispatchEvent(new Event("input"));
     this.close();
   }
-}
-
-class ReindexConfirmModal extends Modal {
-  constructor(app: App, private onConfirm: () => void) {
-    super(app);
-  }
-
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.createEl("h2", { text: "Vault neu indizieren?" });
-    contentEl.createEl("p", {
-      text: "Alle Notizen werden neu eingebettet — das kann dauern. Dein bestehender Index bleibt erhalten, bis die Indizierung vollständig durchläuft.",
-    });
-    const btnRow = contentEl.createDiv({ cls: "modal-button-container" });
-    new ButtonComponent(btnRow)
-      .setButtonText("Abbrechen")
-      .onClick(() => this.close());
-    new ButtonComponent(btnRow)
-      .setButtonText("Neu indizieren")
-      .setClass("mod-warning")
-      .onClick(() => { this.close(); this.onConfirm(); });
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
-}
-
-export class HealConfirmModal extends Modal {
-  constructor(app: App, private missing: number, private total: number, private onConfirm: () => void) { super(app); }
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.createEl("h2", { text: "Index vervollständigen?" });
-    contentEl.createEl("p", { text: `${this.missing} von ${this.total} Notizen fehlen im Index. Nur die fehlenden werden neu eingebettet (Delta) — der bestehende Index bleibt erhalten.` });
-    const btnRow = contentEl.createDiv({ cls: "modal-button-container" });
-    new ButtonComponent(btnRow).setButtonText("Später").onClick(() => this.close());
-    new ButtonComponent(btnRow).setButtonText("Jetzt vervollständigen").setCta().onClick(() => { this.close(); this.onConfirm(); });
-  }
-  onClose(): void { this.contentEl.empty(); }
 }
 
 export class RestoreBackupModal extends Modal {
@@ -378,7 +340,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
         })(); } },
       { name: "Vault neu indizieren",
         desc: "Baut den kompletten Index von Grund auf neu — der letzte Ausweg.",
-        action: () => { new ReindexConfirmModal(this.app, () => { void this.plugin.reindexVault(); }).open(); } },
+        action: () => {
+          void confirmAction(this.app, {
+            title: "Vault neu indizieren?",
+            message: "Alle Notizen werden neu eingebettet — das kann dauern. Dein bestehender Index bleibt erhalten, bis die Indizierung vollständig durchläuft.",
+            confirmLabel: "Neu indizieren",
+            cancelLabel: "Abbrechen",
+          }).then((ok) => { if (ok) void this.plugin.reindexVault(); });
+        } },
     ] };
   }
 

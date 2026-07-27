@@ -2,7 +2,8 @@ import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normaliz
 import { IndexLoader, VaultIndex } from "./index";
 import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
-import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList, HealConfirmModal, RestoreBackupModal } from "./settings";
+import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList, RestoreBackupModal } from "./settings";
+import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { resolveActiveEndpoint } from "./vendor/kit/endpoint";
 import { mergeSettings } from "./vendor/kit/settings";
 import { EmbeddingClient } from "./embedder";
@@ -748,7 +749,15 @@ export default class VaultRagPlugin extends Plugin {
       // und nur wenn der Embedder erreichbar ist (sonst ist die Lücke evtl. temporär).
       if (embeddable.length > 20 && embeddable.length > vaultPaths.length * 0.05 && await this.embedderReady()) {
         new Notice(`vault-rag: ${embeddable.length} von ${vaultPaths.length} Notizen fehlen im Index.`, 8000);
-        new HealConfirmModal(this.app, embeddable.length, vaultPaths.length, () => { void this.healVault(); }).open();
+        // Umgebender Kontext (loadIndex()) ist async — await statt .then() (Brief-Alternative).
+        const ok = await confirmAction(this.app, {
+          title: "Index vervollständigen?",
+          message: `${embeddable.length} von ${vaultPaths.length} Notizen fehlen im Index. Nur die fehlenden werden neu eingebettet (Delta) — der bestehende Index bleibt erhalten.`,
+          confirmLabel: "Jetzt vervollständigen",
+          cancelLabel: "Später",
+          warning: false,
+        });
+        if (ok) void this.healVault();
       }
     } else if (state === "no-index") {
       // Frische Installation: leerer Indexer darf gefahrlos aufbauen.

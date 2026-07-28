@@ -1,11 +1,13 @@
 # Vault Retrieval
 
+> 🇬🇧 English · [🇩🇪 Deutsch](https://github.com/johannes-kaindl/vault-rag/blob/main/README.de.md)
+
+**Retrieval over your own vault — related notes, semantic search, and grounded chat — running locally and offline.**
+
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-DOCS)
 [![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fcodeberg.org&label=release)](https://codeberg.org/jkaindl/vault-rag/releases)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.12.7%2B%20·%20desktop%20%26%20mobile-7c3aed)
-
-**Retrieval over your own vault — related notes, semantic search, and grounded chat — running locally and offline.**
 
 Vault Retrieval turns your notes into a searchable knowledge base without sending anything to the cloud. It keeps a small embedding index inside your vault — synced along with it, readable on every device — and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Embedding and generation run against local LLM endpoints you control.
 
@@ -103,7 +105,18 @@ The index in `<vault>/_vaultrag/` is a portable note-level **Matryoshka-256 int8
 
 The plugin writes that index itself (embedding endpoint → `notes.i8` / `paths.json` / `manifest.json`, manifest last as the reload trigger), and reads any index in the same format — including one exported by an external backend such as HyperForge.
 
-Architecture, module layout and contributor conventions live in [`AGENTS.md`](AGENTS.md).
+Architecture, module layout and contributor conventions live in [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md).
+
+## Documentation
+
+Full guides live in [`docs/`](https://github.com/johannes-kaindl/vault-rag/tree/main/docs), organised along [Diátaxis](https://diataxis.fr):
+
+| | |
+|---|---|
+| **[Tutorial](https://github.com/johannes-kaindl/vault-rag/blob/main/docs/tutorial.md)** | From zero to your first related notes — start here |
+| **[How-to guides](https://github.com/johannes-kaindl/vault-rag/blob/main/docs/how-to/index.md)** | Chat setup, reformatting, Smart Apply, repairing an index, MCP, cross-device sync |
+| **[Reference](https://github.com/johannes-kaindl/vault-rag/blob/main/docs/reference/index.md)** | Every command, setting, default, MCP tool and the index format |
+| **[Explanation](https://github.com/johannes-kaindl/vault-rag/blob/main/docs/explanation/index.md)** | Why the index looks the way it does, and where its guarantees end |
 
 ## MCP server (use your index from Claude Code & other agents, desktop only)
 
@@ -140,7 +153,7 @@ Image transcription (handwriting/screenshots → Markdown) lives in the sibling 
 
 ## Contributing
 
-Issues and pull requests are welcome on [Codeberg](https://codeberg.org/jkaindl/vault-rag). The project is test-driven — every change ships with tests (`npm test`), and larger features go through a brainstorm → spec → plan → TDD flow ([`docs/superpowers/`](docs/superpowers/)). See [`AGENTS.md`](AGENTS.md) for conventions.
+Issues and pull requests are welcome on [Codeberg](https://codeberg.org/jkaindl/vault-rag) (canonical; GitHub is a mirror). The project is test-driven — every change ships with tests (`npm test`), and larger features go through a brainstorm → spec → plan → TDD flow ([`docs/superpowers/`](https://github.com/johannes-kaindl/vault-rag/tree/main/docs/superpowers)). See [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md) for architecture and conventions.
 
 ## License
 

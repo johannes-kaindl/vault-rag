@@ -313,13 +313,19 @@ Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich release
 
 - **CORE-META-02** — Badge-Zeile **partiell**: Lizenz/Docs/Obsidian gesetzt; Release/CI-Badges fehlen.
   *Grund:* Release-Badge mit v0.2.0 nachziehbar; CI-Badges erst mit CI.
-- **CORE-META-03** — kein Hero-Bild/Feature-Screenshots in `docs/images/`. *Grund:* pre-release;
-  reproduzierbar generierte Screenshots vor dem ersten Release.
-- **CORE-META-04** — kein Diátaxis-Manual unter `docs/`. *Grund:* pre-release; skaliert mit Reife.
+- **CORE-META-03** — kein Hero-Bild/Feature-Screenshots in `docs/images/`. **Einzige offene Goldstandard-Lücke**
+  (Stand 2026-07-28, sonst `readme_lint` 0 Befunde). *Grund:* Screenshots brauchen eine laufende GUI und sind
+  agentenseitig nicht erzeugbar. Beim Nachrüsten: `raw.githubusercontent.com`-URLs verwenden (PROF-OBS-14),
+  sinnvollerweise nach dem i18n-Slice, damit die Bilder eine englische UI zeigen.
+- **CORE-META-04** — ✅ erledigt (2026-07-28): Diátaxis-Manual unter `docs/` (`tutorial.md` · `how-to/index.md` ·
+  `reference/index.md` · `explanation/index.md`), aus der README verlinkt. **Links absolut** (`…/blob/main/…`) —
+  der Community-Directory-Renderer löst relative Pfade nicht auf (PROF-OBS-14).
 - **CORE-META-06** — ✅ erledigt: `CHANGELOG.md`, `CONTRIBUTING.md` und `SECURITY.md` vorhanden.
 - **CORE-META-07** — `LICENSE` (AGPL-3.0) vorhanden; Dual-License-Option (`LICENSING.md`/`CLA.md`)
   noch nicht. *Grund:* erst bei Bedarf/Release.
-- **CORE-META-09** — kein `README.de.md` (Bilingual). *Grund:* optional; EN-`README.md` ist kanonisch.
+- **CORE-META-09** — ✅ erledigt (2026-07-28): `README.de.md` + Sprach-Toggle-Zeile in beiden Fassungen.
+  EN bleibt kanonisch; `docs/` ist bewusst nur englisch (Umfang).
+  ⚠️ **Beide Fassungen zusammen pflegen** — eine veraltete Übersetzung ist schlechter als keine.
 - **CORE-META-10** — ✅ erledigt (v0.2.0): `package.json`/Manifest konsistent; Forge-Description + Topics
   auf Codeberg **und** GitHub gesetzt.
 - **CORE-GIT-01** — ✅ erledigt (v0.2.0, 2026-06-21): Codeberg-`origin` gesetzt (`codeberg.org/jkaindl/vault-rag`,

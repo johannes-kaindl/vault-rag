@@ -1,5 +1,5 @@
-// vendored from obsidian-kit@0.16.0, src/obsidian/confirm.ts — do not hand-edit
-import { App, Modal, Setting } from "obsidian";
+// vendored from obsidian-kit@0.16.1, src/obsidian/confirm.ts — do not hand-edit
+import { App, ButtonComponent, Modal } from "obsidian";
 
 export interface ConfirmOptions {
   /** Gesetzt → Modal-Titelzeile; weggelassen → titelloser Dialog. */
@@ -35,13 +35,15 @@ class ConfirmModal extends Modal {
     const lines = Array.isArray(this.opts.message) ? this.opts.message : [this.opts.message];
     for (const line of lines) this.contentEl.createEl("p", { text: line });
     const warning = this.opts.warning ?? true;
-    new Setting(this.contentEl)
-      .addButton((b) => {
-        b.setButtonText(this.opts.confirmLabel ?? "Confirm").onClick(() => { this.finish(true); });
-        if (warning) b.setWarning();
-        else b.setCta();
-      })
-      .addButton((b) => b.setButtonText(this.opts.cancelLabel ?? "Cancel").onClick(() => { this.finish(false); }));
+    // Button-Reihenfolge und -Container folgen UI-STANDARD §2 (verbindlich): Cancel links, Bestätigen
+    // rechts, beide im nativen modal-button-container statt in einer Setting-Zeile.
+    const btns = this.contentEl.createDiv({ cls: "modal-button-container" });
+    new ButtonComponent(btns).setButtonText(this.opts.cancelLabel ?? "Cancel").onClick(() => { this.finish(false); });
+    const confirmBtn = new ButtonComponent(btns)
+      .setButtonText(this.opts.confirmLabel ?? "Confirm")
+      .onClick(() => { this.finish(true); });
+    if (warning) confirmBtn.setWarning();
+    else confirmBtn.setCta();
   }
 
   onClose(): void {

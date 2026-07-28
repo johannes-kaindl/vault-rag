@@ -1,7 +1,7 @@
 {
   "source": "obsidian-kit",
-  "version": "0.16.0",
-  "sha": "92c60d5",
+  "version": "0.16.1",
+  "sha": "b7aaf7c",
   "vendored": "obsidian/confirm.ts",
   "note": "Verbatim snapshot. Never hand-edit. Re-copy from obsidian-kit to update."
 }

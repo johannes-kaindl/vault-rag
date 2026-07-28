@@ -749,15 +749,14 @@ export default class VaultRagPlugin extends Plugin {
       // und nur wenn der Embedder erreichbar ist (sonst ist die Lücke evtl. temporär).
       if (embeddable.length > 20 && embeddable.length > vaultPaths.length * 0.05 && await this.embedderReady()) {
         new Notice(`vault-rag: ${embeddable.length} von ${vaultPaths.length} Notizen fehlen im Index.`, 8000);
-        // Umgebender Kontext (loadIndex()) ist async — await statt .then() (Brief-Alternative).
-        const ok = await confirmAction(this.app, {
+        // Fire-and-forget: loadIndex() blockiert onload() nicht auf User-Interaktion.
+        void confirmAction(this.app, {
           title: "Index vervollständigen?",
           message: `${embeddable.length} von ${vaultPaths.length} Notizen fehlen im Index. Nur die fehlenden werden neu eingebettet (Delta) — der bestehende Index bleibt erhalten.`,
           confirmLabel: "Jetzt vervollständigen",
           cancelLabel: "Später",
           warning: false,
-        });
-        if (ok) void this.healVault();
+        }).then((ok) => { if (ok) void this.healVault(); });
       }
     } else if (state === "no-index") {
       // Frische Installation: leerer Indexer darf gefahrlos aufbauen.

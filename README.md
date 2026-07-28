@@ -9,11 +9,11 @@
 
 Vault Retrieval turns your notes into a searchable knowledge base without sending anything to the cloud. It keeps a small embedding index inside your vault — synced along with it, readable on every device — and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Embedding and generation run against local LLM endpoints you control.
 
-> **Interface language:** the plugin's UI is currently **German only** — tab labels, commands, settings and notices are not yet localised. English localisation is planned and tracked; until then the German labels are given below with an English gloss. Everything else (this README, the settings values, your notes) is language-independent.
+> **Interface language:** the plugin's UI is currently **German only** — labels, commands and notices are not yet localised. English localisation is in progress. Where you need an exact string to find something in Obsidian (command palette, settings), this README gives it in `code`.
 
 ## Features
 
-Everything lives in **one sidebar view** with tabs — *Ähnlich* (related), *Suche* (search), *Chat*, *Umformatieren* (reformat), plus *Smart Apply* once you enable it. Panels stay mounted, so a running chat stream or a pending Smart Apply survives switching tabs.
+Everything lives in **one sidebar view** with tabs: related notes, search, chat, reformat, plus Smart Apply once you enable it. Panels stay mounted, so a running chat stream or a pending Smart Apply survives switching tabs.
 
 - **Related notes** — a side panel ranks the notes most similar to the one you're reading. Cosine similarity over a compact note-level index, computed on-device — works fully offline, including on mobile.
 - **Semantic search** — find notes by *meaning*, not just keywords.
@@ -23,12 +23,12 @@ Everything lives in **one sidebar view** with tabs — *Ähnlich* (related), *Su
 - **Live indexing** — notes are re-embedded on save; edits made offline queue up and catch up automatically on reconnect. A full **reindex** command builds the whole index from your vault, so you can start from nothing with just an embedding endpoint.
 - **An index that defends itself** — the index is your data, and losing it costs an hour of re-embedding. So: writes that would shrink it are refused rather than performed, a truncated index (half-finished sync download) is detected on load and switches the plugin to read-only instead of overwriting good data, device-local backups are rotated automatically and can be restored from the command palette, and a **self-heal** command re-embeds only the notes the index is actually missing. Empty notes are never counted as missing.
 - **Smart Apply — restructure a note into a template** *(opt-in)* — pick a template and a local LLM reorganises a messy note into its sections, routing your *original* blocks under the right headings. It never invents content — a diff gate shows exactly what moves where before you apply, and the body is rebuilt from your own bytes. Templates self-describe through `%%` guidance comments, and a relevance-ranked template list (cosine over the same index — reusing the stored vectors, no re-embedding) preselects the best fit and updates live as you switch notes. Enable it under **Settings → Smart Apply**.
-- **Reformat a selection** — select any block of text and run **Abschnitt umformatieren** (command palette or editor context menu) to reshape it. Mechanical transforms (transpose a table, table → list, wrap in a callout) apply instantly, no LLM involved. Shape-changing transforms (→ list, → prose, → table, → Mermaid diagram, or your own free-text instruction) stream a preview from your local chat LLM that you review and can regenerate before applying. You can also launch every transform from the **Umformatieren** tab in the sidebar, which shows what is currently selected and greys the buttons out (with the reason) when it cannot run.
+- **Reformat a selection** — select any block of text and run the reformat command (command palette or editor context menu) to reshape it. Mechanical transforms (transpose a table, table → list, wrap in a callout) apply instantly, no LLM involved. Shape-changing transforms (→ list, → prose, → table, → Mermaid diagram, or your own free-text instruction) stream a preview from your local chat LLM that you review and can regenerate before applying. Every transform is also available from the reformat tab in the sidebar, which shows what is currently selected and greys the buttons out (with the reason) when it cannot run.
 
 ## Requirements
 
 - **Obsidian 1.12.7+** (desktop or mobile). On 1.13+ the settings tab renders through Obsidian's native, searchable settings API; on older versions it draws the same structure imperatively.
-- An **embedding endpoint** — an OpenAI-compatible local server such as [Ollama](https://ollama.com) — to build and maintain the index. Run **Vault neu indizieren** once and the plugin embeds your vault into `<vault>/_vaultrag/` itself; from then on notes are re-embedded on save. Alternatively, drop in an index produced by an external backend and synced with the vault — the format is the same.
+- An **embedding endpoint** — an OpenAI-compatible local server such as [Ollama](https://ollama.com) — to build and maintain the index. Run the full-reindex command once and the plugin embeds your vault into `<vault>/_vaultrag/` itself; from then on notes are re-embedded on save. Alternatively, drop in an index produced by an external backend and synced with the vault — the format is the same.
 - **Nothing else for retrieval.** Once the index exists, related notes and semantic search run entirely on-device — no server, no daemon, offline, including on mobile.
 - For **chat**, **Smart Apply** and LLM-backed reformatting: an **OpenAI-compatible local LLM endpoint** ([LM Studio](https://lmstudio.ai), for example). New to local LLMs? The **[local LLM setup guide](https://uplink.jkaindl.de/llm-setup)** walks you through it. Configurable in settings; nothing leaves your machine.
 
@@ -58,23 +58,25 @@ npm run build      # → main.js
 
 ## Usage
 
-1. Point the **embedding endpoint** at your local server in settings, then run **Vault neu indizieren** from the command palette. (Skip this if you already have an index in `_vaultrag/`.)
-2. Click the **layers** ribbon icon to open the sidebar. Open a note — the **Ähnlich** tab populates automatically.
-3. Switch to **Suche** to query the vault by meaning.
-4. Switch to **Chat**, point the chat endpoint at your local LLM in settings, and ask away. Edit the live-context list to control which notes ground the answer.
-5. *(Optional)* Enable **Smart Apply** in settings — it then appears as a sixth tab. Pick a template from the relevance-ranked list and apply it to the active note; review the diff, then accept, re-generate, or pick another template.
-6. Select a block of text, then run **Abschnitt umformatieren** from the command palette or the editor right-click menu — or use the **Umformatieren** tab and click a transform. Mechanical ones apply immediately; LLM ones open a streamed preview to review before applying. Reformatting needs editing mode; in reading mode the buttons stay disabled and say so. If you edit the note while a preview is open, the replacement is refused rather than applied at the wrong spot.
+1. Point the **embedding endpoint** at your local server in settings, then run the full-reindex command from the command palette. (Skip this if you already have an index in `_vaultrag/`.)
+2. Click the **layers** ribbon icon to open the sidebar. Open a note — the related-notes tab populates automatically.
+3. Switch to the search tab to query the vault by meaning.
+4. Switch to the chat tab, point the chat endpoint at your local LLM in settings, and ask away. Edit the live-context list to control which notes ground the answer.
+5. *(Optional)* Enable **Smart Apply** in settings — it then appears as an extra tab. Pick a template from the relevance-ranked list and apply it to the active note; review the diff, then accept, re-generate, or pick another template.
+6. Select a block of text, then run the reformat command from the command palette or the editor right-click menu — or use the reformat tab and click a transform. Mechanical ones apply immediately; LLM ones open a streamed preview to review before applying. Reformatting needs editing mode; in reading mode the buttons stay disabled and say so. If you edit the note while a preview is open, the replacement is refused rather than applied at the wrong spot.
 
 ### Commands
 
-| Command | What it does |
-|---|---|
-| Verwandte Notizen / Semantische Suche / Vault Chat / Umformatieren-Panel öffnen | Opens the sidebar on that tab |
-| Abschnitt umformatieren | Reformats the current selection (see step 6) |
-| Smart Apply auf aktive Notiz | Restructures the active note into a template |
-| Vault neu indizieren | Rebuilds the whole index from the vault |
-| Index vervollständigen (fehlende Notizen) | Embeds only what the index is missing |
-| Index aus Backup wiederherstellen | Restores a device-local index backup |
+Until the UI is localised, the command palette lists these in German — the middle column is what you type to find them.
+
+| Command | In the command palette | What it does |
+|---|---|---|
+| Open sidebar (per tab) | `Verwandte Notizen öffnen` · `Semantische Suche öffnen` · `Vault Chat öffnen` · `Umformatieren-Panel öffnen` | Opens the sidebar on that tab |
+| Reformat selection | `Abschnitt umformatieren` | Reshapes the current selection (see step 6) |
+| Smart Apply on active note | `Smart Apply auf aktive Notiz` | Restructures the active note into a template |
+| Reindex vault | `Vault neu indizieren` | Rebuilds the whole index from the vault |
+| Complete the index | `Index vervollständigen (fehlende Notizen)` | Embeds only what the index is missing |
+| Restore index backup | `Index aus Backup wiederherstellen` | Restores a device-local index backup |
 
 ### Configuration
 

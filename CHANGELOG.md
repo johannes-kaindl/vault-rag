@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **The confirmation dialog no longer calls the deprecated `setWarning()`.** The dialog was moved to
+  the shared kit's `confirmAction` in the previous cycle, and that vendored copy reintroduced the very
+  API the community-store review had flagged for 0.16.0 — invisible locally, because `eslint` exits 0
+  on warnings. Fixed at the root in `obsidian-kit` 0.17.1 (`applyDestructive`, re-vendored here): the
+  button is marked destructive through a runtime check — `setDestructive()` where Obsidian provides it
+  (1.13+), otherwise the native `mod-warning` class. Calling either one unconditionally is wrong;
+  `setDestructive()` does not exist on the supported floor of 1.12.7.
+
+### Changed
+- **`npm run lint` now fails on warnings** (`--max-warnings 0`). ESLint exits 0 on warnings, so the
+  local gate reported green while the store scan — which is the same `eslint-plugin-obsidianmd` —
+  reported findings. The very first run under the hardened gate caught the `setWarning()` regression
+  above.
+
+### Documentation
+- **README updated to describe the plugin as it actually works.** It still documented four separate
+  ribbon icons for related notes, search, chat and Smart Apply; those were consolidated into a single
+  sidebar hub with tabs back in 0.8.0. Also corrected: the supported Obsidian version (1.12.7, not
+  1.13), the default chat port (1234, not 8080), and the claim that the embedding index has to come
+  from an external backend — the plugin builds it itself. Added a command reference and the index
+  robustness features (persist guards, rotating backups, self-heal), which were undocumented.
+
 ## [0.17.3] — 2026-07-24
 
 ### Changed

@@ -172,9 +172,22 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
 `manifest.json` wird **zuletzt** geschrieben — es ist der Reload-Trigger. Embedding-Dimension **256**,
 `INT8_SCALE = 127`, **mean**-Aggregation der Chunk-Vektoren.
 
-### Vendored Kit Module (`src/vendor/kit/`)
+### Vendored Kit Module (`src/vendor/kit/` + `src/vendor/kit-obsidian/`)
 
-`src/vendor/kit/collapsible.ts` (aus obsidian-kit#0.13.0) — erste obsidian-gekoppelte UI-Schicht des
+**Zwei Ablagen seit 2026-07-27 (workspace-weite Konvention):** `src/vendor/kit/` hält die
+**obsidian-freien** Kit-Module (`endpoint.ts`, `endpoint_diagnostics.ts`, `reasoning.ts`,
+`settings.ts`, `sse.ts`, `think.ts`), `src/vendor/kit-obsidian/` die **obsidian-gekoppelten**
+(`confirm.ts`, `collapsible.ts` + `VENDOR.json`). Beide sind **verbatim-Snapshots — nie von Hand
+editieren**, Updates nur per Neu-Kopie aus obsidian-kit.
+
+`src/vendor/kit-obsidian/confirm.ts` (@0.16.1, `b7aaf7c`) — `confirmAction(app, opts)` als einzige
+Bestätigungs-Modal-Wahrheit; ersetzt seit `210b43c` die repo-eigenen `ConfirmModal`-Klassen in
+`main.ts`/`settings.ts` (UI-STANDARD §2: Cancel als Link, `modal-button-container`).
+**Gotcha:** der Heal-Dialog beim Start läuft bewusst **fire-and-forget** (`.then(…)`, kein `await`) —
+ein `await` in `onload` blockiert den Plugin-Start, bis der Nutzer klickt (`bee6a2a`).
+
+`src/vendor/kit-obsidian/collapsible.ts` (aus obsidian-kit#0.13.0, eigener Datei-Header-Pin —
+nicht von der `VENDOR.json` abgedeckt) — erste obsidian-gekoppelte UI-Schicht des
 Kits. `collapsibleSection(containerEl, opts)` rendert eine einklappbare Settings-Sektion (klickbarer
 Header + Body). Der Header ist tastatur-/screenreader-bedienbar (`role="button"`, `tabindex="0"`,
 `aria-expanded`, Enter/Leertaste-Toggle, `:focus-visible`-Ring — a11y ab Kit 0.13.0). Der Auf-/Zu-Zustand wird über den optionalen `CollapsibleStorage`-Callback persistiert —
@@ -192,15 +205,16 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (711 Tests, 53 Files)
+npm test                          # vitest run     (712 Tests, 53 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
 npx vitest run tests/<datei>      # eine Test-Datei
-npx tsc --noEmit                  # Typecheck (noch kein npm-Script — siehe Abweichungen)
+npm run version-bump              # scripts/version-bump.mjs
+npm run release                   # scripts/release.mjs (Tag + Forge-Release)
 ```
 
 esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electron`, Output `main.js`
-(gitignored). Kein `lint`/`typecheck`/`deploy`-Script vorhanden (siehe Abweichungen).
+(gitignored). `lint`/`typecheck` sind verdrahtet; nur ein `deploy`-Script fehlt (siehe Abweichungen).
 
 ## Conventions
 

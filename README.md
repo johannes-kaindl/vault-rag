@@ -9,6 +9,8 @@
 
 Vault Retrieval turns your notes into a searchable knowledge base without sending anything to the cloud. It keeps a small embedding index inside your vault — synced along with it, readable on every device — and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Embedding and generation run against local LLM endpoints you control.
 
+> **Interface language:** the plugin's UI is currently **German only** — tab labels, commands, settings and notices are not yet localised. English localisation is planned and tracked; until then the German labels are given below with an English gloss. Everything else (this README, the settings values, your notes) is language-independent.
+
 ## Features
 
 Everything lives in **one sidebar view** with tabs — *Ähnlich* (related), *Suche* (search), *Chat*, *Umformatieren* (reformat), plus *Smart Apply* once you enable it. Panels stay mounted, so a running chat stream or a pending Smart Apply survives switching tabs.

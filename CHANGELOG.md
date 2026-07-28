@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.4] — 2026-07-28
+
 ### Fixed
 - **The confirmation dialog no longer calls the deprecated `setWarning()`.** The dialog was moved to
   the shared kit's `confirmAction` in the previous cycle, and that vendored copy reintroduced the very

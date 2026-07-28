@@ -1,7 +1,7 @@
 {
   "source": "obsidian-kit",
-  "version": "0.16.1",
-  "sha": "b7aaf7c",
+  "version": "0.17.1",
+  "sha": "635f745",
   "vendored": "obsidian/confirm.ts",
   "note": "Verbatim snapshot. Never hand-edit. Re-copy from obsidian-kit to update. collapsible.ts liegt seit 2026-07-28 (drift-audit, kit-obsidian-Ablagekonvention) ebenfalls hier — umgezogen aus ../kit/, eigener Datei-Header-Pin @0.13.0 (nicht von dieser VENDOR.json abgedeckt), aktuell ohne Consumer im Repo (unused)."
 }

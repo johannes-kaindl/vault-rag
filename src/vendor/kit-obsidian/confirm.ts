@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.16.1, src/obsidian/confirm.ts — do not hand-edit
+// vendored from obsidian-kit@0.17.1, src/obsidian/confirm.ts — do not hand-edit
 import { App, ButtonComponent, Modal } from "obsidian";
 
 export interface ConfirmOptions {
@@ -10,8 +10,23 @@ export interface ConfirmOptions {
   confirmLabel?: string;
   /** Default "Cancel". */
   cancelLabel?: string;
-  /** Default true → setWarning() (destruktiv); false → setCta(). */
+  /** Default true → destruktiver Button (s. applyDestructive); false → setCta(). */
   warning?: boolean;
+}
+
+/** Markiert einen Button destruktiv — versionsunabhängig.
+ *
+ *  `setDestructive()` gibt es erst ab Obsidian **1.13**; der Vorgänger `setWarning()` ist
+ *  ab 1.13 deprecated und wird im Community-Store-Review angemahnt. Ein harter Aufruf ist
+ *  also in beide Richtungen falsch: `setWarning()` erzeugt einen Review-Befund, ein direktes
+ *  `setDestructive()` wirft bei jedem Konsumenten mit `minAppVersion < 1.13` zur Laufzeit.
+ *  Deshalb Laufzeit-Check statt Compile-Time-Annahme, mit der nativen CSS-Klasse als
+ *  Fallback — sie ist genau das, was `setWarning()` intern setzt. */
+export function applyDestructive(b: ButtonComponent): ButtonComponent {
+  const bx = b as unknown as { setDestructive?: () => void };
+  if (typeof bx.setDestructive === "function") bx.setDestructive();
+  else b.buttonEl.addClass("mod-warning");
+  return b;
 }
 
 /** Bestätigungs-Modal hinter einer Promise-Fassade (REGISTRY „Bestätigungs-Modal", n=5).
@@ -42,7 +57,7 @@ class ConfirmModal extends Modal {
     const confirmBtn = new ButtonComponent(btns)
       .setButtonText(this.opts.confirmLabel ?? "Confirm")
       .onClick(() => { this.finish(true); });
-    if (warning) confirmBtn.setWarning();
+    if (warning) applyDestructive(confirmBtn);
     else confirmBtn.setCta();
   }
 

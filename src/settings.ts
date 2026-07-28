@@ -1,4 +1,4 @@
-import { AbstractInputSuggest, App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, TFolder, setIcon, setTooltip } from "obsidian";
+import { App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, setIcon, setTooltip } from "obsidian";
 import type { SettingDefinitionItem, SettingDefinitionGroup, SettingDefinition, SettingControl } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
@@ -8,6 +8,7 @@ import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
+import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
@@ -69,31 +70,6 @@ export interface VaultRagPluginHost extends Plugin {
   mcpStartError(): string | null;
   rotateMcpToken(): Promise<void>;
   mcpSelfCheck(): Promise<SelfCheckResult>;
-}
-
-/** Autocomplete-Suggest für Vault-Ordner in einem Text-Input-Feld. */
-class FolderSuggest extends AbstractInputSuggest<string> {
-  constructor(app: App, private textInputEl: HTMLInputElement) {
-    super(app, textInputEl);
-  }
-
-  getSuggestions(query: string): string[] {
-    const q = query.toLowerCase();
-    return this.app.vault.getAllFolders()
-      .map((f: TFolder) => f.path)
-      .filter((p: string) => p.toLowerCase().includes(q))
-      .slice(0, 20);
-  }
-
-  renderSuggestion(path: string, el: HTMLElement): void {
-    el.setText(path);
-  }
-
-  selectSuggestion(path: string, _evt: MouseEvent | KeyboardEvent): void {
-    this.setValue(path);
-    this.textInputEl.dispatchEvent(new Event("input"));
-    this.close();
-  }
 }
 
 export class RestoreBackupModal extends Modal {

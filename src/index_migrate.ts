@@ -1,15 +1,18 @@
 import { VaultAdapter } from "./index";
 import { normalizeIndexDir } from "./index_dir";
+import { CONTAINER_FILE } from "./index_container";
 
-const INDEX_BINARY_FILES = ["notes.i8"];
+const INDEX_BINARY_FILES = [CONTAINER_FILE, "notes.i8"];
 // manifest.json bewusst zuletzt (Reload-Trigger-Konvention, vgl. live_indexer.persist)
 const INDEX_TEXT_FILES = ["paths.json", "pending.json", "manifest.json"];
 
 /** Alle Index-Dateien als Basenames — für Migration und Cleanup-Sicherheitscheck. */
 export const INDEX_ALL_FILES: string[] = [...INDEX_BINARY_FILES, ...INDEX_TEXT_FILES];
 
-/** Zum LADEN nötige Index-Dateien (pending.json ist optional). */
-export const INDEX_REQUIRED_FILES = ["notes.i8", "paths.json", "manifest.json"];
+/** Zum LADEN nötig: der Container. (Legacy-Vollständigkeit prüft hasAllRequiredFiles.) */
+export const INDEX_REQUIRED_FILES = [CONTAINER_FILE];
+
+const LEGACY_REQUIRED_FILES = ["notes.i8", "paths.json", "manifest.json"];
 
 /**
  * Kopiert die Index-Dateien von `from` nach `to` (Copy, kein Move) — kein Reindex,
@@ -42,12 +45,11 @@ export function onlyContainsIndexFiles(files: string[], folders: string[]): bool
 }
 
 /**
- * True, wenn `files` (volle Pfade, Obsidian `DataAdapter.list`-Format) alle Pflichtdateien
- * (`INDEX_REQUIRED_FILES`) als Basename enthält — Backup-/Kopiervorgang gilt nur dann als
- * vollständig. Verhindert, dass eine durch eine Race abgebrochene `migrateIndex`-Kopie (z. B.
- * Quelldatei wird währenddessen von Sync überschrieben) als gültiges Backup gezählt wird.
+ * True, wenn das Listing einen ladbaren Index-Bestand beschreibt: Container vorhanden
+ * ODER Legacy-Tripel (Prä-0.18-Backup) komplett.
  */
 export function hasAllRequiredFiles(files: string[]): boolean {
   const present = new Set(files.map(p => p.split("/").pop() ?? p));
-  return INDEX_REQUIRED_FILES.every(f => present.has(f));
+  if (present.has(CONTAINER_FILE)) return true;
+  return LEGACY_REQUIRED_FILES.every(f => present.has(f));
 }

@@ -92,9 +92,12 @@ Ende−4  CRC32 (u32 LE) über alle Bytes ab Offset 0 bis Matrix-Ende
    jedem erfolgreichen Container-Load **still gelöscht** (idempotentes Aufräumen).
 2. Kein Container, Alt-Tripel lädt sauber → **einmalige Migration**: übernehmen, sofort als
    Container persistieren, Tripel löschen (`notes.i8`, `paths.json`, `manifest.json` —
-   `pending.json` bleibt). Der Migrations-Persist läuft mit neuer `PersistReason`
-   `"migrate"` (immer erlaubt, analog `"reindex"`/`"heal"` — die Quelle ist der soeben
-   verifiziert geladene Tripel-Index, kein Shrink-Risiko).
+   `pending.json` bleibt). Die Migration repackt **byte-level**: das originale Int8-`notes.i8`
+   wandert unverändert in den Container (kein Umweg über `LiveIndexer.persist`, der die
+   dekodierten Float-Vektoren re-quantisieren und Rundungsdrift über den ganzen Index
+   einführen würde). Verifikation vor dem Schreiben via `parseIndex`; keine neue
+   `PersistReason` nötig. Schlägt das Container-Schreiben/Aufräumen fehl, gilt der Load
+   trotzdem als erfolgreich — der nächste Load wiederholt die Migration.
 3. Beides fehlt → `no-index` (`markFresh`, wie heute).
 4. Container (oder nur Tripel) vorhanden, aber korrupt → Gefahrenzustand → Heal-Kaskade.
 

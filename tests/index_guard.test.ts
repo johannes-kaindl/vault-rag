@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyLoadResult, assertSafeToPersist, isSuspiciousShrink,
-  diffIndexVsVault, PersistBlockedError,
+  diffIndexVsVault, PersistBlockedError, canPersistHealedIndex,
 } from "../src/index_guard";
 
 describe("classifyLoadResult", () => {
@@ -78,6 +78,14 @@ describe("diffIndexVsVault", () => {
     const r = diffIndexVsVault(["a.md"], ["a.md"]);
     expect(r.missing).toEqual([]);
     expect(r.stale).toEqual([]);
+  });
+});
+
+describe("canPersistHealedIndex", () => {
+  it("nur ein restlos sauberer Heal-Lauf darf persistieren (failed === 0)", () => {
+    expect(canPersistHealedIndex(0)).toBe(true);
+    expect(canPersistHealedIndex(1)).toBe(false);
+    expect(canPersistHealedIndex(50)).toBe(false);
   });
 });
 

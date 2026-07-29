@@ -1,7 +1,10 @@
 # AGENTS.md
 
 Orientierung für KI-Agenten (Claude Code, Codex, …) und Mitwirkende an diesem Repository.
-Workspace-weite Standards (comply-or-explain): siehe [`../_docs/CONVENTIONS.md`](../_docs/CONVENTIONS.md).
+
+> **Workspace-Standards (maintainer-lokal):** Die verbindliche Leitkonvention steht in `_docs/CONVENTIONS.md`
+> im Multi-Projekt-Workspace des Maintainers, `../../_docs` relativ zu diesem Repo — nicht Teil dieses Repos,
+> ignorieren falls im Klon nicht vorhanden. Modell comply-or-explain.
 
 **Profil:** `ts-node` · `obsidian-plugin`.
 
@@ -22,7 +25,7 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
   über lokale LLMs. Das Panel selbst braucht **keinen** Daemon, kein VPN, kein On-Device-LLM.
 - **Slices statt Monolith:** **A Related-Notes** (✅ gebaut + live) · **B Chat** · **C Inline-Composer**.
 - **IMG→MD ausgegliedert (2026-06-21):** Bild-Transkription ist kein RAG → eigenständiges
-  Plugin [`image-to-markdown`](https://codeberg.org/jkaindl/vault-rag) (`/Users/Shared/code/obsidian-plugins/image-to-markdown`).
+  Plugin [`image-to-markdown`](https://codeberg.org/jkaindl/vault-rag) (Schwester-Repo `../image-to-markdown`).
   vault-rag bleibt der schlanke RAG-Kern. Der SSE-Transport (`sse.ts`/`think_splitter.ts`) ist in beide
   Plugins kopiert, nicht geteilt.
 - **Offline-first & cross-device:** HyperForge exportiert beim Reindex einen note-level
@@ -245,7 +248,8 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 - **Größere Features** laufen über die Superpowers-Kette
   brainstorming → writing-plans → subagent-driven-development → finishing; **TDD ist Default**.
-  Specs/Pläne unter `docs/superpowers/{specs,plans}/`.
+  Specs/Pläne landen im Coding-Cockpit des Maintainers (siehe §Memory, CORE-META-14);
+  `docs/superpowers/{specs,plans}/` ist eingefrorener Alt-Bestand.
 
 ## Gotchas
 
@@ -327,10 +331,18 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 
 ## Memory
 
+- **SDD-Artefakte (seit 2026-07-16): Cockpit, nicht Repo** — Specs/Plans/Task-Reports leben im
+  Coding-Cockpit des Maintainers (`$VAULT/25_Coding/vault-rag/_SDD/`, CORE-META-14, maintainer-lokal).
+  Sie tragen Arbeitskontext (Vault-Pfade, Schwester-Repo-Interna), der in einem public Repo niemandem nützt.
+  Das Repo behält die Design-Essenz in dieser Datei + `CHANGELOG.md`.
+- **Alt-Bestand:** `docs/superpowers/{specs,plans}/` ist eingefroren — nichts Neues dort ablegen.
+- **Nie im Repo:** absolute Pfade außerhalb des Repos (`/Users/…`, Vault-Pfade) — Platzhalter nutzen
+  (`$VAULT/…`, `~/…`, repo-relativ). Herkunftsnachweise als Repo-Name + `Datei:Zeile` sind dagegen erwünscht.
+  Gate: `scripts/check-no-abs-paths.mjs` (Teil von `npm test`).
 - **Projekt-Memory:** `~/.claude/projects/-Users-Shared-code-vault-rag/memory/` (Index `MEMORY.md`,
   aktuell leer). Verwandtes Wissen liegt im HyperForge-Memory: `…-code-hyperforge/memory/project_vault_rag.md`.
 - **Coding-Cockpit (SSOT für Stand/Tasks/History):**
-  `/Users/Shared/10_ObsidianVaults/10_Pallas/25_Coding/vault-rag/vault-rag.md`. Wird vom
+  `$VAULT/25_Coding/vault-rag/vault-rag.md` (maintainer-lokal). Wird vom
   SessionEnd-Hook gestempelt (`letzter_commit`, `letzte_session`, `fokus`); §🧭 hält die dauerhafte
   Architektur-/Warum-/Gotcha-Wahrheit. **Beim Start lesen, am Ende fortschreiben.**
 - **Session-Handoff:** `.remember/` (gitignored).
@@ -382,7 +394,7 @@ Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich release
 
 ## Dach-Kontext (obsidian-plugins)
 
-Dieses Repo liegt unter dem Koordinations-Dach `/Users/Shared/code/obsidian-plugins/`.
+Dieses Repo liegt unter dem Koordinations-Dach `obsidian-plugins/` (das Verzeichnis `..` über diesem Repo).
 **Vor dem Lösen eines Problems:** `../AGENTS.md` (Kit-first-Regel) und `../REGISTRY.md`
 (Lösungs-Registry) prüfen — viele Probleme sind in Nachbar-Plugins oder im
 `obsidian-kit` bereits gelöst.

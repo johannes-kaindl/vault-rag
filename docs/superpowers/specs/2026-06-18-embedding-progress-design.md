@@ -1,7 +1,7 @@
 # Design: Embedding-Fortschrittsanzeige (Slice A+)
 
 **Datum:** 2026-06-18  
-**Repo:** `/Users/Shared/code/obsidian-plugins/vault-rag`  
+**Repo:** `vault-rag` (dieses Repo)  
 **Status:** Approved
 
 ---

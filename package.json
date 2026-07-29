@@ -16,7 +16,7 @@
   "scripts": {
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
-    "test": "vitest run",
+    "test": "node scripts/check-no-abs-paths.mjs && vitest run",
     "lint": "eslint src --max-warnings 0",
     "typecheck": "tsc --noEmit",
     "version-bump": "node scripts/version-bump.mjs",

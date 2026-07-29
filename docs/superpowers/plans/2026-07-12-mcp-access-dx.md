@@ -602,7 +602,7 @@ Nach grünem Smoke: `superpowers:finishing-a-development-branch` (Merge-Optionen
 
 - [ ] **Step 4: Nebenprodukt — openclaw-Skill-Atom**
 
-Separat (nicht Teil des Merges): Atom unter `/Users/Shared/20_Claude/20_Skills/openclaw/config/` anlegen — „OpenClaw unterstützt `streamable-http`-MCP-Transport mit `headers.Authorization`" (korrigiert den `overview.md`-Cache „stdio-only"). `index.md` updaten.
+Separat (nicht Teil des Merges): Atom im maintainer-lokalen openclaw-Skill (Skills-Verzeichnis, `openclaw/config/`) anlegen — „OpenClaw unterstützt `streamable-http`-MCP-Transport mit `headers.Authorization`" (korrigiert den `overview.md`-Cache „stdio-only"). `index.md` updaten.
 
 ---
 

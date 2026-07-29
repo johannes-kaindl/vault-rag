@@ -13,8 +13,8 @@
 ## Global Constraints
 
 - **Vault ≠ Repo.** Vorlagen + Testnotizen werden in den Obsidian-Vault geschrieben:
-  `/Users/Shared/10_ObsidianVaults/10_Pallas/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply/` (Vorlagen)
-  und `/Users/Shared/10_ObsidianVaults/10_Pallas/_SmartApplyTest/` (Testnotizen). **NICHT ins vault-rag-Repo
+  `$VAULT/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply/` (Vorlagen)
+  und `$VAULT/_SmartApplyTest/` (Testnotizen). **NICHT ins vault-rag-Repo
   committen** — Vault-Dateien folgen der clean-shutdown-Commit-Cadence (gebündelt am Session-Ende). Ins Repo
   committet wird **ausschließlich der Test** (`tests/smartapply_templates.vault.test.ts`).
 - **Frontmatter-`#`-Hinweise sind EINZEILIG** (Parser verschluckt Fortsetzungszeilen). `%%`-Sektions-Anleitungen dürfen umbrechen.
@@ -49,7 +49,7 @@ import { buildRestructurePrompt, splitBlocks } from "../src/note_restructurer";
 // SSOT = die echten Vault-Vorlagen. Gated auf den Vault-Ordner: lokal grün, in CI (kein Vault) sauber übersprungen.
 const TPL_DIR =
   process.env.PALLAS_SMARTAPPLY_DIR ??
-  "/Users/Shared/10_ObsidianVaults/10_Pallas/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply";
+  "$VAULT/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply";
 const HAS_VAULT = existsSync(TPL_DIR);
 
 interface Spec {

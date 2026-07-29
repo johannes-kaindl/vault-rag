@@ -107,7 +107,7 @@ describe("chunkMarkdown", () => {
 - [ ] **Step 2: Test scheitern lassen**
 
 ```bash
-cd /Users/Shared/code/obsidian-plugins/vault-rag && npm test -- --reporter=verbose tests/chunker.test.ts
+cd <repo> && npm test -- --reporter=verbose tests/chunker.test.ts
 ```
 
 Erwartet: `Error: Cannot find module '../src/chunker'`
@@ -1221,10 +1221,10 @@ Erwartet: kein TypeScript-Fehler, `main.js` ohne Warnungen
 - [ ] **Step 3: Symlink prüfen**
 
 ```bash
-ls -la "/Users/Shared/10_ObsidianVaults/10_Pallas/.obsidian/plugins/vault-rag/main.js"
+ls -la "$VAULT/.obsidian/plugins/vault-rag/main.js"
 ```
 
-Erwartet: Symlink zeigt auf `/Users/Shared/code/obsidian-plugins/vault-rag/main.js` — build hat den Live-Code direkt aktualisiert.
+Erwartet: Symlink zeigt auf `<repo>/main.js` — build hat den Live-Code direkt aktualisiert.
 
 - [ ] **Step 4: Final commit**
 

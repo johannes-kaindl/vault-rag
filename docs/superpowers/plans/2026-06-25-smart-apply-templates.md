@@ -15,7 +15,7 @@
 - **Lint/Typecheck grün:** `npm run lint` (eslint src) + `npm run typecheck` (tsc --noEmit) nach Code-Tasks.
 - **Commits:** Conventional Commits, deutsche Beschreibung erlaubt. **Nur berührte Dateien stagen — nie `git add -A`.** Trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 - **Rückwärtskompatibilität:** Neue Felder `ParsedFrontmatter.comments` und `TemplateSpec.fmGuidance` sind **optional** (`?:`) — bestehende Objekt-Literale in Tests bleiben gültig, `mergeFrontmatter`/`diffFrontmatter`-Signaturen unverändert.
-- **Vault-Pfad:** `/Users/Shared/10_ObsidianVaults/10_Pallas` (NICHT `/Users/Shared/code/10_Pallas`). Vorlagen-Wurzel: `…/50_Ressourcen/20_System/03-Vorlagen/`.
+- **Vault-Pfad:** `$VAULT` (der Pallas-Obsidian-Vault des Maintainers — NICHT im Code-Workspace). Vorlagen-Wurzel: `…/50_Ressourcen/20_System/03-Vorlagen/`.
 - **Scratchpad:** `/private/tmp/claude-502/-Users-Shared-code-vault-rag/e41b9c95-a038-4ba2-8752-d608d0e414f0/scratchpad` — alle Smoke-Artefakte hierher, nie ins Repo.
 - **data.json ist gitignored** (vault-spezifisch) — nie committen. `DEFAULT_SETTINGS.templateDir` **nicht** auf einen Pallas-spezifischen Pfad setzen (OSS-Plugin bleibt generisch).
 - **Non-Fabrication unangetastet:** `assembleBody` und der `source="content"`-Vertrag werden NICHT geändert. FM-Guidance verbessert nur das Prompt-Signal, nicht die Fülllogik.
@@ -29,7 +29,7 @@
 Validiert empirisch, ob `#`-FM-Hinweise das Routing verbessern, **bevor** Parser-Code geschrieben wird. Liefert eine Entscheidung (Hints helfen ja/nein), die Phase B konditioniert.
 
 **Files:**
-- Create: `/Users/Shared/10_ObsidianVaults/10_Pallas/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply/Gespräch.md` (Vault-Daten, kein Repo-Commit)
+- Create: `$VAULT/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply/Gespräch.md` (Vault-Daten, kein Repo-Commit)
 - Create: `<scratchpad>/gespraech-fixture.md`
 - Create: `<scratchpad>/smoke.ts`
 - Build-Artefakt: `<scratchpad>/smoke.cjs`
@@ -87,11 +87,11 @@ Schreibe `<scratchpad>/smoke.ts`. Importiert die echten pure-core-Funktionen üb
 
 ```ts
 import { readFileSync } from "node:fs";
-import { parseTemplate } from "/Users/Shared/code/obsidian-plugins/vault-rag/src/template_matcher";
-import { splitBlocks, buildRestructurePrompt } from "/Users/Shared/code/obsidian-plugins/vault-rag/src/note_restructurer";
+import { parseTemplate } from "<repo>/src/template_matcher";
+import { splitBlocks, buildRestructurePrompt } from "<repo>/src/note_restructurer";
 
-const REPO = "/Users/Shared/code/obsidian-plugins/vault-rag";
-const VAULT = "/Users/Shared/10_ObsidianVaults/10_Pallas";
+const REPO = "<repo>";
+const VAULT = "$VAULT";
 const SCRATCH = "/private/tmp/claude-502/-Users-Shared-code-vault-rag/e41b9c95-a038-4ba2-8752-d608d0e414f0/scratchpad";
 const tplPath = `${VAULT}/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply/Gespräch.md`;
 
@@ -167,7 +167,7 @@ main().catch(e => { console.error(e); process.exit(1); });
 
 Run:
 ```bash
-cd /Users/Shared/code/obsidian-plugins/vault-rag
+cd <repo>
 npx esbuild "<scratchpad>/smoke.ts" --bundle --platform=node --format=cjs --outfile="<scratchpad>/smoke.cjs"
 ```
 Expected: `smoke.cjs` wird geschrieben, keine Resolve-Fehler. (Schlägt der `.ts`-Import fehl, liegt es an Pfad-Tippfehlern — absolute Pfade prüfen.)

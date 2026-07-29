@@ -24,7 +24,7 @@ Notiztyps **routen** (keine Generierung):
 | Kommunikation | `📬 Kommunikation` | `Kommunikation.md` |
 
 **Ablageort:** der konfigurierte Smart-Apply-Vorlagenordner, in dem der Pilot liegt —
-`/Users/Shared/10_ObsidianVaults/10_Pallas/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply/`.
+`$VAULT/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply/`.
 `resolveTemplateForType` matcht den Dateinamen emoji/whitespace/case-normalisiert gegen den `type:`-Wert
 (`📝 Notiz` → `notiz` ← `Notiz.md`) — **keine Emoji im Dateinamen nötig**.
 
@@ -247,7 +247,7 @@ entfällt — Ebene 1 + 3 genügen. Im Plan entscheiden.)
 
 ### Ebene 3 — GUI-Smoke (manuell, der eigentliche Akzeptanztest)
 
-Pro Vorlage eine **fertige Rohnotiz** in `/Users/Shared/10_ObsidianVaults/10_Pallas/_SmartApplyTest/`
+Pro Vorlage eine **fertige Rohnotiz** in `$VAULT/_SmartApplyTest/`
 (existiert, liegt außerhalb des `templateDir` → wird nicht als Vorlage gelistet). Je Datei ein realistischer,
 unstrukturierter Capture-Text mit: einem Einleitungs-/Kontextsatz (Intro-Routing-Test), Material für jede
 Sektion, extrahierbaren Frontmatter-Signalen (Datum/Name/URL/Enum-Hinweis) und ein, zwei „Rest"-Blöcken

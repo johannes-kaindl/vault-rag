@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **TS strict + `noImplicitAny`** — keine `any`-Casts für neue Typen.
-- **Zwei Repos:** Tasks 1–2 arbeiten in `/Users/Shared/code/obsidian-plugins/obsidian-kit` (committen dort auf `main`, additiv/rückwärtskompatibel). Tasks 3–5 arbeiten in `/Users/Shared/code/obsidian-plugins/vault-rag` (Branch `feat/endpoint-ux`).
+- **Zwei Repos:** Tasks 1–2 arbeiten in `../obsidian-kit` (committen dort auf `main`, additiv/rückwärtskompatibel). Tasks 3–5 arbeiten in `<repo>` (Branch `feat/endpoint-ux`).
 - **Alle Tests grün** nach jedem Task: vault-rag `npm test`, kit `npm test`. Kein `.only`/`.skip`.
 - **UI-Texte deutsch.** Status/Warnungen **WCAG-redundant** (Icon-Form + Text/Tooltip, nicht nur Farbe — Johannes hat Rot-Grün-Sehschwäche).
 - **Commits:** Conventional Commits, deutsche Beschreibung erlaubt. **Nur berührte Dateien stagen — nie `git add -A`.** Trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
@@ -21,7 +21,7 @@
 
 ### Task 1: kit — `classifyEndpointStatus` + Typen
 
-**Repo:** `obsidian-kit` (cwd `/Users/Shared/code/obsidian-plugins/obsidian-kit`)
+**Repo:** `obsidian-kit` (cwd `../obsidian-kit`)
 
 **Files:**
 - Create: `src/pure/endpoint_diagnostics.ts`

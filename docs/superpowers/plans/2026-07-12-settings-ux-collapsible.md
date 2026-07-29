@@ -19,7 +19,7 @@
 - **Commits:** Conventional Commits, deutsche Beschreibung erlaubt. **Nur berührte Dateien stagen — nie `git add -A`.** Trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 - **Default:** Sektionen eingeklappt (`defaultCollapsed` default `true`).
 - **CSS als exportierte Konstante** (`COLLAPSIBLE_CSS`) — das Kit injiziert kein CSS selbst.
-- **Zwei Repos:** Kit-Tasks in `/Users/Shared/code/obsidian-plugins/obsidian-kit`, vault-rag-Tasks in `/Users/Shared/code/obsidian-plugins/vault-rag`. Jeder Task nennt sein Repo explizit.
+- **Zwei Repos:** Kit-Tasks in `../obsidian-kit`, vault-rag-Tasks in `<repo>`. Jeder Task nennt sein Repo explizit.
 
 ## File Structure
 
@@ -35,7 +35,7 @@
 
 ## Task 1: obsidian-kit — collapsible-Modul (neue `src/obsidian/`-Schicht)
 
-**Repo:** `/Users/Shared/code/obsidian-plugins/obsidian-kit`
+**Repo:** `../obsidian-kit`
 
 **Files:**
 - Create: `src/obsidian/collapsible.ts`, `src/obsidian/index.ts`, `tests/collapsible.test.ts`
@@ -272,7 +272,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Task 2: vault-rag — Modul vendoren + uiCollapsed-Setting + CSS
 
-**Repo:** `/Users/Shared/code/obsidian-plugins/vault-rag`
+**Repo:** `<repo>`
 
 **Files:**
 - Create: `src/vendor/kit/collapsible.ts`
@@ -327,7 +327,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Task 3: vault-rag — Settings-Sektionen einklappbar machen
 
-**Repo:** `/Users/Shared/code/obsidian-plugins/vault-rag`
+**Repo:** `<repo>`
 
 **Files:**
 - Modify: `src/settings.ts` (replace `sec()` sections with `collapsibleSection`), `src/main.ts` (provide the storage callback if the tab reads it from the plugin)
@@ -394,7 +394,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Task 4: vault-rag — Index-Delta-Readout + inline Vervollständigen-Button
 
-**Repo:** `/Users/Shared/code/obsidian-plugins/vault-rag`
+**Repo:** `<repo>`
 
 **Files:**
 - Create: `tests/index_delta.test.ts`
@@ -494,7 +494,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Task 5: Docs + Gesamt-Verifikation
 
-**Repo:** `/Users/Shared/code/obsidian-plugins/vault-rag` (+ REGISTRY im Dach)
+**Repo:** `<repo>` (+ REGISTRY im Dach)
 
 **Files:**
 - Modify: `AGENTS.md` (note the vendored collapsible module + uiCollapsed), `../REGISTRY.md` (register the new kit UI module)
@@ -505,7 +505,7 @@ In `AGENTS.md`, note in the module layout / vendored-kit area that `src/vendor/k
 
 - [ ] **Step 2: REGISTRY.md (Dach)**
 
-In `/Users/Shared/code/obsidian-plugins/REGISTRY.md`, add a `[UI]` entry: einklappbare Settings-Sektion → `obsidian-kit/obsidian` → `collapsibleSection` (im Kit @0.12.0, erste obsidian-UI-Schicht; Consumer: vault-rag).
+In `../REGISTRY.md` (Dach-Verzeichnis über diesem Repo), add a `[UI]` entry: einklappbare Settings-Sektion → `obsidian-kit/obsidian` → `collapsibleSection` (im Kit @0.12.0, erste obsidian-UI-Schicht; Consumer: vault-rag).
 
 - [ ] **Step 3: Full verification sweep (vault-rag)**
 
@@ -520,10 +520,10 @@ git commit -m "docs(agents): collapsible-Kit-Modul + uiCollapsed dokumentieren
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 # REGISTRY.md is in the parent repo — commit separately there:
-git -C /Users/Shared/code/obsidian-plugins add REGISTRY.md
-git -C /Users/Shared/code/obsidian-plugins commit -m "docs(registry): collapsibleSection (obsidian-kit UI-Schicht @0.12.0)"
+git -C .. add REGISTRY.md
+git -C .. commit -m "docs(registry): collapsibleSection (obsidian-kit UI-Schicht @0.12.0)"
 ```
-(Note: REGISTRY.md may live in its own repo/worktree at the `obsidian-plugins` root — if it is not a git repo of its own, skip the separate commit and just save the file; confirm with `git -C /Users/Shared/code/obsidian-plugins rev-parse --show-toplevel`.)
+(Note: REGISTRY.md may live in its own repo/worktree at the `obsidian-plugins` root — if it is not a git repo of its own, skip the separate commit and just save the file; confirm with `git -C .. rev-parse --show-toplevel`.)
 
 ---
 

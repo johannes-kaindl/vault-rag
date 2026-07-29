@@ -45,8 +45,11 @@ export function onlyContainsIndexFiles(files: string[], folders: string[]): bool
 }
 
 /**
- * True, wenn das Listing einen ladbaren Index-Bestand beschreibt: Container vorhanden
- * ODER Legacy-Tripel (Prä-0.18-Backup) komplett.
+ * True, wenn `files` (volle Pfade, Obsidian `DataAdapter.list`-Format) einen ladbaren
+ * Index-Bestand beschreiben: Container vorhanden ODER Legacy-Tripel (Prä-0.18-Backup)
+ * komplett. Verhindert, dass eine durch eine Race abgebrochene `migrateIndex`-Kopie
+ * (z. B. Quelldatei wird währenddessen von Sync überschrieben) als gültiges Backup
+ * gezählt wird.
  */
 export function hasAllRequiredFiles(files: string[]): boolean {
   const present = new Set(files.map(p => p.split("/").pop() ?? p));

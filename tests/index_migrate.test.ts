@@ -12,6 +12,7 @@ function makeMemAdapter(seed: Record<string, string | ArrayBuffer> = {}): VaultA
     writeBinary: async (p: string, d: ArrayBuffer) => { store.set(p, d); },
     mkdir: async (p: string) => { mkdirs.push(p); },
     exists: async (p: string) => store.has(p),
+    remove: async (p: string) => { store.delete(p); },
     store,
     mkdirs,
   };

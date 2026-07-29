@@ -13,7 +13,7 @@ import { VaultAdapter, IndexLoader, parseIndex } from "../src/index";
 import { LiveIndexer } from "../src/live_indexer";
 import { EmbeddingClient } from "../src/embedder";
 import { classifyLoadResult, assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/index_guard";
-import { migrateIndex, INDEX_REQUIRED_FILES, hasAllRequiredFiles } from "../src/index_migrate";
+import { migrateIndex, hasAllRequiredFiles } from "../src/index_migrate";
 import { selectBackupsToDelete } from "../src/index_backup";
 
 const DIM = 256;

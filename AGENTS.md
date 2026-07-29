@@ -59,10 +59,20 @@ obsidianmd-Lint-Regel gesperrt ist — XHR ist der erlaubte Streaming-Primitive.
 
 ```
 index.ts          VaultAdapter-Interface · IndexManifest · VaultIndex · parseIndex ·
-                  IndexLoader — liest den statischen _vaultrag/-Index (notes.i8/paths.json/
+                  IndexLoader — Legacy-Leser für das Prä-0.18-Tripel (notes.i8/paths.json/
                   manifest.json), int8→float32 + Renormalisierung (Quant-Drift). `parseIndex`
                   validiert neben `count == paths` auch `notes.i8.byteLength == count × dim`
-                  (Byte-Guard) — wirft laut statt stillem Clobber/NaN.
+                  (Byte-Guard) — wirft laut statt stillem Clobber/NaN. Wird von `index_store.ts`
+                  für die byte-level Migration alter Indizes genutzt.
+index_container.ts  Container-Codec (seit 0.18.0): kodiert/dekodiert `_vaultrag/index.bin` —
+                  `"VRIX"`-Magic · u32 headerLen LE · Header-JSON (Manifest inkl. `paths`,
+                  `schema_version: 2`) · Int8-Matrix · CRC32 über den Payload. Pure encode/decode,
+                  kein Datei-I/O.
+index_store.ts    Container-first-Load: liest `index.bin`, fällt bei Fehlen/Korruption auf das
+                  Legacy-Tripel zurück und migriert es beim ersten Load byte-level in den
+                  Container (verlustfrei, kein Reindex). `verifyBackupCandidate` prüft ein
+                  geräte-lokales Backup per CRC, bevor die Auto-Heal-Kaskade (main.ts) es
+                  übernimmt.
 index_delta.ts    Pure Delta-/Heal-Anzeige-Logik (keine Obsidian-Abhängigkeit): indexDeltaReadout
                   („N / M Notizen", de-DE, ggf. „(vollständig)" + „· K leere Notizen ignoriert") ·
                   computeIndexDelta (leere Notizen zählen weder als fehlend noch ins Soll) ·
@@ -95,10 +105,11 @@ embedder.ts       EmbeddingClient → Ollama/MLX HTTP-Endpoint; ping() + Batch-E
 http.ts           httpJson() über Obsidians requestUrl — einziger obsidian-Import der Netz-Schicht.
 pending_queue.ts  PendingQueue → Dirty-List in pending.json; drain-on-reconnect.
 live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename · buildIndex ·
-                  persist(reason) (Write-Order: notes.i8 → paths.json → manifest.json), gegen
-                  `index_guard` geguarded (ready + Live-Disk-Read des tatsächlichen Counts vor
-                  jedem live-Persist statt gecachtem Zustand) · healMissing (additiver Delta-Reindex
-                  für Self-Heal) · markUnready/markFresh (Gefahrenzustand-Schalter) · noteCount-Getter.
+                  persist(reason) schreibt EINE Datei (`index_container.ts` → `index.bin`, kein
+                  Multi-File-Write mehr), gegen `index_guard` geguarded (ready + Live-Disk-Read des
+                  tatsächlichen Counts vor jedem live-Persist statt gecachtem Zustand) ·
+                  healMissing (additiver Delta-Reindex für Self-Heal) · markUnready/markFresh
+                  (Gefahrenzustand-Schalter) · noteCount-Getter.
 settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab — vollständig deklarativ
                   (Obsidian 1.13 `getSettingDefinitions()`, 7 Gruppen, durchsuchbar): einfache
                   Zeilen sind `control`-Definitionen, `get/setControlValue` liest/schreibt sie
@@ -168,9 +179,13 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
                   guarded jedes `replaceRange` mit `captureIsLive` + `isRangeStale`.
 ```
 
-**Index-Format (Slice A, unveränderlich):** `notes.i8` (Int8-Matrix) · `paths.json` · `manifest.json`.
-`manifest.json` wird **zuletzt** geschrieben — es ist der Reload-Trigger. Embedding-Dimension **256**,
-`INT8_SCALE = 127`, **mean**-Aggregation der Chunk-Vektoren.
+**Index-Format (seit 0.18.0):** EINE Container-Datei `_vaultrag/index.bin` — `"VRIX"` · u32 headerLen LE
+· Header-JSON (Manifest inkl. `paths`, `schema_version: 2`) · Int8-Matrix · CRC32. Ein File statt drei,
+damit Obsidian Sync keine Generationen mischen kann (Spec
+`docs/superpowers/specs/2026-07-29-sync-race-container-index-design.md`). Embedding-Dimension **256**,
+`INT8_SCALE = 127`, **mean**-Aggregation. `pending.json` bleibt eigenständig (Dirty-List, unkritisch).
+Das Prä-0.18-Tripel (`notes.i8`/`paths.json`/`manifest.json`) wird beim ersten Load byte-level migriert.
+**HyperForge-Export ist stillgelegt** — bei Reaktivierung muss er das Container-Format erzeugen.
 
 ### Vendored Kit Module (`src/vendor/kit/` + `src/vendor/kit-obsidian/`)
 
@@ -245,16 +260,30 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   (Byte-Guard). Ein abgeschnittener `notes.i8` (partieller Sync-Download) wirft laut → `loadIndex`
   erkennt das als Gefahrenzustand (Schreibschutz, keine Live-Persists) statt still zu clobbern
   oder NaN-Vektoren zu produzieren. Der Guard gilt für Plugin **und** MCP-Server gleichermaßen
-  (beide nutzen `IndexLoader`/`parseIndex`).
-- **`persist` ist gegen Clobber/Shrink geguarded:** `LiveIndexer.persist(reason)` — `reason="live"`
-  darf den Notiz-Count nur um ±1 senken, sonst `PersistBlockedError("shrink")`; ist der Indexer
-  nicht initialisiert/beschädigt (Gefahrenzustand, `markUnready`), blockt jeder Live-Persist mit
-  `PersistBlockedError("not-ready")`. `reason="reindex"`/`"heal"` sind explizit nutzergetriggert und
-  immer erlaubt. `main.ts` fängt `PersistBlockedError` je Event-Handler ab: `handleModify` merkt die
-  Notiz zusätzlich in der `PendingQueue` vor (nicht verworfen), `handleDelete`/`handleRename` melden
-  nur laut (Notice) ohne Pending-Fallback — in allen drei Fällen setzt es `indexHealthy = false`.
-  Geräte-lokale Index-Backups liegen unter `<plugin-dir>/index-backups/` (synct **nicht**, rotiert
-  auf 3 — `index_backup.ts`), Snapshot bei jedem erfolgreichen Load + vor riskanten Operationen.
+  (beide nutzen `IndexLoader`/`parseIndex`) — seit 0.18.0 aber nur noch für die byte-level
+  Legacy-Migration in `index_store.ts`; der reguläre Load-Pfad ist der Container (`index_container.ts`),
+  dessen CRC32 dieselbe Rolle übernimmt: eine CRC-Mismatch beim Load ist der Gefahrenzustand-Trigger,
+  nicht mehr der Byte-Guard.
+- **`persist` ist gegen Clobber/Shrink geguarded und schreibt seit 0.18.0 EINE Datei:**
+  `LiveIndexer.persist(reason)` kodiert den kompletten Container (`index_container.ts` →
+  `index.bin`, CRC32 inklusive) und schreibt ihn in einem Zug — kein Write-Order-Problem mehr
+  (früher `notes.i8` → `paths.json` → `manifest.json`, drei Dateien, drei Gelegenheiten für Sync,
+  eine Mischgeneration zu erzeugen). `reason="live"` darf den Notiz-Count nur um ±1 senken, sonst
+  `PersistBlockedError("shrink")`; ist der Indexer nicht initialisiert/beschädigt (Gefahrenzustand,
+  `markUnready`), blockt jeder Live-Persist mit `PersistBlockedError("not-ready")`.
+  `reason="reindex"`/`"heal"` sind explizit nutzergetriggert und immer erlaubt. `main.ts` fängt
+  `PersistBlockedError` je Event-Handler ab: `handleModify` merkt die Notiz zusätzlich in der
+  `PendingQueue` vor (nicht verworfen), `handleDelete`/`handleRename` melden nur laut (Notice) ohne
+  Pending-Fallback — in allen drei Fällen setzt es `indexHealthy = false`. Geräte-lokale
+  Index-Backups liegen unter `<plugin-dir>/index-backups/` (synct **nicht**, rotiert auf 3 —
+  `index_backup.ts`), Snapshot bei jedem erfolgreichen Load + vor riskanten Operationen.
+- **Auto-Heal-Kaskade (höchstens einmal je Episode):** Liefert der Load einen CRC-defekten Container,
+  sucht `main.ts` das neueste per `verifyBackupCandidate` CRC-bewiesene geräte-lokale Backup, übernimmt
+  es und ergänzt fehlende Notizen per Delta-Reindex — aber nur, wenn der Embedding-Endpoint erreichbar
+  ist; sonst greift wie zuvor Schreibschutz + Notice mit Handlungsanweisung. Persistiert wird der
+  geheilte Index **nur bei restlos sauberem Heal-Lauf** (`failed === 0`) — ein teilweiser Heal bleibt
+  im Speicher, ohne den Container auf der Disk zu überschreiben, und die Kaskade läuft pro
+  Plugin-Start/Episode nur einmal an statt in einer Schleife zu hämmern.
 - **Leere Notizen sind nie im Index (by design):** `embedNote` → null bei 0 Chunks (nur Frontmatter/
   leer, z.B. Ordner-Notizen). Damit sie kein Phantom-Defizit erzeugen, hält `main.ts` ein
   `emptyNotePaths`-Set — **bewusst nicht persistiert**: bei jedem `loadIndex` frisch klassifiziert

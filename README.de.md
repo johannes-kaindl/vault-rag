@@ -99,7 +99,7 @@ npm run build      # → main.js
 
 Der Index in `<vault>/_vaultrag/` ist ein portabler **Matryoshka-256-int8-Mini-Index** auf Notiz-Ebene — ein 256-dimensionaler int8-Vektor pro Notiz, rund 1,4 MB für einige tausend Notizen. Klein genug, um mit dem Vault zu synchronisieren, und genau darum geht es: das Plugin lädt ihn und rechnet **Brute-Force-Cosinus lokal**, sodass Retrieval auf jedem gesyncten Gerät identisch funktioniert — kein Daemon, kein VPN, kein On-Device-LLM. Nur Chat, Smart Apply und LLM-Umformatierung sprechen mit einem Endpunkt, und zwar mit einem, den du bestimmst.
 
-Das Plugin schreibt diesen Index selbst (Embedding-Endpunkt → `notes.i8` / `paths.json` / `manifest.json`, das Manifest zuletzt als Reload-Trigger) und liest jeden Index desselben Formats — auch einen extern erzeugten.
+Das Plugin schreibt diesen Index selbst, als eine einzige Container-Datei (`_vaultrag/index.bin`, bei jedem Laden per CRC geprüft — eine Datei statt mehrerer heißt: ein Sync-Dienst kann nie eine gemischte Generation ausliefern), und liest jeden Index desselben Formats — auch einen extern erzeugten.
 
 Architektur, Modul-Layout und Mitwirkenden-Konventionen stehen in [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md).
 

@@ -50,7 +50,7 @@ That combination produces failure modes that a naive writer would silently turn 
 - A device that starts while a sync download is still running sees an incomplete index. If it
   concluded "the index is nearly empty" and wrote that back, a small index would propagate to
   every device.
-- A truncated `notes.i8` — half a download — would otherwise be read as garbage vectors and
+- A truncated download — half the container — would otherwise be read as garbage vectors and
   produce confidently wrong results.
 
 So the plugin is deliberately reluctant. Writes that would shrink the index are refused rather
@@ -62,17 +62,33 @@ the good one is kept.
 The guiding rule: **when in doubt, refuse and tell the user.** A plugin that stops working
 visibly is recoverable. A plugin that quietly writes a smaller index is not.
 
-### The limit of this approach
+### Why the index is a single file
 
 Guards protect the moments when *the plugin* writes. They cannot protect the moments when *the
-sync service* writes.
+sync service* writes — and for a while, that was an open problem rather than a solved one.
 
-The index is three files. Sync services resolve conflicts per file, with no notion that these
-three belong together. Two devices can therefore produce a state that neither of them ever
-wrote: a manifest from one generation next to a matrix from another. The byte check catches it
-on load — the counts won't match — and the plugin refuses to write. But detection is not
-prevention, and this is a known open problem rather than a solved one. Fixing it properly means
-changing how the index is stored, not adding another check.
+The index used to be three files: a matrix, a path list and a manifest. A sync service resolves
+conflicts per file, with no notion that the three belonged together. Two devices could therefore
+produce a state that neither of them ever wrote: a manifest from one generation next to a matrix
+from another. The byte check caught it on load — the counts wouldn't match — but detection is
+not prevention, and no amount of cleverness in the write guards could fix a problem that lived
+one layer below them, in what a sync service is allowed to do to unrelated files.
+
+The fix was to stop giving it unrelated files to disagree about. Since 0.18.0 the index is one
+file, `_vaultrag/index.bin`: a small header — manifest fields, the path list, a schema version —
+followed by the int8 matrix, followed by a CRC32 over the payload. A sync service can only ever
+deliver a whole generation of a single file; there is no longer a seam between "the paths" and
+"the vectors" for two devices to disagree across. Detection still runs on load — the CRC is
+checked before anything is trusted — but now a mismatch means the file itself is damaged (a
+half-finished download, for instance), not that two valid halves got zipped together.
+
+That turns recovery into a local problem again. On a CRC mismatch the plugin switches to
+read-only, as before, then looks for the newest device-local backup whose own CRC checks out,
+adopts it, and closes the gap to the current vault with a delta re-index — provided an embedding
+endpoint is reachable, since new notes still need embedding. Without one, the read-only state
+stands with a message explaining exactly what to do. Recovery only ever writes back once the
+whole cascade came back clean; a partially healed index stays in memory rather than overwriting
+the file on disk with something still incomplete.
 
 ## Why empty notes are not "missing"
 

@@ -26,7 +26,10 @@ export async function loadIndexStore(adapter: VaultAdapter, dir: string): Promis
     try {
       const { manifest, paths, matrix } = decodeContainer(await adapter.readBinary(containerPath));
       index = parseIndex(manifest, paths, matrix);
-    } catch {
+    } catch (e) {
+      // Diagnose nicht verschlucken: ContainerError.reason (crc/magic/truncated/header/schema)
+      // samt CRC-Werten ist die Forensik-Basis für Vorfall-Rekonstruktionen.
+      console.warn("vault-rag: loadIndexStore: Container unlesbar", e);
       return { state: "corrupt" };
     }
     await cleanupLegacyTriple(adapter, dir);
@@ -40,14 +43,17 @@ export async function loadIndexStore(adapter: VaultAdapter, dir: string): Promis
     paths = JSON.parse(await adapter.read(`${dir}/paths.json`)) as string[];
     matrix = await adapter.readBinary(`${dir}/notes.i8`);
     index = parseIndex(manifest, paths, matrix);
-  } catch {
+  } catch (e) {
+    // s. o.: Read-/JSON-/Schema-Fehler des Tripels bleibt sichtbar, sonst ist `corrupt` blind.
+    console.warn("vault-rag: loadIndexStore: Legacy-Tripel unlesbar", e);
     return { state: "corrupt" };
   }
   try {
     await adapter.writeBinary(containerPath, encodeContainer(manifest, paths, new Uint8Array(matrix)));
     await cleanupLegacyTriple(adapter, dir);
-  } catch {
+  } catch (e) {
     // Migration fehlgeschlagen → Load gilt trotzdem; nächster Load wiederholt die Migration.
+    console.warn("vault-rag: loadIndexStore: Container-Migration fehlgeschlagen — nächster Load wiederholt", e);
   }
   return { state: "loaded", index, source: "legacy-migrated" };
 }

@@ -289,6 +289,52 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     }
   });
 
+  it("LEGACY-BACKUP-RESTORE: korrupter Container schattet das restaurierte Prä-0.18-Tripel — erst sein Wegräumen macht den Recovery-Pfad wieder lebendig", async () => {
+    // Pinnt die Sequenz, die restoreBackup (main.ts) fährt — hier auf Modul-Ebene, da main.ts
+    // nicht headless ausführbar ist. Szenario: index.bin korrupt, Backup ist ein Prä-0.18-Tripel.
+    const adapter = fsAdapter();
+    await buildGoodIndex();
+    const containerPath = path.join(indexDir, CONTAINER_FILE);
+
+    // Prä-0.18-Backup bauen: Tripel aus dem echten Container ableiten (wie im Migrations-Szenario).
+    const raw = await fs.readFile(containerPath);
+    const { manifest, paths: legacyPaths, matrix } = decodeContainer(
+      raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength),
+    );
+    const backupDir = path.join(root, "backups", "2026-07-20T00-00-00-000Z");
+    await adapter.writeBinary(path.join(backupDir, "notes.i8"), matrix);
+    await adapter.write(path.join(backupDir, "paths.json"), JSON.stringify(legacyPaths));
+    await adapter.write(path.join(backupDir, "manifest.json"), JSON.stringify(manifest));
+    // Wie restoreBackup es sieht: vollständig (Legacy-Tripel), aber OHNE Container.
+    const backupFiles = (await fs.readdir(backupDir)).map(f => `${backupDir}/${f}`);
+    expect(hasAllRequiredFiles(backupFiles)).toBe(true);
+    expect(backupFiles.some(f => (f.split("/").pop() ?? f) === CONTAINER_FILE)).toBe(false);
+
+    // Aktiven Container korrumpieren (Byte-Flip in der Matrix → CRC schlägt an).
+    const bytes = await fs.readFile(containerPath);
+    bytes[bytes.length - 100] = bytes[bytes.length - 100] ^ 0xff;
+    await fs.writeFile(containerPath, bytes);
+    expect((await loadIndexStore(adapter, indexDir)).state).toBe("corrupt");
+
+    // (a) NEGATIV-BEWEIS (Verhalten OHNE Wegräumen): migrateIndex kopiert nur das Tripel, die
+    //     korrupte index.bin bleibt liegen → container-first sieht sie zuerst → corrupt. Das
+    //     restaurierte Tripel wird nie angeschaut, der Recovery-Pfad wäre still wirkungslos.
+    await migrateIndex(adapter, backupDir, indexDir);
+    expect((await loadIndexStore(adapter, indexDir)).state).toBe("corrupt");
+
+    // (b) FIX (was restoreBackup jetzt tut): kein Container im Backup → korrupte index.bin vor
+    //     der Migration entfernen. Danach trägt der Legacy-Pfad inklusive Container-Migration.
+    await adapter.remove(containerPath);
+    await migrateIndex(adapter, backupDir, indexDir);
+    const restored = await loadIndexStore(adapter, indexDir);
+    expect(restored.state).toBe("loaded");
+    if (restored.state === "loaded") {
+      expect(restored.source).toBe("legacy-migrated");
+      expect(restored.index.count).toBe(100);
+    }
+    expect(await countOnDisk(indexDir)).toBe(100);
+  });
+
   it("Backup-Kaskade-Basis: von zwei Backups ist das neuere korrupt → verifyBackupCandidate beweist das ältere", async () => {
     await buildGoodIndex();
     const b1 = path.join(root, "backups", "2026-07-28T10-00-00-000Z");

@@ -652,6 +652,15 @@ export default class VaultRagPlugin extends Plugin {
       new Notice(`Backup „${name}" unvollständig — Wiederherstellung abgebrochen.`);
       return;
     }
+    // Legacy-Backup (Prä-0.18-Tripel, kein Container): die korrupte index.bin im indexDir MUSS weg,
+    // bevor das Tripel darüber kopiert wird — loadIndexStore ist container-first und würde sonst die
+    // korrupte index.bin sehen, `corrupt` liefern und das restaurierte Tripel nie anschauen (die
+    // Wiederherstellung wäre still wirkungslos). Das Tripel im Backup ist an dieser Stelle bereits
+    // als vollständig bewiesen; enthält das Backup einen Container, überschreibt migrateIndex die
+    // Ziel-Datei ohnehin — dann ist nichts zu löschen.
+    if (!files.some(f => (f.split("/").pop() ?? f) === CONTAINER_FILE)) {
+      try { await this.app.vault.adapter.remove(`${this.settings.indexDir}/${CONTAINER_FILE}`); } catch { /* nicht vorhanden ok */ }
+    }
     await migrateIndex(this.app.vault.adapter, src, this.settings.indexDir);
     await this.loadIndex();
     new Notice(this.indexHealthy ? "Index aus Backup wiederhergestellt." : "Wiederhergestellter Index ließ sich nicht laden.");
@@ -801,7 +810,9 @@ export default class VaultRagPlugin extends Plugin {
     // prevIndex restauriert haben („Reload lieferte einen schlechteren Index") — dann ist der
     // Gefahrenzustand vorbei. Ohne diesen Check würden wir einen älteren Backup-Stand über den
     // guten Index schreiben (persist("heal") umgeht den Shrink-Guard) und jede Notice wäre Lärm.
-    if (this.indexHealthy) return;
+    // Versuch wieder freigeben: die Episode hat sich OHNE Heal erledigt — eine spätere echte
+    // Korruption derselben Session muss wieder Auto-Heal bekommen (die Notice verspricht es).
+    if (this.indexHealthy) { this.autoHealAttempted = false; return; }
     if (!ready) {
       // Versuch wieder freigeben: ein transient offline gestarteter Obsidian darf den einzigen
       // Versuch der Episode nicht verbrauchen — der nächste corrupt-Load probiert es erneut.
@@ -850,7 +861,8 @@ export default class VaultRagPlugin extends Plugin {
       new Notice("vault-rag: Automatische Wiederherstellung fehlgeschlagen — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
       return;
     }
-    if (aborted) return; // guter Index steht wieder → stiller Abbruch, keine Notice
+    // guter Index steht wieder → stiller Abbruch, keine Notice; Versuch wieder freigeben (s. o.).
+    if (aborted) { this.autoHealAttempted = false; return; }
     if (healed) {
       new Notice(`vault-rag: Index automatisch aus Backup wiederhergestellt — ${added} Notizen ergänzt.`, 8000);
       await this.loadIndex(); // lädt den frisch persistierten Container → gesunder Zustand

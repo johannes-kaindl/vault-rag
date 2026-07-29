@@ -22,6 +22,7 @@ function makeAdapter(): VaultAdapter & { written: Map<string, ArrayBuffer | stri
     writeBinary: vi.fn(async (p: string, d: ArrayBuffer) => { written.set(p, d); }),
     mkdir: vi.fn(),
     exists: vi.fn(async (p: string) => written.has(p)),
+    remove: vi.fn(async (p: string) => { written.delete(p); }),
     written,
   } as any;
 }

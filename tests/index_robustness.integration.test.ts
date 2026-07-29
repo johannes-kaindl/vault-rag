@@ -27,6 +27,7 @@ function fsAdapter(): VaultAdapter {
     writeBinary: async (p, d) => { await fs.mkdir(path.dirname(p), { recursive: true }); await fs.writeFile(p, Buffer.from(d)); },
     mkdir: async (p) => { await fs.mkdir(p, { recursive: true }); },
     exists: async (p) => { try { await fs.access(p); return true; } catch { return false; } },
+    remove: async (p) => { await fs.rm(p, { force: true }); },
   };
 }
 

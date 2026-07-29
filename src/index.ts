@@ -15,6 +15,7 @@ export interface VaultAdapter {
   writeBinary(path: string, data: ArrayBuffer): Promise<void>;
   mkdir(path: string): Promise<void>;
   exists(path: string): Promise<boolean>;
+  remove(path: string): Promise<void>;
 }
 
 export class VaultIndex {

@@ -792,33 +792,65 @@ export default class VaultRagPlugin extends Plugin {
    *  (iPhone wartet auf die Desktop-Heilung via Sync). */
   private async attemptAutoHeal(): Promise<void> {
     if (this.autoHealAttempted) return;
+    // Synchron beanspruchen (vor dem ersten await): maybeReload läuft auf einem Intervall und
+    // kann während des embedderReady-Pings einen zweiten corrupt-Load feuern — sonst liefe die
+    // teure Kaskade doppelt (jede fehlende Notiz zweimal embedden, doppelte Notices).
     this.autoHealAttempted = true;
-    if (!(await this.embedderReady())) return;
+    const ready = await this.embedderReady();
+    // Re-Check (1/2): Die Kaskade läuft detacht. Währenddessen kann maybeReload seinen guten
+    // prevIndex restauriert haben („Reload lieferte einen schlechteren Index") — dann ist der
+    // Gefahrenzustand vorbei. Ohne diesen Check würden wir einen älteren Backup-Stand über den
+    // guten Index schreiben (persist("heal") umgeht den Shrink-Guard) und jede Notice wäre Lärm.
+    if (this.indexHealthy) return;
+    if (!ready) {
+      // Versuch wieder freigeben: ein transient offline gestarteter Obsidian darf den einzigen
+      // Versuch der Episode nicht verbrauchen — der nächste corrupt-Load probiert es erneut.
+      this.autoHealAttempted = false;
+      new Notice("vault-rag: Automatische Wiederherstellung nicht möglich (Embedding-Endpoint nicht erreichbar) — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      return;
+    }
     let candidate: VaultIndex | null = null;
     for (const b of await this.listBackups()) { // sortBackupsNewestFirst-Reihenfolge
       candidate = await verifyBackupCandidate(this.app.vault.adapter, `${this.backupsRoot()}/${b.name}`);
       if (candidate) break;
     }
-    if (!candidate) return; // keine beweisbare Basis → Status quo (Notice kam bereits)
+    if (!candidate) { // keine beweisbare Basis → Status quo, aber nicht stumm (Spec §Heal-Kaskade Schritt 3)
+      if (!this.indexHealthy) new Notice("vault-rag: Automatische Wiederherstellung nicht möglich (kein intaktes lokales Backup gefunden) — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      return;
+    }
     const base = candidate;
+    // liveIndexer einmal snapshotten (Repo-Konvention, vgl. handleDelete/drainPending): ein
+    // paralleles resolveAndReconnectEmbedder() darf init/heal/persist nicht auf verschiedene
+    // Instanzen verteilen — sonst persistierte eine leere Instanz über den geheilten Stand.
+    const li = this.liveIndexer;
     let healed = false;
+    let aborted = false;
     let added = 0;
-    await this.runIndexOp(async () => {
-      // liveIndexer einmal snapshotten (Repo-Konvention, vgl. handleDelete/drainPending): ein
-      // paralleles resolveAndReconnectEmbedder() darf init/heal/persist nicht auf verschiedene
-      // Instanzen verteilen — sonst persistierte eine leere Instanz über den geheilten Stand.
-      const li = this.liveIndexer;
-      li.init(base);
-      const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
-      const report = await li.healMissing(missing, (p) => this.app.vault.adapter.read(p));
-      if (!canPersistHealedIndex(report.failed.length)) {
-        li.markUnready(); // halb geheilten Index NICHT verteilen
-        return;
-      }
-      await li.persist("heal");
-      healed = true;
-      added = report.added;
-    });
+    try {
+      await this.runIndexOp(async () => {
+        // Re-Check (2/2): zwischen Kaskadenstart und dem Zug an der runIndexOp-Kette kann der
+        // gute Index zurück sein — dann nichts anfassen (auch kein markUnready).
+        if (this.indexHealthy) { aborted = true; return; }
+        li.init(base);
+        const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
+        const report = await li.healMissing(missing, (p) => this.app.vault.adapter.read(p));
+        if (!canPersistHealedIndex(report.failed.length)) {
+          li.markUnready(); // halb geheilten Index NICHT verteilen
+          return;
+        }
+        await li.persist("heal");
+        healed = true;
+        added = report.added;
+      });
+    } catch (e) {
+      // persist/read können werfen (Disk, mkdir, writeBinary). Unbehandelt bliebe der Nutzer
+      // ewig auf „automatische Wiederherstellung wird versucht" sitzen.
+      console.warn("vault-rag: attemptAutoHeal failed", e);
+      li.markUnready();
+      new Notice("vault-rag: Automatische Wiederherstellung fehlgeschlagen — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      return;
+    }
+    if (aborted) return; // guter Index steht wieder → stiller Abbruch, keine Notice
     if (healed) {
       new Notice(`vault-rag: Index automatisch aus Backup wiederhergestellt — ${added} Notizen ergänzt.`, 8000);
       await this.loadIndex(); // lädt den frisch persistierten Container → gesunder Zustand

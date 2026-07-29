@@ -9,12 +9,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { VaultAdapter, IndexLoader, parseIndex } from "../src/index";
+import { VaultAdapter, VaultIndex } from "../src/index";
 import { LiveIndexer } from "../src/live_indexer";
 import { EmbeddingClient } from "../src/embedder";
-import { classifyLoadResult, assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/index_guard";
+import { assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/index_guard";
 import { migrateIndex, hasAllRequiredFiles } from "../src/index_migrate";
 import { selectBackupsToDelete } from "../src/index_backup";
+import { CONTAINER_FILE, decodeContainer } from "../src/index_container";
+import { loadIndexStore } from "../src/index_store";
 
 const DIM = 256;
 
@@ -44,8 +46,17 @@ function fakeEmbedder(): EmbeddingClient {
 }
 
 async function countOnDisk(dir: string): Promise<number> {
-  const m = JSON.parse(await fs.readFile(path.join(dir, "manifest.json"), "utf8")) as { count: number };
-  return m.count;
+  const b = await fs.readFile(path.join(dir, CONTAINER_FILE));
+  const { manifest } = decodeContainer(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+  return manifest.count;
+}
+
+/** Lädt via loadIndexStore (Container-first) und wirft, falls kein ladbarer Index vorliegt —
+ *  Ersatz für das alte `new IndexLoader(adapter, dir).load()` (Tripel-only). */
+async function loadIndex(adapter: VaultAdapter, dir: string): Promise<VaultIndex> {
+  const r = await loadIndexStore(adapter, dir);
+  if (r.state !== "loaded") throw new Error(`Index nicht ladbar (state=${r.state})`);
+  return r.index;
 }
 
 describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
@@ -70,22 +81,19 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
 
   it("Baseline: aufgebauter Index lädt sauber (count 100)", async () => {
     await buildGoodIndex();
-    const idx = await new IndexLoader(fsAdapter(), indexDir).load();
+    const idx = await loadIndex(fsAdapter(), indexDir);
     expect(idx.count).toBe(100);
     expect(await countOnDisk(indexDir)).toBe(100);
   });
 
-  it("Byte-Guard: echt abgeschnittener notes.i8 → load wirft → Gefahrenzustand", async () => {
+  it("Byte-Guard: echt abgeschnittener index.bin → loadIndexStore erkennt den Gefahrenzustand (state 'corrupt')", async () => {
     await buildGoodIndex();
-    // notes.i8 real abschneiden (nicht mehr count*dim Bytes).
-    const p = path.join(indexDir, "notes.i8");
-    const buf = await fs.readFile(p); // 100*256 = 25600 Bytes
-    await fs.writeFile(p, buf.subarray(0, 20001)); // echt kürzer + nicht durch 256 teilbar
-    let threw = false;
-    try { await new IndexLoader(fsAdapter(), indexDir).load(); } catch { threw = true; }
-    expect(threw).toBe(true);
-    const manifestExists = true; // manifest.json liegt weiter da
-    expect(classifyLoadResult(manifestExists, threw)).toBe("load-failed-index-present");
+    // index.bin real abschneiden (CRC + Header/Matrix-Länge passen danach nicht mehr).
+    const p = path.join(indexDir, CONTAINER_FILE);
+    const buf = await fs.readFile(p);
+    await fs.writeFile(p, buf.subarray(0, buf.length - 10)); // echt kürzer als der volle Container
+    const result = await loadIndexStore(fsAdapter(), indexDir);
+    expect(result.state).toBe("corrupt");
   });
 
   it("KEIN CLOBBER: nicht-initialisierter Indexer (Gefahrenzustand) darf den guten Index nicht überschreiben", async () => {
@@ -102,7 +110,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
 
   it("KEIN CLOBBER: Shrink-Guard blockt einen Ein-Schritt-Sturz (100→1) und lässt Platte unberührt", async () => {
     await buildGoodIndex();
-    const idx = await new IndexLoader(fsAdapter(), indexDir).load();
+    const idx = await loadIndex(fsAdapter(), indexDir);
     const li = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
     li.init(idx); // ready=true; persist("live") liest den Diskzustand jetzt live (100)
     for (const p of paths.slice(1)) li.remove(p); // auf 1 schrumpfen (simulierte Korruption)
@@ -120,10 +128,10 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     const backupPaths = backupFiles.map(f => `${backupDir}/${f}`);
     expect(hasAllRequiredFiles(backupPaths)).toBe(true);
     // Hauptindex zerstören …
-    await fs.writeFile(path.join(indexDir, "notes.i8"), Buffer.alloc(10));
+    await fs.writeFile(path.join(indexDir, CONTAINER_FILE), Buffer.alloc(10));
     // … und aus Backup restaurieren.
     await migrateIndex(adapter, backupDir, indexDir);
-    const idx = await new IndexLoader(adapter, indexDir).load();
+    const idx = await loadIndex(adapter, indexDir);
     expect(idx.count).toBe(100);
   });
 
@@ -139,9 +147,9 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     await buildGoodIndex();
     const adapter = fsAdapter();
     const backupDir = path.join(root, ".obsidian/plugins/vault-retrieval/index-backups/2026-07-19T00-00-00-000Z");
-    // Quelle nach dem Kopierbeginn unvollständig machen: notes.i8 löschen, BEVOR migrateIndex läuft
+    // Quelle nach dem Kopierbeginn unvollständig machen: index.bin löschen, BEVOR migrateIndex läuft
     // (simuliert eine Race, bei der die Quelldatei genau in diesem Moment fehlt/unlesbar ist).
-    await fs.rm(path.join(indexDir, "notes.i8"));
+    await fs.rm(path.join(indexDir, CONTAINER_FILE));
     await migrateIndex(adapter, indexDir, backupDir);
     // migrateIndex überspringt die fehlende Datei still — Zielordner ist unvollständig.
     const listing = await fs.readdir(backupDir);
@@ -162,7 +170,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     expect(await countOnDisk(indexDir)).toBe(40);
 
     // Laden + Diff gegen den vollen Vault (100).
-    const idx = await new IndexLoader(fsAdapter(), indexDir).load();
+    const idx = await loadIndex(fsAdapter(), indexDir);
     const li = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
     li.init(idx); // Diskzustand (40) wird bei persist("live") live nachgelesen
     const { missing } = diffIndexVsVault([...idx.paths], paths);
@@ -174,7 +182,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     expect(await countOnDisk(indexDir)).toBe(100);
 
     // Additiv: die ursprünglichen 40 sind noch da.
-    const healed = await new IndexLoader(fsAdapter(), indexDir).load();
+    const healed = await loadIndex(fsAdapter(), indexDir);
     expect(healed.rowFor("note-000.md")).toBeGreaterThanOrEqual(0);
     expect(healed.rowFor("note-099.md")).toBeGreaterThanOrEqual(0);
   });

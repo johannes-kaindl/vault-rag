@@ -3,6 +3,7 @@ import { LiveIndexer } from "../src/live_indexer";
 import { VaultAdapter, parseIndex, VaultIndex } from "../src/index";
 import { EmbeddingClient } from "../src/embedder";
 import { PersistBlockedError } from "../src/index_guard";
+import { CONTAINER_FILE, encodeContainer, decodeContainer } from "../src/index_container";
 
 const DIM = 256;
 const SCALE = 127;
@@ -45,6 +46,14 @@ function oneNoteIndex(path: string): VaultIndex {
   const i8 = new Int8Array(DIM);
   i8[0] = SCALE; // [1, 0, 0, …] normalisiert
   return parseIndex(manifest, [path], i8.buffer);
+}
+
+/** Baut einen gültigen Container-Snapshot mit `count` Notizen — für readDiskCount-Tests
+ *  (Diskzustand, den ein anderer Prozess/Gerät geschrieben haben könnte). */
+function makeContainerBytes(count: number): ArrayBuffer {
+  const manifest = { schema_version: 1, embedding_model: "qwen3-embedding:8b", index_dim: DIM, scale: SCALE, count, granularity: "note", quant: "int8" };
+  const paths = Array.from({ length: count }, (_, i) => `disk-note-${i}.md`);
+  return encodeContainer(manifest, paths, new Uint8Array(count * DIM));
 }
 
 describe("LiveIndexer", () => {
@@ -95,19 +104,32 @@ describe("LiveIndexer", () => {
     expect(idx.rowFor("new.md")).toBe(0);
   });
 
-  it("persist schreibt notes.i8, paths.json, manifest.json in dieser Reihenfolge", async () => {
+  it("persist schreibt GENAU EINE Datei: index.bin — kein Tripel mehr", async () => {
     const adapter = makeAdapter();
-    const order: string[] = [];
-    (adapter.writeBinary as any).mockImplementation(async (p: string) => { order.push(p); });
-    (adapter.write as any).mockImplementation(async (p: string) => { order.push(p); });
-
     const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
     indexer.init(emptyIndex());
-    await indexer.persist();
+    await indexer.update("a.md", "Inhalt A");
+    await indexer.update("b.md", "Inhalt B");
+    await indexer.persist("reindex");
 
-    expect(order[0]).toContain("notes.i8");
-    expect(order[1]).toContain("paths.json");
-    expect(order[2]).toContain("manifest.json");
+    expect(adapter.written.has(`_vaultrag/${CONTAINER_FILE}`)).toBe(true);
+    expect(adapter.written.has("_vaultrag/notes.i8")).toBe(false);
+    expect(adapter.written.has("_vaultrag/paths.json")).toBe(false);
+    expect(adapter.written.has("_vaultrag/manifest.json")).toBe(false);
+  });
+
+  it("persist-Container round-trippt: decode liefert Count, Pfade sortiert, Matrix-Größe", async () => {
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.init(emptyIndex());
+    await indexer.update("b.md", "Inhalt B");
+    await indexer.update("a.md", "Inhalt A");
+    await indexer.persist("reindex");
+
+    const { manifest, paths, matrix } = decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer);
+    expect(manifest.count).toBe(2);
+    expect(paths).toEqual([...paths].sort());
+    expect(matrix.byteLength).toBe(2 * DIM);
   });
 
   it("persist schreibt korrektes int8-Format (Quantisierung)", async () => {
@@ -117,11 +139,9 @@ describe("LiveIndexer", () => {
     await indexer.update("a.md", "Inhalt");
     await indexer.persist();
 
-    const i8call = (adapter.writeBinary as any).mock.calls.find((c: string[]) => c[0].endsWith("notes.i8"));
-    expect(i8call).toBeTruthy();
-    const buf = i8call[1] as ArrayBuffer;
-    expect(buf.byteLength).toBe(DIM); // 1 Notiz × 256 Dims × 1 Byte
-    const arr = new Int8Array(buf);
+    const { matrix } = decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer);
+    expect(matrix.byteLength).toBe(DIM); // 1 Notiz × 256 Dims × 1 Byte
+    const arr = new Int8Array(matrix);
     expect(arr[0]).toBe(SCALE); // erster Dim = 1.0 * 127 = 127
   });
 
@@ -329,7 +349,36 @@ describe("LiveIndexer persist-Guard", () => {
     indexer.markFresh();
     await indexer.update("a.md", "# A");
     await expect(indexer.persist("live")).resolves.toBeUndefined();
-    expect(a.written.has("_vaultrag/manifest.json")).toBe(true);
+    expect(a.written.has(`_vaultrag/${CONTAINER_FILE}`)).toBe(true);
+  });
+
+  it("readDiskCount: kein Container → 0 → frischer Aufbau erlaubt", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A");
+    await expect(indexer.persist("live")).resolves.toBeUndefined();
+    expect(a.written.has(`_vaultrag/${CONTAINER_FILE}`)).toBe(true);
+  });
+
+  it("readDiskCount (via persist-live-Guard): Container-Count zählt — Shrink von 100 auf 1 blockt", async () => {
+    const a = makeAdapter();
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(100));
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A"); // 1 Notiz im Speicher
+    await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "shrink" });
+  });
+
+  it("readDiskCount: korrupter Container → PersistBlockedError kind 'unreadable'", async () => {
+    const a = makeAdapter();
+    const good = new Uint8Array(makeContainerBytes(3));
+    good[10] ^= 0xff; // ein Byte im Header kippen → CRC-Mismatch beim decodeContainer
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, good.buffer);
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B"); await indexer.update("c.md", "#C");
+    await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "unreadable" });
   });
 
   it("Clobber via In-Memory-Leerung wird gegen den echten Diskzustand geblockt (3→0)", async () => {
@@ -399,18 +448,18 @@ describe("LiveIndexer persist-Guard", () => {
     // Simuliert: der echte Index kommt gerade erst per Obsidian Sync an (z. B. iPhone-Start,
     // Manifest war beim eigenen loadIndex() noch nicht da) — DIESES LiveIndexer-Objekt hat ihn
     // nie über init() gesehen, sondern wurde per markFresh() als "frisch" eingestuft.
-    a.written.set("_vaultrag/manifest.json", JSON.stringify({ count: 4700 }));
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(4700));
     const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
     indexer.markFresh();
     await indexer.update("a.md", "#A"); // 1 Notiz im Speicher
     await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "shrink" });
     // Der echte Index auf Platte bleibt unangetastet:
-    expect(JSON.parse(a.written.get("_vaultrag/manifest.json") as string).count).toBe(4700);
+    expect(decodeContainer(a.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer).manifest.count).toBe(4700);
   });
 
-  it("Manifest vorhanden, aber gerade unlesbar/korrupt (Race mit fremdem Schreibvorgang) → blockt mit 'unreadable'", async () => {
+  it("Container vorhanden, aber gerade unlesbar/korrupt (Race mit fremdem Schreibvorgang) → blockt mit 'unreadable'", async () => {
     const a = makeAdapter();
-    a.written.set("_vaultrag/manifest.json", "{ das ist kein valides JSON");
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, new TextEncoder().encode("das ist kein gültiger Container").buffer);
     const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
     indexer.markFresh();
     await indexer.update("a.md", "#A");

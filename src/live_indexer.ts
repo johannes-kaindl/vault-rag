@@ -3,6 +3,7 @@ import { EmbeddingClient } from "./embedder";
 import { chunkMarkdown } from "./chunker";
 import { toIndexVector } from "./embed_vector";
 import { assertSafeToPersist, PersistReason, PersistBlockedError } from "./index_guard";
+import { CONTAINER_FILE, encodeContainer, decodeContainer } from "./index_container";
 
 const INDEX_DIM = 256;
 const INT8_SCALE = 127;
@@ -164,11 +165,8 @@ export class LiveIndexer {
       }
     }
     await this.adapter.mkdir(this.indexDir);
-    // Write-Order: binary → paths → manifest (manifest letztes = reload-Trigger)
-    await this.adapter.writeBinary(`${this.indexDir}/notes.i8`, i8.buffer);
-    await this.adapter.write(`${this.indexDir}/paths.json`, JSON.stringify(paths));
     const manifest = {
-      schema_version: 1,
+      schema_version: 1, // wird von encodeContainer auf CONTAINER_SCHEMA_VERSION gesetzt
       vault: (this.loadedManifest as { vault?: string } | null)?.vault ?? "10_Pallas",
       embedding_model: this.embeddingModel,
       source_dim: INDEX_DIM,
@@ -178,27 +176,27 @@ export class LiveIndexer {
       quant: "int8",
       scale: INT8_SCALE,
       count: n,
-      shards: ["notes.i8"],
       source_commit: "",
       built_at: new Date().toISOString(),
     };
-    await this.adapter.write(`${this.indexDir}/manifest.json`, JSON.stringify(manifest, null, 2));
+    // EIN Container statt drei Dateien — Sync kann keine Generationen mehr mischen (Spec 2026-07-29).
+    await this.adapter.writeBinary(`${this.indexDir}/${CONTAINER_FILE}`, encodeContainer(manifest, paths, new Uint8Array(i8.buffer)));
     this.ready = true;
   }
 
   /** Liest den aktuellen Notiz-Count direkt aus der Platte (nicht aus dem In-Memory-Zustand).
-   *  `null` = "Zustand unbekannt, sicherheitshalber blocken" (Manifest da, aber nicht lesbar/
-   *  parsebar — z. B. während ein fremder Prozess/Sync es gerade neu schreibt). Kein Manifest
-   *  vorhanden gilt hingegen als legitim frisch (`0`). */
+   *  `null` = "Zustand unbekannt, sicherheitshalber blocken" (Container da, aber nicht lesbar/
+   *  dekodierbar — z. B. während ein fremder Prozess/Sync ihn gerade neu schreibt, oder CRC/Magic
+   *  nicht passt). Kein Container vorhanden gilt hingegen als legitim frisch (`0`) — `loadIndexStore`
+   *  migriert Legacy-Tripel, bevor im Plugin-Lebenszyklus der erste Live-Persist laufen kann. */
   private async readDiskCount(): Promise<number | null> {
-    const manifestPath = `${this.indexDir}/manifest.json`;
+    const containerPath = `${this.indexDir}/${CONTAINER_FILE}`;
     let exists: boolean;
-    try { exists = await this.adapter.exists(manifestPath); } catch { return null; }
+    try { exists = await this.adapter.exists(containerPath); } catch { return null; }
     if (!exists) return 0;
     try {
-      const raw = await this.adapter.read(manifestPath);
-      const parsed = JSON.parse(raw) as { count?: number };
-      return typeof parsed.count === "number" ? parsed.count : null;
+      const { manifest } = decodeContainer(await this.adapter.readBinary(containerPath));
+      return typeof manifest.count === "number" ? manifest.count : null;
     } catch { return null; }
   }
 }

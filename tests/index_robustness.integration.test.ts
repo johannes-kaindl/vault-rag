@@ -115,10 +115,10 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     const adapter = fsAdapter();
     const backupDir = path.join(root, ".obsidian/plugins/vault-retrieval/index-backups/2026-07-11T00-00-00-000Z");
     await migrateIndex(adapter, indexDir, backupDir);
-    // Vollständigkeitscheck (wie restoreBackup): alle Pflichtdateien im Backup vorhanden.
-    for (const f of INDEX_REQUIRED_FILES) {
-      await expect(fs.access(path.join(backupDir, f))).resolves.toBeUndefined();
-    }
+    // Vollständigkeitscheck (wie restoreBackup): ladbarer Bestand im Backup (Container oder Legacy-Tripel).
+    const backupFiles = await fs.readdir(backupDir);
+    const backupPaths = backupFiles.map(f => `${backupDir}/${f}`);
+    expect(hasAllRequiredFiles(backupPaths)).toBe(true);
     // Hauptindex zerstören …
     await fs.writeFile(path.join(indexDir, "notes.i8"), Buffer.alloc(10));
     // … und aus Backup restaurieren.

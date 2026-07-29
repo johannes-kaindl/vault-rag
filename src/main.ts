@@ -1,5 +1,5 @@
 import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView } from "obsidian";
-import { IndexLoader, VaultIndex } from "./index";
+import { VaultIndex } from "./index";
 import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList, RestoreBackupModal } from "./settings";
@@ -26,7 +26,9 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { classifyLoadResult, isSuspiciousShrink, PersistBlockedError, diffIndexVsVault } from "./index_guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex } from "./index_guard";
+import { loadIndexStore, verifyBackupCandidate } from "./index_store";
+import { CONTAINER_FILE, decodeContainer } from "./index_container";
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { pickTransform, promptInstruction } from "./reformat_picker";
@@ -82,6 +84,8 @@ export default class VaultRagPlugin extends Plugin {
    *  Bewusst NICHT persistiert: wird bei jedem loadIndex frisch klassifiziert (selbstheilend
    *  gegenüber extern geänderten Dateien) und in-Session von den Live-Handlern gepflegt. */
   private emptyNotePaths = new Set<string>();
+  /** Auto-Heal höchstens einmal je Gefahrenzustand-Episode (Reset bei gesundem Load). */
+  private autoHealAttempted = false;
   private indexOpChain: Promise<void> = Promise.resolve();
   private mcpServer: McpServerHandle | null = null;
   private mcpLastStartError: string | null = null;
@@ -573,13 +577,16 @@ export default class VaultRagPlugin extends Plugin {
     return this.runIndexOp(async () => {
       try {
         const root = this.backupsRoot();
-        // Zeitstempel aus dem Manifest (fällt sonst auf lastMtime zurück).
+        // Zeitstempel aus dem Container-Header (fällt sonst auf lastMtime zurück).
         let builtAt = "";
-        try { const m = JSON.parse(await this.app.vault.adapter.read(`${this.settings.indexDir}/manifest.json`)) as { built_at?: string }; builtAt = m.built_at ?? ""; } catch { /* ignore */ }
+        try {
+          const buf = await this.app.vault.adapter.readBinary(`${this.settings.indexDir}/${CONTAINER_FILE}`);
+          builtAt = ((decodeContainer(buf).manifest as { built_at?: string }).built_at) ?? "";
+        } catch { /* ignore */ }
         if (!builtAt) builtAt = new Date(this.lastMtime || Date.now()).toISOString();
         const name = backupDirName(builtAt);
         const dest = `${root}/${name}`;
-        if (await this.app.vault.adapter.exists(`${dest}/manifest.json`)) return; // schon gesichert
+        if (await this.app.vault.adapter.exists(`${dest}/${CONTAINER_FILE}`)) return; // schon gesichert
         await migrateIndex(this.app.vault.adapter, this.settings.indexDir, dest);
         if (!(await this.backupComplete(dest))) {
           // Race (z. B. Quelldatei wurde währenddessen von Sync überschrieben) — keine
@@ -620,8 +627,14 @@ export default class VaultRagPlugin extends Plugin {
     const names = await this.backupNames();
     const entries: BackupEntry[] = [];
     for (const name of names) {
+      // Container-first; Legacy-Fallback für Prä-0.18-Backups (die noch das Tripel enthalten).
       let count = 0;
-      try { const m = JSON.parse(await this.app.vault.adapter.read(`${this.backupsRoot()}/${name}/manifest.json`)) as { count?: number }; count = m.count ?? 0; } catch { /* ignore */ }
+      try {
+        const buf = await this.app.vault.adapter.readBinary(`${this.backupsRoot()}/${name}/${CONTAINER_FILE}`);
+        count = decodeContainer(buf).manifest.count;
+      } catch {
+        try { const m = JSON.parse(await this.app.vault.adapter.read(`${this.backupsRoot()}/${name}/manifest.json`)) as { count?: number }; count = m.count ?? 0; } catch { /* ignore */ }
+      }
       entries.push({ name, count });
     }
     return sortBackupsNewestFirst(entries);
@@ -629,9 +642,24 @@ export default class VaultRagPlugin extends Plugin {
 
   async restoreBackup(name: string): Promise<void> {
     const src = `${this.backupsRoot()}/${name}`;
-    // Vollständigkeit prüfen, bevor wir den aktiven Index ersetzen.
-    for (const f of INDEX_REQUIRED_FILES) {
-      if (!(await this.app.vault.adapter.exists(`${src}/${f}`))) { new Notice(`Backup „${name}" unvollständig — Wiederherstellung abgebrochen.`); return; }
+    // Vollständigkeit prüfen, bevor wir den aktiven Index ersetzen. hasAllRequiredFiles akzeptiert
+    // Container-Backups UND Prä-0.18-Tripel-Backups (loadIndex migriert Letztere beim Laden).
+    // list() gekapselt: der Ordner kann zwischen Modal-Öffnen und Klick wegrotiert sein — das muss
+    // als „unvollständig" mit Notice enden, nicht als unhandled rejection (Aufrufer sind `void …`).
+    let files: string[] = [];
+    try { files = (await this.app.vault.adapter.list(src)).files ?? []; } catch { /* → unvollständig */ }
+    if (!hasAllRequiredFiles(files)) {
+      new Notice(`Backup „${name}" unvollständig — Wiederherstellung abgebrochen.`);
+      return;
+    }
+    // Legacy-Backup (Prä-0.18-Tripel, kein Container): die korrupte index.bin im indexDir MUSS weg,
+    // bevor das Tripel darüber kopiert wird — loadIndexStore ist container-first und würde sonst die
+    // korrupte index.bin sehen, `corrupt` liefern und das restaurierte Tripel nie anschauen (die
+    // Wiederherstellung wäre still wirkungslos). Das Tripel im Backup ist an dieser Stelle bereits
+    // als vollständig bewiesen; enthält das Backup einen Container, überschreibt migrateIndex die
+    // Ziel-Datei ohnehin — dann ist nichts zu löschen.
+    if (!files.some(f => (f.split("/").pop() ?? f) === CONTAINER_FILE)) {
+      try { await this.app.vault.adapter.remove(`${this.settings.indexDir}/${CONTAINER_FILE}`); } catch { /* nicht vorhanden ok */ }
     }
     await migrateIndex(this.app.vault.adapter, src, this.settings.indexDir);
     await this.loadIndex();
@@ -716,25 +744,15 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   async loadIndex() {
-    const manifestPath = `${this.settings.indexDir}/manifest.json`;
-    // Konservativ kapseln: wirft exists() selbst, MUSS das als "Index könnte da sein" gelten
-    // (sonst würde ein exists-Fehler fälschlich als no-index → markFresh → Clobber-Risiko).
-    let manifestExists = true;
-    try { manifestExists = await this.app.vault.adapter.exists(manifestPath); } catch { manifestExists = true; }
-    let parseThrew = false;
-    let loaded: VaultIndex | null = null;
-    try {
-      loaded = await new IndexLoader(this.app.vault.adapter, this.settings.indexDir).load();
-    } catch (e) {
-      parseThrew = true;
-      // Im legitimen no-index-Fall wirft load() erwartbar (nichts zu laden) — kein echter Fehler.
-      if (manifestExists) console.warn("vault-rag: loadIndex failed", e);
-    }
-    const state = classifyLoadResult(manifestExists, parseThrew);
-    if (state === "loaded-ok" && loaded) {
-      this.index = loaded;
+    // Container-first (Task 2): loadIndexStore kapselt exists-Konservativität, Legacy-Migration
+    // und die Korruptions-Klassifikation an einer Stelle (obsidian-frei, getestet).
+    const result = await loadIndexStore(this.app.vault.adapter, this.settings.indexDir);
+    if (result.state === "loaded") {
+      // Gesunder Load beendet die Gefahrenzustand-Episode → Auto-Heal darf wieder greifen.
+      this.autoHealAttempted = false;
+      this.index = result.index;
       this.liveIndexer.init(this.index);
-      const st = await this.app.vault.adapter.stat(manifestPath);
+      const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/${CONTAINER_FILE}`);
       if (st) this.lastMtime = st.mtime;
       this.indexHealthy = true;
       this.refresh();
@@ -758,7 +776,7 @@ export default class VaultRagPlugin extends Plugin {
           warning: false,
         }).then((ok) => { if (ok) void this.healVault(); });
       }
-    } else if (state === "no-index") {
+    } else if (result.state === "no-index") {
       // Frische Installation: leerer Indexer darf gefahrlos aufbauen.
       this.index = null;
       this.liveIndexer.markFresh();
@@ -772,14 +790,91 @@ export default class VaultRagPlugin extends Plugin {
       this.liveIndexer.markUnready();
       this.indexHealthy = false;
       this.syncProgress();
-      new Notice("⚠ Vault Retrieval: Der Embedding-Index für die Ähnlichkeitssuche ist beschädigt — deine Notizen sind unberührt, nur der Suchindex. Schreibschutz aktiv. Über die Plugin-Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      new Notice("⚠ Vault Retrieval: Der Embedding-Index für die Ähnlichkeitssuche ist beschädigt — deine Notizen sind unberührt, nur der Suchindex. Schreibschutz aktiv; automatische Wiederherstellung wird versucht.", 10000);
+      // Fire-and-forget: die Heal-Kaskade darf onload()/loadIndex() nicht auf Netz/Backups blocken.
+      void this.attemptAutoHeal();
+    }
+  }
+
+  /** Backup-Kaskade: neuestes CRC-beweisbares Backup übernehmen, Lücke per Delta-Heal schließen,
+   *  nur restlos sauberen Heal persistieren. Ohne Endpoint/Backup bleibt der Gefahrenzustand
+   *  (iPhone wartet auf die Desktop-Heilung via Sync). */
+  private async attemptAutoHeal(): Promise<void> {
+    if (this.autoHealAttempted) return;
+    // Synchron beanspruchen (vor dem ersten await): maybeReload läuft auf einem Intervall und
+    // kann während des embedderReady-Pings einen zweiten corrupt-Load feuern — sonst liefe die
+    // teure Kaskade doppelt (jede fehlende Notiz zweimal embedden, doppelte Notices).
+    this.autoHealAttempted = true;
+    const ready = await this.embedderReady();
+    // Re-Check (1/2): Die Kaskade läuft detacht. Währenddessen kann maybeReload seinen guten
+    // prevIndex restauriert haben („Reload lieferte einen schlechteren Index") — dann ist der
+    // Gefahrenzustand vorbei. Ohne diesen Check würden wir einen älteren Backup-Stand über den
+    // guten Index schreiben (persist("heal") umgeht den Shrink-Guard) und jede Notice wäre Lärm.
+    // Versuch wieder freigeben: die Episode hat sich OHNE Heal erledigt — eine spätere echte
+    // Korruption derselben Session muss wieder Auto-Heal bekommen (die Notice verspricht es).
+    if (this.indexHealthy) { this.autoHealAttempted = false; return; }
+    if (!ready) {
+      // Versuch wieder freigeben: ein transient offline gestarteter Obsidian darf den einzigen
+      // Versuch der Episode nicht verbrauchen — der nächste corrupt-Load probiert es erneut.
+      this.autoHealAttempted = false;
+      new Notice("vault-rag: Automatische Wiederherstellung nicht möglich (Embedding-Endpoint nicht erreichbar) — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      return;
+    }
+    let candidate: VaultIndex | null = null;
+    for (const b of await this.listBackups()) { // sortBackupsNewestFirst-Reihenfolge
+      candidate = await verifyBackupCandidate(this.app.vault.adapter, `${this.backupsRoot()}/${b.name}`);
+      if (candidate) break;
+    }
+    if (!candidate) { // keine beweisbare Basis → Status quo, aber nicht stumm (Spec §Heal-Kaskade Schritt 3)
+      if (!this.indexHealthy) new Notice("vault-rag: Automatische Wiederherstellung nicht möglich (kein intaktes lokales Backup gefunden) — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      return;
+    }
+    const base = candidate;
+    // liveIndexer einmal snapshotten (Repo-Konvention, vgl. handleDelete/drainPending): ein
+    // paralleles resolveAndReconnectEmbedder() darf init/heal/persist nicht auf verschiedene
+    // Instanzen verteilen — sonst persistierte eine leere Instanz über den geheilten Stand.
+    const li = this.liveIndexer;
+    let healed = false;
+    let aborted = false;
+    let added = 0;
+    try {
+      await this.runIndexOp(async () => {
+        // Re-Check (2/2): zwischen Kaskadenstart und dem Zug an der runIndexOp-Kette kann der
+        // gute Index zurück sein — dann nichts anfassen (auch kein markUnready).
+        if (this.indexHealthy) { aborted = true; return; }
+        li.init(base);
+        const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
+        const report = await li.healMissing(missing, (p) => this.app.vault.adapter.read(p));
+        if (!canPersistHealedIndex(report.failed.length)) {
+          li.markUnready(); // halb geheilten Index NICHT verteilen
+          return;
+        }
+        await li.persist("heal");
+        healed = true;
+        added = report.added;
+      });
+    } catch (e) {
+      // persist/read können werfen (Disk, mkdir, writeBinary). Unbehandelt bliebe der Nutzer
+      // ewig auf „automatische Wiederherstellung wird versucht" sitzen.
+      console.warn("vault-rag: attemptAutoHeal failed", e);
+      li.markUnready();
+      new Notice("vault-rag: Automatische Wiederherstellung fehlgeschlagen — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      return;
+    }
+    // guter Index steht wieder → stiller Abbruch, keine Notice; Versuch wieder freigeben (s. o.).
+    if (aborted) { this.autoHealAttempted = false; return; }
+    if (healed) {
+      new Notice(`vault-rag: Index automatisch aus Backup wiederhergestellt — ${added} Notizen ergänzt.`, 8000);
+      await this.loadIndex(); // lädt den frisch persistierten Container → gesunder Zustand
+    } else {
+      new Notice("vault-rag: Automatische Wiederherstellung unvollständig — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
     }
   }
 
   async maybeReload() {
     if (this.isSwitchingIndexDir) return;
     try {
-      const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/manifest.json`);
+      const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/${CONTAINER_FILE}`);
       if (st && st.mtime !== this.lastMtime) {
         const prevCount = this.index?.count ?? 0;
         const prevIndex = this.index;

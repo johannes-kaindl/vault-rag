@@ -9,12 +9,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { VaultAdapter, IndexLoader, parseIndex } from "../src/index";
+import { VaultAdapter, VaultIndex } from "../src/index";
 import { LiveIndexer } from "../src/live_indexer";
 import { EmbeddingClient } from "../src/embedder";
-import { classifyLoadResult, assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/index_guard";
-import { migrateIndex, INDEX_REQUIRED_FILES, hasAllRequiredFiles } from "../src/index_migrate";
+import { assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/index_guard";
+import { migrateIndex, hasAllRequiredFiles } from "../src/index_migrate";
 import { selectBackupsToDelete } from "../src/index_backup";
+import { CONTAINER_FILE, decodeContainer } from "../src/index_container";
+import { loadIndexStore, verifyBackupCandidate } from "../src/index_store";
 
 const DIM = 256;
 
@@ -27,6 +29,7 @@ function fsAdapter(): VaultAdapter {
     writeBinary: async (p, d) => { await fs.mkdir(path.dirname(p), { recursive: true }); await fs.writeFile(p, Buffer.from(d)); },
     mkdir: async (p) => { await fs.mkdir(p, { recursive: true }); },
     exists: async (p) => { try { await fs.access(p); return true; } catch { return false; } },
+    remove: async (p) => { await fs.rm(p, { force: true }); },
   };
 }
 
@@ -43,8 +46,17 @@ function fakeEmbedder(): EmbeddingClient {
 }
 
 async function countOnDisk(dir: string): Promise<number> {
-  const m = JSON.parse(await fs.readFile(path.join(dir, "manifest.json"), "utf8")) as { count: number };
-  return m.count;
+  const b = await fs.readFile(path.join(dir, CONTAINER_FILE));
+  const { manifest } = decodeContainer(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength));
+  return manifest.count;
+}
+
+/** Lädt via loadIndexStore (Container-first) und wirft, falls kein ladbarer Index vorliegt —
+ *  Ersatz für das alte `new IndexLoader(adapter, dir).load()` (Tripel-only). */
+async function loadIndex(adapter: VaultAdapter, dir: string): Promise<VaultIndex> {
+  const r = await loadIndexStore(adapter, dir);
+  if (r.state !== "loaded") throw new Error(`Index nicht ladbar (state=${r.state})`);
+  return r.index;
 }
 
 describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
@@ -69,22 +81,19 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
 
   it("Baseline: aufgebauter Index lädt sauber (count 100)", async () => {
     await buildGoodIndex();
-    const idx = await new IndexLoader(fsAdapter(), indexDir).load();
+    const idx = await loadIndex(fsAdapter(), indexDir);
     expect(idx.count).toBe(100);
     expect(await countOnDisk(indexDir)).toBe(100);
   });
 
-  it("Byte-Guard: echt abgeschnittener notes.i8 → load wirft → Gefahrenzustand", async () => {
+  it("Byte-Guard: echt abgeschnittener index.bin → loadIndexStore erkennt den Gefahrenzustand (state 'corrupt')", async () => {
     await buildGoodIndex();
-    // notes.i8 real abschneiden (nicht mehr count*dim Bytes).
-    const p = path.join(indexDir, "notes.i8");
-    const buf = await fs.readFile(p); // 100*256 = 25600 Bytes
-    await fs.writeFile(p, buf.subarray(0, 20001)); // echt kürzer + nicht durch 256 teilbar
-    let threw = false;
-    try { await new IndexLoader(fsAdapter(), indexDir).load(); } catch { threw = true; }
-    expect(threw).toBe(true);
-    const manifestExists = true; // manifest.json liegt weiter da
-    expect(classifyLoadResult(manifestExists, threw)).toBe("load-failed-index-present");
+    // index.bin real abschneiden (CRC + Header/Matrix-Länge passen danach nicht mehr).
+    const p = path.join(indexDir, CONTAINER_FILE);
+    const buf = await fs.readFile(p);
+    await fs.writeFile(p, buf.subarray(0, buf.length - 10)); // echt kürzer als der volle Container
+    const result = await loadIndexStore(fsAdapter(), indexDir);
+    expect(result.state).toBe("corrupt");
   });
 
   it("KEIN CLOBBER: nicht-initialisierter Indexer (Gefahrenzustand) darf den guten Index nicht überschreiben", async () => {
@@ -101,7 +110,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
 
   it("KEIN CLOBBER: Shrink-Guard blockt einen Ein-Schritt-Sturz (100→1) und lässt Platte unberührt", async () => {
     await buildGoodIndex();
-    const idx = await new IndexLoader(fsAdapter(), indexDir).load();
+    const idx = await loadIndex(fsAdapter(), indexDir);
     const li = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
     li.init(idx); // ready=true; persist("live") liest den Diskzustand jetzt live (100)
     for (const p of paths.slice(1)) li.remove(p); // auf 1 schrumpfen (simulierte Korruption)
@@ -114,15 +123,15 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     const adapter = fsAdapter();
     const backupDir = path.join(root, ".obsidian/plugins/vault-retrieval/index-backups/2026-07-11T00-00-00-000Z");
     await migrateIndex(adapter, indexDir, backupDir);
-    // Vollständigkeitscheck (wie restoreBackup): alle Pflichtdateien im Backup vorhanden.
-    for (const f of INDEX_REQUIRED_FILES) {
-      await expect(fs.access(path.join(backupDir, f))).resolves.toBeUndefined();
-    }
+    // Vollständigkeitscheck (wie restoreBackup): ladbarer Bestand im Backup (Container oder Legacy-Tripel).
+    const backupFiles = await fs.readdir(backupDir);
+    const backupPaths = backupFiles.map(f => `${backupDir}/${f}`);
+    expect(hasAllRequiredFiles(backupPaths)).toBe(true);
     // Hauptindex zerstören …
-    await fs.writeFile(path.join(indexDir, "notes.i8"), Buffer.alloc(10));
+    await fs.writeFile(path.join(indexDir, CONTAINER_FILE), Buffer.alloc(10));
     // … und aus Backup restaurieren.
     await migrateIndex(adapter, backupDir, indexDir);
-    const idx = await new IndexLoader(adapter, indexDir).load();
+    const idx = await loadIndex(adapter, indexDir);
     expect(idx.count).toBe(100);
   });
 
@@ -138,9 +147,9 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     await buildGoodIndex();
     const adapter = fsAdapter();
     const backupDir = path.join(root, ".obsidian/plugins/vault-retrieval/index-backups/2026-07-19T00-00-00-000Z");
-    // Quelle nach dem Kopierbeginn unvollständig machen: notes.i8 löschen, BEVOR migrateIndex läuft
+    // Quelle nach dem Kopierbeginn unvollständig machen: index.bin löschen, BEVOR migrateIndex läuft
     // (simuliert eine Race, bei der die Quelldatei genau in diesem Moment fehlt/unlesbar ist).
-    await fs.rm(path.join(indexDir, "notes.i8"));
+    await fs.rm(path.join(indexDir, CONTAINER_FILE));
     await migrateIndex(adapter, indexDir, backupDir);
     // migrateIndex überspringt die fehlende Datei still — Zielordner ist unvollständig.
     const listing = await fs.readdir(backupDir);
@@ -161,7 +170,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     expect(await countOnDisk(indexDir)).toBe(40);
 
     // Laden + Diff gegen den vollen Vault (100).
-    const idx = await new IndexLoader(fsAdapter(), indexDir).load();
+    const idx = await loadIndex(fsAdapter(), indexDir);
     const li = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
     li.init(idx); // Diskzustand (40) wird bei persist("live") live nachgelesen
     const { missing } = diffIndexVsVault([...idx.paths], paths);
@@ -173,7 +182,7 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     expect(await countOnDisk(indexDir)).toBe(100);
 
     // Additiv: die ursprünglichen 40 sind noch da.
-    const healed = await new IndexLoader(fsAdapter(), indexDir).load();
+    const healed = await loadIndex(fsAdapter(), indexDir);
     expect(healed.rowFor("note-000.md")).toBeGreaterThanOrEqual(0);
     expect(healed.rowFor("note-099.md")).toBeGreaterThanOrEqual(0);
   });
@@ -206,5 +215,137 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
 
     // Der echte Index auf Platte ist UNBERÜHRT:
     expect(await countOnDisk(indexDir)).toBe(100);
+  });
+
+  it("VORFALL 22.07. NACHGESTELLT: gemischte Generationen sind strukturell unmöglich — es gibt nur noch ganze Container-Generationen", async () => {
+    await buildGoodIndex(); // schreibt Container Gen A (100 Notizen)
+    const genA = await fs.readFile(path.join(indexDir, CONTAINER_FILE));
+    // Gen B: kleiner Index (6 Notizen) — wie der iPhone-Winz-Stand vom 22.07.
+    const li = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
+    li.markFresh();
+    await li.healMissing(paths.slice(0, 6), read);
+    await li.persist("heal"); // Container Gen B ersetzt Gen A ALS GANZES
+    // Sync kann nur „Datei A" oder „Datei B" wählen — beide laden konsistent:
+    for (const gen of [genA, await fs.readFile(path.join(indexDir, CONTAINER_FILE))]) {
+      await fs.writeFile(path.join(indexDir, CONTAINER_FILE), gen);
+      const r = await loadIndexStore(fsAdapter(), indexDir);
+      expect(r.state).toBe("loaded"); // nie ein Zustand, den kein Gerät geschrieben hat
+    }
+  });
+
+  it("halber Sync-Download (abgeschnittener Container) → corrupt, kein stiller Fehlladen", async () => {
+    await buildGoodIndex();
+    const p = path.join(indexDir, CONTAINER_FILE);
+    const full = await fs.readFile(p);
+    await fs.writeFile(p, full.subarray(0, Math.floor(full.length / 2)));
+    expect((await loadIndexStore(fsAdapter(), indexDir)).state).toBe("corrupt");
+  });
+
+  it("SILENT-MIX-LÜCKE GESCHLOSSEN: gleicher Count, getauschte Bytes → CRC schlägt an", async () => {
+    await buildGoodIndex();
+    const p = path.join(indexDir, CONTAINER_FILE);
+    const bytes = await fs.readFile(p);
+    bytes[bytes.length - 100] = bytes[bytes.length - 100] ^ 0xff; // Matrix-Byte einer „fremden Generation"
+    await fs.writeFile(p, bytes);
+    expect((await loadIndexStore(fsAdapter(), indexDir)).state).toBe("corrupt");
+  });
+
+  it("End-to-End-Migration: echter Alt-Tripel-Bestand → ein Load → Container da, Tripel weg, Index identisch nutzbar", async () => {
+    // Alt-Tripel wie ein Prä-0.18-Plugin schreiben: manifest/paths/notes.i8 von Hand, byte-identisch
+    // zu einem frisch gebauten Container (wie writeLegacyTriple in tests/index_store.test.ts, nur mit
+    // den 100 Test-Notizen dieses Files — das Tripel wird aus dem echten Container abgeleitet).
+    await buildGoodIndex();
+    const adapter = fsAdapter();
+    const containerPath = path.join(indexDir, CONTAINER_FILE);
+    const raw = await fs.readFile(containerPath);
+    const { manifest, paths: legacyPaths, matrix } = decodeContainer(
+      raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength),
+    );
+    await fs.rm(containerPath); // nur das Alt-Tripel soll vorliegen, kein Container
+    await adapter.writeBinary(path.join(indexDir, "notes.i8"), matrix);
+    await adapter.write(path.join(indexDir, "paths.json"), JSON.stringify(legacyPaths));
+    await adapter.write(path.join(indexDir, "manifest.json"), JSON.stringify(manifest));
+
+    // Erster Load: Migration greift — legacy-migrated, count 100.
+    const first = await loadIndexStore(adapter, indexDir);
+    expect(first.state).toBe("loaded");
+    if (first.state === "loaded") {
+      expect(first.source).toBe("legacy-migrated");
+      expect(first.index.count).toBe(100);
+    }
+    // EFFEKT auf dem Dateisystem: Tripel weg, Container da.
+    expect(await adapter.exists(path.join(indexDir, "notes.i8"))).toBe(false);
+    expect(await adapter.exists(path.join(indexDir, "paths.json"))).toBe(false);
+    expect(await adapter.exists(path.join(indexDir, "manifest.json"))).toBe(false);
+    expect(await adapter.exists(containerPath)).toBe(true);
+    expect(await countOnDisk(indexDir)).toBe(100);
+
+    // Zweiter Load: idempotent — jetzt via Container, kein erneutes Repacken nötig.
+    const second = await loadIndexStore(adapter, indexDir);
+    expect(second.state).toBe("loaded");
+    if (second.state === "loaded") {
+      expect(second.source).toBe("container");
+      expect(second.index.count).toBe(100);
+    }
+  });
+
+  it("LEGACY-BACKUP-RESTORE: korrupter Container schattet das restaurierte Prä-0.18-Tripel — erst sein Wegräumen macht den Recovery-Pfad wieder lebendig", async () => {
+    // Pinnt die Sequenz, die restoreBackup (main.ts) fährt — hier auf Modul-Ebene, da main.ts
+    // nicht headless ausführbar ist. Szenario: index.bin korrupt, Backup ist ein Prä-0.18-Tripel.
+    const adapter = fsAdapter();
+    await buildGoodIndex();
+    const containerPath = path.join(indexDir, CONTAINER_FILE);
+
+    // Prä-0.18-Backup bauen: Tripel aus dem echten Container ableiten (wie im Migrations-Szenario).
+    const raw = await fs.readFile(containerPath);
+    const { manifest, paths: legacyPaths, matrix } = decodeContainer(
+      raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength),
+    );
+    const backupDir = path.join(root, "backups", "2026-07-20T00-00-00-000Z");
+    await adapter.writeBinary(path.join(backupDir, "notes.i8"), matrix);
+    await adapter.write(path.join(backupDir, "paths.json"), JSON.stringify(legacyPaths));
+    await adapter.write(path.join(backupDir, "manifest.json"), JSON.stringify(manifest));
+    // Wie restoreBackup es sieht: vollständig (Legacy-Tripel), aber OHNE Container.
+    const backupFiles = (await fs.readdir(backupDir)).map(f => `${backupDir}/${f}`);
+    expect(hasAllRequiredFiles(backupFiles)).toBe(true);
+    expect(backupFiles.some(f => (f.split("/").pop() ?? f) === CONTAINER_FILE)).toBe(false);
+
+    // Aktiven Container korrumpieren (Byte-Flip in der Matrix → CRC schlägt an).
+    const bytes = await fs.readFile(containerPath);
+    bytes[bytes.length - 100] = bytes[bytes.length - 100] ^ 0xff;
+    await fs.writeFile(containerPath, bytes);
+    expect((await loadIndexStore(adapter, indexDir)).state).toBe("corrupt");
+
+    // (a) NEGATIV-BEWEIS (Verhalten OHNE Wegräumen): migrateIndex kopiert nur das Tripel, die
+    //     korrupte index.bin bleibt liegen → container-first sieht sie zuerst → corrupt. Das
+    //     restaurierte Tripel wird nie angeschaut, der Recovery-Pfad wäre still wirkungslos.
+    await migrateIndex(adapter, backupDir, indexDir);
+    expect((await loadIndexStore(adapter, indexDir)).state).toBe("corrupt");
+
+    // (b) FIX (was restoreBackup jetzt tut): kein Container im Backup → korrupte index.bin vor
+    //     der Migration entfernen. Danach trägt der Legacy-Pfad inklusive Container-Migration.
+    await adapter.remove(containerPath);
+    await migrateIndex(adapter, backupDir, indexDir);
+    const restored = await loadIndexStore(adapter, indexDir);
+    expect(restored.state).toBe("loaded");
+    if (restored.state === "loaded") {
+      expect(restored.source).toBe("legacy-migrated");
+      expect(restored.index.count).toBe(100);
+    }
+    expect(await countOnDisk(indexDir)).toBe(100);
+  });
+
+  it("Backup-Kaskade-Basis: von zwei Backups ist das neuere korrupt → verifyBackupCandidate beweist das ältere", async () => {
+    await buildGoodIndex();
+    const b1 = path.join(root, "backups", "2026-07-28T10-00-00-000Z");
+    const b2 = path.join(root, "backups", "2026-07-29T10-00-00-000Z");
+    await migrateIndex(fsAdapter(), indexDir, b1);
+    await migrateIndex(fsAdapter(), indexDir, b2);
+    const p2 = path.join(b2, CONTAINER_FILE);
+    const bytes = await fs.readFile(p2);
+    bytes[20] = bytes[20] ^ 0xff;
+    await fs.writeFile(p2, bytes);
+    expect(await verifyBackupCandidate(fsAdapter(), b2)).toBeNull();
+    expect((await verifyBackupCandidate(fsAdapter(), b1))?.count).toBe(100);
   });
 });

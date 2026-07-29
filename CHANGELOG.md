@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Index-Format:** Der Sync-Index ist jetzt EINE Container-Datei `_vaultrag/index.bin`
+  (vorher drei: `notes.i8`/`paths.json`/`manifest.json`). Obsidian Sync kann damit keine
+  inkonsistenten Mischzustände aus zwei Generationen mehr erzeugen — die Wurzel der
+  wiederkehrenden Index-Beschädigung (Vorfälle 19.07./22.07.) ist beseitigt, nicht nur erkannt.
+  Bestehende Indizes werden beim ersten Start automatisch und verlustfrei migriert.
+  **Mixed-Version-Hinweis:** Ein Gerät, das noch eine ältere Plugin-Version läuft, zeigt bis
+  zu seinem Update „kein Index" an (kein Datenverlust — Notizen sind unberührt).
+
+### Added
+- **Automatische Wiederherstellung:** Ist der Index beim Laden beschädigt (z. B. halber
+  Sync-Download), stellt das Plugin ihn selbstständig aus dem neuesten per Prüfsumme
+  verifizierten geräte-lokalen Backup wieder her und ergänzt fehlende Notizen per
+  Delta-Reindex — sofern der Embedding-Endpoint erreichbar ist. Sonst wie bisher:
+  Schreibschutz + Meldung.
+
 ## [0.17.4] — 2026-07-28
 
 ### Fixed

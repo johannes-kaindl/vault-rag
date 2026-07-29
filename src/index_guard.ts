@@ -49,6 +49,16 @@ export function isSuspiciousShrink(currentCount: number, incomingCount: number, 
 }
 
 /**
+ * Auto-Heal-Persist-Regel (Spec §Heal-Kaskade, Schutzregel b): Der aus einem Backup geheilte
+ * Index darf nur persistieren (und sich per Sync verteilen), wenn der Heal-Lauf restlos
+ * durchlief. Bricht der Endpoint mitten im Heal weg (failed > 0), bleibt der Gefahrenzustand
+ * bestehen, statt einen halb geheilten Index zu verteilen.
+ */
+export function canPersistHealedIndex(failedCount: number): boolean {
+  return failedCount === 0;
+}
+
+/**
  * Mengendifferenz Vault↔Index. `missing` = im Vault, aber nicht im Index (Self-Heal-Kandidaten);
  * `stale` = im Index, aber nicht mehr im Vault (informativ; Live-Delete räumt sie normal ab).
  */

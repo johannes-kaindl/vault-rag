@@ -441,7 +441,7 @@ for a separate slice.
   id was already taken in the Obsidian community directory by an unrelated plugin. The GitHub/Codeberg repo
   keeps the `vault-rag` name; only the plugin identity changed.
 - **Breaking:** IMG→MD (image transcription) has been split out into its own plugin,
-  [`image-to-markdown`](https://codeberg.org/jkaindl/vault-rag). vault-rag is now a focused RAG core
+  [`image-to-markdown`](https://git.jkaindl.de/jkaindl/vault-rag). vault-rag is now a focused RAG core
   (related notes, semantic search, chat). The IMG→MD sidebar, command and editor context-menu entry,
   along with the Vision settings, move there. Install `image-to-markdown` separately to keep that feature.
 - **Settings layout** — reworked toward Obsidian's native conventions: sentence-case labels, one-line

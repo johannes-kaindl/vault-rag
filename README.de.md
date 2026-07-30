@@ -6,7 +6,7 @@
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-DOCS)
-[![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fcodeberg.org&label=release)](https://codeberg.org/jkaindl/vault-rag/releases)
+[![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fgit.jkaindl.de&label=release)](https://git.jkaindl.de/jkaindl/vault-rag/releases)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.12.7%2B%20·%20Desktop%20%26%20Mobil-7c3aed)
 
 Vault Retrieval macht deine Notizen durchsuchbar, ohne dass irgendetwas die Maschine verlässt. Es hält einen kleinen Embedding-Index **im Vault** — synct mit ihm, lesbar auf jedem Gerät — und beantwortet drei Fragen: *Was habe ich sonst dazu geschrieben? Wo habe ich sowas mal gesagt? Was weiß mein Vault über X?* Embedding und Generierung laufen gegen lokale LLM-Endpunkte, die du selbst bestimmst.
@@ -40,7 +40,7 @@ In Obsidian **Einstellungen → Community-Plugins → Durchsuchen** öffnen, nac
 
 ### Manuell
 
-`main.js`, `manifest.json` und `styles.css` aus dem [letzten Release](https://codeberg.org/jkaindl/vault-rag/releases) nach `<vault>/.obsidian/plugins/vault-retrieval/` legen, dann unter **Einstellungen → Community-Plugins** aktivieren.
+`main.js`, `manifest.json` und `styles.css` aus dem [letzten Release](https://git.jkaindl.de/jkaindl/vault-rag/releases) nach `<vault>/.obsidian/plugins/vault-retrieval/` legen, dann unter **Einstellungen → Community-Plugins** aktivieren.
 
 ### BRAT (Beta)
 
@@ -49,7 +49,7 @@ Den GitHub-Mirror `johannes-kaindl/vault-rag` in [BRAT](https://github.com/TfTHa
 ### Aus dem Quellcode
 
 ```bash
-git clone https://codeberg.org/jkaindl/vault-rag
+git clone https://git.jkaindl.de/jkaindl/vault-rag
 cd vault-rag
 npm install
 npm run build      # → main.js
@@ -135,11 +135,11 @@ Die Konfiguration kommt aus den Plugin-Einstellungen — keine zweite Config-Dat
 
 ## Verwandt
 
-Bild-Transkription (Handschrift/Screenshots → Markdown) liegt im Schwester-Plugin **[image-to-markdown](https://codeberg.org/jkaindl/image-to-markdown)**.
+Bild-Transkription (Handschrift/Screenshots → Markdown) liegt im Schwester-Plugin **[image-to-markdown](https://git.jkaindl.de/jkaindl/image-to-markdown)**.
 
 ## Mitwirken
 
-Issues und Pull Requests gerne auf [Codeberg](https://codeberg.org/jkaindl/vault-rag) (kanonisch; GitHub ist ein Mirror). Das Projekt ist testgetrieben — jede Änderung kommt mit Tests (`npm test`), größere Features laufen über brainstorming → Spec → Plan → TDD. Konventionen in [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md).
+Issues und Pull Requests gerne auf [Forgejo](https://git.jkaindl.de/jkaindl/vault-rag) (kanonisch; GitHub ist ein Mirror). Das Projekt ist testgetrieben — jede Änderung kommt mit Tests (`npm test`), größere Features laufen über brainstorming → Spec → Plan → TDD. Konventionen in [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md).
 
 ## Lizenz
 

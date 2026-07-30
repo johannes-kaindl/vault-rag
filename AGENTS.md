@@ -25,7 +25,7 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
   über lokale LLMs. Das Panel selbst braucht **keinen** Daemon, kein VPN, kein On-Device-LLM.
 - **Slices statt Monolith:** **A Related-Notes** (✅ gebaut + live) · **B Chat** · **C Inline-Composer**.
 - **IMG→MD ausgegliedert (2026-06-21):** Bild-Transkription ist kein RAG → eigenständiges
-  Plugin [`image-to-markdown`](https://codeberg.org/jkaindl/vault-rag) (Schwester-Repo `../image-to-markdown`).
+  Plugin [`image-to-markdown`](https://git.jkaindl.de/jkaindl/vault-rag) (Schwester-Repo `../image-to-markdown`).
   vault-rag bleibt der schlanke RAG-Kern. Der SSE-Transport (`sse.ts`/`think_splitter.ts`) ist in beide
   Plugins kopiert, nicht geteilt.
 - **Offline-first & cross-device:** HyperForge exportiert beim Reindex einen note-level
@@ -349,7 +349,7 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 
 ## Abweichungen von der Leitkonvention
 
-Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich released (Codeberg kanonisch
+Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich released (Forgejo kanonisch
 + GitHub-Mirror). Bewusste, begründete Abweichungen (comply-or-explain):
 
 - **CORE-META-02** — Badge-Zeile **partiell**: Lizenz/Docs/Obsidian gesetzt; Release/CI-Badges fehlen.
@@ -368,8 +368,8 @@ Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich release
   EN bleibt kanonisch; `docs/` ist bewusst nur englisch (Umfang).
   ⚠️ **Beide Fassungen zusammen pflegen** — eine veraltete Übersetzung ist schlechter als keine.
 - **CORE-META-10** — ✅ erledigt (v0.2.0): `package.json`/Manifest konsistent; Forge-Description + Topics
-  auf Codeberg **und** GitHub gesetzt.
-- **CORE-GIT-01** — ✅ erledigt (v0.2.0, 2026-06-21): Codeberg-`origin` gesetzt (`codeberg.org/jkaindl/vault-rag`,
+  auf Forgejo **und** GitHub gesetzt.
+- **CORE-GIT-01** — ✅ erledigt (v0.2.0, 2026-06-21): Forgejo-`origin` gesetzt (`git.jkaindl.de/jkaindl/vault-rag`,
   kanonisch) + GitHub-Push-Mirror (`johannes-kaindl/vault-rag`, `sync_on_commit`).
 - **PROF-TS-01** — ✅ erledigt: `npm run lint` (ESLint flat-config: `typescript-eslint` recommended-type-checked
   + `eslint-plugin-obsidianmd`) und `npm run typecheck` (`tsc --noEmit`) verdrahtet; ESLint ist sauber

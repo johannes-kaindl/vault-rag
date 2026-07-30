@@ -6,7 +6,7 @@
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-DOCS)
-[![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fcodeberg.org&label=release)](https://codeberg.org/jkaindl/vault-rag/releases)
+[![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fgit.jkaindl.de&label=release)](https://git.jkaindl.de/jkaindl/vault-rag/releases)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.12.7%2B%20·%20desktop%20%26%20mobile-7c3aed)
 
 Vault Retrieval turns your notes into a searchable knowledge base without sending anything to the cloud. It keeps a small embedding index inside your vault — synced along with it, readable on every device — and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Embedding and generation run against local LLM endpoints you control.
@@ -42,7 +42,7 @@ In Obsidian, open **Settings → Community plugins → Browse**, search for **Va
 
 ### Manual
 
-Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://codeberg.org/jkaindl/vault-rag/releases), drop them into `<vault>/.obsidian/plugins/vault-retrieval/`, then enable **Settings → Community plugins → Vault Retrieval**.
+Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://git.jkaindl.de/jkaindl/vault-rag/releases), drop them into `<vault>/.obsidian/plugins/vault-retrieval/`, then enable **Settings → Community plugins → Vault Retrieval**.
 
 ### BRAT (beta)
 
@@ -51,7 +51,7 @@ Add the GitHub mirror `johannes-kaindl/vault-rag` in the [BRAT](https://github.c
 ### From source
 
 ```bash
-git clone https://codeberg.org/jkaindl/vault-rag
+git clone https://git.jkaindl.de/jkaindl/vault-rag
 cd vault-rag
 npm install
 npm run build      # → main.js
@@ -149,11 +149,11 @@ Note: `read_note` enforces exclude prefixes case-insensitively (safe on case-ins
 
 ## Related
 
-Image transcription (handwriting/screenshots → Markdown) lives in the sibling plugin **[image-to-markdown](https://codeberg.org/jkaindl/image-to-markdown)**.
+Image transcription (handwriting/screenshots → Markdown) lives in the sibling plugin **[image-to-markdown](https://git.jkaindl.de/jkaindl/image-to-markdown)**.
 
 ## Contributing
 
-Issues and pull requests are welcome on [Codeberg](https://codeberg.org/jkaindl/vault-rag) (canonical; GitHub is a mirror). The project is test-driven — every change ships with tests (`npm test`), and larger features go through a brainstorm → spec → plan → TDD flow ([`docs/superpowers/`](https://github.com/johannes-kaindl/vault-rag/tree/main/docs/superpowers)). See [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md) for architecture and conventions.
+Issues and pull requests are welcome on [Forgejo](https://git.jkaindl.de/jkaindl/vault-rag) (canonical; GitHub is a mirror). The project is test-driven — every change ships with tests (`npm test`), and larger features go through a brainstorm → spec → plan → TDD flow ([`docs/superpowers/`](https://github.com/johannes-kaindl/vault-rag/tree/main/docs/superpowers)). See [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md) for architecture and conventions.
 
 ## License
 

@@ -1,7 +1,7 @@
 # Contributing
 
 Thanks for helping out! Issues and pull requests are welcome on
-[Codeberg](https://codeberg.org/jkaindl/vault-rag) (the GitHub repo is a mirror). This repo follows the
+[Forgejo](https://git.jkaindl.de/jkaindl/vault-rag) (the GitHub repo is a mirror). This repo follows the
 workspace conventions documented in [`AGENTS.md`](AGENTS.md); the short version:
 
 ## Branch model
@@ -27,7 +27,7 @@ workspace conventions documented in [`AGENTS.md`](AGENTS.md); the short version:
 
 ## Versioning & remotes
 - SemVer **without** a `v` prefix (`0.3.0`). Tag releases match `manifest.json`/`versions.json`.
-- Codeberg (`origin`) is canonical; GitHub is a push-mirror.
+- Forgejo (`origin`) is canonical; GitHub is a push-mirror.
 
 ## License of contributions
 By contributing you agree that your **code** is licensed under **AGPL-3.0-or-later** and your

@@ -556,12 +556,12 @@ export class SmartApplyPanel implements HubPanel {
 
   private fmCell(v: FmValue | undefined): string {
     if (v === undefined) return "—";
-    return Array.isArray(v) ? v.join(", ") : v;
+    return Array.isArray(v) ? v.join(", ") : String(v);
   }
 
   private hasValue(v: FmValue | undefined): boolean {
     if (v === undefined) return false;
-    return Array.isArray(v) ? v.length > 0 : v.trim() !== "";
+    return Array.isArray(v) ? v.length > 0 : String(v).trim() !== "";
   }
 
   /** Zurückhaltend (ausklappbar): unverändert ODER neu-aber-leer. Alles andere ist „gesetzt". */

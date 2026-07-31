@@ -97,9 +97,6 @@ retrieval_facade.ts  Gemeinsame obsidian-freie Fassade über Retriever/Embedder 
                   getypte Result-Unions (hits/no-index/offline/not-indexed/…), nie throw.
                   resolveNotePath (Path-Guard) lebt hier. Kein this.retriever-Feld mehr.
 chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker.py).
-reasoning.ts      Reine Thinking-Helfer: suppressParams (Cross-Server-Union reasoning_effort/
-                  chat_template_kwargs/reasoning_budget — nie Boolean/„minimal") · reasoningHappened
-                  (griff der Suppress? <think>/reasoning-Feld) · isAlwaysOnThinker (gpt-oss/Harmony).
 capabilities.ts   Reine Vision/Thinking-Erkennung, geschichtet L1 Metadaten (Ollama /api/show,
                   LM Studio /api/v1|v0) → L2 Name-Heuristik → L3 live-bestätigt (monotones Upgrade);
                   geteilter fetchCapabilities(baseUrl, model)-Probe-Helper.
@@ -349,8 +346,9 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 
 ## Abweichungen von der Leitkonvention
 
-Stand 2026-06-21 — `vault-rag` ist mit **v0.2.0** erstmals öffentlich released (Forgejo kanonisch
-+ GitHub-Mirror). Bewusste, begründete Abweichungen (comply-or-explain):
+Stand: siehe `CHANGELOG.md` / `manifest.json` (dort steht die maßgebliche Version — hier bewusst
+keine, damit dieser Block nicht durch Zeitablauf falsch wird). Öffentlich released, Forgejo
+kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain):
 
 - **CORE-META-02** — Badge-Zeile **partiell**: Lizenz/Docs/Obsidian gesetzt; Release/CI-Badges fehlen.
   *Grund:* Release-Badge mit v0.2.0 nachziehbar; CI-Badges erst mit CI.

@@ -1,17 +1,18 @@
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
 import { httpJson, probeEndpoint } from "./http";
+import { authHeaders } from "./endpoint_config";
 import { EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 
 export class EmbeddingClient {
   private endpoint: string;
-  constructor(endpoint: string, private model: string) {
+  constructor(endpoint: string, private model: string, private apiKey?: string) {
     this.endpoint = normalizeEndpoint(endpoint);
   }
 
   /** Erreichbarkeit + Klartext-Diagnose des Endpunkts. */
   async probe(): Promise<EndpointStatus> {
-    return probeEndpoint(this.endpoint);
+    return probeEndpoint(this.endpoint, this.apiKey);
   }
 
   /** Boolean-Kurzform für Aufrufer (Resolver), die nur Erreichbarkeit brauchen.
@@ -22,7 +23,7 @@ export class EmbeddingClient {
 
   async listModels(): Promise<string[]> {
     try {
-      const { status, json } = await httpJson({ url: `${this.endpoint}/v1/models` });
+      const { status, json } = await httpJson({ url: `${this.endpoint}/v1/models`, headers: authHeaders(this.apiKey) });
       if (status !== 200) return [];
       const j = json as { data?: { id?: string }[] };
       return (j.data ?? []).map(m => m.id).filter((x): x is string => typeof x === "string").sort();
@@ -32,7 +33,7 @@ export class EmbeddingClient {
   /** Best-effort native Capability-Metadaten (Ollama /api/show, LM Studio /api/v1|v0).
    *  null wenn nichts Verwertbares verfügbar. this.endpoint ist bereits die Basis-URL. */
   async fetchCapabilities(model: string): Promise<Capabilities | null> {
-    return fetchCapabilities(this.endpoint, model);
+    return fetchCapabilities(this.endpoint, model, this.apiKey);
   }
 
   async embed(texts: string[]): Promise<Float32Array[]> {
@@ -42,7 +43,7 @@ export class EmbeddingClient {
       const { status, json } = await httpJson({
         url: `${this.endpoint}/v1/embeddings`,
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders(this.apiKey) },
         body: JSON.stringify({ model: this.model, input: batch }),
       });
       if (status < 200 || status >= 300) throw new Error(`Embedding HTTP ${status}`);

@@ -86,4 +86,34 @@ describe("EmbeddingClient", () => {
       expect(await new EmbeddingClient("http://x", "m").fetchCapabilities("m")).toBeNull();
     });
   });
+
+  describe("API-Schlüssel", () => {
+    const headersOf = (call: number): Record<string, string> =>
+      (vi.mocked(requestUrl).mock.calls[call][0] as { headers?: Record<string, string> }).headers ?? {};
+
+    it("embed sendet den Bearer mit", async () => {
+      vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ embedding: makeVec(4) }] }) as any);
+      await new EmbeddingClient("https://x/api", "m", "sk-1").embed(["hallo"]);
+      expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+      expect(headersOf(0)["Content-Type"]).toBe("application/json");
+    });
+
+    it("listModels sendet den Bearer mit", async () => {
+      vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m" }] }) as any);
+      await new EmbeddingClient("https://x/api", "m", "sk-1").listModels();
+      expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+    });
+
+    it("probe sendet den Bearer mit", async () => {
+      vi.mocked(requestUrl).mockResolvedValue(ok({ data: [] }) as any);
+      await new EmbeddingClient("https://x/api", "m", "sk-1").probe();
+      expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+    });
+
+    it("ohne Schlüssel bleibt der Header weg", async () => {
+      vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ embedding: makeVec(4) }] }) as any);
+      await new EmbeddingClient("http://localhost:11434", "m").embed(["hallo"]);
+      expect(headersOf(0).Authorization).toBeUndefined();
+    });
+  });
 });

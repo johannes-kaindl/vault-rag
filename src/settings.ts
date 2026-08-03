@@ -780,11 +780,29 @@ export class VaultRagSettingTab extends PluginSettingTab {
     // gerenderten Zeilen-Indizes stale — bis der Re-Render kommt, wäre ein blur in einer anderen
     // Zeile auf den falschen Eintrag gebucht (im schlimmsten Fall ein Anbieter-Schlüssel am
     // falschen Host). Darum: Zeilen sofort sperren, das Re-Render entsperrt durch Neuaufbau.
-    const lockRows = (): void => {
-      opts.containerEl.addClass("vault-rag-ep-busy");          // sperrt auch die Icon-Buttons (divs)
-      opts.containerEl.setAttribute("aria-busy", "true");
+    /** Sperr-ZUSTAND des Containers. Die Klasse sperrt auch die Icon-Buttons (Obsidian rendert sie
+     *  als div, das kein `disabled` kennt), `aria-busy` sagt es Screenreadern. */
+    const setLockState = (locked: boolean): void => {
+      if (locked) opts.containerEl.addClass("vault-rag-ep-busy");
+      else opts.containerEl.removeClass("vault-rag-ep-busy");
+      opts.containerEl.setAttribute("aria-busy", locked ? "true" : "false");  // "false" = gültiger ARIA-Ruhezustand
+    };
+    const setRowsDisabled = (disabled: boolean): void => {
       opts.containerEl.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")
-        .forEach(el => { el.disabled = true; });
+        .forEach(el => { el.disabled = disabled; });
+    };
+    const lockRows = (): void => { setLockState(true); setRowsDisabled(true); };
+    // Idempotente Freigabe beim Betreten: Klasse und aria-busy überleben sonst den 1.13-Pfad —
+    // refreshUi() geht dort über update(), und hostFor leert zwar die Kinder des Containers, aber
+    // nicht seine Klassen/Attribute. Ohne das bliebe die Liste dauerhaft pointer-events: none.
+    // Nur der Zustand: die Zeilen entstehen erst darunter, es gibt hier noch nichts zu entsperren.
+    setLockState(false);
+    // Rettungsnetz: eine gescheiterte Kette (saveData, reconnect) darf die UI nicht verriegelt
+    // zurücklassen. Bewusst ohne Fehlerdetails in Log/Notice — hier hängen Anbieter-Schlüssel dran.
+    const failSafe = (): void => {
+      setLockState(false);
+      setRowsDisabled(false);
+      new Notice("Endpunkt-Änderung konnte nicht gespeichert werden — bitte erneut versuchen.", 8000);
     };
     rows.forEach((cfg, i) => {
       const isAdder = i >= eps.length;
@@ -804,7 +822,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         if (rerender) lockRows();
         opts.set(updated);
         const chain = this.plugin.saveSettings().then(() => opts.reconnect());
-        void (rerender ? chain.then(() => this.refreshUi()) : chain);
+        void (rerender ? chain.then(() => this.refreshUi()) : chain).catch(failSafe);
       };
       s.addText(tx => {
         tx.setPlaceholder(isAdder ? "Weiteren Endpunkt hinzufügen…" : opts.placeholder).setValue(cfg.url);
@@ -839,7 +857,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
             opts.set(applyEndpointEdit(opts.get(), i, "url", "", false));
             void this.plugin.saveSettings()
               .then(() => opts.reconnect())
-              .then(() => this.refreshUi());
+              .then(() => this.refreshUi())
+              .catch(failSafe);
           }));
       }
       // Pro-Feld-Status in A11y-Form (Form + Text + Farbe): loader → check/x, aktiver markiert.
@@ -876,7 +895,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
           opts.set(applyEndpointEdit(cur, cur.length, "url", preset.url, true));
           void this.plugin.saveSettings()
             .then(() => opts.reconnect())
-            .then(() => this.refreshUi());
+            .then(() => this.refreshUi())
+            .catch(failSafe);
         }));
     });
     actions.addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.refreshUi()));

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   classifyLoadResult, assertSafeToPersist, isSuspiciousShrink,
   diffIndexVsVault, PersistBlockedError, canPersistHealedIndex, embeddingModelMatchesIndex,
+  indexNeedsWriteProtection,
 } from "../src/index_guard";
 
 describe("classifyLoadResult", () => {
@@ -120,5 +121,24 @@ describe("embeddingModelMatchesIndex", () => {
 
   it("unterscheidet Groß-/Kleinschreibung (Modellnamen sind exakt)", () => {
     expect(embeddingModelMatchesIndex("Qwen3-Embedding:8b", "qwen3-embedding:8b")).toBe(false);
+  });
+});
+
+describe("indexNeedsWriteProtection", () => {
+  it("ohne Index-Modell nie Schreibschutz (Erstinstallation)", () => {
+    expect(indexNeedsWriteProtection(["egal"], undefined)).toBe(false);
+    expect(indexNeedsWriteProtection([], "   ")).toBe(false);
+  });
+
+  it("ein passender Kandidat genügt", () => {
+    expect(indexNeedsWriteProtection(["text-embedding-3-small", "qwen3-embedding:8b"], "qwen3-embedding:8b")).toBe(false);
+  });
+
+  it("kein passender Kandidat → Schreibschutz", () => {
+    expect(indexNeedsWriteProtection(["text-embedding-3-small"], "qwen3-embedding:8b")).toBe(true);
+  });
+
+  it("gar keine Kandidaten bei vorhandenem Index → Schreibschutz", () => {
+    expect(indexNeedsWriteProtection([], "qwen3-embedding:8b")).toBe(true);
   });
 });

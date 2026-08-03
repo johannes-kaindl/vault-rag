@@ -28,7 +28,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex } from "./index_guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex, indexNeedsWriteProtection } from "./index_guard";
 import { loadIndexStore, verifyBackupCandidate } from "./index_store";
 import { CONTAINER_FILE, decodeContainer } from "./index_container";
 import { McpTools } from "./mcp/tools";
@@ -497,25 +497,40 @@ export default class VaultRagPlugin extends Plugin {
     const m = effectiveModel(cfg, this.settings.embeddingModel);
     this.embeddingModelInUse = m;
     this.embedder = new EmbeddingClient(cfg.url, m, cfg.apiKey);
-    this.noticeSkippedEmbeddingEndpoints(skipped, indexModel);
+    // Passt KEIN konfigurierter Endpunkt zum Index, adoptiert der terminale Rückfall zwangsläufig
+    // ein fremdes Modell → Schreibschutz statt Vektorraum-Mischung (etabliertes Repo-Muster).
+    const writeProtect = indexNeedsWriteProtection(
+      this.settings.embeddingEndpoints.filter(c => c.url?.trim()).map(c => effectiveModel(c, this.settings.embeddingModel)),
+      indexModel,
+    );
+    this.noticeSkippedEmbeddingEndpoints(skipped, indexModel, writeProtect);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m);
     if (this.index) this.liveIndexer.init(this.index);
     else if (this.indexHealthy) this.liveIndexer.markFresh();
     // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
+    // markUnready zuletzt: init()/markFresh() oben setzen ready=true, der Schreibschutz gewinnt.
+    // Aufgehoben wird er ohne Extra-Pfad — der nächste Resolve-Lauf baut einen frischen Indexer
+    // und init()-et ihn wieder aus dem (sauberen) geladenen Index.
+    if (writeProtect) this.liveIndexer.markUnready();
   }
 
   /** Klartext-Meldung für Endpunkte, die der Modell-Guard übersprungen hat — im Wortlaut, damit
    *  der Nutzer versteht, warum sein externer Anbieter nicht greift. Enthält NIE den Schlüssel.
    *  Wiederholt sich nicht: erst wenn sich die Menge der Übersprungenen ändert, kommt sie wieder. */
-  private noticeSkippedEmbeddingEndpoints(skipped: string[], indexModel: string | undefined): void {
-    const signature = skipped.join("|");
+  private noticeSkippedEmbeddingEndpoints(skipped: string[], indexModel: string | undefined, writeProtect: boolean): void {
+    const signature = `${skipped.join("|")}#${writeProtect ? "geschützt" : "offen"}`;
     if (signature === this.lastSkipNotice) return;
     this.lastSkipNotice = signature;
     if (!skipped.length) return;
     new Notice(
       `Embedding-Endpunkt übersprungen: ${skipped.join(", ")} passt nicht zum Modell des Index `
       + `(${indexModel ?? "unbekannt"}). Ein Wechsel des Embedding-Modells erfordert einen `
-      + `vollständigen Neuaufbau des Index.`,
+      + `vollständigen Neuaufbau des Index.`
+      + (writeProtect
+        ? " Kein konfigurierter Endpunkt passt zum Index — Live-Embedding pausiert (Schreibschutz),"
+          + " bis ein passender Endpunkt erreichbar ist oder der Index neu gebaut wurde."
+          + " Suche und Lesen laufen normal weiter."
+        : ""),
       10000,
     );
   }

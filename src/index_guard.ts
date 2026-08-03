@@ -90,6 +90,21 @@ export function embeddingModelMatchesIndex(candidateModel: string, indexModel: s
   return candidateModel.trim() === want;
 }
 
+/**
+ * Muss der Index in den Schreibschutz, weil **kein einziger** konfigurierter Endpunkt sein
+ * Embedding-Modell bedienen kann? Dann gibt es keinen gefahrlosen Live-Pfad mehr: der
+ * terminale Rückfall würde sonst einen fremden Vektorraum adoptieren, `assertSafeToPersist`
+ * ließe ihn durch (Count ±1) und der nächste Persist schriebe `manifest.embedding_model` auf
+ * den fremden Namen um — danach hielte der Modell-Guard einen gemischten Index für homogen.
+ * Lesende Suche bleibt unberührt; nur Live-Persists blocken (`PersistBlockedError("not-ready")`).
+ *
+ * Kein Index-Modell → nie Schreibschutz (es gibt nichts zu schützen).
+ */
+export function indexNeedsWriteProtection(candidateModels: string[], indexModel: string | undefined): boolean {
+  if (!indexModel?.trim()) return false;
+  return !candidateModels.some(m => embeddingModelMatchesIndex(m, indexModel));
+}
+
 export class PersistBlockedError extends Error {
   constructor(readonly kind: "not-ready" | "shrink" | "unreadable", message: string) {
     super(message);

@@ -1,6 +1,7 @@
-// vendored from obsidian-kit#0.5.0, src/pure/endpoint_diagnostics.ts
+// vendored from obsidian-kit#0.20.0, src/pure/endpoint_diagnostics.ts
+
 export type EndpointStatusKind =
-  | "ok" | "refused" | "unknown-host" | "timeout" | "not-an-llm-api" | "unknown";
+  | "ok" | "refused" | "unknown-host" | "timeout" | "not-an-llm-api" | "unauthorized" | "unknown";
 
 export interface EndpointStatus {
   reachable: boolean;         // true nur bei kind === "ok"
@@ -21,6 +22,7 @@ const KLARTEXT: Record<Exclude<EndpointStatusKind, "unknown">, string> = {
   "unknown-host": "Hostname unbekannt — Tippfehler in der Adresse?",
   "timeout": "Zeitüberschreitung — Netz nicht erreichbar (falsches Netz / VPN aus?).",
   "not-an-llm-api": "Antwortet, ist aber kein OpenAI-kompatibler Endpunkt — falscher Pfad/Dienst?",
+  "unauthorized": "Zugriff verweigert — Schlüssel fehlt oder ist ungültig.",
 };
 
 function hasModelListForm(body: unknown): boolean {
@@ -38,6 +40,9 @@ export function classifyEndpointStatus(input: ProbeInput): EndpointStatus {
   if (input.kind === "response") {
     if (input.status === 200 && hasModelListForm(input.body)) {
       return { reachable: true, kind: "ok", klartext: KLARTEXT["ok"] };
+    }
+    if (input.status === 401 || input.status === 403) {
+      return { reachable: false, kind: "unauthorized", klartext: KLARTEXT["unauthorized"] };
     }
     return { reachable: false, kind: "not-an-llm-api", klartext: KLARTEXT["not-an-llm-api"] };
   }

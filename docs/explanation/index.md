@@ -90,6 +90,32 @@ stands with a message explaining exactly what to do. Recovery only ever writes b
 whole cascade came back clean; a partially healed index stays in memory rather than overwriting
 the file on disk with something still incomplete.
 
+### Why an endpoint's model has to match
+
+The index is a set of vectors, and a vector only means something relative to the model that
+produced it — vectors from two different models are not comparable, even though they have
+exactly the same shape. That is dangerous specifically because it fails silently: point the
+plugin at an endpoint running a different model, and the note count, the dimensions and the
+checksum all stay correct. Only the ranking quietly gets worse, in a way that looks like an
+off day rather than a data problem — and by the time anyone notices, there is no way to tell
+which vectors are contaminated without redoing the whole index anyway.
+
+So the guard applies on both sides of the failure. Before a candidate endpoint is even tried,
+one whose model doesn't match the index is skipped in favour of one that does — a
+wrong-but-reachable endpoint loses to a right-but-currently-unreachable one, silently, with a
+notice explaining why. And at the point of actually writing, whatever endpoint the plugin
+settled on is checked again against the model recorded in the index **on disk**, not against
+a copy held in memory that an earlier, blocked write might already have stamped with the wrong
+value. A mismatch there blocks the write outright and says so — related notes and search keep
+working from the last good index, only new embedding is paused.
+
+The one door this leaves open on purpose is a full reindex. Choosing to switch models is a
+legitimate decision, and the guard has no way to tell that apart from an accidental fallback to
+the wrong endpoint — so it does not try to. A full reindex replaces the index outright with
+whatever model is currently active, with nothing old left to mix in. This protection is specific
+to the embedding index; a chat endpoint has no index tied to it, so switching its model is
+inconsequential.
+
 ## Why empty notes are not "missing"
 
 Folder notes, stubs and frontmatter-only files produce no chunks, so they get no vector. A naive

@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Externe LLM-Anbieter:** Endpunkte können jetzt einen API-Schlüssel und ein eigenes Modell
+  tragen. Damit lassen sich OpenAI-kompatible Dienste (OpenRouter, Groq, Together, Mistral,
+  OpenAI …) genauso in die Endpunkt-Liste eintragen wie lokale Server — die Liste bleibt eine
+  Fallback-Kette, der erste erreichbare gewinnt. Der Schlüssel wird maskiert eingegeben und liegt
+  wie alle Einstellungen unverschlüsselt in `data.json`.
+- **Modell-Schutz für den Embedding-Index:** Da ein Index an das Modell gebunden ist, mit dem er
+  gebaut wurde, überspringt der Endpunkt-Resolver jeden Kandidaten, dessen Embedding-Modell nicht
+  zum Index passt, und jeder Schreibvorgang (Live-Embedding, „Index vervollständigen") wird
+  blockiert, wenn Container-Modell und Embedder-Modell auseinanderlaufen — Suche und Lesen laufen
+  dabei unverändert weiter. Ein bewusster Modellwechsel läuft ausschließlich über
+  „Vault neu indizieren" (Voll-Neuaufbau). Betrifft nur Embedding-Endpunkte; ein Modellwechsel bei
+  Chat-Endpunkten bleibt folgenlos.
+
 ### Fixed
 - **Backup-Rotation ließ leere Ordner zurück:** Beim Aufräumen alter Index-Backups blieb jedes
   Mal ein leerer Ordner stehen — über Wochen sammelten sich so 1309 davon an. Ursache: Obsidians

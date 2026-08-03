@@ -9,7 +9,7 @@
 [![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fgit.jkaindl.de&label=release)](https://git.jkaindl.de/jkaindl/vault-rag/releases)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.12.7%2B%20·%20desktop%20%26%20mobile-7c3aed)
 
-Vault Retrieval turns your notes into a searchable knowledge base without sending anything to the cloud. It keeps a small embedding index inside your vault — synced along with it, readable on every device — and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Embedding and generation run against local LLM endpoints you control.
+Vault Retrieval turns your notes into a searchable knowledge base without sending anything to the cloud, by default. It keeps a small embedding index inside your vault — synced along with it, readable on every device — and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Embedding and generation run against LLM endpoints you control — local servers by default, or a hosted OpenAI-compatible provider if you opt in with an API key.
 
 > **Interface language:** the plugin's UI is currently **German only** — labels, commands and notices are not yet localised. English localisation is in progress. Where you need an exact string to find something in Obsidian (command palette, settings), this README gives it in `code`.
 
@@ -23,16 +23,16 @@ Everything lives in **one sidebar view** with tabs: related notes, search, chat,
 - **Visible thinking, with an off switch** — for reasoning models, the live "💭 thinking" stream appears in a collapsible block above the answer and folds away once it arrives (and is never sent back into the conversation history). A toggle suppresses thinking when you want faster answers — via cross-server-portable hints — and a settings test tells you whether your model actually honours it.
 - **Model capability hints** — settings show, best-effort, whether the selected chat model supports vision and/or thinking, so you can pick the right one. Each endpoint has an inline connection test, and the model pickers populate from the server.
 - **Live indexing** — notes are re-embedded on save; edits made offline queue up and catch up automatically on reconnect. A full **reindex** command builds the whole index from your vault, so you can start from nothing with just an embedding endpoint.
-- **An index that defends itself** — the index is your data, and losing it costs an hour of re-embedding. So: writes that would shrink it are refused rather than performed, a truncated index (half-finished sync download) is detected on load and switches the plugin to read-only instead of overwriting good data, device-local backups are rotated automatically and can be restored from the command palette, and a **self-heal** command re-embeds only the notes the index is actually missing. Empty notes are never counted as missing.
+- **An index that defends itself** — the index is your data, and losing it costs an hour of re-embedding. So: writes that would shrink it are refused rather than performed, a truncated index (half-finished sync download) is detected on load and switches the plugin to read-only instead of overwriting good data, device-local backups are rotated automatically and can be restored from the command palette, and a **self-heal** command re-embeds only the notes the index is actually missing. It also defends against a subtler risk: an embedding index is tied to the model that built it, so an embedding endpoint with a different model is skipped automatically, and any write that would mix vectors from two models is refused — a deliberate model change needs a full reindex. Empty notes are never counted as missing.
 - **Smart Apply — restructure a note into a template** *(opt-in)* — pick a template and a local LLM reorganises a messy note into its sections, routing your *original* blocks under the right headings. It never invents content — a diff gate shows exactly what moves where before you apply, and the body is rebuilt from your own bytes. Templates self-describe through `%%` guidance comments, and a relevance-ranked template list (cosine over the same index — reusing the stored vectors, no re-embedding) preselects the best fit and updates live as you switch notes. Enable it under **Settings → Smart Apply**.
 - **Reformat a selection** — select any block of text and run the reformat command (command palette or editor context menu) to reshape it. Mechanical transforms (transpose a table, table → list, wrap in a callout) apply instantly, no LLM involved. Shape-changing transforms (→ list, → prose, → table, → Mermaid diagram, or your own free-text instruction) stream a preview from your local chat LLM that you review and can regenerate before applying. Every transform is also available from the reformat tab in the sidebar, which shows what is currently selected and greys the buttons out (with the reason) when it cannot run.
 
 ## Requirements
 
 - **Obsidian 1.12.7+** (desktop or mobile). On 1.13+ the settings tab renders through Obsidian's native, searchable settings API; on older versions it draws the same structure imperatively.
-- An **embedding endpoint** — an OpenAI-compatible local server such as [Ollama](https://ollama.com) — to build and maintain the index. Run the full-reindex command once and the plugin embeds your vault into `<vault>/_vaultrag/` itself; from then on notes are re-embedded on save. Alternatively, drop in an index produced by an external backend and synced with the vault — the format is the same.
+- An **embedding endpoint** — an OpenAI-compatible server, local such as [Ollama](https://ollama.com), or a hosted provider if you add an API key — to build and maintain the index. Run the full-reindex command once and the plugin embeds your vault into `<vault>/_vaultrag/` itself; from then on notes are re-embedded on save. Alternatively, drop in an index produced by an external backend and synced with the vault — the format is the same.
 - **Nothing else for retrieval.** Once the index exists, related notes and semantic search run entirely on-device — no server, no daemon, offline, including on mobile.
-- For **chat**, **Smart Apply** and LLM-backed reformatting: an **OpenAI-compatible local LLM endpoint** ([LM Studio](https://lmstudio.ai), for example). New to local LLMs? The **[local LLM setup guide](https://uplink.jkaindl.de/llm-setup)** walks you through it. Configurable in settings; nothing leaves your machine.
+- For **chat**, **Smart Apply** and LLM-backed reformatting: an **OpenAI-compatible LLM endpoint** — a local server such as [LM Studio](https://lmstudio.ai), or a hosted provider if you add an API key. New to local LLMs? The **[local LLM setup guide](https://uplink.jkaindl.de/llm-setup)** walks you through it. Configurable in settings; nothing leaves your machine unless you configure an external endpoint.
 
 ## Install
 
@@ -84,8 +84,8 @@ Until the UI is localised, the command palette lists these in German — the mid
 
 | Setting | What it does | Default |
 |---|---|---|
-| Embedding endpoint / model | Re-embeds notes on save | `http://localhost:11434` · `qwen3-embedding:8b` |
-| Chat endpoint / model | LLM for RAG chat, Smart Apply and reformatting | `http://localhost:1234` · `qwen3` |
+| Embedding endpoint / model | Re-embeds notes on save; a fallback list, each row optionally with its own API key and model | `http://localhost:11434` · `qwen3-embedding:8b` |
+| Chat endpoint / model | LLM for RAG chat, Smart Apply and reformatting; same fallback-list shape as embedding | `http://localhost:1234` · `qwen3` |
 | Index folder | Where the synced index lives. Cross-device sync (including iPhone) requires the Obsidian Sync option "Sync all other file types" | `_vaultrag` |
 | Hide index folder in file explorer | Hides the index folder from the file explorer for a cleaner workspace (cosmetic; data and sync are unaffected) | on |
 | Similarity / top-k | Retrieval thresholds | `0.3` · `20` |
@@ -98,6 +98,8 @@ Until the UI is localised, the command palette lists these in German — the mid
 | Enter sends | On: Enter sends, Shift+Enter newlines · Off: reversed | on |
 
 > **Endpoint tip:** enter the base URL *without* a trailing `/v1` — the plugin appends it. Both forms are accepted.
+
+> **External providers:** any endpoint row may carry an API key and a model name, turning it into a hosted OpenAI-compatible provider (OpenRouter, Groq, Together, Mistral, OpenAI, …) that sits in the same fallback list as local servers. Keys are stored unencrypted in the plugin's `data.json` — like every other setting — and travel with settings sync.
 
 ## How it works
 

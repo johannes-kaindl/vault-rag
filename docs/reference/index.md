@@ -45,8 +45,8 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 
 | Setting | Effect | Default |
 |---|---|---|
-| Embedding endpoints | OpenAI-compatible servers; each row has a connection test | `http://localhost:11434` |
-| Embedding model | Must stay constant — vectors from different models aren't comparable | `qwen3-embedding:8b` |
+| Embedding endpoints | OpenAI-compatible servers, local or hosted; each row has a connection test plus an optional API key and model override | `http://localhost:11434` |
+| Embedding model | Global default model. A candidate endpoint whose (override or default) model doesn't match the index is skipped, and any write from a mismatched model is blocked rather than mixing vector spaces — see [Explanation → Why an endpoint's model has to match](../explanation/index.md#why-an-endpoints-model-has-to-match) | `qwen3-embedding:8b` |
 | Re-embed delay | Debounce between saving a note and re-embedding it | `3000` ms |
 | Status bar | Shows embedding progress; revealed automatically during a reindex | off |
 
@@ -69,7 +69,7 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 
 | Setting | Effect | Default |
 |---|---|---|
-| Chat endpoints / model | LLM used for chat, Smart Apply and LLM reformatting | `http://localhost:1234` · `qwen3` |
+| Chat endpoints / model | LLM used for chat, Smart Apply and LLM reformatting; each row may add its own API key and model override (no model-guard here — chat has no index to protect) | `http://localhost:1234` · `qwen3` |
 | Context notes (k) | How many retrieved notes are offered as context | `5` |
 | Context budget | Maximum characters of context; ceiling follows the model window | `12000` |
 | Temperature | Sampling temperature for chat | `0.7` |
@@ -137,6 +137,9 @@ overwriting good data. See
 | `<vault>/_vaultrag/pending.json` | Notes queued for re-embedding while offline | yes |
 | `<plugin folder>/index-backups/` | Last three index snapshots | no — device-local by design |
 | `<plugin folder>/data.json` | Your settings | depends on your sync configuration |
+
+Any endpoint API keys live in `data.json` alongside everything else, stored **unencrypted** —
+they travel wherever your settings sync goes. See [`SECURITY.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/SECURITY.md).
 
 ## Architecture
 

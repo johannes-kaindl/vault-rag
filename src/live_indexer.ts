@@ -2,7 +2,7 @@ import { VaultAdapter, VaultIndex, IndexManifest } from "./index";
 import { EmbeddingClient } from "./embedder";
 import { chunkMarkdown } from "./chunker";
 import { toIndexVector } from "./embed_vector";
-import { assertSafeToPersist, assertModelSafeToPersist, PersistReason, PersistBlockedError } from "./index_guard";
+import { assertSafeToPersist, assertModelSafeToPersist, PersistDecision, PersistReason, PersistBlockedError } from "./index_guard";
 import { CONTAINER_FILE, encodeContainer, decodeContainer } from "./index_container";
 
 const INDEX_DIM = 256;
@@ -196,6 +196,36 @@ export class LiveIndexer {
     // EIN Container statt drei Dateien — Sync kann keine Generationen mehr mischen (Spec 2026-07-29).
     await this.adapter.writeBinary(`${this.indexDir}/${CONTAINER_FILE}`, encodeContainer(manifest, paths, new Uint8Array(i8.buffer)));
     this.ready = true;
+  }
+
+  /**
+   * Vorabprüfung für **additive** Läufe, die erst embedden und dann persistieren
+   * (`healVault` → `healMissing` → `persist("heal")`). Dieselbe Regel und dieselbe Disk-Wahrheit
+   * wie in `persist()`, nur eben **vorher** gefragt: ein am Ende blockierter Heal ließe sonst die
+   * fremden Vektoren in `noteVectors` zurück (nichts macht sie rückgängig), und ein späterer,
+   * regulär erlaubter Persist schriebe sie in den Container. Nicht embedden ist billiger als
+   * zurückrollen — deshalb fragt der Aufrufer, bevor er mutiert.
+   *
+   * Reine Frage, keine Mutation. `reindex` fragt gar nicht erst (Voll-Ersatz ist der Ausweg).
+   *
+   * **Strenger als `persist()` in genau einem Punkt:** kein lesbarer Container (`unreadable`)
+   * verbietet hier den Lauf, während `persist("heal")` ihn durchlässt. Das ist Absicht: dort
+   * ist der Fall der Auto-Heal-Kaskade vorbehalten, die auf einer CRC-bewiesenen Backup-Basis
+   * arbeitet und ihre Modell-Frage an dieser Basis stellt (`main.ts` → `attemptAutoHeal`).
+   * Ein nutzergetriggertes „Index vervollständigen" hat keine solche Basis — ohne Disk-Wahrheit
+   * gibt es nichts, gegen das sich additives Einmischen prüfen ließe.
+   */
+  async checkModelAgainstDisk(reason: PersistReason): Promise<PersistDecision> {
+    if (reason === "reindex") return { allowed: true };
+    const disk = await this.readDiskState();
+    if (disk === null) {
+      return {
+        allowed: false,
+        kind: "unreadable",
+        message: "Der Index auf Platte ist gerade nicht lesbar (z. B. laufender Sync oder beschädigter Container) — ohne diese Wahrheit ist ein additiver Lauf nicht abzusichern.",
+      };
+    }
+    return assertModelSafeToPersist(disk.model, this.embeddingModel, reason);
   }
 
   /** Liest Notiz-Count UND Embedding-Modell direkt aus der Platte (nicht aus dem In-Memory-

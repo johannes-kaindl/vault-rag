@@ -523,13 +523,20 @@ export default class VaultRagPlugin extends Plugin {
     );
   }
 
-  /** Nutzertext für einen blockierten Persist. `model-mismatch` bekommt Klartext samt Ausweg —
-   *  die generische „Index wirkt beschädigt"-Meldung wäre dort schlicht falsch. Nie mit Schlüssel. */
-  private persistBlockedMessage(e: PersistBlockedError, fallback: string): string {
-    if (e.kind !== "model-mismatch") return fallback;
+  /** Nutzertext für eine Schreib-Blockade — egal ob geworfen (`persist`) oder vorab entschieden
+   *  (`checkModelAgainstDisk`). `model-mismatch` bekommt Klartext samt Ausweg; die generische
+   *  „Index wirkt beschädigt"-Meldung wäre dort schlicht falsch. Nie mit Schlüssel. */
+  private blockedMessage(kind: PersistBlockedError["kind"] | undefined, fallback: string): string {
+    if (kind !== "model-mismatch") return fallback;
     return "⚠ Vault Retrieval: Das Embedding-Modell dieses Endpunkts passt nicht zum Index — "
-      + "Live-Embedding pausiert (Schreibschutz). Suche und Lesen laufen weiter. Ausweg: passenden "
+      + "es wird nichts geschrieben (Schreibschutz). Suche und Lesen laufen weiter. Ausweg: passenden "
       + 'Endpunkt eintragen oder „Vault neu indizieren".';
+  }
+
+  /** Wie `blockedMessage`, nur direkt aus einem gefangenen Fehler — auch aus einem `unknown`
+   *  im catch-Block (alles außer `PersistBlockedError` bekommt den Fallback). */
+  private persistBlockedMessage(e: unknown, fallback: string): string {
+    return this.blockedMessage(e instanceof PersistBlockedError ? e.kind : undefined, fallback);
   }
 
   /** Aktiven Chat-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
@@ -1177,7 +1184,7 @@ export default class VaultRagPlugin extends Plugin {
       notice.setMessage(`Vault indiziert: ${report.added} Notizen.`);
     } catch (e) {
       console.warn("vault-rag: reindexVault failed", e);
-      notice.setMessage("Vault-Indizierung fehlgeschlagen.");
+      notice.setMessage(this.persistBlockedMessage(e, "Vault-Indizierung fehlgeschlagen."));
     } finally {
       this.embeddingProgress.reindex = null;
       this.embeddingProgress.isEmbedding = false;
@@ -1197,6 +1204,15 @@ export default class VaultRagPlugin extends Plugin {
       // isReady() false heißt: kein geladener Index ODER Schreibschutz nach Load-/Heal-Fehler —
       // „kein Index geladen" allein wäre in der zweiten Lage sachlich falsch.
       new Notice(`Kein sicherer Basis-Index verfügbar (nicht geladen oder Schreibschutz) — bitte „Aus Backup wiederherstellen" oder „Vault neu indizieren".`);
+      return;
+    }
+    // Modell-Verträglichkeit VOR dem Embedden klären (Disk-Wahrheit, dieselbe Regel wie in
+    // persist()). Ein erst am Ende blockierter Heal ließe die fremden Vektoren in der Vektor-Map
+    // des Indexers zurück — nichts macht sie rückgängig, und der nächste regulär erlaubte Persist
+    // schriebe sie mit. Nicht embedden ist billiger als zurückrollen.
+    const gate = await this.liveIndexer.checkModelAgainstDisk("heal");
+    if (!gate.allowed) {
+      new Notice(this.blockedMessage(gate.kind, "Vervollständigen abgebrochen: Der Index auf Platte ist gerade nicht lesbar (Sync läuft oder Container beschädigt) — bitte später erneut versuchen oder aus einem Backup wiederherstellen."), 10000);
       return;
     }
     const vaultPaths = this.vaultMarkdownPaths();
@@ -1233,7 +1249,7 @@ export default class VaultRagPlugin extends Plugin {
       notice.setMessage(healResultMessage(report.added, knownEmpty.length + report.skippedEmpty.length, report.failed.length));
     } catch (e) {
       console.warn("vault-rag: healVault failed", e);
-      notice.setMessage("Vervollständigen fehlgeschlagen.");
+      notice.setMessage(this.persistBlockedMessage(e, "Vervollständigen fehlgeschlagen."));
     } finally {
       this.embeddingProgress.reindex = null;
       this.embeddingProgress.isEmbedding = false;

@@ -18,7 +18,7 @@ export type PersistReason = "live" | "reindex" | "heal";
 
 export interface PersistDecision {
   allowed: boolean;
-  kind?: "shrink" | "model-mismatch";
+  kind?: "shrink" | "model-mismatch" | "unreadable";
   message?: string;
 }
 

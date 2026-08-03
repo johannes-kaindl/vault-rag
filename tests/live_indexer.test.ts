@@ -533,3 +533,62 @@ describe("LiveIndexer persist-Guard: Embedding-Modell", () => {
     await expect(indexer.persist("heal")).resolves.toBeUndefined();
   });
 });
+
+describe("LiveIndexer.checkModelAgainstDisk (Vorabprüfung vor additiven Läufen)", () => {
+  it("fremdes Modell auf Platte → nicht erlaubt (model-mismatch), ohne etwas zu verändern", async () => {
+    const a = makeAdapter();
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(1, "qwen3-embedding:8b"));
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+    indexer.init(oneNoteIndex("a.md"));
+    const before = indexer.noteCount;
+    expect(await indexer.checkModelAgainstDisk("heal")).toMatchObject({ allowed: false, kind: "model-mismatch" });
+    // reine Frage, keine Mutation: der Aufrufer darf danach gefahrlos abbrechen
+    expect(indexer.noteCount).toBe(before);
+    expect(a.writeBinary).not.toHaveBeenCalled();
+  });
+
+  it("passendes Modell → erlaubt", async () => {
+    const a = makeAdapter();
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(1, "qwen3-embedding:8b"));
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.init(oneNoteIndex("a.md"));
+    expect(await indexer.checkModelAgainstDisk("heal")).toMatchObject({ allowed: true });
+  });
+
+  it("kein Container auf Platte (frische Installation) → erlaubt", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+    indexer.markFresh();
+    expect(await indexer.checkModelAgainstDisk("heal")).toMatchObject({ allowed: true });
+  });
+
+  it("Container unlesbar/korrupt → nicht erlaubt (unreadable): ohne Disk-Wahrheit kein additiver Lauf", async () => {
+    const a = makeAdapter();
+    const bytes = new Uint8Array(makeContainerBytes(3, "qwen3-embedding:8b"));
+    bytes[10] ^= 0xff;   // CRC kaputt
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, bytes.buffer);
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.init(oneNoteIndex("a.md"));
+    expect(await indexer.checkModelAgainstDisk("heal")).toMatchObject({ allowed: false, kind: "unreadable" });
+  });
+
+  it("Disk-Wahrheit schlägt den In-Memory-Stand: init mit fremdem Manifest ändert nichts", async () => {
+    const a = makeAdapter();
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(1, "qwen3-embedding:8b"));
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+    const poisoned = parseIndex(
+      { schema_version: 1, embedding_model: "text-embedding-3-small", index_dim: DIM, scale: SCALE, count: 1, granularity: "note", quant: "int8" },
+      ["a.md"], new Int8Array(DIM).buffer,
+    );
+    indexer.init(poisoned);
+    expect(await indexer.checkModelAgainstDisk("heal")).toMatchObject({ allowed: false, kind: "model-mismatch" });
+  });
+
+  it("reindex fragt gar nicht erst — Voll-Ersatz bleibt der Ausweg", async () => {
+    const a = makeAdapter();
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(1, "qwen3-embedding:8b"));
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+    indexer.init(oneNoteIndex("a.md"));
+    expect(await indexer.checkModelAgainstDisk("reindex")).toMatchObject({ allowed: true });
+  });
+});

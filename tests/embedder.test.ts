@@ -110,9 +110,33 @@ describe("EmbeddingClient", () => {
       expect(headersOf(0).Authorization).toBe("Bearer sk-1");
     });
 
+    it("fetchCapabilities sendet den Bearer mit", async () => {
+      vi.mocked(requestUrl).mockResolvedValue(ok({ capabilities: ["completion"] }) as any);
+      await new EmbeddingClient("https://x/api", "m", "sk-1").fetchCapabilities("m");
+      expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+    });
+
     it("ohne Schlüssel bleibt der Header weg", async () => {
       vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ embedding: makeVec(4) }] }) as any);
       await new EmbeddingClient("http://localhost:11434", "m").embed(["hallo"]);
+      expect(headersOf(0).Authorization).toBeUndefined();
+    });
+
+    it("listModels: ohne Schlüssel bleibt der Header weg", async () => {
+      vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m" }] }) as any);
+      await new EmbeddingClient("http://localhost:11434", "m").listModels();
+      expect(headersOf(0).Authorization).toBeUndefined();
+    });
+
+    it("probe: ohne Schlüssel bleibt der Header weg", async () => {
+      vi.mocked(requestUrl).mockResolvedValue(ok({ data: [] }) as any);
+      await new EmbeddingClient("http://localhost:11434", "m").probe();
+      expect(headersOf(0).Authorization).toBeUndefined();
+    });
+
+    it("fetchCapabilities: ohne Schlüssel bleibt der Header weg", async () => {
+      vi.mocked(requestUrl).mockResolvedValue(ok({ capabilities: ["completion"] }) as any);
+      await new EmbeddingClient("http://localhost:11434", "m").fetchCapabilities("m");
       expect(headersOf(0).Authorization).toBeUndefined();
     });
   });

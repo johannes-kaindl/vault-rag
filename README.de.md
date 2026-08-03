@@ -99,7 +99,7 @@ npm run build      # → main.js
 
 ## Wie es funktioniert
 
-Der Index in `<vault>/_vaultrag/` ist ein portabler **Matryoshka-256-int8-Mini-Index** auf Notiz-Ebene — ein 256-dimensionaler int8-Vektor pro Notiz, rund 1,4 MB für einige tausend Notizen. Klein genug, um mit dem Vault zu synchronisieren, und genau darum geht es: das Plugin lädt ihn und rechnet **Brute-Force-Cosinus lokal**, sodass Retrieval auf jedem gesyncten Gerät identisch funktioniert — kein Daemon, kein VPN, kein On-Device-LLM. Nur Chat, Smart Apply und LLM-Umformatierung sprechen mit einem Endpunkt, und zwar mit einem, den du bestimmst.
+Der Index in `<vault>/_vaultrag/` ist ein portabler **Matryoshka-256-int8-Mini-Index** auf Notiz-Ebene — ein 256-dimensionaler int8-Vektor pro Notiz, rund 1,4 MB für einige tausend Notizen. Klein genug, um mit dem Vault zu synchronisieren, und genau darum geht es: das Plugin lädt ihn und rechnet **Brute-Force-Cosinus lokal**, sodass Retrieval auf jedem gesyncten Gerät identisch funktioniert — kein Daemon, kein VPN, kein On-Device-LLM. Was das Gerät verlässt, ist Text: jede gespeicherte Notiz geht zum Neu-Einbetten an den **Embedding-Endpunkt**, und Chat, Smart Apply und LLM-Umformatierung schicken Prompt und Kontext an den **Chat-Endpunkt**. Beides sind Endpunkte, die du einträgst — standardmäßig welche unter deiner Kontrolle — und bei einem Drittanbieter landet davon erst etwas, sobald du dessen API-Schlüssel hinterlegst.
 
 Das Plugin schreibt diesen Index selbst, als eine einzige Container-Datei (`_vaultrag/index.bin`, bei jedem Laden per CRC geprüft — eine Datei statt mehrerer heißt: ein Sync-Dienst kann nie eine gemischte Generation ausliefern), und liest jeden Index desselben Formats — auch einen extern erzeugten.
 

@@ -147,22 +147,23 @@ export class LiveIndexer {
       // In-Memory-Stand (z. B. nach markFresh() während ein Sync-Download noch lief) einen
       // inzwischen echten, größeren Index auf Platte überschreibt.
       const disk = await this.readDiskState();
-      if (reason === "live") {
-        if (disk === null) {
+      // `disk === null` heißt: keine Disk-Wahrheit (korrupter Container/laufender Sync). Für
+      // `live` ist das ein Abbruch; für `heal` bleibt es erlaubt, sonst könnte die
+      // Auto-Heal-Kaskade einen defekten Container nie mehr überschreiben.
+      if (disk === null) {
+        if (reason === "live") {
           throw new PersistBlockedError("unreadable", "Persist verweigert: Der Index auf Platte ist gerade nicht lesbar (z. B. laufender Sync/Parallel-Schreibvorgang) — der gute Index bleibt unangetastet, ein erneuter Versuch folgt automatisch.");
         }
+      } else {
+        // Beide Guards bekommen `reason` und entscheiden SELBST, für wen sie gelten — hier wird
+        // die Regel „reindex/heal sind explizit gewollt" nicht noch einmal formuliert. Der
+        // Vergleich läuft gegen den Container, nie gegen `loadedManifest`/`buildIndex()` (die
+        // können ein fremdes Modell tragen, sobald ein blockierter Persist den In-Memory-Stand
+        // bereits umgeschrieben hat).
         const decision = assertSafeToPersist(disk.count, nextCount, reason);
         if (!decision.allowed) {
           throw new PersistBlockedError(decision.kind ?? "shrink", decision.message ?? "Persist verweigert.");
         }
-      }
-      // Modell-Guard für live UND heal, aus derselben Disk-Lesung — der Vergleich läuft gegen den
-      // Container, nie gegen `loadedManifest`/`buildIndex()` (die können ein fremdes Modell tragen,
-      // sobald ein blockierter Persist den In-Memory-Stand bereits umgeschrieben hat).
-      // `disk === null` heißt: keine Disk-Wahrheit (korrupter Container). Für `live` ist das oben
-      // schon geblockt; für `heal` bleibt es erlaubt, sonst könnte die Auto-Heal-Kaskade einen
-      // defekten Container nie mehr überschreiben.
-      if (disk) {
         const modelDecision = assertModelSafeToPersist(disk.model, this.embeddingModel, reason);
         if (!modelDecision.allowed) {
           throw new PersistBlockedError(modelDecision.kind ?? "model-mismatch", modelDecision.message ?? "Persist verweigert.");

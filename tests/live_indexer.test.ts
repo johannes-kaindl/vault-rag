@@ -405,6 +405,16 @@ describe("LiveIndexer persist-Guard", () => {
     await expect(indexer.persist("reindex")).resolves.toBeUndefined(); // 2→0 erlaubt
   });
 
+  it("heal-Grund darf schrumpfen — über welche Gründe der Shrink-Guard entscheidet, sagt allein assertSafeToPersist", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A"); await indexer.update("b.md", "#B");
+    await indexer.persist("live");           // Diskzustand jetzt 2 (written-Store)
+    indexer.remove("a.md"); indexer.remove("b.md");
+    await expect(indexer.persist("heal")).resolves.toBeUndefined(); // 2→0 erlaubt
+  });
+
   it("nach erfolgreichem persist erlaubt der (jetzt aktuelle) Diskzustand eine Ein-Schritt-Löschung", async () => {
     const a = makeAdapter();
     const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "m");

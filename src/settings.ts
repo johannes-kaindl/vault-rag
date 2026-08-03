@@ -37,6 +37,9 @@ export interface VaultRagPluginHost extends Plugin {
   settings: VaultRagSettings;
   embedder: EmbeddingClient;
   chatClient: ChatClient;
+  /** Modell, das Chat-Anfragen tatsächlich mitschicken (Zeilen-Override des aktiven
+   *  Endpunkts vor `settings.chatModel`) — siehe main.ts. */
+  chatModelInUse: string;
   activeEmbeddingEndpoint: string | null;
   activeChatEndpoint: string | null;
   embeddingProgress: { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number };
@@ -732,7 +735,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  deklarativ). Ohne Button-Disable-Handling — Rückmeldung nur noch über Notice. Bei
    *  bestätigtem Thinking-Nachweis: Caps hochstufen + Fähigkeiten-Zeile neu zeichnen. */
   private async runThinkingTest(): Promise<void> {
-    const model = this.plugin.settings.chatModel;
+    // Getestet wird das Modell, das eine echte Anfrage bekäme — bei aktivem Endpunkt mit
+    // Zeilen-Override ist das nicht `settings.chatModel`, und ein Test gegen den anderen
+    // Namen liefe ins Leere („Endpoint nicht erreichbar" statt eines Thinking-Befunds).
+    const model = this.plugin.chatModelInUse;
     if (isAlwaysOnThinker(model)) { new Notice("Dieses Modell denkt immer (nur low/medium/high)."); return; }
     try {
       const res = await this.plugin.chatClient.stream(

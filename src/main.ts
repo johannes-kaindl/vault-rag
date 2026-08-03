@@ -4,7 +4,7 @@ import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
-import { effectiveModel, migrateEndpointList, type EndpointConfig } from "./endpoint_config";
+import { chatRequestModel, effectiveModel, migrateEndpointList, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { mergeSettings } from "./vendor/kit/settings";
@@ -71,6 +71,11 @@ export default class VaultRagPlugin extends Plugin {
    *  Embedder und LiveIndexer/Manifest MÜSSEN immer dasselbe Modell nennen — sonst behauptet
    *  das Manifest einen Vektorraum, aus dem die Vektoren nicht stammen. */
   private embeddingModelInUse = "";
+  /** Chat-Endpunkt, mit dem `chatClient` gebaut wurde — Quelle des Zeilen-Modell-Overrides.
+   *  Anders als beim Embedder wird hier die Config statt eines fertigen Modellnamens gehalten:
+   *  Smart Apply bringt ein eigenes Modellfeld mit, und nur `chatRequestModel` kennt die
+   *  Vorrangregel zwischen beidem. */
+  private chatEndpointInUse: EndpointConfig = { url: "" };
   /** Zuletzt gemeldete Modell-Guard-Übersprünge — verhindert Notice-Spam, weil
    *  `embedderReady()` den Resolver bei jedem fehlgeschlagenen Ping erneut anwirft. */
   private lastSkipNotice = "";
@@ -190,7 +195,8 @@ export default class VaultRagPlugin extends Plugin {
     const c0 = this.settings.chatEndpoints[0] ?? { url: "" };
     this.embeddingModelInUse = effectiveModel(e0, this.settings.embeddingModel);
     this.embedder = new EmbeddingClient(e0.url, this.embeddingModelInUse, e0.apiKey);
-    this.chatClient = new ChatClient(c0.url, effectiveModel(c0, this.settings.chatModel), c0.apiKey);
+    this.chatEndpointInUse = c0;
+    this.chatClient = new ChatClient(c0.url, this.chatModelInUse, c0.apiKey);
     // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
     // fire-and-forget am Ende von onload, der modify-Listener kann davor feuern.
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.embeddingModelInUse);
@@ -258,7 +264,7 @@ export default class VaultRagPlugin extends Plugin {
         },
         () => this.chatClient,
         () => ({
-          model: this.settings.smartApplyModel || this.settings.chatModel,
+          model: this.smartApplyModelInUse,
           temperature: this.settings.smartApplyTemperature,
           suppressThinking: this.settings.smartApplySuppressThinking,
           maxTokens: this.settings.smartApplyMaxTokens,
@@ -392,7 +398,7 @@ export default class VaultRagPlugin extends Plugin {
             budget: this.settings.contextCharBudget,
           }),
           systemPreamble: () => this.settings.chatSystemPrompt,
-          params: () => ({ model: this.settings.chatModel, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
+          params: () => ({ model: this.chatModelInUse, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
         }),
         openPath: this.openPath,
         copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },
@@ -553,7 +559,25 @@ export default class VaultRagPlugin extends Plugin {
     }
     const cfg = active ?? this.settings.chatEndpoints[0] ?? { url: "" };
     this.activeChatEndpoint = active ? normalizeEndpoint(cfg.url) : null;
-    this.chatClient = new ChatClient(cfg.url, effectiveModel(cfg, this.settings.chatModel), cfg.apiKey);
+    this.chatEndpointInUse = cfg;
+    this.chatClient = new ChatClient(cfg.url, this.chatModelInUse, cfg.apiKey);
+  }
+
+  /** Modell, das eine Chat-Anfrage tatsächlich mitschickt. `ChatClient.stream` liest `opts.model`
+   *  und ignoriert das im Konstruktor gesetzte Modell — jede Aufrufstelle muss deshalb DIESEN
+   *  Wert übergeben, sonst ginge bei einem Fallback auf einen gehosteten Anbieter der lokale
+   *  Modellname raus (HTTP 400 ohne erkennbare Ursache). Getter statt Feld: eine Modellauswahl
+   *  im Dropdown wirkt so sofort, ohne Re-Resolve. */
+  get chatModelInUse(): string {
+    return chatRequestModel(this.chatEndpointInUse, "", this.settings.chatModel);
+  }
+
+  /** Wie `chatModelInUse`, nur mit Smart Applys eigenem Modellfeld als Zwischenstufe:
+   *  `smartApplyModel` gilt gegenüber dem globalen Chat-Modell, unterliegt aber dem
+   *  Zeilen-Override des aktiven Endpunkts (dessen Modellnamen sind die einzigen, die dort
+   *  garantiert existieren). */
+  private get smartApplyModelInUse(): string {
+    return chatRequestModel(this.chatEndpointInUse, this.settings.smartApplyModel, this.settings.chatModel);
   }
 
   /** Embedder-Reachability mit EINEM Re-Resolve-Retry: aktiven pingen; schlägt fehl,
@@ -798,7 +822,7 @@ export default class VaultRagPlugin extends Plugin {
       original: core,
       stream: (onToken, signal) => this.chatClient
         .stream(messages, onToken, () => {}, signal, {
-          model: this.settings.chatModel,
+          model: this.chatModelInUse,
           temperature: 0.2,
           suppressThinking: true,
           maxTokens: REFORMAT_MAX_TOKENS,

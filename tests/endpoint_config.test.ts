@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { authHeaders, effectiveModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, type EndpointConfig } from "../src/endpoint_config";
+import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, type EndpointConfig } from "../src/endpoint_config";
 
 describe("authHeaders", () => {
   it("ohne Schlüssel → keine Header", () => {
@@ -21,6 +21,31 @@ describe("effectiveModel", () => {
 
   it("Override gewinnt und wird getrimmt", () => {
     expect(effectiveModel({ url: "u", model: " gpt-4o " }, "qwen3")).toBe("gpt-4o");
+  });
+});
+
+describe("chatRequestModel", () => {
+  const local: EndpointConfig = { url: "http://localhost:1234" };
+  const hosted: EndpointConfig = { url: "https://openrouter.ai/api", apiKey: "sk-x", model: "anthropic/claude" };
+
+  it("ohne Override und ohne feature-eigenes Modell gilt das globale", () => {
+    expect(chatRequestModel(local, "", "qwen3")).toBe("qwen3");
+    expect(chatRequestModel(local, undefined, "qwen3")).toBe("qwen3");
+    expect(chatRequestModel(local, "   ", "qwen3")).toBe("qwen3");
+  });
+
+  it("ohne Override gewinnt das feature-eigene Modell (Smart Apply)", () => {
+    expect(chatRequestModel(local, " qwen3-coder ", "qwen3")).toBe("qwen3-coder");
+  });
+
+  it("das Zeilen-Override des aktiven Endpunkts schlägt beides", () => {
+    // Sonst ginge „qwen3-coder" an einen Anbieter, der diesen Namen nicht kennt → HTTP 400.
+    expect(chatRequestModel(hosted, "qwen3-coder", "qwen3")).toBe("anthropic/claude");
+    expect(chatRequestModel(hosted, "", "qwen3")).toBe("anthropic/claude");
+  });
+
+  it("ein leeres Override zählt nicht als Override", () => {
+    expect(chatRequestModel({ url: "u", model: "  " }, "qwen3-coder", "qwen3")).toBe("qwen3-coder");
   });
 });
 

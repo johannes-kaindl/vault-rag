@@ -100,7 +100,10 @@ chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker
 endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZIGE Stelle, an der
                   ein Bearer aus einem Endpunkt-/Anbieter-Schlüssel gebaut wird — der MCP-Server
                   baut seinen Loopback-Token-Bearer separat) · effectiveModel (Endpunkt-Override
-                  vor globalem Modell) · migrateEndpointList (alte String-Liste → Configs) ·
+                  vor globalem Modell) · chatRequestModel (Vorrang für EINE Chat-Anfrage:
+                  Zeilen-Override → feature-eigenes Modell (`smartApplyModel`) → globales
+                  Chat-Modell; `ChatClient.stream` liest nur `opts.model`, nie das
+                  Konstruktor-Modell) · migrateEndpointList (alte String-Liste → Configs) ·
                   applyEndpointEdit (Zeilen-Bearbeitung bei blur, Feld-Diskriminator
                   "url"|"apiKey"|"model") · carriesApiKey (verlässlicher Drittanbieter-Indikator
                   für die Settings-UI — der Schlüssel, NICHT die URL: ein eigener Server im LAN/VPN
@@ -193,6 +196,11 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
                   `workspace.activeEditor` null ist, sobald der Fokus im Sidebar-Panel liegt;
                   `runTransform` ist der gemeinsame Weg für Command, Kontextmenü und Panel und
                   guarded jedes `replaceRange` mit `captureIsLive` + `isRangeStale`.
+                  Aktive Endpunkt-Modelle: `embeddingModelInUse` (Embedder + LiveIndexer/Manifest
+                  als Paar) und `chatEndpointInUse` → Getter `chatModelInUse` /
+                  `smartApplyModelInUse` (`chatRequestModel`). JEDE Chat-Anfrage muss einen der
+                  beiden Getter als `opts.model` mitgeben — `settings.chatModel` direkt zu
+                  senden ignoriert das Zeilen-Override des aktiven Endpunkts.
 ```
 
 **Index-Format (seit 0.18.0):** EINE Container-Datei `_vaultrag/index.bin` — `"VRIX"` · u32 headerLen LE

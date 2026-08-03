@@ -23,6 +23,22 @@ export function effectiveModel(cfg: EndpointConfig, globalModel: string): string
   return m ? m : globalModel;
 }
 
+/** Modell für EINE Chat-Anfrage an den gerade aktiven Endpunkt. Vorrang, absteigend:
+ *  Zeilen-Override des aktiven Endpunkts → feature-eigenes Modell (z. B. `smartApplyModel`)
+ *  → globales Chat-Modell.
+ *
+ *  Warum das Override auch das feature-eigene Modell schlägt: ein Modellname ist nur bei dem
+ *  Anbieter gültig, von dessen Liste er stammt. Fällt die Kette auf einen gehosteten Anbieter
+ *  zurück, wäre ein lokal gewählter Name dort schlicht unbekannt (HTTP 400) — das Override ist
+ *  die einzige Angabe, die zum aktiven Endpunkt gehört. */
+export function chatRequestModel(
+  active: EndpointConfig,
+  featureModel: string | undefined,
+  globalModel: string,
+): string {
+  return effectiveModel(active, featureModel?.trim() || globalModel);
+}
+
 /** Verlässlicher Indikator für "geht an einen Drittanbieter": der Schlüssel, NICHT die URL —
  *  eine URL-Heuristik ("sieht das nach Cloud aus?") wäre unzuverlässig (ein eigener Server im
  *  LAN/VPN braucht ebenfalls keinen Schlüssel, ist aber kein Drittanbieter, und umgekehrt). */

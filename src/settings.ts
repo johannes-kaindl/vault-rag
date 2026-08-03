@@ -10,7 +10,7 @@ import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import { applyEndpointEdit, effectiveModel, type EndpointConfig } from "./endpoint_config";
+import { applyEndpointEdit, effectiveModel, carriesApiKey, type EndpointConfig } from "./endpoint_config";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
 
@@ -880,6 +880,15 @@ export class VaultRagSettingTab extends PluginSettingTab {
           const warnIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-warn" });
           setIcon(warnIcon, "alert-triangle");
           setTooltip(warnIcon, warnings.map(w => w.message).join(" · "));
+        }
+        // Drittanbieter-Hinweis: der Schlüssel ist der verlässliche Indikator, nicht die URL
+        // (ein eigener Server im LAN braucht keinen — eine URL-Heuristik wäre unzuverlässig).
+        // Sachlicher Hinweis, keine Warnung vor einem Fehler — Form/Icon + Text, nie Farbe allein
+        // (WCAG 1.4.1); NIE den Schlüssel selbst im Text/Tooltip.
+        if (carriesApiKey(cfg)) {
+          const keyIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-thirdparty" });
+          setIcon(keyIcon, "alert-triangle");
+          setTooltip(keyIcon, "Endpunkt mit Schlüssel — Inhalte, die an ihn gesendet werden, gehen an diesen Anbieter.");
         }
       }
     });

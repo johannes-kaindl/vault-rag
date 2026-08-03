@@ -2,14 +2,14 @@
 
 > [🇬🇧 English](https://github.com/johannes-kaindl/vault-rag/blob/main/README.md) · 🇩🇪 Deutsch
 
-**Retrieval über dein eigenes Vault — verwandte Notizen, semantische Suche und gegroundeter Chat, lokal und offline.**
+**Retrieval über dein eigenes Vault — verwandte Notizen und semantische Suche, immer on-device — dazu gegroundeter Chat mit dem LLM-Endpunkt, den du einträgst.**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-DOCS)
 [![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fgit.jkaindl.de&label=release)](https://git.jkaindl.de/jkaindl/vault-rag/releases)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.12.7%2B%20·%20Desktop%20%26%20Mobil-7c3aed)
 
-Vault Retrieval macht deine Notizen durchsuchbar, ohne dass standardmäßig irgendetwas die Maschine verlässt. Es hält einen kleinen Embedding-Index **im Vault** — synct mit ihm, lesbar auf jedem Gerät — und beantwortet drei Fragen: *Was habe ich sonst dazu geschrieben? Wo habe ich sowas mal gesagt? Was weiß mein Vault über X?* Embedding und Generierung laufen gegen LLM-Endpunkte, die du selbst bestimmst — standardmäßig lokale Server, oder ein gehosteter OpenAI-kompatibler Anbieter, wenn du einen API-Schlüssel einträgst.
+Vault Retrieval macht deine Notizen durchsuchbar. Retrieval — verwandte Notizen, semantische Suche — läuft immer auf deinem Gerät. Es hält einen kleinen Embedding-Index **im Vault** — synct mit ihm, lesbar auf jedem Gerät — und beantwortet drei Fragen: *Was habe ich sonst dazu geschrieben? Wo habe ich sowas mal gesagt? Was weiß mein Vault über X?* Embedding und Chat sprechen den LLM-Endpunkt an, den du einträgst — standardmäßig einen unter deiner Kontrolle, lokal oder im eigenen Netz. Trägst du den Schlüssel eines Anbieters ein, gehen diese Inhalte an ihn.
 
 ## Features
 

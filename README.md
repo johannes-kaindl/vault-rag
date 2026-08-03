@@ -2,14 +2,14 @@
 
 > 🇬🇧 English · [🇩🇪 Deutsch](https://github.com/johannes-kaindl/vault-rag/blob/main/README.de.md)
 
-**Retrieval over your own vault — related notes, semantic search, and grounded chat — running locally and offline.**
+**Retrieval over your own vault — related notes and semantic search, always on-device — plus grounded chat with the LLM endpoint you configure.**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-DOCS)
 [![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fgit.jkaindl.de&label=release)](https://git.jkaindl.de/jkaindl/vault-rag/releases)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.12.7%2B%20·%20desktop%20%26%20mobile-7c3aed)
 
-Vault Retrieval turns your notes into a searchable knowledge base without sending anything to the cloud, by default. It keeps a small embedding index inside your vault — synced along with it, readable on every device — and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Embedding and generation run against LLM endpoints you control — local servers by default, or a hosted OpenAI-compatible provider if you opt in with an API key.
+Vault Retrieval turns your notes into a searchable knowledge base. Retrieval — related notes, semantic search — always runs on your device. It keeps a small embedding index inside your vault, synced along with it and readable on every device, and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Embedding and chat talk to whatever LLM endpoint you configure — one under your control, local or on your own network, by default. Add a provider's API key, and that traffic goes to them instead.
 
 > **Interface language:** the plugin's UI is currently **German only** — labels, commands and notices are not yet localised. English localisation is in progress. Where you need an exact string to find something in Obsidian (command palette, settings), this README gives it in `code`.
 

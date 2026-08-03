@@ -23,6 +23,13 @@ export function effectiveModel(cfg: EndpointConfig, globalModel: string): string
   return m ? m : globalModel;
 }
 
+/** Verlässlicher Indikator für "geht an einen Drittanbieter": der Schlüssel, NICHT die URL —
+ *  eine URL-Heuristik ("sieht das nach Cloud aus?") wäre unzuverlässig (ein eigener Server im
+ *  LAN/VPN braucht ebenfalls keinen Schlüssel, ist aber kein Drittanbieter, und umgekehrt). */
+export function carriesApiKey(cfg: EndpointConfig): boolean {
+  return !!cfg.apiKey?.trim();
+}
+
 /** Ein Listen-Eintrag (alt: blanke URL, neu: Config) → normalisierte Config.
  *  null = unbrauchbar (leere URL) und fliegt aus der Liste. */
 function toConfig(entry: string | EndpointConfig): EndpointConfig | null {

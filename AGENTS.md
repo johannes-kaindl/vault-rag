@@ -102,7 +102,9 @@ endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZI
                   baut seinen Loopback-Token-Bearer separat) · effectiveModel (Endpunkt-Override
                   vor globalem Modell) · migrateEndpointList (alte String-Liste → Configs) ·
                   applyEndpointEdit (Zeilen-Bearbeitung bei blur, Feld-Diskriminator
-                  "url"|"apiKey"|"model"). Obsidian-frei, von settings_core.ts re-exportiert.
+                  "url"|"apiKey"|"model") · carriesApiKey (verlässlicher Drittanbieter-Indikator
+                  für die Settings-UI — der Schlüssel, NICHT die URL: ein eigener Server im LAN/VPN
+                  braucht auch keinen). Obsidian-frei, von settings_core.ts re-exportiert.
 capabilities.ts   Reine Vision/Thinking-Erkennung, geschichtet L1 Metadaten (Ollama /api/show,
                   LM Studio /api/v1|v0) → L2 Name-Heuristik → L3 live-bestätigt (monotones Upgrade);
                   geteilter fetchCapabilities(baseUrl, model)-Probe-Helper.
@@ -121,7 +123,9 @@ settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab —
                   Zeilen sind `control`-Definitionen, `get/setControlValue` liest/schreibt sie
                   (mit Coercion + Seiteneffekten wie refresh/setStatusBarVisible). Dynamische
                   Zeilen (Endpoint-Listen — pro Zeile URL + maskiertes API-Schlüssel-Feld +
-                  Modell-Override, gesperrt während einer form-ändernden Mutation läuft —,
+                  Modell-Override, gesperrt während einer form-ändernden Mutation läuft, plus
+                  `alert-triangle`-Hinweis-Icon bei gesetztem Schlüssel (`carriesApiKey`) — Form/Icon
+                  + Tooltip, nie Farbe allein, Schlüssel selbst nie im Text —,
                   Modell-Dropdowns, Status-Poll alle 2 s, MCP-Sektion) sind render-Hatches.
                   **Zweigleisig:** ab 1.13 rendert das Framework deklarativ +
                   durchsuchbar; auf ≤1.12 (minAppVersion 1.12.7 — 1.13 ist Catalyst-Preview) läuft

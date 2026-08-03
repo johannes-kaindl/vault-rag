@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { authHeaders, effectiveModel, migrateEndpointList, applyEndpointEdit, type EndpointConfig } from "../src/endpoint_config";
+import { authHeaders, effectiveModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, type EndpointConfig } from "../src/endpoint_config";
 
 describe("authHeaders", () => {
   it("ohne Schlüssel → keine Header", () => {
@@ -21,6 +21,19 @@ describe("effectiveModel", () => {
 
   it("Override gewinnt und wird getrimmt", () => {
     expect(effectiveModel({ url: "u", model: " gpt-4o " }, "qwen3")).toBe("gpt-4o");
+  });
+});
+
+describe("carriesApiKey", () => {
+  it("ohne Schlüssel → false", () => {
+    expect(carriesApiKey({ url: "u" })).toBe(false);
+    expect(carriesApiKey({ url: "u", apiKey: "" })).toBe(false);
+    expect(carriesApiKey({ url: "u", apiKey: "   " })).toBe(false);
+  });
+
+  it("mit (auch nur whitespace-umrandetem) Schlüssel → true", () => {
+    expect(carriesApiKey({ url: "u", apiKey: "sk-abc" })).toBe(true);
+    expect(carriesApiKey({ url: "u", apiKey: "  sk-abc  " })).toBe(true);
   });
 });
 

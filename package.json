@@ -1,7 +1,7 @@
 {
   "name": "vault-retrieval",
   "version": "0.18.0",
-  "description": "Local, offline retrieval over your vault: related notes, semantic search, and grounded chat with a local LLM by default.",
+  "description": "On-device retrieval over your vault — related notes, semantic search — plus grounded chat with the LLM endpoint you configure.",
   "keywords": [
     "obsidian",
     "obsidian-plugin",

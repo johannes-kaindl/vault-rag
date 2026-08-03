@@ -33,6 +33,24 @@ export async function migrateIndex(adapter: VaultAdapter, from: string, to: stri
   }
 }
 
+/** Schmale Verzeichnis-I/O — bewusst NICHT im VaultAdapter-Kerninterface (das bleibt unberührt). */
+export interface DirRemoveIo {
+  rmdir(path: string, recursive: boolean): Promise<void>;
+}
+
+/**
+ * Entfernt ein Verzeichnis samt Inhalt — EIN Aufruf, `recursive: true`.
+ *
+ * Warum nicht „Dateien einzeln löschen, dann rmdir(dir, false)": Obsidians Adapter setzt
+ * `rmdir(path, false)` intern auf `fs.rm()` OHNE `recursive` um, und das wirft auf jedem
+ * Verzeichnis `ERR_FS_EISDIR` — auch auf einem leeren. Gemessen 2026-08-03; in dieser Form
+ * hat der Aufruf über Wochen 1309 leere Backup-Ordner hinterlassen, weil ein `catch` den
+ * Fehler schluckte. Fehler werden hier bewusst NICHT gefangen: der Aufrufer entscheidet.
+ */
+export async function removeDirDeep(io: DirRemoveIo, dir: string): Promise<void> {
+  await io.rmdir(dir, true);
+}
+
 /**
  * True, wenn ein Verzeichnis-Listing ausschließlich bekannte Index-Dateien (Basenames)
  * und keine Unterordner enthält → sicher zu löschen. `files`/`folders` sind volle Pfade

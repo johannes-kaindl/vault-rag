@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Backup-Rotation ließ leere Ordner zurück:** Beim Aufräumen alter Index-Backups blieb jedes
+  Mal ein leerer Ordner stehen — über Wochen sammelten sich so 1309 davon an. Ursache: Obsidians
+  Adapter kann ein Verzeichnis nur mit `recursive: true` entfernen; der bisherige Aufruf schlug
+  auf **jedem** Verzeichnis fehl und der Fehler wurde stillschweigend verworfen. Das Entfernen
+  läuft jetzt in einem Zug, und Fehlschläge werden protokolliert statt geschluckt. Dieselbe
+  kaputte Aufrufform steckte im Aufräumen des alten Index-Ordners nach einem Pfadwechsel.
+
 ## [0.18.0] — 2026-07-29
 
 ### Changed

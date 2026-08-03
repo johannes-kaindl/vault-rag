@@ -22,7 +22,7 @@ import type { ApplyMode } from "./note_restructurer";
 import { TemplateRanker } from "./template_ranker";
 import type { TemplateRank } from "./template_ranker";
 import { buildHideCss, normalizeIndexDir } from "./index_dir";
-import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIRED_FILES } from "./index_migrate";
+import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIRED_FILES, removeDirDeep } from "./index_migrate";
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
@@ -557,8 +557,7 @@ export default class VaultRagPlugin extends Plugin {
         new Notice(`Alter Index-Ordner „${dir}" enthält weitere Dateien — bitte manuell prüfen.`);
         return;
       }
-      for (const f of listing.files ?? []) await this.app.vault.adapter.remove(f);
-      await this.app.vault.adapter.rmdir(dir, false);
+      await removeDirDeep(this.app.vault.adapter, dir);
     } catch (e) {
       console.warn("vault-rag: cleanupIndexDir failed", e);
       new Notice(`Alter Index-Ordner „${dir}" konnte nicht entfernt werden — bitte manuell prüfen.`);
@@ -608,12 +607,14 @@ export default class VaultRagPlugin extends Plugin {
     return hasAllRequiredFiles(listing.files ?? []);
   }
 
+  /** Entfernt ein Backup-Verzeichnis. Fehler sind nicht fatal, werden aber NICHT verschwiegen:
+   *  der stumme catch hier hat den EISDIR-Bug wochenlang unsichtbar gehalten (1309 Leichen). */
   private async removeBackupDir(root: string, name: string): Promise<void> {
     try {
-      const listing = await this.app.vault.adapter.list(`${root}/${name}`);
-      for (const f of listing.files ?? []) await this.app.vault.adapter.remove(f);
-      await this.app.vault.adapter.rmdir(`${root}/${name}`, false);
-    } catch { /* Rotations-/Cleanup-Fehler nicht fatal */ }
+      await removeDirDeep(this.app.vault.adapter, `${root}/${name}`);
+    } catch (e) {
+      console.warn(`vault-rag: Backup-Ordner „${name}" konnte nicht entfernt werden`, e);
+    }
   }
 
   private async backupNames(): Promise<string[]> {

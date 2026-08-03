@@ -293,6 +293,15 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   alle auf der bereinigten Basis (`computeIndexDelta`/`splitHealTargets`).
 - **HyperForge-Export** braucht Daemon-Stopp bei Live-Lauf (embedded-Qdrant ist single-process).
 - **`main.js`** ist Build-Artefakt (gitignored) — nie von Hand editieren.
+- **`adapter.rmdir(path, false)` löscht in Obsidian NIE ein Verzeichnis** — auch kein leeres.
+  Der Adapter setzt es intern auf `fs.rm()` **ohne** `recursive` um; das wirft auf jedem
+  Verzeichnis `ERR_FS_EISDIR` (`syscall: "rm"`). Gemessen 2026-08-03 in echtem Obsidian, in allen
+  Fällen identisch — Vault-Ordner, Plugin-Ordner hinter Symlink, leerer wie befüllter Ordner.
+  **Immer `rmdir(path, true)`** — `removeDirDeep` (`index_migrate.ts`) ist die eine Wahrheit dafür.
+  Die falsche Form hat über Wochen 1309 leere Backup-Ordner erzeugt, weil ein stummer `catch` den
+  Fehler schluckte; **ein `catch`, der einen FS-Fehler verwirft, ohne ihn zu loggen, ist hier
+  verboten.** Fallstrick bei der Diagnose: eine `fs.rmdir`-Probe in Node ist **kein** Beleg — sie
+  prüft nicht den Weg, den Obsidian tatsächlich geht (genau daran ist die erste Analyse gescheitert).
 - **Index-Ordner-Hide ist rein kosmetisch (CSS):** `buildHideCss` (`index_dir.ts`) erzeugt eine
   `display:none`-Regel auf `.nav-folder-title[data-path=…]`, injiziert via Constructable Stylesheet
   (`adoptedStyleSheets`) — `createEl("style")`/`<style>`-Elemente sind von der Lint-Regel

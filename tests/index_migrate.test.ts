@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { VaultAdapter } from "../src/index";
-import { migrateIndex, onlyContainsIndexFiles, INDEX_ALL_FILES, hasAllRequiredFiles } from "../src/index_migrate";
+import { migrateIndex, onlyContainsIndexFiles, INDEX_ALL_FILES, hasAllRequiredFiles, removeDirDeep } from "../src/index_migrate";
 
 function makeMemAdapter(seed: Record<string, string | ArrayBuffer> = {}): VaultAdapter & { store: Map<string, string | ArrayBuffer>; mkdirs: string[] } {
   const store = new Map<string, string | ArrayBuffer>(Object.entries(seed));
@@ -138,5 +138,49 @@ describe("hasAllRequiredFiles", () => {
 
   it("hasAllRequiredFiles: unvollständiges Tripel ohne Container → false", () => {
     expect(hasAllRequiredFiles(["x/notes.i8", "x/manifest.json"])).toBe(false);
+  });
+});
+
+/**
+ * Bildet die real gemessene Obsidian-Adapter-Semantik nach (Diagnose 2026-08-03, Obsidian 1.12.x):
+ * `rmdir(dir, false)` wirft IMMER `ERR_FS_EISDIR` — auch auf einem leeren Ordner —, weil der
+ * Adapter intern `fs.rm()` ohne `recursive` aufruft. Nur `rmdir(dir, true)` entfernt wirklich.
+ * Genau diese Semantik hat 1309 leere Backup-Ordner erzeugt.
+ */
+function makeObsidianLikeDirs(dirs: string[], files: string[]) {
+  const D = new Set(dirs);
+  const F = new Set(files);
+  return {
+    D, F,
+    list: async (p: string) => ({
+      files: [...F].filter(f => f.startsWith(`${p}/`)),
+      folders: [...D].filter(d => d !== p && d.startsWith(`${p}/`)),
+    }),
+    remove: async (p: string) => { F.delete(p); },
+    rmdir: async (p: string, recursive: boolean) => {
+      if (!D.has(p)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      if (!recursive) {
+        throw Object.assign(new Error(`Path is a directory: rm returned EISDIR (is a directory) ${p}`), { code: "ERR_FS_EISDIR", syscall: "rm" });
+      }
+      for (const f of [...F]) if (f.startsWith(`${p}/`)) F.delete(f);
+      for (const d of [...D]) if (d === p || d.startsWith(`${p}/`)) D.delete(d);
+    },
+  };
+}
+
+describe("removeDirDeep", () => {
+  it("entfernt den Ordner wirklich, obwohl rmdir(recursive=false) EISDIR wirft", async () => {
+    const fs = makeObsidianLikeDirs(["backups/2026-01-01T00-00-00-000Z"], ["backups/2026-01-01T00-00-00-000Z/index.bin"]);
+
+    await removeDirDeep(fs, "backups/2026-01-01T00-00-00-000Z");
+
+    expect(fs.D.has("backups/2026-01-01T00-00-00-000Z")).toBe(false);
+    expect([...fs.F]).toEqual([]);
+  });
+
+  it("meldet einen echten Fehlschlag an den Aufrufer, statt ihn zu schlucken", async () => {
+    const fs = makeObsidianLikeDirs([], []);
+
+    await expect(removeDirDeep(fs, "backups/gibt-es-nicht")).rejects.toThrow();
   });
 });

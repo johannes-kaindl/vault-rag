@@ -183,3 +183,85 @@ describe("ChatClient Modelle", () => {
     expect(await new ChatClient("http://x", "m").fetchCapabilities("m")).toBeNull();
   });
 });
+
+describe("API-Schlüssel", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.mocked(requestUrl).mockReset(); });
+  const ok = (json: unknown) => ({ status: 200, json });
+  const headersOf = (call: number): Record<string, string> =>
+    (vi.mocked(requestUrl).mock.calls[call][0] as { headers?: Record<string, string> }).headers ?? {};
+
+  it("stream sendet den Bearer an chat/completions", async () => {
+    const xhr = installFakeXHR();
+    const p = new ChatClient("https://x/api", "m", "sk-1")
+      .stream([{ role: "user", content: "hi" }], () => {}, () => {});
+    xhr.feed([DONE]);
+    await p;
+    expect(xhr.headers.Authorization).toBe("Bearer sk-1");
+    expect(xhr.headers["Content-Type"]).toBe("application/json");
+  });
+
+  it("ohne Schlüssel bleibt der Header beim Streamen weg", async () => {
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://localhost:1234", "m")
+      .stream([{ role: "user", content: "hi" }], () => {}, () => {});
+    xhr.feed([DONE]);
+    await p;
+    expect(xhr.headers.Authorization).toBeUndefined();
+  });
+
+  it("listModels sendet den Bearer mit", async () => {
+    vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m" }] }) as any);
+    await new ChatClient("https://x/api", "m", "sk-1").listModels();
+    expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+  });
+
+  it("listModels: ohne Schlüssel bleibt der Header weg", async () => {
+    vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m" }] }) as any);
+    await new ChatClient("http://localhost:1234", "m").listModels();
+    expect(headersOf(0).Authorization).toBeUndefined();
+  });
+
+  it("modelInfo sendet den Bearer mit", async () => {
+    vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m" }] }) as any);
+    await new ChatClient("https://x/api", "m", "sk-1").modelInfo("m");
+    expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+  });
+
+  it("modelInfo: ohne Schlüssel bleibt der Header weg", async () => {
+    vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m" }] }) as any);
+    await new ChatClient("http://localhost:1234", "m").modelInfo("m");
+    expect(headersOf(0).Authorization).toBeUndefined();
+  });
+
+  it("probe sendet den Bearer mit", async () => {
+    vi.mocked(requestUrl).mockResolvedValue(ok({ data: [] }) as any);
+    await new ChatClient("https://x/api", "m", "sk-1").probe();
+    expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+  });
+
+  it("probe: ohne Schlüssel bleibt der Header weg", async () => {
+    vi.mocked(requestUrl).mockResolvedValue(ok({ data: [] }) as any);
+    await new ChatClient("http://localhost:1234", "m").probe();
+    expect(headersOf(0).Authorization).toBeUndefined();
+  });
+
+  it("fetchCapabilities sendet den Bearer mit", async () => {
+    vi.mocked(requestUrl).mockImplementation((p: any) => Promise.resolve(
+      p.url.endsWith("/api/v1/models")
+        ? ok({ data: [{ id: "m", capabilities: { vision: true } }] })
+        : { status: 404 },
+    ) as any);
+    await new ChatClient("https://x/api", "m", "sk-1").fetchCapabilities("m");
+    expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+  });
+
+  it("fetchCapabilities: ohne Schlüssel bleibt der Header weg", async () => {
+    vi.mocked(requestUrl).mockImplementation((p: any) => Promise.resolve(
+      p.url.endsWith("/api/v1/models")
+        ? ok({ data: [{ id: "m", capabilities: { vision: true } }] })
+        : { status: 404 },
+    ) as any);
+    await new ChatClient("http://localhost:1234", "m").fetchCapabilities("m");
+    expect(headersOf(0).Authorization).toBeUndefined();
+  });
+});

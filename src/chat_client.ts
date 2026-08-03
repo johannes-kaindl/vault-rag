@@ -3,6 +3,7 @@ import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
 import { suppressParams } from "./vendor/kit/reasoning";
 import { httpJson, probeEndpoint } from "./http";
+import { authHeaders } from "./endpoint_config";
 import { EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
@@ -18,13 +19,13 @@ export interface ModelInfo {
 
 export class ChatClient {
   private endpoint: string;
-  constructor(endpoint: string, private model: string) {
+  constructor(endpoint: string, private model: string, private apiKey?: string) {
     this.endpoint = normalizeEndpoint(endpoint);
   }
 
   /** Erreichbarkeit + Klartext-Diagnose des Endpunkts. */
   async probe(): Promise<EndpointStatus> {
-    return probeEndpoint(this.endpoint);
+    return probeEndpoint(this.endpoint, this.apiKey);
   }
 
   /** Boolean-Kurzform für Aufrufer (Resolver), die nur Erreichbarkeit brauchen.
@@ -36,7 +37,7 @@ export class ChatClient {
   /** Verfügbare Modelle vom OpenAI-kompatiblen Endpoint (GET /v1/models). [] bei Fehler/Offline. */
   async listModels(): Promise<string[]> {
     try {
-      const { status, json } = await httpJson({ url: `${this.endpoint}/v1/models` });
+      const { status, json } = await httpJson({ url: `${this.endpoint}/v1/models`, headers: authHeaders(this.apiKey) });
       if (status !== 200) return [];
       const j = json as { data?: { id?: string }[] };
       return (j.data ?? []).map(m => m.id).filter((x): x is string => typeof x === "string").sort();
@@ -46,7 +47,7 @@ export class ChatClient {
   /** Best-effort Modell-Details via LM Studios GET /api/v0/models. null wenn nicht verfügbar. */
   async modelInfo(model: string): Promise<ModelInfo | null> {
     try {
-      const { status, json } = await httpJson({ url: `${this.endpoint}/api/v0/models` });
+      const { status, json } = await httpJson({ url: `${this.endpoint}/api/v0/models`, headers: authHeaders(this.apiKey) });
       if (status !== 200) return null;
       const j = json as { data?: Record<string, unknown>[] };
       const m = (j.data ?? []).find(x => x.id === model);
@@ -63,7 +64,7 @@ export class ChatClient {
   }
 
   async fetchCapabilities(model: string): Promise<Capabilities | null> {
-    return fetchCapabilities(this.endpoint, model);
+    return fetchCapabilities(this.endpoint, model, this.apiKey);
   }
 
   async stream(
@@ -83,7 +84,7 @@ export class ChatClient {
     });
     const { content, reasoning } = await streamSSE(
       `${this.endpoint}/v1/chat/completions`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body },
+      { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(this.apiKey) }, body },
       onContent, onReasoning, signal,
     );
     return { content, reasoning };

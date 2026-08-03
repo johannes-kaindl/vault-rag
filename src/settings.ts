@@ -9,23 +9,15 @@ import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
-import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
+import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
+import { applyEndpointEdit, effectiveModel, type EndpointConfig } from "./endpoint_config";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
 
-export { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, migrateEndpointList };
+export { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT };
+export { applyEndpointEdit, migrateEndpointList } from "./endpoint_config";
+export type { EndpointConfig } from "./endpoint_config";
 export type { VaultRagSettings };
-
-/** Wendet die Bearbeitung EINES Endpoint-Felds auf die Liste an (bei blur, nicht pro Tastendruck).
- *  isAdder=true: nicht-leerer Wert wird angehängt. isAdder=false: Index setzen (leer → entfernen). Getrimmt+leer-gefiltert. */
-export function applyEndpointEdit(endpoints: string[], index: number, value: string, isAdder: boolean): string[] {
-  const v = value.trim();
-  const next = [...endpoints];
-  if (isAdder) { if (v) next.push(v); }
-  else if (v) { next[index] = v; }
-  else { next.splice(index, 1); }
-  return next.map(e => e.trim()).filter(e => e);
-}
 
 /** Roter/destruktiver Button, versionssicher: setDestructive() ab Obsidian 1.13, sonst die
  *  mod-warning-DOM-Klasse (kein deprecated setWarning, kein Lint-Warning, roter Look überall).
@@ -405,12 +397,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildEndpointList({
       containerEl: host,
       label: "Embedding-Endpunkte",
-      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Ollama- oder MLX-Server-URLs (Desktop oder LAN/VPN-erreichbar).",
+      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Lokale Server (Ollama/MLX/LM Studio) brauchen keinen Schlüssel; für externe Anbieter Schlüssel und Modell eintragen.",
       placeholder: "http://localhost:11434",
       get: () => this.plugin.settings.embeddingEndpoints,
       set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
       active: () => this.plugin.activeEmbeddingEndpoint,
-      probe: (ep) => new EmbeddingClient(ep, this.plugin.settings.embeddingModel).probe(),
+      probe: (cfg) => new EmbeddingClient(cfg.url, effectiveModel(cfg, this.plugin.settings.embeddingModel), cfg.apiKey).probe(),
       reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
     });
   };
@@ -615,12 +607,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildEndpointList({
       containerEl: host,
       label: "Chat-Endpunkte",
-      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. OpenAI-kompatible LLM-Server (MLX/LM-Studio), getrennt von den Embedding-Endpunkten.",
+      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Lokale Server (Ollama/MLX/LM Studio) brauchen keinen Schlüssel; für externe Anbieter Schlüssel und Modell eintragen.",
       placeholder: "http://localhost:1234",
       get: () => this.plugin.settings.chatEndpoints,
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
       active: () => this.plugin.activeChatEndpoint,
-      probe: (ep) => new ChatClient(ep, this.plugin.settings.chatModel).probe(),
+      probe: (cfg) => new ChatClient(cfg.url, effectiveModel(cfg, this.plugin.settings.chatModel), cfg.apiKey).probe(),
       reconnect: () => this.plugin.resolveAndReconnectChat(),
     });
   };
@@ -770,38 +762,53 @@ export class VaultRagSettingTab extends PluginSettingTab {
   // ── Helpers ───────────────────────────────────────────────────────────
 
   /** Geordneter Endpunkt-Fallback-Listen-Editor (für Embedding wie Chat identisch).
-   *  Rendert `[...endpoints, ""]` (leeres Add-Feld), Label/Desc nur in Zeile 0. Mutation NUR
+   *  Rendert `[...endpoints, Adder]` (leeres Add-Feld), Label/Desc nur in Zeile 0. Mutation NUR
    *  bei blur (nicht pro Tastendruck), via applyEndpointEdit → saveSettings → reconnect → Re-Render.
-   *  Pro echtem Eintrag: Status-Icon (loader → check/x, aktiver Endpunkt markiert) + Mülleimer. */
+   *  Pro echtem Eintrag: Status-Icon (loader → check/x, aktiver Endpunkt markiert), URL-,
+   *  Schlüssel- (maskiert) und Modell-Feld + Mülleimer. */
   private buildEndpointList(opts: {
     containerEl: HTMLElement;
     label: string; desc: string; placeholder: string;
-    get: () => string[]; set: (eps: string[]) => void;
+    get: () => EndpointConfig[]; set: (eps: EndpointConfig[]) => void;
     active: () => string | null;
-    probe: (ep: string) => Promise<EndpointStatus>;
+    probe: (cfg: EndpointConfig) => Promise<EndpointStatus>;
     reconnect: () => Promise<void>;
   }): void {
     const eps = opts.get();
-    const rows = [...eps, ""];   // leeres Zusatzfeld am Ende
-    rows.forEach((value, i) => {
+    const rows: EndpointConfig[] = [...eps, { url: "" }];   // leeres Zusatzfeld am Ende
+    rows.forEach((cfg, i) => {
       const isAdder = i >= eps.length;
       const s = new Setting(opts.containerEl);
       if (i === 0) s.setName(opts.label).setDesc(opts.desc);
       const statusIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-status" });
+      // Listen-Mutation NUR bei blur, NICHT in onChange: onChange feuert pro Tastendruck und
+      // würde im Add-Feld jeden Zwischenstand (h, ht, htt, …) als eigenen Eintrag anhängen.
+      const commit = (field: "url" | "apiKey" | "model", value: string): void => {
+        const before = opts.get();
+        const updated = applyEndpointEdit(before, i, field, value, isAdder);
+        if (JSON.stringify(updated) === JSON.stringify(before)) return;   // unverändert → kein Re-Render
+        opts.set(updated);
+        void this.plugin.saveSettings()
+          .then(() => opts.reconnect())
+          .then(() => this.refreshUi());
+      };
       s.addText(tx => {
-        tx.setPlaceholder(isAdder ? "Weiteren Endpunkt hinzufügen…" : opts.placeholder).setValue(value);
-        // Listen-Mutation NUR bei blur, NICHT in onChange: onChange feuert pro Tastendruck und
-        // würde im Add-Feld jeden Zwischenstand (h, ht, htt, …) als eigenen Eintrag anhängen.
-        tx.inputEl.addEventListener("blur", () => {
-          const before = opts.get();
-          const updated = applyEndpointEdit(before, i, tx.getValue(), isAdder);
-          if (updated.length === before.length && updated.every((e, k) => e === before[k])) return;   // unverändert → kein Re-Render
-          opts.set(updated);
-          void this.plugin.saveSettings()
-            .then(() => opts.reconnect())
-            .then(() => this.refreshUi());
-        });
+        tx.setPlaceholder(isAdder ? "Weiteren Endpunkt hinzufügen…" : opts.placeholder).setValue(cfg.url);
+        tx.inputEl.addEventListener("blur", () => { commit("url", tx.getValue()); });
       });
+      // Schlüssel + Modell nur an bestehenden Einträgen — am leeren Adder gäbe es nichts zu tragen.
+      if (!isAdder) {
+        s.addText(tx => {
+          tx.setPlaceholder("API-Schlüssel (leer = lokaler Server)").setValue(cfg.apiKey ?? "");
+          tx.inputEl.type = "password";                    // maskiert gegen Schultergucken/Screenshots
+          tx.inputEl.setAttribute("autocomplete", "off");
+          tx.inputEl.addEventListener("blur", () => { commit("apiKey", tx.getValue()); });
+        });
+        s.addText(tx => {
+          tx.setPlaceholder("Modell (leer = globales)").setValue(cfg.model ?? "");
+          tx.inputEl.addEventListener("blur", () => { commit("model", tx.getValue()); });
+        });
+      }
       // Löschen: expliziter Mülleimer-Button (nicht am leeren Add-Feld). Das Status-Icon links
       // ist nur Erreichbarkeits-Anzeige, kein Lösch-Button.
       if (!isAdder) {
@@ -809,17 +816,17 @@ export class VaultRagSettingTab extends PluginSettingTab {
           .setIcon("trash-2")
           .setTooltip("Endpunkt entfernen")
           .onClick(() => {
-            opts.set(applyEndpointEdit(opts.get(), i, "", false));
+            opts.set(applyEndpointEdit(opts.get(), i, "url", "", false));
             void this.plugin.saveSettings()
               .then(() => opts.reconnect())
               .then(() => this.refreshUi());
           }));
       }
       // Pro-Feld-Status in A11y-Form (Form + Text + Farbe): loader → check/x, aktiver markiert.
-      const ep = value.trim();
+      const ep = cfg.url.trim();
       if (!isAdder && ep) {
         setIcon(statusIcon, "loader"); setTooltip(statusIcon, "prüfe…");
-        void opts.probe(ep).then(status => {
+        void opts.probe(cfg).then(status => {
           statusIcon.empty();
           setIcon(statusIcon, status.reachable ? "circle-check" : "circle-x");
           statusIcon.toggleClass("is-ok", status.reachable);
@@ -844,8 +851,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
         .setTooltip(`${preset.url} hinzufügen`)
         .onClick(() => {
           const cur = opts.get();
-          if (cur.includes(preset.url)) return;   // schon in der Liste — kein Duplikat anhängen
-          opts.set(applyEndpointEdit(cur, cur.length, preset.url, true));
+          if (cur.some(c => c.url === preset.url)) return;   // schon in der Liste — kein Duplikat anhängen
+          opts.set(applyEndpointEdit(cur, cur.length, "url", preset.url, true));
           void this.plugin.saveSettings()
             .then(() => opts.reconnect())
             .then(() => this.refreshUi());

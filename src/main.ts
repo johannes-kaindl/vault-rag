@@ -3,8 +3,9 @@ import { VaultIndex } from "./index";
 import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList, RestoreBackupModal } from "./settings";
+import { effectiveModel, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
-import { resolveActiveEndpoint } from "./vendor/kit/endpoint";
+import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { mergeSettings } from "./vendor/kit/settings";
 import { EmbeddingClient } from "./embedder";
 import { LiveIndexer } from "./live_indexer";
@@ -160,17 +161,24 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   async onload() {
-    const loaded = await this.loadData() as (Partial<VaultRagSettings> & { embeddingEndpoint?: string; chatEndpoint?: string }) | null;
-    this.settings = mergeSettings(DEFAULT_SETTINGS, loaded);
-    // Migration: alte Einzel-Endpoint-Settings → geordnete Fallback-Listen.
+    // Prä-0.19-data.json trägt die Endpunkte als blanke URL-Strings (und noch älter als
+    // Einzelfeld) — hier ehrlich getypt, migriert wird gleich darunter.
+    const loaded = await this.loadData() as (Omit<Partial<VaultRagSettings>, "embeddingEndpoints" | "chatEndpoints"> & {
+      embeddingEndpoint?: string; chatEndpoint?: string;
+      embeddingEndpoints?: (string | EndpointConfig)[]; chatEndpoints?: (string | EndpointConfig)[];
+    }) | null;
+    this.settings = mergeSettings(DEFAULT_SETTINGS, loaded as Partial<VaultRagSettings> | null);
+    // Migration: alte Einzel-Endpoint-Settings und Prä-0.19-String-Listen → EndpointConfig-Listen.
     this.settings.embeddingEndpoints = migrateEndpointList(loaded?.embeddingEndpoint, loaded?.embeddingEndpoints);
     this.settings.chatEndpoints = migrateEndpointList(loaded?.chatEndpoint, loaded?.chatEndpoints);
     if (!this.settings.embeddingEndpoints.length) this.settings.embeddingEndpoints = [...DEFAULT_SETTINGS.embeddingEndpoints];
     if (!this.settings.chatEndpoints.length) this.settings.chatEndpoints = [...DEFAULT_SETTINGS.chatEndpoints];
     // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
     // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
-    this.embedder = new EmbeddingClient(this.settings.embeddingEndpoints[0] ?? "", this.settings.embeddingModel);
-    this.chatClient = new ChatClient(this.settings.chatEndpoints[0] ?? "", this.settings.chatModel);
+    const e0 = this.settings.embeddingEndpoints[0] ?? { url: "" };
+    const c0 = this.settings.chatEndpoints[0] ?? { url: "" };
+    this.embedder = new EmbeddingClient(e0.url, effectiveModel(e0, this.settings.embeddingModel), e0.apiKey);
+    this.chatClient = new ChatClient(c0.url, effectiveModel(c0, this.settings.chatModel), c0.apiKey);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
     this.facade = new RetrievalFacade({
@@ -446,11 +454,21 @@ export default class VaultRagPlugin extends Plugin {
   /** Aktiven Embedding-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
    *  und embedder + liveIndexer darauf neu verdrahten. Behält die liveIndexer-Verdrahtung. */
   async resolveAndReconnectEmbedder(): Promise<void> {
-    const m = this.settings.embeddingModel;
-    const active = await resolveActiveEndpoint(this.settings.embeddingEndpoints, ep => new EmbeddingClient(ep, m).ping());
-    this.activeEmbeddingEndpoint = active;
-    const ep = active ?? this.settings.embeddingEndpoints[0] ?? "";
-    this.embedder = new EmbeddingClient(ep, m);
+    // Eigene Schleife statt resolveActiveEndpoint (Kit): das kennt nur URLs und könnte den
+    // Schlüssel/das Modell-Override des Eintrags nicht mitführen.
+    let active: EndpointConfig | null = null;
+    for (const candidate of this.settings.embeddingEndpoints) {
+      const url = candidate.url?.trim();
+      if (!url) continue;
+      if (await new EmbeddingClient(url, effectiveModel(candidate, this.settings.embeddingModel), candidate.apiKey).ping()) {
+        active = candidate;
+        break;
+      }
+    }
+    const cfg = active ?? this.settings.embeddingEndpoints[0] ?? { url: "" };
+    this.activeEmbeddingEndpoint = active ? normalizeEndpoint(cfg.url) : null;
+    const m = effectiveModel(cfg, this.settings.embeddingModel);
+    this.embedder = new EmbeddingClient(cfg.url, m, cfg.apiKey);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m);
     if (this.index) this.liveIndexer.init(this.index);
     else if (this.indexHealthy) this.liveIndexer.markFresh();
@@ -460,10 +478,18 @@ export default class VaultRagPlugin extends Plugin {
   /** Aktiven Chat-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
    *  und chatClient darauf neu verdrahten. */
   async resolveAndReconnectChat(): Promise<void> {
-    const active = await resolveActiveEndpoint(this.settings.chatEndpoints, ep => new ChatClient(ep, this.settings.chatModel).ping());
-    this.activeChatEndpoint = active;
-    const ep = active ?? this.settings.chatEndpoints[0] ?? "";
-    this.chatClient = new ChatClient(ep, this.settings.chatModel);
+    let active: EndpointConfig | null = null;
+    for (const candidate of this.settings.chatEndpoints) {
+      const url = candidate.url?.trim();
+      if (!url) continue;
+      if (await new ChatClient(url, effectiveModel(candidate, this.settings.chatModel), candidate.apiKey).ping()) {
+        active = candidate;
+        break;
+      }
+    }
+    const cfg = active ?? this.settings.chatEndpoints[0] ?? { url: "" };
+    this.activeChatEndpoint = active ? normalizeEndpoint(cfg.url) : null;
+    this.chatClient = new ChatClient(cfg.url, effectiveModel(cfg, this.settings.chatModel), cfg.apiKey);
   }
 
   /** Embedder-Reachability mit EINEM Re-Resolve-Retry: aktiven pingen; schlägt fehl,

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { DEFAULT_SETTINGS, VaultRagSettings, migrateEndpointList, applyEndpointEdit, applyDestructive, VaultRagSettingTab } from "../src/settings";
+import { DEFAULT_SETTINGS, VaultRagSettings, applyDestructive, VaultRagSettingTab } from "../src/settings";
 import { makeFakeEl } from "./__mocks__/obsidian";
 
 describe("settings", () => {
@@ -11,7 +11,7 @@ describe("settings", () => {
   });
 
   it("hat embeddingEndpoints-Default (Liste)", () => {
-    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual(["http://localhost:11434"]);
+    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434" }]);
   });
 
   it("hat embeddingModel-Default", () => {
@@ -27,7 +27,7 @@ describe("settings", () => {
   });
 
   it("hat Chat-Defaults", () => {
-    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual(["http://localhost:1234"]);
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234" }]);
     expect(DEFAULT_SETTINGS.chatModel).toBe("qwen3");
     expect(DEFAULT_SETTINGS.chatK).toBe(5);
     expect(DEFAULT_SETTINGS.contextCharBudget).toBe(12000);
@@ -91,51 +91,6 @@ describe("settings", () => {
   });
 });
 
-describe("migrateEndpointList", () => {
-  it("migriert ein altes Einzel-Setting auf eine 1-Element-Liste", () => {
-    expect(migrateEndpointList("http://x", undefined)).toEqual(["http://x"]);
-  });
-
-  it("trimmt den migrierten Einzel-Endpunkt", () => {
-    expect(migrateEndpointList("  http://x  ", undefined)).toEqual(["http://x"]);
-  });
-
-  it("lässt eine vorhandene Liste unverändert (gewinnt über das Einzelfeld)", () => {
-    expect(migrateEndpointList("http://alt", ["http://a", "http://b"])).toEqual(["http://a", "http://b"]);
-  });
-
-  it("filtert leere Einträge aus einer vorhandenen Liste", () => {
-    expect(migrateEndpointList(undefined, ["http://a", "", "  "])).toEqual(["http://a"]);
-  });
-
-  it("gibt [] bei fehlenden/leeren Eingaben zurück (Aufrufer fällt auf Default)", () => {
-    expect(migrateEndpointList(undefined, undefined)).toEqual([]);
-    expect(migrateEndpointList("   ", [])).toEqual([]);
-  });
-});
-
-describe("applyEndpointEdit", () => {
-  it("hängt einen nicht-leeren Adder-Wert an", () => {
-    expect(applyEndpointEdit(["http://a"], 1, "http://b", true)).toEqual(["http://a", "http://b"]);
-  });
-
-  it("ignoriert einen leeren Adder-Wert", () => {
-    expect(applyEndpointEdit(["http://a"], 1, "   ", true)).toEqual(["http://a"]);
-  });
-
-  it("setzt einen vorhandenen Index auf einen neuen Wert (Edit)", () => {
-    expect(applyEndpointEdit(["http://a", "http://b"], 0, "http://c", false)).toEqual(["http://c", "http://b"]);
-  });
-
-  it("entfernt den Eintrag, wenn ein Nicht-Adder-Feld geleert wird", () => {
-    expect(applyEndpointEdit(["http://a", "http://b"], 0, "", false)).toEqual(["http://b"]);
-  });
-
-  it("trimmt und filtert leere Einträge im Ergebnis", () => {
-    expect(applyEndpointEdit(["  http://a  ", "http://b"], 1, "  http://c  ", false)).toEqual(["http://a", "http://c"]);
-  });
-});
-
 describe("applyDestructive", () => {
   it("nutzt setDestructive, wenn vorhanden (1.13+)", () => {
     let called = false;
@@ -153,10 +108,10 @@ describe("applyDestructive", () => {
 
 describe("DEFAULT_SETTINGS Endpunkte", () => {
   it("Chat-Default ist LM Studio :1234", () => {
-    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual(["http://localhost:1234"]);
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234" }]);
   });
   it("Embedding-Default bleibt Ollama :11434", () => {
-    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual(["http://localhost:11434"]);
+    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434" }]);
   });
 });
 

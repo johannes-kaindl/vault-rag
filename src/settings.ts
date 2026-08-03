@@ -776,6 +776,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }): void {
     const eps = opts.get();
     const rows: EndpointConfig[] = [...eps, { url: "" }];   // leeres Zusatzfeld am Ende
+    // Jede Mutation, die die Listen-FORM ändert (URL-Edit, Mülleimer, Preset), macht die
+    // gerenderten Zeilen-Indizes stale — bis der Re-Render kommt, wäre ein blur in einer anderen
+    // Zeile auf den falschen Eintrag gebucht (im schlimmsten Fall ein Anbieter-Schlüssel am
+    // falschen Host). Darum: Zeilen sofort sperren, das Re-Render entsperrt durch Neuaufbau.
+    const lockRows = (): void => {
+      opts.containerEl.addClass("vault-rag-ep-busy");          // sperrt auch die Icon-Buttons (divs)
+      opts.containerEl.setAttribute("aria-busy", "true");
+      opts.containerEl.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")
+        .forEach(el => { el.disabled = true; });
+    };
     rows.forEach((cfg, i) => {
       const isAdder = i >= eps.length;
       const s = new Setting(opts.containerEl);
@@ -783,29 +793,38 @@ export class VaultRagSettingTab extends PluginSettingTab {
       const statusIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-status" });
       // Listen-Mutation NUR bei blur, NICHT in onChange: onChange feuert pro Tastendruck und
       // würde im Add-Feld jeden Zwischenstand (h, ht, htt, …) als eigenen Eintrag anhängen.
+      // Nur URL-Änderungen rendern neu (Statuszeile hängt an der URL). Schlüssel/Modell tun das
+      // NICHT: refreshUi baut den Tab komplett neu auf, und da reconnect() jeden Endpunkt pingt
+      // (bis 5 s), risse es dem Nutzer sonst mitten im Tippen des nächsten Feldes das DOM weg.
       const commit = (field: "url" | "apiKey" | "model", value: string): void => {
         const before = opts.get();
         const updated = applyEndpointEdit(before, i, field, value, isAdder);
         if (JSON.stringify(updated) === JSON.stringify(before)) return;   // unverändert → kein Re-Render
+        const rerender = field === "url";
+        if (rerender) lockRows();
         opts.set(updated);
-        void this.plugin.saveSettings()
-          .then(() => opts.reconnect())
-          .then(() => this.refreshUi());
+        const chain = this.plugin.saveSettings().then(() => opts.reconnect());
+        void (rerender ? chain.then(() => this.refreshUi()) : chain);
       };
       s.addText(tx => {
         tx.setPlaceholder(isAdder ? "Weiteren Endpunkt hinzufügen…" : opts.placeholder).setValue(cfg.url);
+        tx.inputEl.setAttribute("aria-label", isAdder ? `${opts.label}: weiteren Endpunkt hinzufügen` : `${opts.label}: URL`);
         tx.inputEl.addEventListener("blur", () => { commit("url", tx.getValue()); });
       });
       // Schlüssel + Modell nur an bestehenden Einträgen — am leeren Adder gäbe es nichts zu tragen.
+      // aria-label statt bloßem Placeholder: der verschwindet beim Tippen, und drei unbeschriftete
+      // Felder in einer Zeile sind für Screenreader nicht auseinanderzuhalten.
       if (!isAdder) {
         s.addText(tx => {
           tx.setPlaceholder("API-Schlüssel (leer = lokaler Server)").setValue(cfg.apiKey ?? "");
           tx.inputEl.type = "password";                    // maskiert gegen Schultergucken/Screenshots
           tx.inputEl.setAttribute("autocomplete", "off");
+          tx.inputEl.setAttribute("aria-label", `API-Schlüssel für ${cfg.url} (leer = lokaler Server)`);
           tx.inputEl.addEventListener("blur", () => { commit("apiKey", tx.getValue()); });
         });
         s.addText(tx => {
           tx.setPlaceholder("Modell (leer = globales)").setValue(cfg.model ?? "");
+          tx.inputEl.setAttribute("aria-label", `Modell für ${cfg.url} (leer = globales Modell)`);
           tx.inputEl.addEventListener("blur", () => { commit("model", tx.getValue()); });
         });
       }
@@ -816,6 +835,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           .setIcon("trash-2")
           .setTooltip("Endpunkt entfernen")
           .onClick(() => {
+            lockRows();
             opts.set(applyEndpointEdit(opts.get(), i, "url", "", false));
             void this.plugin.saveSettings()
               .then(() => opts.reconnect())
@@ -852,6 +872,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         .onClick(() => {
           const cur = opts.get();
           if (cur.some(c => c.url === preset.url)) return;   // schon in der Liste — kein Duplikat anhängen
+          lockRows();
           opts.set(applyEndpointEdit(cur, cur.length, "url", preset.url, true));
           void this.plugin.saveSettings()
             .then(() => opts.reconnect())

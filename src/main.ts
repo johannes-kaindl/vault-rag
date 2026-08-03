@@ -2,8 +2,9 @@ import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normaliz
 import { VaultIndex } from "./index";
 import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
-import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList, RestoreBackupModal } from "./settings";
-import { effectiveModel, type EndpointConfig } from "./endpoint_config";
+import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
+// Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
+import { effectiveModel, migrateEndpointList, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { mergeSettings } from "./vendor/kit/settings";
@@ -27,7 +28,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex } from "./index_guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex } from "./index_guard";
 import { loadIndexStore, verifyBackupCandidate } from "./index_store";
 import { CONTAINER_FILE, decodeContainer } from "./index_container";
 import { McpTools } from "./mcp/tools";
@@ -66,6 +67,13 @@ export default class VaultRagPlugin extends Plugin {
   chatClient!: ChatClient;
   activeEmbeddingEndpoint: string | null = null;
   activeChatEndpoint: string | null = null;
+  /** Modell, mit dem der aktuelle `embedder` gebaut wurde (Endpunkt-Override oder global).
+   *  Embedder und LiveIndexer/Manifest MÜSSEN immer dasselbe Modell nennen — sonst behauptet
+   *  das Manifest einen Vektorraum, aus dem die Vektoren nicht stammen. */
+  private embeddingModelInUse = "";
+  /** Zuletzt gemeldete Modell-Guard-Übersprünge — verhindert Notice-Spam, weil
+   *  `embedderReady()` den Resolver bei jedem fehlgeschlagenen Ping erneut anwirft. */
+  private lastSkipNotice = "";
   private smartApply: SmartApply | null = null;
   private templateRanker?: TemplateRanker;
   private liveIndexer!: LiveIndexer;
@@ -171,15 +179,21 @@ export default class VaultRagPlugin extends Plugin {
     // Migration: alte Einzel-Endpoint-Settings und Prä-0.19-String-Listen → EndpointConfig-Listen.
     this.settings.embeddingEndpoints = migrateEndpointList(loaded?.embeddingEndpoint, loaded?.embeddingEndpoints);
     this.settings.chatEndpoints = migrateEndpointList(loaded?.chatEndpoint, loaded?.chatEndpoints);
-    if (!this.settings.embeddingEndpoints.length) this.settings.embeddingEndpoints = [...DEFAULT_SETTINGS.embeddingEndpoints];
-    if (!this.settings.chatEndpoints.length) this.settings.chatEndpoints = [...DEFAULT_SETTINGS.chatEndpoints];
+    // Tiefe Kopie: die Default-Einträge sind jetzt veränderliche Objekte — eine flache Kopie
+    // teilte sie mit DEFAULT_SETTINGS, und ein späteres `cfg.apiKey = …` schriebe ein Geheimnis
+    // in die Modul-Defaults.
+    if (!this.settings.embeddingEndpoints.length) this.settings.embeddingEndpoints = DEFAULT_SETTINGS.embeddingEndpoints.map(c => ({ ...c }));
+    if (!this.settings.chatEndpoints.length) this.settings.chatEndpoints = DEFAULT_SETTINGS.chatEndpoints.map(c => ({ ...c }));
     // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
     // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
     const e0 = this.settings.embeddingEndpoints[0] ?? { url: "" };
     const c0 = this.settings.chatEndpoints[0] ?? { url: "" };
-    this.embedder = new EmbeddingClient(e0.url, effectiveModel(e0, this.settings.embeddingModel), e0.apiKey);
+    this.embeddingModelInUse = effectiveModel(e0, this.settings.embeddingModel);
+    this.embedder = new EmbeddingClient(e0.url, this.embeddingModelInUse, e0.apiKey);
     this.chatClient = new ChatClient(c0.url, effectiveModel(c0, this.settings.chatModel), c0.apiKey);
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
+    // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
+    // fire-and-forget am Ende von onload, der modify-Listener kann davor feuern.
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.embeddingModelInUse);
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
     this.facade = new RetrievalFacade({
       getIndex: () => this.index,
@@ -456,23 +470,54 @@ export default class VaultRagPlugin extends Plugin {
   async resolveAndReconnectEmbedder(): Promise<void> {
     // Eigene Schleife statt resolveActiveEndpoint (Kit): das kennt nur URLs und könnte den
     // Schlüssel/das Modell-Override des Eintrags nicht mitführen.
+    // Modell-Guard: ein Kandidat mit fremdem Embedding-Modell darf den geladenen Index NICHT
+    // bedienen (anderer Vektorraum, stille Vergiftung) — er wird übersprungen, nicht genutzt.
+    const indexModel = this.index?.manifest.embedding_model;
+    const fits = (cfg: EndpointConfig): boolean =>
+      embeddingModelMatchesIndex(effectiveModel(cfg, this.settings.embeddingModel), indexModel);
     let active: EndpointConfig | null = null;
+    const skipped: string[] = [];
     for (const candidate of this.settings.embeddingEndpoints) {
       const url = candidate.url?.trim();
       if (!url) continue;
-      if (await new EmbeddingClient(url, effectiveModel(candidate, this.settings.embeddingModel), candidate.apiKey).ping()) {
+      const model = effectiveModel(candidate, this.settings.embeddingModel);
+      if (!fits(candidate)) {
+        skipped.push(`„${url}" (Modell ${model})`);
+        continue;
+      }
+      if (await new EmbeddingClient(url, model, candidate.apiKey).ping()) {
         active = candidate;
         break;
       }
     }
-    const cfg = active ?? this.settings.embeddingEndpoints[0] ?? { url: "" };
+    // Auch die Rückfall-Verdrahtung respektiert den Guard: lieber ein passender, gerade nicht
+    // erreichbarer Endpunkt als ein erreichbarer aus dem falschen Vektorraum.
+    const cfg = active ?? this.settings.embeddingEndpoints.find(fits) ?? this.settings.embeddingEndpoints[0] ?? { url: "" };
     this.activeEmbeddingEndpoint = active ? normalizeEndpoint(cfg.url) : null;
     const m = effectiveModel(cfg, this.settings.embeddingModel);
+    this.embeddingModelInUse = m;
     this.embedder = new EmbeddingClient(cfg.url, m, cfg.apiKey);
+    this.noticeSkippedEmbeddingEndpoints(skipped, indexModel);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m);
     if (this.index) this.liveIndexer.init(this.index);
     else if (this.indexHealthy) this.liveIndexer.markFresh();
     // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
+  }
+
+  /** Klartext-Meldung für Endpunkte, die der Modell-Guard übersprungen hat — im Wortlaut, damit
+   *  der Nutzer versteht, warum sein externer Anbieter nicht greift. Enthält NIE den Schlüssel.
+   *  Wiederholt sich nicht: erst wenn sich die Menge der Übersprungenen ändert, kommt sie wieder. */
+  private noticeSkippedEmbeddingEndpoints(skipped: string[], indexModel: string | undefined): void {
+    const signature = skipped.join("|");
+    if (signature === this.lastSkipNotice) return;
+    this.lastSkipNotice = signature;
+    if (!skipped.length) return;
+    new Notice(
+      `Embedding-Endpunkt übersprungen: ${skipped.join(", ")} passt nicht zum Modell des Index `
+      + `(${indexModel ?? "unbekannt"}). Ein Wechsel des Embedding-Modells erfordert einen `
+      + `vollständigen Neuaufbau des Index.`,
+      10000,
+    );
   }
 
   /** Aktiven Chat-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
@@ -549,7 +594,7 @@ export default class VaultRagPlugin extends Plugin {
       }
       this.settings.indexDir = target;
       await this.saveSettings();
-      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.embedder, this.settings.embeddingModel);
+      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.embedder, this.embeddingModelInUse);
       this.pendingQueue = new PendingQueue(this.app.vault.adapter, target);
       await this.pendingQueue.load();
       await this.loadIndex();

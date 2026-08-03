@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyLoadResult, assertSafeToPersist, isSuspiciousShrink,
-  diffIndexVsVault, PersistBlockedError, canPersistHealedIndex,
+  diffIndexVsVault, PersistBlockedError, canPersistHealedIndex, embeddingModelMatchesIndex,
 } from "../src/index_guard";
 
 describe("classifyLoadResult", () => {
@@ -98,5 +98,27 @@ describe("PersistBlockedError", () => {
   it("trägt kind 'unreadable'", () => {
     const e = new PersistBlockedError("unreadable", "y");
     expect(e.kind).toBe("unreadable");
+  });
+});
+
+describe("embeddingModelMatchesIndex", () => {
+  it("ohne Index-Modell wird nie blockiert (Erstinstallation, Alt-Index ohne Feld)", () => {
+    expect(embeddingModelMatchesIndex("egal", undefined)).toBe(true);
+    expect(embeddingModelMatchesIndex("egal", "")).toBe(true);
+    expect(embeddingModelMatchesIndex("egal", "   ")).toBe(true);
+  });
+
+  it("gleiches Modell passt (auch mit Rand-Whitespace)", () => {
+    expect(embeddingModelMatchesIndex("qwen3-embedding:8b", "qwen3-embedding:8b")).toBe(true);
+    expect(embeddingModelMatchesIndex("  qwen3-embedding:8b  ", "qwen3-embedding:8b")).toBe(true);
+    expect(embeddingModelMatchesIndex("qwen3-embedding:8b", "  qwen3-embedding:8b  ")).toBe(true);
+  });
+
+  it("fremdes Modell passt nicht — anderer Vektorraum", () => {
+    expect(embeddingModelMatchesIndex("text-embedding-3-small", "qwen3-embedding:8b")).toBe(false);
+  });
+
+  it("unterscheidet Groß-/Kleinschreibung (Modellnamen sind exakt)", () => {
+    expect(embeddingModelMatchesIndex("Qwen3-Embedding:8b", "qwen3-embedding:8b")).toBe(false);
   });
 });

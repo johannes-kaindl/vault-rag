@@ -71,6 +71,25 @@ export function diffIndexVsVault(indexPaths: string[], vaultPaths: string[]): { 
   };
 }
 
+/**
+ * Darf ein Embedding-Endpunkt-Kandidat den geladenen Index bedienen?
+ * Ein Modellwechsel wechselt den **Vektorraum**: neue Vektoren wären zu den bestehenden
+ * inkommensurabel, ohne dass irgendein Guard anschlüge — der Count bleibt gleich
+ * (`assertSafeToPersist` greift nicht), die Dimension wird auf 256 gepaddet/geschnitten,
+ * CRC32 und Byte-Guard sehen einen strukturell perfekten Container. Nur ein voller Reindex
+ * heilt das, und schon die reine Suche degradiert. Darum entscheidet das nicht der Zufall
+ * eines Failovers, sondern diese Regel.
+ *
+ * `indexModel` leer/undefined (kein Index geladen, Erstinstallation, Alt-Index ohne Feld)
+ * → true: es gibt nichts zu vergiften, und ein frisch installiertes Plugin muss embedden dürfen.
+ * Sonst exakte Gleichheit nach `trim()` — Modellnamen sind case-sensitiv.
+ */
+export function embeddingModelMatchesIndex(candidateModel: string, indexModel: string | undefined): boolean {
+  const want = indexModel?.trim();
+  if (!want) return true;
+  return candidateModel.trim() === want;
+}
+
 export class PersistBlockedError extends Error {
   constructor(readonly kind: "not-ready" | "shrink" | "unreadable", message: string) {
     super(message);

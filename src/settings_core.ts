@@ -5,10 +5,8 @@ import type { EndpointConfig } from "./endpoint_config";
  *  Von settings.ts (Plugin-UI) re-exportiert und vom MCP-Server (src/mcp/) direkt
  *  importiert — dieses Modul darf NIE obsidian importieren. */
 
-// Endpunkt-Wahrheit (Struktur, Auth, Modellwahl, Migration) lebt in endpoint_config.ts;
-// hier nur durchgereicht, damit Bestands-Importe auf settings_core weiter tragen.
-export { migrateEndpointList, authHeaders, effectiveModel } from "./endpoint_config";
-export type { EndpointConfig } from "./endpoint_config";
+// Endpunkt-Wahrheit (Struktur, Auth, Modellwahl, Migration) lebt in endpoint_config.ts und wird
+// von dort importiert — bewusst NICHT durchgereicht: eine öffentliche Fläche pro Wahrheit.
 
 export interface VaultRagSettings {
   k: number;

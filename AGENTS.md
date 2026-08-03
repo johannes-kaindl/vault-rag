@@ -107,7 +107,9 @@ endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZI
                   applyEndpointEdit (Zeilen-Bearbeitung bei blur, Feld-Diskriminator
                   "url"|"apiKey"|"model") · carriesApiKey (verlässlicher Drittanbieter-Indikator
                   für die Settings-UI — der Schlüssel, NICHT die URL: ein eigener Server im LAN/VPN
-                  braucht auch keinen). Obsidian-frei, von settings_core.ts re-exportiert.
+                  braucht auch keinen). Obsidian-frei. **Einzige öffentliche Fläche** — weder
+                  settings.ts noch settings_core.ts reichen diese Helfer durch; Aufrufer
+                  importieren direkt hier.
 capabilities.ts   Reine Vision/Thinking-Erkennung, geschichtet L1 Metadaten (Ollama /api/show,
                   LM Studio /api/v1|v0) → L2 Name-Heuristik → L3 live-bestätigt (monotones Upgrade);
                   geteilter fetchCapabilities(baseUrl, model)-Probe-Helper.
@@ -151,9 +153,9 @@ hub_view.ts       VaultRetrievalView (ItemView, VIEW_TYPE_HUB="vault-retrieval-h
                   Sidebar-View mit Tab-Leiste statt vier Views; hält alle Panels dauerhaft gemountet
                   (State-Persistenz), blendet nur per `display:none` um (kein render-from-scratch).
 settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings (embeddingEndpoints/
-                  chatEndpoints als EndpointConfig[]) · DEFAULT_SETTINGS — reicht
-                  migrateEndpointList/authHeaders/effectiveModel/EndpointConfig nur durch (Wahrheit
-                  liegt in endpoint_config.ts), vom MCP-Server direkt importiert.
+                  chatEndpoints als EndpointConfig[]) · DEFAULT_SETTINGS — die Endpunkt-Helfer
+                  liegen in endpoint_config.ts und werden von dort importiert, nicht hier
+                  durchgereicht. Vom MCP-Server direkt importiert.
 mcp/              In-Plugin HTTP-MCP-Server (Loopback, `/mcp`, StreamableHTTP): `http_server.ts` ·
                   `register_tools.ts` · `tools.ts` (dünner Adapter über RetrievalFacade) · `auth.ts`.
                   Kein Node-Adapter/kein stdio mehr.

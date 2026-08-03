@@ -15,9 +15,9 @@ import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
 
 export { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT };
-export { applyEndpointEdit, migrateEndpointList } from "./endpoint_config";
-export type { EndpointConfig } from "./endpoint_config";
 export type { VaultRagSettings };
+// Endpunkt-Helfer werden hier NICHT durchgereicht: sie kommen direkt aus `endpoint_config.ts`
+// (eine öffentliche Fläche pro Wahrheit).
 
 /** Roter/destruktiver Button, versionssicher: setDestructive() ab Obsidian 1.13, sonst die
  *  mod-warning-DOM-Klasse (kein deprecated setWarning, kein Lint-Warning, roter Look überall).

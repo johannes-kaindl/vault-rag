@@ -1030,8 +1030,13 @@ export default class VaultRagPlugin extends Plugin {
         try {
           const updated = await li.update(path, content);
           if (updated === "empty") this.emptyNotePaths.add(path); else this.emptyNotePaths.delete(path);
-          this.index = li.buildIndex();
+          // buildIndex ERST nach erfolgreichem persist: ein geblockter Persist darf `this.index`
+          // nicht mit dem Manifest des Indexers überschreiben (das trägt dessen Embedding-Modell).
+          // Sonst läse resolveAndReconnectEmbedder sein `indexModel` aus einem vergifteten
+          // In-Memory-Index, verwürfe den passenden Endpunkt und säte den nächsten LiveIndexer
+          // (init(this.index)) mit fremden Vektoren unter einem passenden Modellnamen.
           await li.persist("live");
+          this.index = li.buildIndex();
           this.indexHealthy = true; // vormaliger (auch fälschlicher) Block ist aufgehoben — schreibt wieder gesund.
           this.syncProgress();
           this.refresh();
@@ -1127,8 +1132,10 @@ export default class VaultRagPlugin extends Plugin {
         }
         // drain() hat in-memory bereits geleert; clear() nicht aufrufen —
         // sonst gehen Paths verloren die während des await-Loops neu reinkamen.
-        this.index = li.buildIndex();
+        // buildIndex ERST nach erfolgreichem persist (Begründung s. handleModify): ein geblockter
+        // Persist lässt `this.index` unberührt, statt ihn mit einem fremden Modell zu stempeln.
         await li.persist("live");
+        this.index = li.buildIndex();
         this.indexHealthy = true;
         this.syncProgress();
         this.refresh();
@@ -1200,7 +1207,12 @@ export default class VaultRagPlugin extends Plugin {
       new Notice("Embedding-Endpoint nicht erreichbar — Vervollständigen abgebrochen.");
       return;
     }
-    if (!this.liveIndexer.isReady()) {
+    // liveIndexer einmal snapshotten (Repo-Konvention, vgl. handleDelete/drainPending/attemptAutoHeal):
+    // ein paralleles fire-and-forget resolveAndReconnectEmbedder() (z.B. aus dem Einstellungs-Tab)
+    // darf this.liveIndexer über die awaits hinweg nicht neu zuweisen — sonst prüfte das Gate
+    // Instanz A und Instanz B embeddete/persistierte, also genau die Garantie, die das Gate gibt.
+    const li = this.liveIndexer;
+    if (!li.isReady()) {
       // isReady() false heißt: kein geladener Index ODER Schreibschutz nach Load-/Heal-Fehler —
       // „kein Index geladen" allein wäre in der zweiten Lage sachlich falsch.
       new Notice(`Kein sicherer Basis-Index verfügbar (nicht geladen oder Schreibschutz) — bitte „Aus Backup wiederherstellen" oder „Vault neu indizieren".`);
@@ -1210,7 +1222,7 @@ export default class VaultRagPlugin extends Plugin {
     // persist()). Ein erst am Ende blockierter Heal ließe die fremden Vektoren in der Vektor-Map
     // des Indexers zurück — nichts macht sie rückgängig, und der nächste regulär erlaubte Persist
     // schriebe sie mit. Nicht embedden ist billiger als zurückrollen.
-    const gate = await this.liveIndexer.checkModelAgainstDisk("heal");
+    const gate = await li.checkModelAgainstDisk("heal");
     if (!gate.allowed) {
       new Notice(this.blockedMessage(gate.kind, "Vervollständigen abgebrochen: Der Index auf Platte ist gerade nicht lesbar (Sync läuft oder Container beschädigt) — bitte später erneut versuchen oder aus einem Backup wiederherstellen."), 10000);
       return;
@@ -1230,7 +1242,7 @@ export default class VaultRagPlugin extends Plugin {
     this.embeddingProgress.reindex = { done: 0, total: embeddable.length };
     this.updateStatusBar();
     try {
-      const report = await this.liveIndexer.healMissing(
+      const report = await li.healMissing(
         embeddable,
         (p) => this.app.vault.adapter.read(p),
         (done, _indexed, tot) => {
@@ -1241,8 +1253,10 @@ export default class VaultRagPlugin extends Plugin {
       );
       // Leer-Set aktualisieren: bekannte Leere bleiben, frisch entdeckte kommen dazu.
       this.emptyNotePaths = new Set([...knownEmpty, ...report.skippedEmpty]);
-      this.index = this.liveIndexer.buildIndex();
-      await this.liveIndexer.persist("heal");
+      // buildIndex ERST nach erfolgreichem persist (wie handleModify/drainPending): ändert sich die
+      // Platte zwischen Gate und Schreiben, bleibt `this.index` sauber statt fremd gestempelt.
+      await li.persist("heal");
+      this.index = li.buildIndex();
       this.indexHealthy = true;
       this.refresh();
       void this.snapshotIndex();

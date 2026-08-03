@@ -584,6 +584,16 @@ describe("LiveIndexer.checkModelAgainstDisk (Vorabprüfung vor additiven Läufen
     expect(await indexer.checkModelAgainstDisk("heal")).toMatchObject({ allowed: false, kind: "model-mismatch" });
   });
 
+  it("buildIndex stempelt IMMER das Modell dieses Indexers ins Manifest — auch nach init aus einem fremden Index", () => {
+    // Der Grund, warum `main.ts` `this.index = li.buildIndex()` erst NACH einem erfolgreichen
+    // persist zuweisen darf: das Ergebnis trägt das Modell des Indexers, nicht das des geladenen
+    // Index. Vor einem geblockten Persist zugewiesen, wäre der In-Memory-Index fremd gestempelt —
+    // und der Resolver zöge daraus sein `indexModel`.
+    const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+    indexer.init(oneNoteIndex("a.md"));   // Index-Manifest sagt qwen3-embedding:8b
+    expect(indexer.buildIndex().manifest.embedding_model).toBe("text-embedding-3-small");
+  });
+
   it("reindex fragt gar nicht erst — Voll-Ersatz bleibt der Ausweg", async () => {
     const a = makeAdapter();
     a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(1, "qwen3-embedding:8b"));

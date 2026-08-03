@@ -50,8 +50,8 @@ function oneNoteIndex(path: string): VaultIndex {
 
 /** Baut einen gültigen Container-Snapshot mit `count` Notizen — für readDiskCount-Tests
  *  (Diskzustand, den ein anderer Prozess/Gerät geschrieben haben könnte). */
-function makeContainerBytes(count: number): ArrayBuffer {
-  const manifest = { schema_version: 1, embedding_model: "qwen3-embedding:8b", index_dim: DIM, scale: SCALE, count, granularity: "note", quant: "int8" };
+function makeContainerBytes(count: number, model = "qwen3-embedding:8b"): ArrayBuffer {
+  const manifest = { schema_version: 1, embedding_model: model, index_dim: DIM, scale: SCALE, count, granularity: "note", quant: "int8" };
   const paths = Array.from({ length: count }, (_, i) => `disk-note-${i}.md`);
   return encodeContainer(manifest, paths, new Uint8Array(count * DIM));
 }
@@ -464,5 +464,72 @@ describe("LiveIndexer persist-Guard", () => {
     indexer.markFresh();
     await indexer.update("a.md", "#A");
     await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "unreadable" });
+  });
+});
+
+describe("LiveIndexer persist-Guard: Embedding-Modell", () => {
+  /** Ein Indexer, dessen Modell NICHT zum Modell des Containers auf Platte passt. */
+  function mismatched() {
+    const a = makeAdapter();
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(1, "qwen3-embedding:8b"));
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+    indexer.markFresh();
+    return { a, indexer };
+  }
+
+  it("live blockt bei fremdem Modell auf Platte (kind model-mismatch)", async () => {
+    const { a, indexer } = mismatched();
+    await indexer.update("a.md", "#A");
+    await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "model-mismatch" });
+    // der Container auf Platte ist unangetastet geblieben
+    expect(a.written.get(`_vaultrag/${CONTAINER_FILE}`)!.byteLength).toBe(makeContainerBytes(1).byteLength);
+  });
+
+  it("heal blockt ebenfalls — additives Einmischen fremder Vektoren", async () => {
+    const { indexer } = mismatched();
+    await indexer.update("a.md", "#A");
+    await expect(indexer.persist("heal")).rejects.toMatchObject({ kind: "model-mismatch" });
+  });
+
+  it("reindex bleibt erlaubt — Voll-Ersatz ist der dokumentierte Ausweg", async () => {
+    const { a, indexer } = mismatched();
+    await indexer.update("a.md", "#A");
+    await expect(indexer.persist("reindex")).resolves.toBeUndefined();
+    expect(a.written.has(`_vaultrag/${CONTAINER_FILE}`)).toBe(true);
+  });
+
+  it("passendes Modell schreibt normal", async () => {
+    const a = makeAdapter();
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(1, "qwen3-embedding:8b"));
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A");
+    await expect(indexer.persist("live")).resolves.toBeUndefined();
+  });
+
+  it("Disk-Wahrheit schlägt den In-Memory-Stand: init mit fremdem Manifest ändert nichts", async () => {
+    // Entwaffnungspfad 2: ein vergifteter In-Memory-Manifest (buildIndex vor blockiertem persist)
+    // darf den Guard nicht umstimmen — verglichen wird IMMER gegen die Platte.
+    const a = makeAdapter();
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(1, "qwen3-embedding:8b"));
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+    const poisoned = parseIndex(
+      { schema_version: 1, embedding_model: "text-embedding-3-small", index_dim: DIM, scale: SCALE, count: 1, granularity: "note", quant: "int8" },
+      ["a.md"], new Int8Array(DIM).buffer,
+    );
+    indexer.init(poisoned);   // setzt ready UND loadedManifest auf das fremde Modell
+    await indexer.update("a.md", "#A");
+    await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "model-mismatch" });
+  });
+
+  it("korrupter Container + heal: keine Disk-Wahrheit → Auto-Heal-Kaskade darf schreiben", async () => {
+    const a = makeAdapter();
+    const bytes = new Uint8Array(makeContainerBytes(3, "qwen3-embedding:8b"));
+    bytes[10] ^= 0xff;   // CRC kaputt
+    a.written.set(`_vaultrag/${CONTAINER_FILE}`, bytes.buffer);
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+    indexer.markFresh();
+    await indexer.update("a.md", "#A");
+    await expect(indexer.persist("heal")).resolves.toBeUndefined();
   });
 });

@@ -28,7 +28,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex, indexNeedsWriteProtection } from "./index_guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist } from "./index_guard";
 import { loadIndexStore, verifyBackupCandidate } from "./index_store";
 import { CONTAINER_FILE, decodeContainer } from "./index_container";
 import { McpTools } from "./mcp/tools";
@@ -497,42 +497,39 @@ export default class VaultRagPlugin extends Plugin {
     const m = effectiveModel(cfg, this.settings.embeddingModel);
     this.embeddingModelInUse = m;
     this.embedder = new EmbeddingClient(cfg.url, m, cfg.apiKey);
-    // Passt KEIN konfigurierter Endpunkt zum Index, adoptiert der terminale Rückfall zwangsläufig
-    // ein fremdes Modell → Schreibschutz statt Vektorraum-Mischung (etabliertes Repo-Muster).
-    const writeProtect = indexNeedsWriteProtection(
-      this.settings.embeddingEndpoints.filter(c => c.url?.trim()).map(c => effectiveModel(c, this.settings.embeddingModel)),
-      indexModel,
-    );
-    this.noticeSkippedEmbeddingEndpoints(skipped, indexModel, writeProtect);
+    // Die DURCHSETZUNG des Modell-Schutzes hängt nicht hier, sondern an der Schreiboperation
+    // (LiveIndexer.persist → assertModelSafeToPersist, Wahrheit aus dem Container auf Platte).
+    // Der Skip oben ist reine Prävention: ein unpassender Endpunkt wird gar nicht erst aktiv.
+    this.noticeSkippedEmbeddingEndpoints(skipped, indexModel);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m);
     if (this.index) this.liveIndexer.init(this.index);
     else if (this.indexHealthy) this.liveIndexer.markFresh();
     // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
-    // markUnready zuletzt: init()/markFresh() oben setzen ready=true, der Schreibschutz gewinnt.
-    // Aufgehoben wird er ohne Extra-Pfad — der nächste Resolve-Lauf baut einen frischen Indexer
-    // und init()-et ihn wieder aus dem (sauberen) geladenen Index.
-    if (writeProtect) this.liveIndexer.markUnready();
   }
 
   /** Klartext-Meldung für Endpunkte, die der Modell-Guard übersprungen hat — im Wortlaut, damit
    *  der Nutzer versteht, warum sein externer Anbieter nicht greift. Enthält NIE den Schlüssel.
    *  Wiederholt sich nicht: erst wenn sich die Menge der Übersprungenen ändert, kommt sie wieder. */
-  private noticeSkippedEmbeddingEndpoints(skipped: string[], indexModel: string | undefined, writeProtect: boolean): void {
-    const signature = `${skipped.join("|")}#${writeProtect ? "geschützt" : "offen"}`;
+  private noticeSkippedEmbeddingEndpoints(skipped: string[], indexModel: string | undefined): void {
+    const signature = skipped.join("|");
     if (signature === this.lastSkipNotice) return;
     this.lastSkipNotice = signature;
     if (!skipped.length) return;
     new Notice(
       `Embedding-Endpunkt übersprungen: ${skipped.join(", ")} passt nicht zum Modell des Index `
       + `(${indexModel ?? "unbekannt"}). Ein Wechsel des Embedding-Modells erfordert einen `
-      + `vollständigen Neuaufbau des Index.`
-      + (writeProtect
-        ? " Kein konfigurierter Endpunkt passt zum Index — Live-Embedding pausiert (Schreibschutz),"
-          + " bis ein passender Endpunkt erreichbar ist oder der Index neu gebaut wurde."
-          + " Suche und Lesen laufen normal weiter."
-        : ""),
+      + `vollständigen Neuaufbau des Index.`,
       10000,
     );
+  }
+
+  /** Nutzertext für einen blockierten Persist. `model-mismatch` bekommt Klartext samt Ausweg —
+   *  die generische „Index wirkt beschädigt"-Meldung wäre dort schlicht falsch. Nie mit Schlüssel. */
+  private persistBlockedMessage(e: PersistBlockedError, fallback: string): string {
+    if (e.kind !== "model-mismatch") return fallback;
+    return "⚠ Vault Retrieval: Das Embedding-Modell dieses Endpunkts passt nicht zum Index — "
+      + "Live-Embedding pausiert (Schreibschutz). Suche und Lesen laufen weiter. Ausweg: passenden "
+      + 'Endpunkt eintragen oder „Vault neu indizieren".';
   }
 
   /** Aktiven Chat-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
@@ -917,6 +914,15 @@ export default class VaultRagPlugin extends Plugin {
       return;
     }
     const base = candidate;
+    // Sonderfall, den persist() strukturell NICHT sehen kann: Die Kaskade läuft genau dann, wenn
+    // der Container auf Platte defekt ist — dort gibt es keine Disk-Wahrheit, gegen die der
+    // Modell-Guard prüfen könnte. Die Basis hier ist aber ebenfalls disk-verifiziert
+    // (verifyBackupCandidate, CRC-Beweis), also dieselbe Regel (assertModelSafeToPersist) auf
+    // dieselbe Frage anwenden, bevor additiv fremde Vektoren einmischen.
+    if (!assertModelSafeToPersist(base.manifest.embedding_model, this.embeddingModelInUse, "heal").allowed) {
+      new Notice("vault-rag: Automatische Wiederherstellung nicht möglich — das Backup wurde mit einem anderen Embedding-Modell gebaut als der aktive Endpunkt. Schreibschutz bleibt aktiv; passenden Endpunkt eintragen oder neu indizieren.", 10000);
+      return;
+    }
     // liveIndexer einmal snapshotten (Repo-Konvention, vgl. handleDelete/drainPending): ein
     // paralleles resolveAndReconnectEmbedder() darf init/heal/persist nicht auf verschiedene
     // Instanzen verteilen — sonst persistierte eine leere Instanz über den geheilten Stand.
@@ -1025,7 +1031,7 @@ export default class VaultRagPlugin extends Plugin {
         } catch (e) {
           if (e instanceof PersistBlockedError) {
             this.indexHealthy = false;
-            new Notice("⚠ Vault Retrieval: Embedding-Index wirkt beschädigt — Änderung vorgemerkt statt überschrieben (Schreibschutz). Deine Notizen sind unberührt.", 8000);
+            new Notice(this.persistBlockedMessage(e, "⚠ Vault Retrieval: Embedding-Index wirkt beschädigt — Änderung vorgemerkt statt überschrieben (Schreibschutz). Deine Notizen sind unberührt."), 8000);
           }
           await this.pendingQueue.add(path);
           this.syncProgress();
@@ -1056,7 +1062,7 @@ export default class VaultRagPlugin extends Plugin {
         this.syncProgress();
         this.refresh();
       } catch (e) {
-        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Löschung nicht persistiert (Schreibschutz).", 8000); }
+        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, "⚠ vault-rag: Löschung nicht persistiert (Schreibschutz)."), 8000); }
         else console.warn("vault-rag: handleDelete failed", e);
       }
     });
@@ -1078,7 +1084,7 @@ export default class VaultRagPlugin extends Plugin {
           this.syncProgress();
           this.refresh();
         } catch (e) {
-          if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Umbenennung nicht persistiert (Schreibschutz).", 8000); }
+          if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, "⚠ vault-rag: Umbenennung nicht persistiert (Schreibschutz)."), 8000); }
           else console.warn("vault-rag: handleRename failed", e);
         }
       });
@@ -1188,7 +1194,9 @@ export default class VaultRagPlugin extends Plugin {
       return;
     }
     if (!this.liveIndexer.isReady()) {
-      new Notice(`Kein Basis-Index geladen — bitte „Aus Backup wiederherstellen" oder „Vault neu indizieren".`);
+      // isReady() false heißt: kein geladener Index ODER Schreibschutz nach Load-/Heal-Fehler —
+      // „kein Index geladen" allein wäre in der zweiten Lage sachlich falsch.
+      new Notice(`Kein sicherer Basis-Index verfügbar (nicht geladen oder Schreibschutz) — bitte „Aus Backup wiederherstellen" oder „Vault neu indizieren".`);
       return;
     }
     const vaultPaths = this.vaultMarkdownPaths();

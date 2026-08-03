@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   classifyLoadResult, assertSafeToPersist, isSuspiciousShrink,
   diffIndexVsVault, PersistBlockedError, canPersistHealedIndex, embeddingModelMatchesIndex,
-  indexNeedsWriteProtection,
+  assertModelSafeToPersist,
 } from "../src/index_guard";
 
 describe("classifyLoadResult", () => {
@@ -124,21 +124,30 @@ describe("embeddingModelMatchesIndex", () => {
   });
 });
 
-describe("indexNeedsWriteProtection", () => {
-  it("ohne Index-Modell nie Schreibschutz (Erstinstallation)", () => {
-    expect(indexNeedsWriteProtection(["egal"], undefined)).toBe(false);
-    expect(indexNeedsWriteProtection([], "   ")).toBe(false);
+describe("assertModelSafeToPersist", () => {
+  it("reindex ist immer erlaubt — Voll-Ersatz, das Manifest beschreibt danach ehrlich alles", () => {
+    expect(assertModelSafeToPersist("qwen3-embedding:8b", "text-embedding-3-small", "reindex").allowed).toBe(true);
   });
 
-  it("ein passender Kandidat genügt", () => {
-    expect(indexNeedsWriteProtection(["text-embedding-3-small", "qwen3-embedding:8b"], "qwen3-embedding:8b")).toBe(false);
+  it("live blockt bei fremdem Modell", () => {
+    const d = assertModelSafeToPersist("qwen3-embedding:8b", "text-embedding-3-small", "live");
+    expect(d.allowed).toBe(false);
+    expect(d.kind).toBe("model-mismatch");
+    expect(d.message).toContain("qwen3-embedding:8b");
+    expect(d.message).toContain("text-embedding-3-small");
   });
 
-  it("kein passender Kandidat → Schreibschutz", () => {
-    expect(indexNeedsWriteProtection(["text-embedding-3-small"], "qwen3-embedding:8b")).toBe(true);
+  it("heal blockt ebenfalls — additives Einmischen ist genau das Problem", () => {
+    expect(assertModelSafeToPersist("qwen3-embedding:8b", "text-embedding-3-small", "heal").allowed).toBe(false);
   });
 
-  it("gar keine Kandidaten bei vorhandenem Index → Schreibschutz", () => {
-    expect(indexNeedsWriteProtection([], "qwen3-embedding:8b")).toBe(true);
+  it("gleiches Modell ist erlaubt (auch mit Rand-Whitespace)", () => {
+    expect(assertModelSafeToPersist("qwen3-embedding:8b", "  qwen3-embedding:8b  ", "live").allowed).toBe(true);
+  });
+
+  it("Disk-Modell leer/fehlend → erlauben (Alt-Index ohne Feld, frischer Index)", () => {
+    expect(assertModelSafeToPersist(undefined, "text-embedding-3-small", "live").allowed).toBe(true);
+    expect(assertModelSafeToPersist("", "text-embedding-3-small", "live").allowed).toBe(true);
+    expect(assertModelSafeToPersist("   ", "text-embedding-3-small", "heal").allowed).toBe(true);
   });
 });

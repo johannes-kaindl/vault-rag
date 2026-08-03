@@ -1,5 +1,6 @@
 import { ThinkingSupport } from "./vendor/kit/reasoning";
 import { httpJson } from "./http";
+import { authHeaders } from "./endpoint_config";
 
 export type Confidence = "no" | "likely" | "confirmed";
 export interface ThinkingState { support: ThinkingSupport; confidence: Confidence }
@@ -128,23 +129,24 @@ export function resolveCapabilities(
 }
 
 /** Probiert native Capability-Endpoints gegen eine Basis-URL (ohne /v1). */
-export async function fetchCapabilities(baseUrl: string, model: string): Promise<Capabilities | null> {
+export async function fetchCapabilities(baseUrl: string, model: string, apiKey?: string): Promise<Capabilities | null> {
+  const auth = authHeaders(apiKey);
   // 1) Ollama
   try {
     const { status, json } = await httpJson({
       url: `${baseUrl}/api/show`,
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }),
+      method: "POST", headers: { "Content-Type": "application/json", ...auth }, body: JSON.stringify({ model }),
     });
     if (status === 200) { const c = parseOllamaShow(json); if (c) return c; }
   } catch { /* weiter */ }
   // 2) LM Studio v1
   try {
-    const { status, json } = await httpJson({ url: `${baseUrl}/api/v1/models` });
+    const { status, json } = await httpJson({ url: `${baseUrl}/api/v1/models`, headers: auth });
     if (status === 200) { const c = parseLmStudioV1(json, model); if (c) return c; }
   } catch { /* weiter */ }
   // 3) LM Studio v0
   try {
-    const { status, json } = await httpJson({ url: `${baseUrl}/api/v0/models` });
+    const { status, json } = await httpJson({ url: `${baseUrl}/api/v0/models`, headers: auth });
     if (status === 200) { const c = parseLmStudioV0(json, model); if (c) return c; }
   } catch { /* weiter */ }
   return null;

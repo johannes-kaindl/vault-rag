@@ -1,8 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   guessFromName, parseOllamaShow, parseLmStudioV1, parseLmStudioV0,
-  mergeCapability, resolveCapabilities, Capabilities,
+  mergeCapability, resolveCapabilities, fetchCapabilities, Capabilities,
 } from "../src/capabilities";
+import { requestUrl } from "obsidian";
 
 describe("guessFromName", () => {
   it("erkennt Vision an *-vl", () => {
@@ -111,5 +112,30 @@ describe("resolveCapabilities", () => {
   it("kombiniert Metadaten + Name + live", () => {
     const r = resolveCapabilities(null, "qwen2.5-vl", {});
     expect(r.vision).toBe("likely");
+  });
+});
+
+describe("fetchCapabilities — Auth", () => {
+  afterEach(() => vi.mocked(requestUrl).mockReset());
+
+  it("sendet den Bearer an alle drei Probe-Endpoints (/api/show, /api/v1/models, /api/v0/models)", async () => {
+    const calls: { url: string; headers?: Record<string, string> }[] = [];
+    vi.mocked(requestUrl).mockImplementation((p: any) => {
+      calls.push({ url: p.url, headers: p.headers });
+      return Promise.resolve({ status: 404, json: {} } as any);
+    });
+    await fetchCapabilities("http://x", "m", "sk-1");
+    expect(calls).toHaveLength(3);
+    for (const c of calls) expect(c.headers?.Authorization).toBe("Bearer sk-1");
+  });
+
+  it("ohne Schlüssel keinen Authorization-Header", async () => {
+    const calls: { headers?: Record<string, string> }[] = [];
+    vi.mocked(requestUrl).mockImplementation((p: any) => {
+      calls.push({ headers: p.headers });
+      return Promise.resolve({ status: 404, json: {} } as any);
+    });
+    await fetchCapabilities("http://x", "m");
+    expect(calls.every(c => c.headers?.Authorization === undefined)).toBe(true);
   });
 });

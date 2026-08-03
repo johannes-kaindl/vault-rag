@@ -25,6 +25,6 @@ describe("probeEndpoint", () => {
   });
   it("timeout wenn requestUrl hängt", async () => {
     vi.mocked(requestUrl).mockImplementation(() => new Promise(() => {}) as any);
-    expect((await probeEndpoint("http://192.0.2.1:1234", 20)).kind).toBe("timeout");
+    expect((await probeEndpoint("http://192.0.2.1:1234", undefined, 20)).kind).toBe("timeout");
   });
 });

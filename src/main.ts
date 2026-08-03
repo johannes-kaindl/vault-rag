@@ -1092,8 +1092,11 @@ export default class VaultRagPlugin extends Plugin {
       try {
         li.remove(path);
         this.emptyNotePaths.delete(path);
-        this.index = li.buildIndex();
+        // buildIndex ERST nach erfolgreichem persist (analog handleModify): sonst trüge
+        // `this.index.manifest.embedding_model` nach einem geblockten Persist das Modell des
+        // Indexers — und resolveAndReconnectEmbedder läse genau daraus sein `indexModel`.
         await li.persist("live");
+        this.index = li.buildIndex();
         this.indexHealthy = true;
         this.syncProgress();
         this.refresh();
@@ -1114,8 +1117,9 @@ export default class VaultRagPlugin extends Plugin {
         try {
           li.rename(oldPath, newPath);
           if (this.emptyNotePaths.delete(oldPath)) this.emptyNotePaths.add(newPath);
-          this.index = li.buildIndex();
+          // buildIndex ERST nach erfolgreichem persist — siehe handleModify/handleDelete.
           await li.persist("live");
+          this.index = li.buildIndex();
           this.indexHealthy = true;
           this.syncProgress();
           this.refresh();

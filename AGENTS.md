@@ -125,7 +125,9 @@ settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab —
                   Zeilen (Endpoint-Listen — pro Zeile URL + maskiertes API-Schlüssel-Feld +
                   Modell-Override, gesperrt während einer form-ändernden Mutation läuft, plus
                   `alert-triangle`-Hinweis-Icon bei gesetztem Schlüssel (`carriesApiKey`) — Form/Icon
-                  + Tooltip, nie Farbe allein, Schlüssel selbst nie im Text —,
+                  + Tooltip, nie Farbe allein, Schlüssel selbst nie im Text; das Icon schaltet sich
+                  beim apiKey-Commit **in-place** um, weil dieser Commit bewusst kein `refreshUi()`
+                  auslöst (Tab-Neuaufbau bleibt URL-Commits vorbehalten) —,
                   Modell-Dropdowns, Status-Poll alle 2 s, MCP-Sektion) sind render-Hatches.
                   **Zweigleisig:** ab 1.13 rendert das Framework deklarativ +
                   durchsuchbar; auf ≤1.12 (minAppVersion 1.12.7 — 1.13 ist Catalyst-Preview) läuft

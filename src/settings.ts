@@ -809,6 +809,23 @@ export class VaultRagSettingTab extends PluginSettingTab {
       const s = new Setting(opts.containerEl);
       if (i === 0) s.setName(opts.label).setDesc(opts.desc);
       const statusIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-status" });
+      // Drittanbieter-Hinweis: in-place umschaltbar, NICHT nur einmal beim Zeilen-Render gebaut —
+      // der apiKey-Commit unten baut den Tab bewusst nicht neu (siehe dort), also muss dieses Icon
+      // sich selbst zeigen/verstecken können, sonst bleibt der Nutzer genau im Moment, in dem er den
+      // Schlüssel einträgt, ohne Hinweis. Eine Wahrheit (`carriesApiKey`), zwei Aufrufzeitpunkte
+      // (Erst-Render unten + apiKey-Commit) statt einer zweiten Bedingung.
+      let thirdPartyIcon: HTMLSpanElement | null = null;
+      const syncThirdPartyIcon = (hasKey: boolean): void => {
+        if (hasKey) {
+          if (thirdPartyIcon) return;   // schon da — nicht doppelt anlegen
+          thirdPartyIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-thirdparty" });
+          setIcon(thirdPartyIcon, "alert-triangle");
+          setTooltip(thirdPartyIcon, "Endpunkt mit Schlüssel — Inhalte, die an ihn gesendet werden, gehen an diesen Anbieter.");
+        } else if (thirdPartyIcon) {
+          thirdPartyIcon.remove();
+          thirdPartyIcon = null;
+        }
+      };
       // Listen-Mutation NUR bei blur, NICHT in onChange: onChange feuert pro Tastendruck und
       // würde im Add-Feld jeden Zwischenstand (h, ht, htt, …) als eigenen Eintrag anhängen.
       // Nur URL-Änderungen rendern neu (Statuszeile hängt an der URL). Schlüssel/Modell tun das
@@ -820,6 +837,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
         if (JSON.stringify(updated) === JSON.stringify(before)) return;   // unverändert → kein Re-Render
         const rerender = field === "url";
         if (rerender) lockRows();
+        // apiKey ändert die Listen-FORM nicht (kein Re-Render) — das Drittanbieter-Icon muss sich
+        // deshalb hier selbst aktualisieren, statt auf den (bewusst ausbleibenden) Neuaufbau zu warten.
+        if (field === "apiKey") syncThirdPartyIcon(carriesApiKey(updated[i]));
         opts.set(updated);
         const chain = this.plugin.saveSettings().then(() => opts.reconnect());
         void (rerender ? chain.then(() => this.refreshUi()) : chain).catch(failSafe);
@@ -881,15 +901,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
           setIcon(warnIcon, "alert-triangle");
           setTooltip(warnIcon, warnings.map(w => w.message).join(" · "));
         }
-        // Drittanbieter-Hinweis: der Schlüssel ist der verlässliche Indikator, nicht die URL
-        // (ein eigener Server im LAN braucht keinen — eine URL-Heuristik wäre unzuverlässig).
+        // Drittanbieter-Hinweis (Erst-Render): der Schlüssel ist der verlässliche Indikator, nicht
+        // die URL (ein eigener Server im LAN braucht keinen — eine URL-Heuristik wäre unzuverlässig).
         // Sachlicher Hinweis, keine Warnung vor einem Fehler — Form/Icon + Text, nie Farbe allein
-        // (WCAG 1.4.1); NIE den Schlüssel selbst im Text/Tooltip.
-        if (carriesApiKey(cfg)) {
-          const keyIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-thirdparty" });
-          setIcon(keyIcon, "alert-triangle");
-          setTooltip(keyIcon, "Endpunkt mit Schlüssel — Inhalte, die an ihn gesendet werden, gehen an diesen Anbieter.");
-        }
+        // (WCAG 1.4.1); NIE den Schlüssel selbst im Text/Tooltip. syncThirdPartyIcon() hält das
+        // danach auch beim apiKey-Commit aktuell (siehe dort), ohne den Tab neu zu bauen.
+        syncThirdPartyIcon(carriesApiKey(cfg));
       }
     });
     const actions = new Setting(opts.containerEl);

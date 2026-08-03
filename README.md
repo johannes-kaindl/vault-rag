@@ -32,7 +32,7 @@ Everything lives in **one sidebar view** with tabs: related notes, search, chat,
 - **Obsidian 1.12.7+** (desktop or mobile). On 1.13+ the settings tab renders through Obsidian's native, searchable settings API; on older versions it draws the same structure imperatively.
 - An **embedding endpoint** — an OpenAI-compatible server, local such as [Ollama](https://ollama.com), or a hosted provider if you add an API key — to build and maintain the index. Run the full-reindex command once and the plugin embeds your vault into `<vault>/_vaultrag/` itself; from then on notes are re-embedded on save. Alternatively, drop in an index produced by an external backend and synced with the vault — the format is the same.
 - **Nothing else for retrieval.** Once the index exists, related notes and semantic search run entirely on-device — no server, no daemon, offline, including on mobile.
-- For **chat**, **Smart Apply** and LLM-backed reformatting: an **OpenAI-compatible LLM endpoint** — a local server such as [LM Studio](https://lmstudio.ai), or a hosted provider if you add an API key. New to local LLMs? The **[local LLM setup guide](https://uplink.jkaindl.de/llm-setup)** walks you through it. Configurable in settings; nothing leaves your machine unless you configure an external endpoint.
+- For **chat**, **Smart Apply** and LLM-backed reformatting: an **OpenAI-compatible LLM endpoint** — a local server such as [LM Studio](https://lmstudio.ai), or a hosted provider if you add an API key. New to local LLMs? The **[local LLM setup guide](https://uplink.jkaindl.de/llm-setup)** walks you through it. Configurable in settings — talks to whatever endpoint you configure, and only reaches a third party if you add that provider's API key.
 
 ## Install
 

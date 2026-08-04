@@ -400,7 +400,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildEndpointList({
       containerEl: host,
       label: "Embedding-Endpunkte",
-      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Lokale Server (Ollama/MLX/LM Studio) brauchen keinen Schlüssel; für externe Anbieter Schlüssel und Modell eintragen.",
+      desc: "Pro Zeile: Adresse · API-Schlüssel · Modell. Die Endpunkte werden der Reihe nach probiert, der erste erreichbare wird genutzt. Lokale Server (Ollama/MLX/LM Studio) brauchen weder Schlüssel noch Modell — leer lassen heißt „globales Modell\". Für gehostete Anbieter beides eintragen.",
       placeholder: "http://localhost:11434",
       get: () => this.plugin.settings.embeddingEndpoints,
       set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
@@ -610,7 +610,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.buildEndpointList({
       containerEl: host,
       label: "Chat-Endpunkte",
-      desc: "Werden der Reihe nach probiert — der erste erreichbare wird genutzt. Lokale Server (Ollama/MLX/LM Studio) brauchen keinen Schlüssel; für externe Anbieter Schlüssel und Modell eintragen.",
+      desc: "Pro Zeile: Adresse · API-Schlüssel · Modell. Die Endpunkte werden der Reihe nach probiert, der erste erreichbare wird genutzt. Lokale Server (Ollama/MLX/LM Studio) brauchen weder Schlüssel noch Modell — leer lassen heißt „globales Modell\". Für gehostete Anbieter beides eintragen.",
       placeholder: "http://localhost:1234",
       get: () => this.plugin.settings.chatEndpoints,
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
@@ -810,10 +810,17 @@ export class VaultRagSettingTab extends PluginSettingTab {
       setRowsDisabled(false);
       new Notice("Endpunkt-Änderung konnte nicht gespeichert werden — bitte erneut versuchen.", 8000);
     };
+    // Beschriftung + Erklärung als EIGENE Zeile ohne Steuerelemente. Vorher hingen sie an der
+    // ersten Endpunkt-Zeile — Obsidians `Setting` teilt die Zeile in Info (links) und Controls
+    // (rechts), und mit drei Feldern rechts blieb der Text auf eine unlesbare Buchstabensäule
+    // gequetscht (gemeldet 2026-08-04). Die Zeilen selbst tragen deshalb keinen Text mehr und
+    // bekommen über `vault-rag-ep-row` die volle Breite für ihre Felder.
+    new Setting(opts.containerEl).setName(opts.label).setDesc(opts.desc);
+
     rows.forEach((cfg, i) => {
       const isAdder = i >= eps.length;
       const s = new Setting(opts.containerEl);
-      if (i === 0) s.setName(opts.label).setDesc(opts.desc);
+      s.settingEl.addClass("vault-rag-ep-row");
       const statusIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-status" });
       // Drittanbieter-Hinweis: in-place umschaltbar, NICHT nur einmal beim Zeilen-Render gebaut —
       // der apiKey-Commit unten baut den Tab bewusst nicht neu (siehe dort), also muss dieses Icon

@@ -272,3 +272,21 @@
   width: 100%;
   margin-bottom: var(--size-2-2);
 }
+
+/* Endpunkt-Zeile: drei Felder (Adresse · Schlüssel · Modell) brauchen die volle Breite.
+   Die Beschriftung steht als eigene Zeile darüber, deshalb ist der Info-Block hier leer und
+   darf keinen Platz beanspruchen — sonst quetscht er die Felder (gemeldet 2026-08-04). */
+.vault-rag-ep-row .setting-item-info {
+  display: none;
+}
+.vault-rag-ep-row .setting-item-control {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: var(--size-4-2);
+  width: 100%;
+}
+.vault-rag-ep-row .setting-item-control input[type="text"],
+.vault-rag-ep-row .setting-item-control input[type="password"] {
+  flex: 1 1 12em;
+  min-width: 8em;
+}

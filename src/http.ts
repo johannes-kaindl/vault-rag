@@ -1,5 +1,6 @@
 import { requestUrl } from "obsidian";
 import { classifyEndpointStatus, EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
+import { authHeaders } from "./endpoint_config";
 
 /** Einziger Netz-Helfer über Obsidians `requestUrl` (CORS-frei, mobil-tauglich) — kapselt den
  *  obsidian-Import, damit die Client-Module obsidian-frei + in Node testbar bleiben.
@@ -22,15 +23,16 @@ export async function httpJson(param: {
  *  baseUrl ist bereits normalisiert. Eigener Timeout via Promise.race, weil requestUrl
  *  weder ein timeout-Feld noch Abort kennt — gewinnt der Timer, läuft der echte Request
  *  im Hintergrund folgenlos weiter (reine Lese-Probe). */
-export async function probeEndpoint(baseUrl: string, timeoutMs = 5000): Promise<EndpointStatus> {
+export async function probeEndpoint(baseUrl: string, apiKey?: string, timeoutMs = 5000): Promise<EndpointStatus> {
   const url = `${baseUrl}/v1/models`;
+  const headers = authHeaders(apiKey);
   let timer: number | undefined;
   const timeout = new Promise<"__timeout__">(resolve => {
     timer = window.setTimeout(() => resolve("__timeout__"), timeoutMs);
   });
   try {
     const raced = await Promise.race([
-      requestUrl({ url, throw: false }).then(r => {
+      requestUrl({ url, headers, throw: false }).then(r => {
         let body: unknown = undefined;
         try { body = r.json; } catch { /* nicht-JSON → body bleibt undefined */ }
         return { status: r.status, body } as const;

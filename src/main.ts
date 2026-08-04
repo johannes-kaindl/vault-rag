@@ -2,9 +2,11 @@ import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normaliz
 import { VaultIndex } from "./index";
 import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
-import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, migrateEndpointList, RestoreBackupModal } from "./settings";
+import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
+// Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
+import { chatRequestModel, effectiveModel, migrateEndpointList, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
-import { resolveActiveEndpoint } from "./vendor/kit/endpoint";
+import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { mergeSettings } from "./vendor/kit/settings";
 import { EmbeddingClient } from "./embedder";
 import { LiveIndexer } from "./live_indexer";
@@ -26,7 +28,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex } from "./index_guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist } from "./index_guard";
 import { loadIndexStore, verifyBackupCandidate } from "./index_store";
 import { CONTAINER_FILE, decodeContainer } from "./index_container";
 import { McpTools } from "./mcp/tools";
@@ -65,6 +67,18 @@ export default class VaultRagPlugin extends Plugin {
   chatClient!: ChatClient;
   activeEmbeddingEndpoint: string | null = null;
   activeChatEndpoint: string | null = null;
+  /** Modell, mit dem der aktuelle `embedder` gebaut wurde (Endpunkt-Override oder global).
+   *  Embedder und LiveIndexer/Manifest MÜSSEN immer dasselbe Modell nennen — sonst behauptet
+   *  das Manifest einen Vektorraum, aus dem die Vektoren nicht stammen. */
+  private embeddingModelInUse = "";
+  /** Chat-Endpunkt, mit dem `chatClient` gebaut wurde — Quelle des Zeilen-Modell-Overrides.
+   *  Anders als beim Embedder wird hier die Config statt eines fertigen Modellnamens gehalten:
+   *  Smart Apply bringt ein eigenes Modellfeld mit, und nur `chatRequestModel` kennt die
+   *  Vorrangregel zwischen beidem. */
+  private chatEndpointInUse: EndpointConfig = { url: "" };
+  /** Zuletzt gemeldete Modell-Guard-Übersprünge — verhindert Notice-Spam, weil
+   *  `embedderReady()` den Resolver bei jedem fehlgeschlagenen Ping erneut anwirft. */
+  private lastSkipNotice = "";
   private smartApply: SmartApply | null = null;
   private templateRanker?: TemplateRanker;
   private liveIndexer!: LiveIndexer;
@@ -160,18 +174,32 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   async onload() {
-    const loaded = await this.loadData() as (Partial<VaultRagSettings> & { embeddingEndpoint?: string; chatEndpoint?: string }) | null;
-    this.settings = mergeSettings(DEFAULT_SETTINGS, loaded);
-    // Migration: alte Einzel-Endpoint-Settings → geordnete Fallback-Listen.
+    // Prä-0.19-data.json trägt die Endpunkte als blanke URL-Strings (und noch älter als
+    // Einzelfeld) — hier ehrlich getypt, migriert wird gleich darunter.
+    const loaded = await this.loadData() as (Omit<Partial<VaultRagSettings>, "embeddingEndpoints" | "chatEndpoints"> & {
+      embeddingEndpoint?: string; chatEndpoint?: string;
+      embeddingEndpoints?: (string | EndpointConfig)[]; chatEndpoints?: (string | EndpointConfig)[];
+    }) | null;
+    this.settings = mergeSettings(DEFAULT_SETTINGS, loaded as Partial<VaultRagSettings> | null);
+    // Migration: alte Einzel-Endpoint-Settings und Prä-0.19-String-Listen → EndpointConfig-Listen.
     this.settings.embeddingEndpoints = migrateEndpointList(loaded?.embeddingEndpoint, loaded?.embeddingEndpoints);
     this.settings.chatEndpoints = migrateEndpointList(loaded?.chatEndpoint, loaded?.chatEndpoints);
-    if (!this.settings.embeddingEndpoints.length) this.settings.embeddingEndpoints = [...DEFAULT_SETTINGS.embeddingEndpoints];
-    if (!this.settings.chatEndpoints.length) this.settings.chatEndpoints = [...DEFAULT_SETTINGS.chatEndpoints];
+    // Tiefe Kopie: die Default-Einträge sind jetzt veränderliche Objekte — eine flache Kopie
+    // teilte sie mit DEFAULT_SETTINGS, und ein späteres `cfg.apiKey = …` schriebe ein Geheimnis
+    // in die Modul-Defaults.
+    if (!this.settings.embeddingEndpoints.length) this.settings.embeddingEndpoints = DEFAULT_SETTINGS.embeddingEndpoints.map(c => ({ ...c }));
+    if (!this.settings.chatEndpoints.length) this.settings.chatEndpoints = DEFAULT_SETTINGS.chatEndpoints.map(c => ({ ...c }));
     // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
     // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
-    this.embedder = new EmbeddingClient(this.settings.embeddingEndpoints[0] ?? "", this.settings.embeddingModel);
-    this.chatClient = new ChatClient(this.settings.chatEndpoints[0] ?? "", this.settings.chatModel);
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.settings.embeddingModel);
+    const e0 = this.settings.embeddingEndpoints[0] ?? { url: "" };
+    const c0 = this.settings.chatEndpoints[0] ?? { url: "" };
+    this.embeddingModelInUse = effectiveModel(e0, this.settings.embeddingModel);
+    this.embedder = new EmbeddingClient(e0.url, this.embeddingModelInUse, e0.apiKey);
+    this.chatEndpointInUse = c0;
+    this.chatClient = new ChatClient(c0.url, this.chatModelInUse, c0.apiKey);
+    // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
+    // fire-and-forget am Ende von onload, der modify-Listener kann davor feuern.
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.embeddingModelInUse);
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
     this.facade = new RetrievalFacade({
       getIndex: () => this.index,
@@ -236,7 +264,7 @@ export default class VaultRagPlugin extends Plugin {
         },
         () => this.chatClient,
         () => ({
-          model: this.settings.smartApplyModel || this.settings.chatModel,
+          model: this.smartApplyModelInUse,
           temperature: this.settings.smartApplyTemperature,
           suppressThinking: this.settings.smartApplySuppressThinking,
           maxTokens: this.settings.smartApplyMaxTokens,
@@ -370,7 +398,7 @@ export default class VaultRagPlugin extends Plugin {
             budget: this.settings.contextCharBudget,
           }),
           systemPreamble: () => this.settings.chatSystemPrompt,
-          params: () => ({ model: this.settings.chatModel, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
+          params: () => ({ model: this.chatModelInUse, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
         }),
         openPath: this.openPath,
         copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },
@@ -446,24 +474,110 @@ export default class VaultRagPlugin extends Plugin {
   /** Aktiven Embedding-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
    *  und embedder + liveIndexer darauf neu verdrahten. Behält die liveIndexer-Verdrahtung. */
   async resolveAndReconnectEmbedder(): Promise<void> {
-    const m = this.settings.embeddingModel;
-    const active = await resolveActiveEndpoint(this.settings.embeddingEndpoints, ep => new EmbeddingClient(ep, m).ping());
-    this.activeEmbeddingEndpoint = active;
-    const ep = active ?? this.settings.embeddingEndpoints[0] ?? "";
-    this.embedder = new EmbeddingClient(ep, m);
+    // Eigene Schleife statt resolveActiveEndpoint (Kit): das kennt nur URLs und könnte den
+    // Schlüssel/das Modell-Override des Eintrags nicht mitführen.
+    // Modell-Guard: ein Kandidat mit fremdem Embedding-Modell darf den geladenen Index NICHT
+    // bedienen (anderer Vektorraum, stille Vergiftung) — er wird übersprungen, nicht genutzt.
+    const indexModel = this.index?.manifest.embedding_model;
+    const fits = (cfg: EndpointConfig): boolean =>
+      embeddingModelMatchesIndex(effectiveModel(cfg, this.settings.embeddingModel), indexModel);
+    let active: EndpointConfig | null = null;
+    const skipped: string[] = [];
+    for (const candidate of this.settings.embeddingEndpoints) {
+      const url = candidate.url?.trim();
+      if (!url) continue;
+      const model = effectiveModel(candidate, this.settings.embeddingModel);
+      if (!fits(candidate)) {
+        skipped.push(`„${url}" (Modell ${model})`);
+        continue;
+      }
+      if (await new EmbeddingClient(url, model, candidate.apiKey).ping()) {
+        active = candidate;
+        break;
+      }
+    }
+    // Auch die Rückfall-Verdrahtung respektiert den Guard: lieber ein passender, gerade nicht
+    // erreichbarer Endpunkt als ein erreichbarer aus dem falschen Vektorraum.
+    const cfg = active ?? this.settings.embeddingEndpoints.find(fits) ?? this.settings.embeddingEndpoints[0] ?? { url: "" };
+    this.activeEmbeddingEndpoint = active ? normalizeEndpoint(cfg.url) : null;
+    const m = effectiveModel(cfg, this.settings.embeddingModel);
+    this.embeddingModelInUse = m;
+    this.embedder = new EmbeddingClient(cfg.url, m, cfg.apiKey);
+    // Die DURCHSETZUNG des Modell-Schutzes hängt nicht hier, sondern an der Schreiboperation
+    // (LiveIndexer.persist → assertModelSafeToPersist, Wahrheit aus dem Container auf Platte).
+    // Der Skip oben ist reine Prävention: ein unpassender Endpunkt wird gar nicht erst aktiv.
+    this.noticeSkippedEmbeddingEndpoints(skipped, indexModel);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m);
     if (this.index) this.liveIndexer.init(this.index);
     else if (this.indexHealthy) this.liveIndexer.markFresh();
     // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
   }
 
+  /** Klartext-Meldung für Endpunkte, die der Modell-Guard übersprungen hat — im Wortlaut, damit
+   *  der Nutzer versteht, warum sein externer Anbieter nicht greift. Enthält NIE den Schlüssel.
+   *  Wiederholt sich nicht: erst wenn sich die Menge der Übersprungenen ändert, kommt sie wieder. */
+  private noticeSkippedEmbeddingEndpoints(skipped: string[], indexModel: string | undefined): void {
+    const signature = skipped.join("|");
+    if (signature === this.lastSkipNotice) return;
+    this.lastSkipNotice = signature;
+    if (!skipped.length) return;
+    new Notice(
+      `Embedding-Endpunkt übersprungen: ${skipped.join(", ")} passt nicht zum Modell des Index `
+      + `(${indexModel ?? "unbekannt"}). Ein Wechsel des Embedding-Modells erfordert einen `
+      + `vollständigen Neuaufbau des Index.`,
+      10000,
+    );
+  }
+
+  /** Nutzertext für eine Schreib-Blockade — egal ob geworfen (`persist`) oder vorab entschieden
+   *  (`checkModelAgainstDisk`). `model-mismatch` bekommt Klartext samt Ausweg; die generische
+   *  „Index wirkt beschädigt"-Meldung wäre dort schlicht falsch. Nie mit Schlüssel. */
+  private blockedMessage(kind: PersistBlockedError["kind"] | undefined, fallback: string): string {
+    if (kind !== "model-mismatch") return fallback;
+    return "⚠ Vault Retrieval: Das Embedding-Modell dieses Endpunkts passt nicht zum Index — "
+      + "es wird nichts geschrieben (Schreibschutz). Suche und Lesen laufen weiter. Ausweg: passenden "
+      + 'Endpunkt eintragen oder „Vault neu indizieren".';
+  }
+
+  /** Wie `blockedMessage`, nur direkt aus einem gefangenen Fehler — auch aus einem `unknown`
+   *  im catch-Block (alles außer `PersistBlockedError` bekommt den Fallback). */
+  private persistBlockedMessage(e: unknown, fallback: string): string {
+    return this.blockedMessage(e instanceof PersistBlockedError ? e.kind : undefined, fallback);
+  }
+
   /** Aktiven Chat-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
    *  und chatClient darauf neu verdrahten. */
   async resolveAndReconnectChat(): Promise<void> {
-    const active = await resolveActiveEndpoint(this.settings.chatEndpoints, ep => new ChatClient(ep, this.settings.chatModel).ping());
-    this.activeChatEndpoint = active;
-    const ep = active ?? this.settings.chatEndpoints[0] ?? "";
-    this.chatClient = new ChatClient(ep, this.settings.chatModel);
+    let active: EndpointConfig | null = null;
+    for (const candidate of this.settings.chatEndpoints) {
+      const url = candidate.url?.trim();
+      if (!url) continue;
+      if (await new ChatClient(url, effectiveModel(candidate, this.settings.chatModel), candidate.apiKey).ping()) {
+        active = candidate;
+        break;
+      }
+    }
+    const cfg = active ?? this.settings.chatEndpoints[0] ?? { url: "" };
+    this.activeChatEndpoint = active ? normalizeEndpoint(cfg.url) : null;
+    this.chatEndpointInUse = cfg;
+    this.chatClient = new ChatClient(cfg.url, this.chatModelInUse, cfg.apiKey);
+  }
+
+  /** Modell, das eine Chat-Anfrage tatsächlich mitschickt. `ChatClient.stream` liest `opts.model`
+   *  und ignoriert das im Konstruktor gesetzte Modell — jede Aufrufstelle muss deshalb DIESEN
+   *  Wert übergeben, sonst ginge bei einem Fallback auf einen gehosteten Anbieter der lokale
+   *  Modellname raus (HTTP 400 ohne erkennbare Ursache). Getter statt Feld: eine Modellauswahl
+   *  im Dropdown wirkt so sofort, ohne Re-Resolve. */
+  get chatModelInUse(): string {
+    return chatRequestModel(this.chatEndpointInUse, "", this.settings.chatModel);
+  }
+
+  /** Wie `chatModelInUse`, nur mit Smart Applys eigenem Modellfeld als Zwischenstufe:
+   *  `smartApplyModel` gilt gegenüber dem globalen Chat-Modell, unterliegt aber dem
+   *  Zeilen-Override des aktiven Endpunkts (dessen Modellnamen sind die einzigen, die dort
+   *  garantiert existieren). */
+  private get smartApplyModelInUse(): string {
+    return chatRequestModel(this.chatEndpointInUse, this.settings.smartApplyModel, this.settings.chatModel);
   }
 
   /** Embedder-Reachability mit EINEM Re-Resolve-Retry: aktiven pingen; schlägt fehl,
@@ -523,7 +637,7 @@ export default class VaultRagPlugin extends Plugin {
       }
       this.settings.indexDir = target;
       await this.saveSettings();
-      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.embedder, this.settings.embeddingModel);
+      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.embedder, this.embeddingModelInUse);
       this.pendingQueue = new PendingQueue(this.app.vault.adapter, target);
       await this.pendingQueue.load();
       await this.loadIndex();
@@ -708,7 +822,7 @@ export default class VaultRagPlugin extends Plugin {
       original: core,
       stream: (onToken, signal) => this.chatClient
         .stream(messages, onToken, () => {}, signal, {
-          model: this.settings.chatModel,
+          model: this.chatModelInUse,
           temperature: 0.2,
           suppressThinking: true,
           maxTokens: REFORMAT_MAX_TOKENS,
@@ -831,6 +945,15 @@ export default class VaultRagPlugin extends Plugin {
       return;
     }
     const base = candidate;
+    // Sonderfall, den persist() strukturell NICHT sehen kann: Die Kaskade läuft genau dann, wenn
+    // der Container auf Platte defekt ist — dort gibt es keine Disk-Wahrheit, gegen die der
+    // Modell-Guard prüfen könnte. Die Basis hier ist aber ebenfalls disk-verifiziert
+    // (verifyBackupCandidate, CRC-Beweis), also dieselbe Regel (assertModelSafeToPersist) auf
+    // dieselbe Frage anwenden, bevor additiv fremde Vektoren einmischen.
+    if (!assertModelSafeToPersist(base.manifest.embedding_model, this.embeddingModelInUse, "heal").allowed) {
+      new Notice("vault-rag: Automatische Wiederherstellung nicht möglich — das Backup wurde mit einem anderen Embedding-Modell gebaut als der aktive Endpunkt. Schreibschutz bleibt aktiv; passenden Endpunkt eintragen oder neu indizieren.", 10000);
+      return;
+    }
     // liveIndexer einmal snapshotten (Repo-Konvention, vgl. handleDelete/drainPending): ein
     // paralleles resolveAndReconnectEmbedder() darf init/heal/persist nicht auf verschiedene
     // Instanzen verteilen — sonst persistierte eine leere Instanz über den geheilten Stand.
@@ -931,15 +1054,20 @@ export default class VaultRagPlugin extends Plugin {
         try {
           const updated = await li.update(path, content);
           if (updated === "empty") this.emptyNotePaths.add(path); else this.emptyNotePaths.delete(path);
-          this.index = li.buildIndex();
+          // buildIndex ERST nach erfolgreichem persist: ein geblockter Persist darf `this.index`
+          // nicht mit dem Manifest des Indexers überschreiben (das trägt dessen Embedding-Modell).
+          // Sonst läse resolveAndReconnectEmbedder sein `indexModel` aus einem vergifteten
+          // In-Memory-Index, verwürfe den passenden Endpunkt und säte den nächsten LiveIndexer
+          // (init(this.index)) mit fremden Vektoren unter einem passenden Modellnamen.
           await li.persist("live");
+          this.index = li.buildIndex();
           this.indexHealthy = true; // vormaliger (auch fälschlicher) Block ist aufgehoben — schreibt wieder gesund.
           this.syncProgress();
           this.refresh();
         } catch (e) {
           if (e instanceof PersistBlockedError) {
             this.indexHealthy = false;
-            new Notice("⚠ Vault Retrieval: Embedding-Index wirkt beschädigt — Änderung vorgemerkt statt überschrieben (Schreibschutz). Deine Notizen sind unberührt.", 8000);
+            new Notice(this.persistBlockedMessage(e, "⚠ Vault Retrieval: Embedding-Index wirkt beschädigt — Änderung vorgemerkt statt überschrieben (Schreibschutz). Deine Notizen sind unberührt."), 8000);
           }
           await this.pendingQueue.add(path);
           this.syncProgress();
@@ -964,13 +1092,16 @@ export default class VaultRagPlugin extends Plugin {
       try {
         li.remove(path);
         this.emptyNotePaths.delete(path);
-        this.index = li.buildIndex();
+        // buildIndex ERST nach erfolgreichem persist (analog handleModify): sonst trüge
+        // `this.index.manifest.embedding_model` nach einem geblockten Persist das Modell des
+        // Indexers — und resolveAndReconnectEmbedder läse genau daraus sein `indexModel`.
         await li.persist("live");
+        this.index = li.buildIndex();
         this.indexHealthy = true;
         this.syncProgress();
         this.refresh();
       } catch (e) {
-        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Löschung nicht persistiert (Schreibschutz).", 8000); }
+        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, "⚠ vault-rag: Löschung nicht persistiert (Schreibschutz)."), 8000); }
         else console.warn("vault-rag: handleDelete failed", e);
       }
     });
@@ -986,13 +1117,14 @@ export default class VaultRagPlugin extends Plugin {
         try {
           li.rename(oldPath, newPath);
           if (this.emptyNotePaths.delete(oldPath)) this.emptyNotePaths.add(newPath);
-          this.index = li.buildIndex();
+          // buildIndex ERST nach erfolgreichem persist — siehe handleModify/handleDelete.
           await li.persist("live");
+          this.index = li.buildIndex();
           this.indexHealthy = true;
           this.syncProgress();
           this.refresh();
         } catch (e) {
-          if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice("⚠ vault-rag: Umbenennung nicht persistiert (Schreibschutz).", 8000); }
+          if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, "⚠ vault-rag: Umbenennung nicht persistiert (Schreibschutz)."), 8000); }
           else console.warn("vault-rag: handleRename failed", e);
         }
       });
@@ -1028,8 +1160,10 @@ export default class VaultRagPlugin extends Plugin {
         }
         // drain() hat in-memory bereits geleert; clear() nicht aufrufen —
         // sonst gehen Paths verloren die während des await-Loops neu reinkamen.
-        this.index = li.buildIndex();
+        // buildIndex ERST nach erfolgreichem persist (Begründung s. handleModify): ein geblockter
+        // Persist lässt `this.index` unberührt, statt ihn mit einem fremden Modell zu stempeln.
         await li.persist("live");
+        this.index = li.buildIndex();
         this.indexHealthy = true;
         this.syncProgress();
         this.refresh();
@@ -1085,7 +1219,7 @@ export default class VaultRagPlugin extends Plugin {
       notice.setMessage(`Vault indiziert: ${report.added} Notizen.`);
     } catch (e) {
       console.warn("vault-rag: reindexVault failed", e);
-      notice.setMessage("Vault-Indizierung fehlgeschlagen.");
+      notice.setMessage(this.persistBlockedMessage(e, "Vault-Indizierung fehlgeschlagen."));
     } finally {
       this.embeddingProgress.reindex = null;
       this.embeddingProgress.isEmbedding = false;
@@ -1101,8 +1235,24 @@ export default class VaultRagPlugin extends Plugin {
       new Notice("Embedding-Endpoint nicht erreichbar — Vervollständigen abgebrochen.");
       return;
     }
-    if (!this.liveIndexer.isReady()) {
-      new Notice(`Kein Basis-Index geladen — bitte „Aus Backup wiederherstellen" oder „Vault neu indizieren".`);
+    // liveIndexer einmal snapshotten (Repo-Konvention, vgl. handleDelete/drainPending/attemptAutoHeal):
+    // ein paralleles fire-and-forget resolveAndReconnectEmbedder() (z.B. aus dem Einstellungs-Tab)
+    // darf this.liveIndexer über die awaits hinweg nicht neu zuweisen — sonst prüfte das Gate
+    // Instanz A und Instanz B embeddete/persistierte, also genau die Garantie, die das Gate gibt.
+    const li = this.liveIndexer;
+    if (!li.isReady()) {
+      // isReady() false heißt: kein geladener Index ODER Schreibschutz nach Load-/Heal-Fehler —
+      // „kein Index geladen" allein wäre in der zweiten Lage sachlich falsch.
+      new Notice(`Kein sicherer Basis-Index verfügbar (nicht geladen oder Schreibschutz) — bitte „Aus Backup wiederherstellen" oder „Vault neu indizieren".`);
+      return;
+    }
+    // Modell-Verträglichkeit VOR dem Embedden klären (Disk-Wahrheit, dieselbe Regel wie in
+    // persist()). Ein erst am Ende blockierter Heal ließe die fremden Vektoren in der Vektor-Map
+    // des Indexers zurück — nichts macht sie rückgängig, und der nächste regulär erlaubte Persist
+    // schriebe sie mit. Nicht embedden ist billiger als zurückrollen.
+    const gate = await li.checkModelAgainstDisk("heal");
+    if (!gate.allowed) {
+      new Notice(this.blockedMessage(gate.kind, "Vervollständigen abgebrochen: Der Index auf Platte ist gerade nicht lesbar (Sync läuft oder Container beschädigt) — bitte später erneut versuchen oder aus einem Backup wiederherstellen."), 10000);
       return;
     }
     const vaultPaths = this.vaultMarkdownPaths();
@@ -1120,7 +1270,7 @@ export default class VaultRagPlugin extends Plugin {
     this.embeddingProgress.reindex = { done: 0, total: embeddable.length };
     this.updateStatusBar();
     try {
-      const report = await this.liveIndexer.healMissing(
+      const report = await li.healMissing(
         embeddable,
         (p) => this.app.vault.adapter.read(p),
         (done, _indexed, tot) => {
@@ -1131,15 +1281,17 @@ export default class VaultRagPlugin extends Plugin {
       );
       // Leer-Set aktualisieren: bekannte Leere bleiben, frisch entdeckte kommen dazu.
       this.emptyNotePaths = new Set([...knownEmpty, ...report.skippedEmpty]);
-      this.index = this.liveIndexer.buildIndex();
-      await this.liveIndexer.persist("heal");
+      // buildIndex ERST nach erfolgreichem persist (wie handleModify/drainPending): ändert sich die
+      // Platte zwischen Gate und Schreiben, bleibt `this.index` sauber statt fremd gestempelt.
+      await li.persist("heal");
+      this.index = li.buildIndex();
       this.indexHealthy = true;
       this.refresh();
       void this.snapshotIndex();
       notice.setMessage(healResultMessage(report.added, knownEmpty.length + report.skippedEmpty.length, report.failed.length));
     } catch (e) {
       console.warn("vault-rag: healVault failed", e);
-      notice.setMessage("Vervollständigen fehlgeschlagen.");
+      notice.setMessage(this.persistBlockedMessage(e, "Vervollständigen fehlgeschlagen."));
     } finally {
       this.embeddingProgress.reindex = null;
       this.embeddingProgress.isEmbedding = false;

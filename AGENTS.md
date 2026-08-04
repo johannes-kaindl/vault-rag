@@ -97,6 +97,19 @@ retrieval_facade.ts  Gemeinsame obsidian-freie Fassade über Retriever/Embedder 
                   getypte Result-Unions (hits/no-index/offline/not-indexed/…), nie throw.
                   resolveNotePath (Path-Guard) lebt hier. Kein this.retriever-Feld mehr.
 chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker.py).
+endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZIGE Stelle, an der
+                  ein Bearer aus einem Endpunkt-/Anbieter-Schlüssel gebaut wird — der MCP-Server
+                  baut seinen Loopback-Token-Bearer separat) · effectiveModel (Endpunkt-Override
+                  vor globalem Modell) · chatRequestModel (Vorrang für EINE Chat-Anfrage:
+                  Zeilen-Override → feature-eigenes Modell (`smartApplyModel`) → globales
+                  Chat-Modell; `ChatClient.stream` liest nur `opts.model`, nie das
+                  Konstruktor-Modell) · migrateEndpointList (alte String-Liste → Configs) ·
+                  applyEndpointEdit (Zeilen-Bearbeitung bei blur, Feld-Diskriminator
+                  "url"|"apiKey"|"model") · carriesApiKey (verlässlicher Drittanbieter-Indikator
+                  für die Settings-UI — der Schlüssel, NICHT die URL: ein eigener Server im LAN/VPN
+                  braucht auch keinen). Obsidian-frei. **Einzige öffentliche Fläche** — weder
+                  settings.ts noch settings_core.ts reichen diese Helfer durch; Aufrufer
+                  importieren direkt hier.
 capabilities.ts   Reine Vision/Thinking-Erkennung, geschichtet L1 Metadaten (Ollama /api/show,
                   LM Studio /api/v1|v0) → L2 Name-Heuristik → L3 live-bestätigt (monotones Upgrade);
                   geteilter fetchCapabilities(baseUrl, model)-Probe-Helper.
@@ -114,8 +127,14 @@ settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab —
                   (Obsidian 1.13 `getSettingDefinitions()`, 7 Gruppen, durchsuchbar): einfache
                   Zeilen sind `control`-Definitionen, `get/setControlValue` liest/schreibt sie
                   (mit Coercion + Seiteneffekten wie refresh/setStatusBarVisible). Dynamische
-                  Zeilen (Endpoint-Listen, Modell-Dropdowns, Status-Poll alle 2 s, MCP-Sektion)
-                  sind render-Hatches. **Zweigleisig:** ab 1.13 rendert das Framework deklarativ +
+                  Zeilen (Endpoint-Listen — pro Zeile URL + maskiertes API-Schlüssel-Feld +
+                  Modell-Override, gesperrt während einer form-ändernden Mutation läuft, plus
+                  `alert-triangle`-Hinweis-Icon bei gesetztem Schlüssel (`carriesApiKey`) — Form/Icon
+                  + Tooltip, nie Farbe allein, Schlüssel selbst nie im Text; das Icon schaltet sich
+                  beim apiKey-Commit **in-place** um, weil dieser Commit bewusst kein `refreshUi()`
+                  auslöst (Tab-Neuaufbau bleibt URL-Commits vorbehalten) —,
+                  Modell-Dropdowns, Status-Poll alle 2 s, MCP-Sektion) sind render-Hatches.
+                  **Zweigleisig:** ab 1.13 rendert das Framework deklarativ +
                   durchsuchbar; auf ≤1.12 (minAppVersion 1.12.7 — 1.13 ist Catalyst-Preview) läuft
                   `display() { renderImperative() }`, das dieselbe `getSettingDefinitions()`-Struktur
                   imperativ zeichnet (eine Wahrheit). 1.13-only-APIs (`update`/`setDestructive`) sind
@@ -133,8 +152,10 @@ hub_panel.ts      HubPanel-Interface + TabId ("related"|"search"|"chat"|"smart-a
 hub_view.ts       VaultRetrievalView (ItemView, VIEW_TYPE_HUB="vault-retrieval-hub") — EIN
                   Sidebar-View mit Tab-Leiste statt vier Views; hält alle Panels dauerhaft gemountet
                   (State-Persistenz), blendet nur per `display:none` um (kein render-from-scratch).
-settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings · DEFAULT_SETTINGS ·
-                  migrateEndpointList — von settings.ts re-exportiert, vom MCP-Server direkt genutzt.
+settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings (embeddingEndpoints/
+                  chatEndpoints als EndpointConfig[]) · DEFAULT_SETTINGS — die Endpunkt-Helfer
+                  liegen in endpoint_config.ts und werden von dort importiert, nicht hier
+                  durchgereicht. Vom MCP-Server direkt importiert.
 mcp/              In-Plugin HTTP-MCP-Server (Loopback, `/mcp`, StreamableHTTP): `http_server.ts` ·
                   `register_tools.ts` · `tools.ts` (dünner Adapter über RetrievalFacade) · `auth.ts`.
                   Kein Node-Adapter/kein stdio mehr.
@@ -177,6 +198,11 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
                   `workspace.activeEditor` null ist, sobald der Fokus im Sidebar-Panel liegt;
                   `runTransform` ist der gemeinsame Weg für Command, Kontextmenü und Panel und
                   guarded jedes `replaceRange` mit `captureIsLive` + `isRangeStale`.
+                  Aktive Endpunkt-Modelle: `embeddingModelInUse` (Embedder + LiveIndexer/Manifest
+                  als Paar) und `chatEndpointInUse` → Getter `chatModelInUse` /
+                  `smartApplyModelInUse` (`chatRequestModel`). JEDE Chat-Anfrage muss einen der
+                  beiden Getter als `opts.model` mitgeben — `settings.chatModel` direkt zu
+                  senden ignoriert das Zeilen-Override des aktiven Endpunkts.
 ```
 
 **Index-Format (seit 0.18.0):** EINE Container-Datei `_vaultrag/index.bin` — `"VRIX"` · u32 headerLen LE
@@ -272,7 +298,9 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   eine Mischgeneration zu erzeugen). `reason="live"` darf den Notiz-Count nur um ±1 senken, sonst
   `PersistBlockedError("shrink")`; ist der Indexer nicht initialisiert/beschädigt (Gefahrenzustand,
   `markUnready`), blockt jeder Live-Persist mit `PersistBlockedError("not-ready")`.
-  `reason="reindex"`/`"heal"` sind explizit nutzergetriggert und immer erlaubt. `main.ts` fängt
+  `reason="reindex"` ist explizit nutzergetriggert und immer erlaubt (Voll-Ersatz); `"live"`/`"heal"`
+  blocken zusätzlich mit `PersistBlockedError("model-mismatch")`, wenn das Embedder-Modell nicht zum
+  Modell des Containers **auf der Platte** passt — siehe eigener Gotcha unten. `main.ts` fängt
   `PersistBlockedError` je Event-Handler ab: `handleModify` merkt die Notiz zusätzlich in der
   `PendingQueue` vor (nicht verworfen), `handleDelete`/`handleRename` melden nur laut (Notice) ohne
   Pending-Fallback — in allen drei Fällen setzt es `indexHealthy = false`. Geräte-lokale
@@ -285,6 +313,25 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   geheilte Index **nur bei restlos sauberem Heal-Lauf** (`failed === 0`) — ein teilweiser Heal bleibt
   im Speicher, ohne den Container auf der Disk zu überschreiben, und die Kaskade läuft pro
   Plugin-Start/Episode nur einmal an statt in einer Schleife zu hämmern.
+- **Ein Embedding-Index ist an sein Modell gebunden — der Modell-Guard schützt das doppelt
+  (vorbeugend + durchsetzend), weil ein fremdes Modell strukturell unauffällige, aber falsche
+  Vektoren erzeugt:** Notiz-Count, Dimension und CRC bleiben in Ordnung, nur die
+  Ähnlichkeitssuche wird still schlechter — und nur ein vollständiger Neuaufbau (`reason="reindex"`)
+  heilt es. **Vorbeugend:** `resolveAndReconnectEmbedder` überspringt jeden Endpunkt-Kandidaten,
+  dessen (Override-)Modell nicht zu `this.index.manifest.embedding_model` passt
+  (`embeddingModelMatchesIndex`, `index_guard.ts`) — auch in der Rückfall-Verdrahtung, die sonst
+  einen erreichbaren, aber falschen Kandidaten aktiv geschaltet hätte; nur wenn **kein** Kandidat
+  passt, gewinnt trotzdem der erste (bewusster Modellwechsel), mit Notice.
+  **Durchsetzend:** `LiveIndexer.persist("live"|"heal")` liest bei **jedem** Aufruf das Modell
+  frisch vom Container auf der Platte (nie den In-Memory-Stand — ein zuvor geblockter Persist kann
+  die Prüfung also nicht vergiften) und blockt bei Abweichung mit
+  `PersistBlockedError("model-mismatch")` (`assertModelSafeToPersist`, `index_guard.ts`).
+  `healVault` fragt zusätzlich **vorab** per `LiveIndexer.checkModelAgainstDisk("heal")`, bevor es
+  überhaupt embedded — sonst bliebe additiv geschriebenes Fremdmodell-Material im In-Memory-Index
+  hängen, obwohl der anschließende Persist geblockt worden wäre (das Residuum, das Fix-Runde 4
+  schloss). Einziger Ausweg für einen bewussten Modellwechsel: **„Vault neu indizieren"**
+  (Voll-Ersatz, vom Guard nie geprüft). Gilt **nur** für Embedding-Endpunkte — für Chat-Endpunkte
+  hängt kein Index am Modell, ein Wechsel dort ist folgenlos.
 - **Leere Notizen sind nie im Index (by design):** `embedNote` → null bei 0 Chunks (nur Frontmatter/
   leer, z.B. Ordner-Notizen). Damit sie kein Phantom-Defizit erzeugen, hält `main.ts` ein
   `emptyNotePaths`-Set — **bewusst nicht persistiert**: bei jedem `loadIndex` frisch klassifiziert
@@ -317,6 +364,14 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 - **MCP-Server läuft in-Plugin (HTTP)** statt als separater stdio-CLI: desktop-only via
   `Platform.isMobile`-Gate, Loopback (`127.0.0.1`) + Bearer-Token, läuft nur solange Obsidian
   offen ist (kein eigenständiger Prozess); Spec `docs/superpowers/specs/2026-07-09-mcp-server-design.md`.
+- **Ein Endpunkt-API-Schlüssel muss an ALLE fünf Netzwege**, nicht nur den Chat-/Embed-POST:
+  Probe (`probeEndpoint`/`.probe()`/`.ping()`), `listModels`, `embed`/Chat-POST, `streamSSE`
+  (Chat-Streaming) und `fetchCapabilities`. Alle gehen über `authHeaders(apiKey)`
+  (`endpoint_config.ts`) — fehlt der Schlüssel an der **Probe**, gilt der Endpunkt nie als
+  erreichbar und `resolveAndReconnectEmbedder`/`resolveAndReconnectChat` überspringen ihn
+  stillschweigend (kein Ping-Erfolg); das Feature wirkt dann wie tot, ohne Fehlermeldung, weil
+  ein reiner Ping-Fehlschlag keine Notice auslöst (anders als der Modell-Guard oben, der explizit
+  meldet).
 - **`editorCallback` blendet einen Command aus der Palette aus**, sobald kein Markdown-Editor
   fokussiert ist — Lesemodus, Fokus in der Sidebar, Canvas/Graph/PDF/Settings. Für den Nutzer sieht
   das aus, als wäre der Command **verschwunden** (real passiert, Slice C.2). Wenn ein Command auch

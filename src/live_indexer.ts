@@ -2,7 +2,7 @@ import { VaultAdapter, VaultIndex, IndexManifest } from "./index";
 import { EmbeddingClient } from "./embedder";
 import { chunkMarkdown } from "./chunker";
 import { toIndexVector } from "./embed_vector";
-import { assertSafeToPersist, PersistReason, PersistBlockedError } from "./index_guard";
+import { assertSafeToPersist, assertModelSafeToPersist, PersistDecision, PersistReason, PersistBlockedError } from "./index_guard";
 import { CONTAINER_FILE, encodeContainer, decodeContainer } from "./index_container";
 
 const INDEX_DIM = 256;
@@ -142,17 +142,32 @@ export class LiveIndexer {
     if (!this.ready && reason === "live") {
       throw new PersistBlockedError("not-ready", "Persist verweigert: Index ist nicht initialisiert (Load-Fehler) — der gute Index auf Platte bleibt erhalten.");
     }
-    if (reason === "live") {
+    if (reason !== "reindex") {
       // Live-Wahrheit statt gecachtem Zustand prüfen: verhindert, dass ein veralteter
       // In-Memory-Stand (z. B. nach markFresh() während ein Sync-Download noch lief) einen
       // inzwischen echten, größeren Index auf Platte überschreibt.
-      const diskCountNow = await this.readDiskCount();
-      if (diskCountNow === null) {
-        throw new PersistBlockedError("unreadable", "Persist verweigert: Der Index auf Platte ist gerade nicht lesbar (z. B. laufender Sync/Parallel-Schreibvorgang) — der gute Index bleibt unangetastet, ein erneuter Versuch folgt automatisch.");
-      }
-      const decision = assertSafeToPersist(diskCountNow, nextCount, reason);
-      if (!decision.allowed) {
-        throw new PersistBlockedError(decision.kind ?? "shrink", decision.message ?? "Persist verweigert.");
+      const disk = await this.readDiskState();
+      // `disk === null` heißt: keine Disk-Wahrheit (korrupter Container/laufender Sync). Für
+      // `live` ist das ein Abbruch; für `heal` bleibt es erlaubt, sonst könnte die
+      // Auto-Heal-Kaskade einen defekten Container nie mehr überschreiben.
+      if (disk === null) {
+        if (reason === "live") {
+          throw new PersistBlockedError("unreadable", "Persist verweigert: Der Index auf Platte ist gerade nicht lesbar (z. B. laufender Sync/Parallel-Schreibvorgang) — der gute Index bleibt unangetastet, ein erneuter Versuch folgt automatisch.");
+        }
+      } else {
+        // Beide Guards bekommen `reason` und entscheiden SELBST, für wen sie gelten — hier wird
+        // die Regel „reindex/heal sind explizit gewollt" nicht noch einmal formuliert. Der
+        // Vergleich läuft gegen den Container, nie gegen `loadedManifest`/`buildIndex()` (die
+        // können ein fremdes Modell tragen, sobald ein blockierter Persist den In-Memory-Stand
+        // bereits umgeschrieben hat).
+        const decision = assertSafeToPersist(disk.count, nextCount, reason);
+        if (!decision.allowed) {
+          throw new PersistBlockedError(decision.kind ?? "shrink", decision.message ?? "Persist verweigert.");
+        }
+        const modelDecision = assertModelSafeToPersist(disk.model, this.embeddingModel, reason);
+        if (!modelDecision.allowed) {
+          throw new PersistBlockedError(modelDecision.kind ?? "model-mismatch", modelDecision.message ?? "Persist verweigert.");
+        }
       }
     }
     const paths = [...this.noteVectors.keys()].sort();
@@ -184,19 +199,53 @@ export class LiveIndexer {
     this.ready = true;
   }
 
-  /** Liest den aktuellen Notiz-Count direkt aus der Platte (nicht aus dem In-Memory-Zustand).
+  /**
+   * Vorabprüfung für **additive** Läufe, die erst embedden und dann persistieren
+   * (`healVault` → `healMissing` → `persist("heal")`). Dieselbe Regel und dieselbe Disk-Wahrheit
+   * wie in `persist()`, nur eben **vorher** gefragt: ein am Ende blockierter Heal ließe sonst die
+   * fremden Vektoren in `noteVectors` zurück (nichts macht sie rückgängig), und ein späterer,
+   * regulär erlaubter Persist schriebe sie in den Container. Nicht embedden ist billiger als
+   * zurückrollen — deshalb fragt der Aufrufer, bevor er mutiert.
+   *
+   * Reine Frage, keine Mutation. `reindex` fragt gar nicht erst (Voll-Ersatz ist der Ausweg).
+   *
+   * **Strenger als `persist()` in genau einem Punkt:** kein lesbarer Container (`unreadable`)
+   * verbietet hier den Lauf, während `persist("heal")` ihn durchlässt. Das ist Absicht: dort
+   * ist der Fall der Auto-Heal-Kaskade vorbehalten, die auf einer CRC-bewiesenen Backup-Basis
+   * arbeitet und ihre Modell-Frage an dieser Basis stellt (`main.ts` → `attemptAutoHeal`).
+   * Ein nutzergetriggertes „Index vervollständigen" hat keine solche Basis — ohne Disk-Wahrheit
+   * gibt es nichts, gegen das sich additives Einmischen prüfen ließe.
+   */
+  async checkModelAgainstDisk(reason: PersistReason): Promise<PersistDecision> {
+    if (reason === "reindex") return { allowed: true };
+    const disk = await this.readDiskState();
+    if (disk === null) {
+      return {
+        allowed: false,
+        kind: "unreadable",
+        message: "Der Index auf Platte ist gerade nicht lesbar (z. B. laufender Sync oder beschädigter Container) — ohne diese Wahrheit ist ein additiver Lauf nicht abzusichern.",
+      };
+    }
+    return assertModelSafeToPersist(disk.model, this.embeddingModel, reason);
+  }
+
+  /** Liest Notiz-Count UND Embedding-Modell direkt aus der Platte (nicht aus dem In-Memory-
+   *  Zustand) — EINE Lesung für beide Guards.
    *  `null` = "Zustand unbekannt, sicherheitshalber blocken" (Container da, aber nicht lesbar/
    *  dekodierbar — z. B. während ein fremder Prozess/Sync ihn gerade neu schreibt, oder CRC/Magic
-   *  nicht passt). Kein Container vorhanden gilt hingegen als legitim frisch (`0`) — `loadIndexStore`
-   *  migriert Legacy-Tripel, bevor im Plugin-Lebenszyklus der erste Live-Persist laufen kann. */
-  private async readDiskCount(): Promise<number | null> {
+   *  nicht passt). Kein Container vorhanden gilt hingegen als legitim frisch (`count 0`, Modell
+   *  leer = „nichts zu schützen") — `loadIndexStore` migriert Legacy-Tripel, bevor im
+   *  Plugin-Lebenszyklus der erste Live-Persist laufen kann. */
+  private async readDiskState(): Promise<{ count: number; model: string } | null> {
     const containerPath = `${this.indexDir}/${CONTAINER_FILE}`;
     let exists: boolean;
     try { exists = await this.adapter.exists(containerPath); } catch { return null; }
-    if (!exists) return 0;
+    if (!exists) return { count: 0, model: "" };
     try {
       const { manifest } = decodeContainer(await this.adapter.readBinary(containerPath));
-      return typeof manifest.count === "number" ? manifest.count : null;
+      if (typeof manifest.count !== "number") return null;
+      const model = (manifest as { embedding_model?: unknown }).embedding_model;
+      return { count: manifest.count, model: typeof model === "string" ? model : "" };
     } catch { return null; }
   }
 }

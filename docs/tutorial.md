@@ -4,8 +4,10 @@
 > working index. Not a complete reference — see [Reference](reference/index.md) for that.
 
 By the end of this you will have an embedding index in your vault and a sidebar that shows,
-for any note you open, which other notes are about the same thing. Everything runs on your
-machine.
+for any note you open, which other notes are about the same thing. In this tutorial everything
+runs on your own machine: the index lives in your vault, retrieval is computed on-device, and
+the embedding server is one you start yourself. (A hosted provider works too — see
+[Reference](reference/index.md) — but then the text of each note goes to that provider.)
 
 **Time:** ~10 minutes of setup, plus one unattended indexing run (minutes to an hour, depending
 on vault size and hardware).

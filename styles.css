@@ -39,6 +39,13 @@
 .vault-rag-ep-status.is-active { font-weight: var(--font-bold); }
 .vault-rag-ep-warn { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-warning); }
 .vault-rag-ep-warn svg { width: 14px; height: 14px; }
+/* Drittanbieter-Hinweis (Schlüssel gesetzt): sachlicher Hinweis, keine Fehler-Warnung — bewusst
+   gedämpfter als .vault-rag-ep-warn, Bedeutung trägt das Dreieck + der Tooltip, nicht die Farbe. */
+.vault-rag-ep-thirdparty { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-muted); }
+.vault-rag-ep-thirdparty svg { width: 14px; height: 14px; }
+/* Speicher-/Lösch-Fenster: die gerenderten Zeilen-Indizes sind stale, bis der Re-Render kommt —
+   Eingaben und Icon-Buttons (divs, kein disabled) sind solange gesperrt. */
+.vault-rag-ep-busy { pointer-events: none; opacity: 0.6; }
 .vault-rag-sa-conn-refresh { margin-left: 6px; display: inline-flex; align-items: center; }
 .vault-rag-sa-conn-refresh svg { width: 14px; height: 14px; }
 .vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; flex: 0 0 auto; }

@@ -18,7 +18,7 @@ export type PersistReason = "live" | "reindex" | "heal";
 
 export interface PersistDecision {
   allowed: boolean;
-  kind?: "shrink";
+  kind?: "shrink" | "model-mismatch" | "unreadable";
   message?: string;
 }
 
@@ -71,8 +71,56 @@ export function diffIndexVsVault(indexPaths: string[], vaultPaths: string[]): { 
   };
 }
 
+/**
+ * Darf ein Embedding-Endpunkt-Kandidat den geladenen Index bedienen?
+ * Ein Modellwechsel wechselt den **Vektorraum**: neue Vektoren wären zu den bestehenden
+ * inkommensurabel, ohne dass irgendein Guard anschlüge — der Count bleibt gleich
+ * (`assertSafeToPersist` greift nicht), die Dimension wird auf 256 gepaddet/geschnitten,
+ * CRC32 und Byte-Guard sehen einen strukturell perfekten Container. Nur ein voller Reindex
+ * heilt das, und schon die reine Suche degradiert. Darum entscheidet das nicht der Zufall
+ * eines Failovers, sondern diese Regel.
+ *
+ * `indexModel` leer/undefined (kein Index geladen, Erstinstallation, Alt-Index ohne Feld)
+ * → true: es gibt nichts zu vergiften, und ein frisch installiertes Plugin muss embedden dürfen.
+ * Sonst exakte Gleichheit nach `trim()` — Modellnamen sind case-sensitiv.
+ */
+export function embeddingModelMatchesIndex(candidateModel: string, indexModel: string | undefined): boolean {
+  const want = indexModel?.trim();
+  if (!want) return true;
+  return candidateModel.trim() === want;
+}
+
+/**
+ * Darf mit dem aktuellen Embedding-Modell auf den Index geschrieben werden, der **auf Platte**
+ * liegt? Der Guard hängt bewusst an der Schreiboperation und liest seine Wahrheit aus dem
+ * Container, nicht aus einem Flag oder einem In-Memory-Manifest (dieselbe Lehre wie beim
+ * 0.18.0-Sync-Race: ein Guard, der vor der Operation in einem Zustand lebt, ist nicht dicht).
+ *
+ * - `reindex` → immer erlaubt: Voll-Ersatz, danach beschreibt das Manifest ehrlich alle Vektoren.
+ * - `live` und `heal` → bei Modell-Unterschied blocken. Heal gehört ausdrücklich dazu: additives
+ *   Einmischen fremder Vektoren in einen bestehenden Index ist genau der Schaden.
+ * - Disk-Modell leer/fehlend (Alt-Index ohne Feld, frischer Index) → erlauben, nicht blockieren.
+ */
+export function assertModelSafeToPersist(
+  diskModel: string | undefined,
+  embedderModel: string,
+  reason: PersistReason,
+): PersistDecision {
+  if (reason === "reindex") return { allowed: true };
+  const disk = diskModel?.trim();
+  if (!disk) return { allowed: true };
+  if (embeddingModelMatchesIndex(embedderModel, disk)) return { allowed: true };
+  return {
+    allowed: false,
+    kind: "model-mismatch",
+    message: `Persist verweigert: Der Index auf Platte wurde mit „${disk}" gebaut, dieser Endpunkt `
+      + `embeddet mit „${embedderModel}" — verschiedene Vektorräume. Ein Wechsel des `
+      + `Embedding-Modells erfordert einen vollständigen Neuaufbau des Index.`,
+  };
+}
+
 export class PersistBlockedError extends Error {
-  constructor(readonly kind: "not-ready" | "shrink" | "unreadable", message: string) {
+  constructor(readonly kind: "not-ready" | "shrink" | "unreadable" | "model-mismatch", message: string) {
     super(message);
     this.name = "PersistBlockedError";
   }

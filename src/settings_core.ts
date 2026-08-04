@@ -1,15 +1,12 @@
 import type { ApplyMode } from "./note_restructurer";
+import type { EndpointConfig } from "./endpoint_config";
 
 /** Obsidian-freie Settings-Wahrheit: Interface, Defaults, Endpoint-Migration.
  *  Von settings.ts (Plugin-UI) re-exportiert und vom MCP-Server (src/mcp/) direkt
  *  importiert — dieses Modul darf NIE obsidian importieren. */
 
-/** Migriert alte Einzel-Endpoint-Settings auf eine Liste. Reiner Helfer. */
-export function migrateEndpointList(single: string | undefined, list: string[] | undefined): string[] {
-  if (list && list.length) return list.filter(e => e && e.trim());
-  if (single && single.trim()) return [single.trim()];
-  return [];
-}
+// Endpunkt-Wahrheit (Struktur, Auth, Modellwahl, Migration) lebt in endpoint_config.ts und wird
+// von dort importiert — bewusst NICHT durchgereicht: eine öffentliche Fläche pro Wahrheit.
 
 export interface VaultRagSettings {
   k: number;
@@ -17,11 +14,11 @@ export interface VaultRagSettings {
   indexDir: string;
   hideIndexFolder: boolean;
   exclude: string[];
-  embeddingEndpoints: string[];
+  embeddingEndpoints: EndpointConfig[];
   embeddingModel: string;
   showStatusBar: boolean;
   debounceMs: number;
-  chatEndpoints: string[];
+  chatEndpoints: EndpointConfig[];
   chatModel: string;
   chatK: number;
   contextCharBudget: number;
@@ -54,11 +51,11 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   indexDir: "_vaultrag",
   hideIndexFolder: true,
   exclude: ["Templates/", "Archive/"],
-  embeddingEndpoints: ["http://localhost:11434"],
+  embeddingEndpoints: [{ url: "http://localhost:11434" }],
   embeddingModel: "qwen3-embedding:8b",
   showStatusBar: false,
   debounceMs: 3000,
-  chatEndpoints: ["http://localhost:1234"],
+  chatEndpoints: [{ url: "http://localhost:1234" }],
   chatModel: "qwen3",
   chatK: 5,
   contextCharBudget: 12000,

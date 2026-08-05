@@ -101,3 +101,48 @@ export function applyEndpointEdit(
   next[index] = updated;
   return next;
 }
+
+/** Neue Liste mit dem Eintrag an `index` an der Spitze — die Liste IST die Priorität
+ *  (`resolveAndReconnect*` nimmt den ersten erreichbaren), also ist Umsortieren die
+ *  einzige Wahrheit darüber, welcher Endpunkt bevorzugt wird. Index 0 oder außerhalb:
+ *  unveränderte Kopie, kein Fehler — der Aufrufer muss nicht vorher prüfen. */
+export function moveEndpointToFront(eps: EndpointConfig[], index: number): EndpointConfig[] {
+  if (index <= 0 || index >= eps.length) return [...eps];
+  const next = [...eps];
+  const [moved] = next.splice(index, 1);
+  next.unshift(moved);
+  return next;
+}
+
+/** Welche Rolle ein Endpunkt in der Liste gerade spielt. Reine Ableitung — kein eigener
+ *  Zustand, keine Resolver-Änderung: die Einstellungs-UI kennt alle vier Zutaten bereits. */
+export type EndpointRole =
+  | { kind: "active" }
+  | { kind: "standby"; position: number }   // 1-basiert, wie angezeigt
+  | { kind: "unreachable" }
+  | { kind: "skipped-model" };
+
+/** Reihenfolge der Prüfung ist bedeutungstragend: „aktiv" schlägt alles; danach gewinnt der
+ *  offensichtlichere Grund (nicht erreichbar) vor dem subtileren (Modell passt nicht).
+ *  `modelFits` ist für Chat-Listen immer true — dort hängt kein Index am Modell. */
+export function endpointRole(input: {
+  isActive: boolean;
+  reachable: boolean;
+  modelFits: boolean;
+  position: number;
+}): EndpointRole {
+  if (input.isActive) return { kind: "active" };
+  if (!input.reachable) return { kind: "unreachable" };
+  if (!input.modelFits) return { kind: "skipped-model" };
+  return { kind: "standby", position: input.position };
+}
+
+/** EINE Wahrheit für Zeilentext und Tooltip. */
+export function describeEndpointRole(role: EndpointRole): string {
+  switch (role.kind) {
+    case "active": return "aktiv";
+    case "standby": return `erreichbar, aber Platz ${role.position}`;
+    case "unreachable": return "nicht erreichbar";
+    case "skipped-model": return "übersprungen — Modell passt nicht zum Index";
+  }
+}

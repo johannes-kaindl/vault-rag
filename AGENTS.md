@@ -107,7 +107,14 @@ endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZI
                   applyEndpointEdit (Zeilen-Bearbeitung bei blur, Feld-Diskriminator
                   "url"|"apiKey"|"model") · carriesApiKey (verlässlicher Drittanbieter-Indikator
                   für die Settings-UI — der Schlüssel, NICHT die URL: ein eigener Server im LAN/VPN
-                  braucht auch keinen). Obsidian-frei. **Einzige öffentliche Fläche** — weder
+                  braucht auch keinen) · moveEndpointToFront (die Liste IST die Priorität —
+                  Umsortieren an Index 0 ist die einzige Wahrheit, welcher Endpunkt bevorzugt wird;
+                  Index 0/außerhalb liefert eine unveränderte Kopie statt Fehler) · endpointRole/
+                  describeEndpointRole (EndpointRole-Ableitung "active"|"standby"|"unreachable"|
+                  "skipped-model" + ihr Zeilentext — reine Ableitung aus Zutaten, die die Settings-UI
+                  bereits kennt, keine eigene Wahrheit über Aktivität; Prüfreihenfolge ist
+                  bedeutungstragend: aktiv schlägt alles, dann nicht-erreichbar vor Modell-Mismatch).
+                  Obsidian-frei. **Einzige öffentliche Fläche** — weder
                   settings.ts noch settings_core.ts reichen diese Helfer durch; Aufrufer
                   importieren direkt hier.
 capabilities.ts   Reine Vision/Thinking-Erkennung, geschichtet L1 Metadaten (Ollama /api/show,
@@ -140,7 +147,12 @@ settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab —
                   Zeilen sind `control`-Definitionen, `get/setControlValue` liest/schreibt sie
                   (mit Coercion + Seiteneffekten wie refresh/setStatusBarVisible). Dynamische
                   Zeilen (Endpoint-Listen — pro Zeile URL + maskiertes API-Schlüssel-Feld +
-                  Modell-Override als Dropdown, gesperrt während einer form-ändernden Mutation läuft,
+                  Modell-Override als Dropdown, ein „Zuerst verwenden"-Knopf (ab Zeile 2, bewusst
+                  nicht gezeichnet statt deaktiviert an Platz 1 — ein `setDisabled`-Tooltip bleibt in
+                  Electron unsichtbar) verschiebt die Zeile per `moveEndpointToFront` an die Spitze,
+                  eine `vault-rag-ep-state`-Zeile zeigt pro Endpunkt seine `endpointRole` (aktiv/
+                  Platz N/nicht erreichbar/Modell-Mismatch) synchron angelegt + asynchron nach der
+                  Probe befüllt, gesperrt während einer form-ändernden Mutation läuft,
                   plus `alert-triangle`-Hinweis-Icon bei gesetztem Schlüssel (`carriesApiKey`) —
                   Form/Icon + Tooltip, nie Farbe allein, Schlüssel selbst nie im Text; das Icon
                   schaltet sich beim apiKey-Commit **in-place** um, weil dieser Commit bewusst kein

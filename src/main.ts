@@ -580,6 +580,13 @@ export default class VaultRagPlugin extends Plugin {
     return chatRequestModel(this.chatEndpointInUse, this.settings.smartApplyModel, this.settings.chatModel);
   }
 
+  /** Embedding-Modell des geladenen Index — für den Modell-Guard der Einstellungs-UI.
+   *  Getter statt öffentlichem `index`: die UI braucht genau diesen String, nicht den Index
+   *  (VaultRagPluginHost soll eine schmale Vertragsfläche bleiben). */
+  get indexEmbeddingModel(): string | undefined {
+    return this.index?.manifest.embedding_model;
+  }
+
   /** Embedder-Reachability mit EINEM Re-Resolve-Retry: aktiven pingen; schlägt fehl,
    *  einmal die Fallback-Liste neu auflösen und erneut pingen. Kein Loop.
    *  Public, weil der Settings-Tab denselben Check nutzt (keine Logik-Dopplung). */

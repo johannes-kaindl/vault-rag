@@ -10,7 +10,8 @@ import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import { applyEndpointEdit, effectiveModel, carriesApiKey, type EndpointConfig } from "./endpoint_config";
+import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, type EndpointConfig } from "./endpoint_config";
+import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
@@ -36,6 +37,10 @@ type Caps = { vision: string; thinking: { support: string; confidence: string } 
 /** Die Plugin-Oberfläche, die der Settings-Tab nutzt — getypt statt `any`. */
 export interface VaultRagPluginHost extends Plugin {
   settings: VaultRagSettings;
+  /** Embedding-Modell des geladenen Index — genutzt, um das Modell einer Endpunkt-Zeile
+   *  gegen den Index abzugleichen (`modelFits` in `buildEndpointList`). Schmaler Getter statt
+   *  öffentlichem `index`-Feld: die UI braucht nur diesen String. */
+  readonly indexEmbeddingModel: string | undefined;
   embedder: EmbeddingClient;
   chatClient: ChatClient;
   /** Modell, das Chat-Anfragen tatsächlich mitschicken (Zeilen-Override des aktiven
@@ -185,8 +190,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private ensureResolvedOnOpen(): void {
     if (this.resolvedOnOpen) return;
     this.resolvedOnOpen = true;
-    void this.plugin.resolveAndReconnectEmbedder();
-    void this.plugin.resolveAndReconnectChat();
+    // Re-Render NACH Abschluss beider Resolver — sonst zeigt eine Zeile (z.B. Status-Icon +
+    // Rollen-Text) noch den Stand von vor dem Resolve, während main.ts activeEmbeddingEndpoint/
+    // activeChatEndpoint längst umgeschaltet hat: eine Zeile behauptet "aktiv", während eine
+    // andere per Live-Status "verbunden" meldet — genau die Diskrepanz, die die Rollen-Zeile
+    // verhindern soll. Kein Loop: resolvedOnOpen ist zu diesem Zeitpunkt bereits true, der
+    // Rebuild ruft ensureResolvedOnOpen() erneut auf, das dort sofort returned.
+    void Promise.all([
+      this.plugin.resolveAndReconnectEmbedder(),
+      this.plugin.resolveAndReconnectChat(),
+    ]).then(() => this.refreshUi());
   }
 
   // ── Imperativer Fallback (Obsidian < 1.13) ──────────────────────────────
@@ -528,6 +541,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
       active: () => this.plugin.activeEmbeddingEndpoint,
       clientFor: (cfg) => new EmbeddingClient(cfg.url, effectiveModel(cfg, this.plugin.settings.embeddingModel), cfg.apiKey),
       globalModel: () => this.plugin.settings.embeddingModel,
+      modelFits: (cfg) => embeddingModelMatchesIndex(
+        effectiveModel(cfg, this.plugin.settings.embeddingModel),
+        this.plugin.indexEmbeddingModel,
+      ),
       reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
     });
   };
@@ -902,6 +919,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     clientFor: (cfg: EndpointConfig) => { listModels(): Promise<string[]>; probe(): Promise<EndpointStatus> };
     /** Globales Modell, das gilt, wenn die Zeile keinen Override trägt. */
     globalModel: () => string;
+    /** Nur Embedding-Listen: passt das (Override-)Modell dieser Zeile zum geladenen Index?
+     *  Fehlt der Callback (Chat-Liste), gilt true — dort hängt kein Index am Modell. */
+    modelFits?: (cfg: EndpointConfig) => boolean;
     reconnect: () => Promise<void>;
   }): void {
     const eps = opts.get();
@@ -937,6 +957,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
       setLockState(false);
       setRowsDisabled(false);
       new Notice("Endpunkt-Änderung konnte nicht gespeichert werden — bitte erneut versuchen.", 8000);
+      // Re-Render statt bloßem Entsperren: bei einer gescheiterten Kette hat opts.set(...) die
+      // Settings im Speicher bereits mutiert, bevor saveSettings()/reconnect() geworfen hat — ohne
+      // Rebuild zeigt das DOM weiter die alte Reihenfolge/Indizes, und der nächste Klick auf
+      // Mülleimer/„zuerst verwenden" träfe den falschen Eintrag.
+      this.refreshUi();
     };
     // Beschriftung + Erklärung als EIGENE Zeile ohne Steuerelemente. Vorher hingen sie an der
     // ersten Endpunkt-Zeile — Obsidians `Setting` teilt die Zeile in Info (links) und Controls
@@ -967,6 +992,13 @@ export class VaultRagSettingTab extends PluginSettingTab {
           thirdPartyIcon = null;
         }
       };
+      /** Schreibt die Rollen-Zeile neu, ohne den Tab neu aufzubauen. Wird vom probe-Block
+       *  unten gesetzt (vorher gibt es keine Zeile) und beim Modell-Commit aufgerufen —
+       *  das Modell-Override entscheidet über `skipped-model`, ändert die Listen-FORM aber
+       *  nicht, löst also bewusst kein `refreshUi()` aus. Ohne diesen Rückruf behielte die
+       *  Zeile ihre Aussage von vor der Modellwahl: ein Endpunkt, den der Guard längst
+       *  überspringt, meldete weiter „erreichbar, aber Platz N" (gemeldet 2026-08-05). */
+      let syncRoleLine: (() => void) | null = null;
       // Listen-Mutation NUR bei blur, NICHT in onChange: onChange feuert pro Tastendruck und
       // würde im Add-Feld jeden Zwischenstand (h, ht, htt, …) als eigenen Eintrag anhängen.
       // Nur URL-Änderungen rendern neu (Statuszeile hängt an der URL). Schlüssel/Modell tun das
@@ -991,7 +1023,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
         }
         opts.set(updated);
         const chain = this.plugin.saveSettings().then(() => opts.reconnect());
-        void (rerender ? chain.then(() => this.refreshUi()) : chain).catch(failSafe);
+        // Das Modell-Override entscheidet mit über die Rolle der Zeile (`skipped-model`).
+        // Erst NACH reconnect() nachziehen: der Resolver kann den Endpunkt wegen des neuen
+        // Modells gerade fallengelassen oder übernommen haben, und die Zeile soll den
+        // Zustand danach zeigen, nicht den davor.
+        const withRoleSync = field === "model" ? chain.then(() => { syncRoleLine?.(); }) : chain;
+        void (rerender ? withRoleSync.then(() => this.refreshUi()) : withRoleSync).catch(failSafe);
       };
       s.addText(tx => {
         tx.setPlaceholder(isAdder ? "Weiteren Endpunkt hinzufügen…" : opts.placeholder).setValue(cfg.url);
@@ -1037,6 +1074,23 @@ export class VaultRagSettingTab extends PluginSettingTab {
           });
         });
       }
+      // „Zuerst verwenden": setzt die Zeile an die Spitze der Prioritätsliste. An Platz 1
+      // bewusst GAR NICHT gezeichnet statt deaktiviert — ein setDisabled-Element trägt seinen
+      // Tooltip in Electron unsichtbar (Befund aus dem Modell-Picker-Review 2026-08-05), der
+      // Knopf wäre dort also stumm UND wirkungslos.
+      if (!isAdder && i > 0) {
+        s.addExtraButton(b => b
+          .setIcon("arrow-up-to-line")
+          .setTooltip("Zuerst verwenden — an den Anfang der Liste setzen")
+          .onClick(() => {
+            lockRows();
+            opts.set(moveEndpointToFront(opts.get(), i));
+            void this.plugin.saveSettings()
+              .then(() => opts.reconnect())
+              .then(() => this.refreshUi())
+              .catch(failSafe);
+          }));
+      }
       // Löschen: expliziter Mülleimer-Button (nicht am leeren Add-Feld). Das Status-Icon links
       // ist nur Erreichbarkeits-Anzeige, kein Lösch-Button.
       if (!isAdder) {
@@ -1056,14 +1110,41 @@ export class VaultRagSettingTab extends PluginSettingTab {
       const ep = cfg.url.trim();
       if (!isAdder && ep) {
         setIcon(statusIcon, "loader"); setTooltip(statusIcon, "prüfe…");
+        // Rolle der Zeile als eigene Zeile UNTER den Feldern (flex-basis 100% im umbrechenden
+        // Control-Container): horizontal ist die Zeile mit drei Feldern + bis zu drei Icons +
+        // zwei Knöpfen ausgereizt (Layout-Fix 2026-08-04). Synchron angelegt, asynchron befüllt.
+        const stateEl = s.controlEl.createDiv({ cls: "vault-rag-ep-state", text: "prüfe…" });
+        // Erreichbarkeit ändert sich nur durch eine neue Probe, die Rolle aber auch durch das
+        // Modell-Override. Das Probe-Ergebnis wird deshalb festgehalten, damit die Rolle ohne
+        // erneuten Netzzugriff nachgezogen werden kann.
+        let probed: EndpointStatus | null = null;
+        const applyRole = (): void => {
+          if (!probed) return;
+          const isActive = normalizeEndpoint(ep) === (opts.active() ?? "");
+          // Den Eintrag frisch aus der Liste lesen, nicht das `cfg` vom Render-Zeitpunkt:
+          // nach einem Modell-Commit trägt nur die Liste den neuen Wert.
+          const current = opts.get()[i] ?? cfg;
+          const role = endpointRole({
+            isActive,
+            reachable: probed.reachable,
+            // Gilt nur für Embedding-Endpunkte; für Chat hängt kein Index am Modell (immer true).
+            modelFits: opts.modelFits?.(current) ?? true,
+            position: i + 1,
+          });
+          stateEl.setText(describeEndpointRole(role));
+          stateEl.toggleClass("is-active", role.kind === "active");
+        };
+        syncRoleLine = applyRole;
         void opts.clientFor(cfg).probe().then(status => {
           statusIcon.empty();
           setIcon(statusIcon, status.reachable ? "circle-check" : "circle-x");
           statusIcon.toggleClass("is-ok", status.reachable);
           statusIcon.toggleClass("is-error", !status.reachable);
-          const isActive = normalizeEndpoint(ep) === (opts.active() ?? "");
-          statusIcon.toggleClass("is-active", isActive);
-          setTooltip(statusIcon, status.klartext + (isActive ? " · aktiv" : ""));
+          // Tooltip trägt nur noch die Erreichbarkeits-Diagnose; das frühere " · aktiv" entfällt,
+          // weil die Rolle jetzt als Text in der Zeile steht (keine zweite Wahrheit im Hover).
+          setTooltip(statusIcon, status.klartext);
+          probed = status;
+          applyRole();
         });
         // Eingabe-Prüfung: nicht-blockierendes Warn-Icon (WCAG-Form + Tooltip)
         const warnings = validateEndpointInput(ep);

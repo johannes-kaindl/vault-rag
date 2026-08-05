@@ -6,3 +6,4 @@ data.json
 .mcp.json
 .superpowers/
 index-backups/
+.gui-smoke.mjs

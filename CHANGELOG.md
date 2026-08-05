@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-08-05
+
 ### Added
 - **Externe LLM-Anbieter:** Endpunkte können jetzt einen API-Schlüssel und ein eigenes Modell
   tragen. Damit lassen sich OpenAI-kompatible Dienste (OpenRouter, Groq, Together, Mistral,

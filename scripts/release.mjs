@@ -55,7 +55,10 @@ const repo = `${repoMatch[1]}/${repoMatch[2]}`;
 if (!tagExists) {
   run("node", ["scripts/version-bump.mjs", target]);          // 2. 3-File-Bump
   rewriteChangelog(target);                                    // 3. CHANGELOG
-  run("git", ["add", "package.json", "manifest.json", "versions.json", "CHANGELOG.md"]); // 4. stage
+  // 4. stage — package-lock.json gehört dazu, seit version-bump es mitzieht; fehlte es hier,
+  //    bliebe die Lock-Version beim Release liegen und `npm ci` installierte eine Version,
+  //    die nicht zum Tag passt.
+  run("git", ["add", "package.json", "manifest.json", "versions.json", "package-lock.json", "CHANGELOG.md"]);
   run("git", ["commit", "-m", `chore(release): ${target}`]);  //    commit (kein Trailer)
   run("git", ["tag", "-a", target, "-m", target]);            // 5. annotierter Tag
   run("git", ["push", "origin", "HEAD", "--follow-tags"]);    // 6. Push nach Codeberg

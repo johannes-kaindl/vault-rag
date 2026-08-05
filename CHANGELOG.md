@@ -19,6 +19,16 @@ All notable changes to this project are documented here. The format follows
   Status-Icon-Container — der trägt aber nur ein SVG, auf dem `font-weight` wirkungslos ist. Die
   aktive Zeile sah daher genauso aus wie jede andere erreichbare. Die Markierung sitzt jetzt auf
   dem neuen Rollen-Text der Zeile, wo sie tatsächlich sichtbar wird.
+- **Fehler des Chat-Endpunkts werden im Klartext gemeldet:** Bisher wurde jeder Fehlschlag durch
+  „Chat-LLM nicht erreichbar (lokal/VPN)." ersetzt — auch ein HTTP 401 mit einer Begründung des
+  Servers. Bei einem gehosteten Endpunkt zeigte diese Vermutung zusätzlich in die falsche
+  Richtung. Jetzt nennt die Meldung Status und Serverbegründung („Zugriff verweigert (HTTP 401)
+  — API-Schlüssel fehlt, ist ungültig oder abgelaufen. — Server: …"), sodass Adresse, Schlüssel,
+  Pfad und Modellname unterscheidbar werden.
+- **Rollen-Text folgte dem Modell-Override nicht:** Wurde das Modell einer Endpunkt-Zeile
+  geändert, blieb die Rollen-Anzeige auf ihrem alten Stand — ein Embedding-Endpunkt, den der
+  Modell-Guard bereits überspringt, meldete weiter „erreichbar, aber Platz N". Korrekt wurde es
+  erst nach einem Neuaufbau des Einstellungs-Tabs.
 
 ## [0.19.0] — 2026-08-05
 

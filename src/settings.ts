@@ -10,7 +10,7 @@ import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import { applyEndpointEdit, effectiveModel, carriesApiKey, type EndpointConfig } from "./endpoint_config";
+import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, type EndpointConfig } from "./endpoint_config";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
@@ -1036,6 +1036,23 @@ export class VaultRagSettingTab extends PluginSettingTab {
             hintAs: "tooltip",
           });
         });
+      }
+      // „Zuerst verwenden": setzt die Zeile an die Spitze der Prioritätsliste. An Platz 1
+      // bewusst GAR NICHT gezeichnet statt deaktiviert — ein setDisabled-Element trägt seinen
+      // Tooltip in Electron unsichtbar (Befund aus dem Modell-Picker-Review 2026-08-05), der
+      // Knopf wäre dort also stumm UND wirkungslos.
+      if (!isAdder && i > 0) {
+        s.addExtraButton(b => b
+          .setIcon("arrow-up-to-line")
+          .setTooltip("Zuerst verwenden — an den Anfang der Liste setzen")
+          .onClick(() => {
+            lockRows();
+            opts.set(moveEndpointToFront(opts.get(), i));
+            void this.plugin.saveSettings()
+              .then(() => opts.reconnect())
+              .then(() => this.refreshUi())
+              .catch(failSafe);
+          }));
       }
       // Löschen: expliziter Mülleimer-Button (nicht am leeren Add-Feld). Das Status-Icon links
       // ist nur Erreichbarkeits-Anzeige, kein Lösch-Button.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, type EndpointConfig } from "../src/endpoint_config";
+import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, type EndpointConfig } from "../src/endpoint_config";
 
 describe("authHeaders", () => {
   it("ohne Schlüssel → keine Header", () => {
@@ -143,5 +143,44 @@ describe("moveEndpointToFront", () => {
     const original = list();
     moveEndpointToFront(original, 2);
     expect(original.map(e => e.url)).toEqual(["http://a", "http://b", "http://c"]);
+  });
+});
+
+describe("endpointRole", () => {
+  const base = { isActive: false, reachable: true, modelFits: true, position: 2 };
+
+  it("aktiv schlägt alles andere", () => {
+    expect(endpointRole({ ...base, isActive: true })).toEqual({ kind: "active" });
+  });
+
+  it("nicht erreichbar vor Modell-Mismatch — der offensichtlichere Grund gewinnt", () => {
+    expect(endpointRole({ ...base, reachable: false, modelFits: false })).toEqual({ kind: "unreachable" });
+  });
+
+  it("erreichbar, aber falsches Modell → übersprungen", () => {
+    expect(endpointRole({ ...base, modelFits: false })).toEqual({ kind: "skipped-model" });
+  });
+
+  it("erreichbar und passend, aber nicht aktiv → wartet auf seinem Platz", () => {
+    expect(endpointRole({ ...base, position: 3 })).toEqual({ kind: "standby", position: 3 });
+  });
+});
+
+describe("describeEndpointRole", () => {
+  it("benennt den aktiven Endpunkt", () => {
+    expect(describeEndpointRole({ kind: "active" })).toBe("aktiv");
+  });
+
+  it("nennt bei standby die Position — sonst bliebe offen, warum er nicht dran ist", () => {
+    expect(describeEndpointRole({ kind: "standby", position: 3 })).toBe("erreichbar, aber Platz 3");
+  });
+
+  it("benennt Nichterreichbarkeit", () => {
+    expect(describeEndpointRole({ kind: "unreachable" })).toBe("nicht erreichbar");
+  });
+
+  it("erklärt den Modell-Guard, statt ihn nur zu behaupten", () => {
+    expect(describeEndpointRole({ kind: "skipped-model" }))
+      .toBe("übersprungen — Modell passt nicht zum Index");
   });
 });

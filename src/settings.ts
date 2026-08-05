@@ -524,7 +524,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
       get: () => this.plugin.settings.embeddingEndpoints,
       set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
       active: () => this.plugin.activeEmbeddingEndpoint,
-      probe: (cfg) => new EmbeddingClient(cfg.url, effectiveModel(cfg, this.plugin.settings.embeddingModel), cfg.apiKey).probe(),
       clientFor: (cfg) => new EmbeddingClient(cfg.url, effectiveModel(cfg, this.plugin.settings.embeddingModel), cfg.apiKey),
       globalModel: () => this.plugin.settings.embeddingModel,
       reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
@@ -734,7 +733,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
       get: () => this.plugin.settings.chatEndpoints,
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
       active: () => this.plugin.activeChatEndpoint,
-      probe: (cfg) => new ChatClient(cfg.url, effectiveModel(cfg, this.plugin.settings.chatModel), cfg.apiKey).probe(),
       clientFor: (cfg) => new ChatClient(cfg.url, effectiveModel(cfg, this.plugin.settings.chatModel), cfg.apiKey),
       globalModel: () => this.plugin.settings.chatModel,
       reconnect: () => this.plugin.resolveAndReconnectChat(),
@@ -892,8 +890,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
     label: string; desc: string; placeholder: string;
     get: () => EndpointConfig[]; set: (eps: EndpointConfig[]) => void;
     active: () => string | null;
-    probe: (cfg: EndpointConfig) => Promise<EndpointStatus>;
-    /** Client für die Modell-Liste GENAU dieser Zeile (URL + Schlüssel der Zeile). */
+    /** Client GENAU dieser Zeile (URL + Schlüssel der Zeile) — trägt sowohl die Erreichbarkeits-
+     *  Probe (Status-Icon) als auch die Modell-Liste (Dropdown). EIN Client statt zwei getrennt
+     *  parametrierten Konstruktionen, damit Status-Icon und Modell-Liste nie über dieselbe Zeile
+     *  auseinanderlaufen können. */
     clientFor: (cfg: EndpointConfig) => { listModels(): Promise<string[]>; probe(): Promise<EndpointStatus> };
     /** Globales Modell, das gilt, wenn die Zeile keinen Override trägt. */
     globalModel: () => string;
@@ -1048,7 +1048,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       const ep = cfg.url.trim();
       if (!isAdder && ep) {
         setIcon(statusIcon, "loader"); setTooltip(statusIcon, "prüfe…");
-        void opts.probe(cfg).then(status => {
+        void opts.clientFor(cfg).probe().then(status => {
           statusIcon.empty();
           setIcon(statusIcon, status.reachable ? "circle-check" : "circle-x");
           statusIcon.toggleClass("is-ok", status.reachable);

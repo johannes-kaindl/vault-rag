@@ -94,9 +94,16 @@ interface ModelPickerOpts {
   /** Cache für diesen Endpunkt verwerfen und neu zeichnen. */
   onRefresh: () => void;
   /** Wie der Hinweistext aus ModelChoice dargestellt wird. "desc" (Vorgabe) schreibt ihn als
-   *  Beschreibung unter die Zeile; "tooltip" hängt ihn ans Steuerelement — nötig in den
-   *  Endpunkt-Zeilen, die bewusst keinen Zeilentext tragen (siehe Kommentar in buildEndpointList). */
+   *  Beschreibung unter die Zeile; "tooltip" hängt ihn an den „Modelle abrufen"-Knopf — nötig in
+   *  den Endpunkt-Zeilen, die bewusst keinen Zeilentext tragen (siehe Kommentar in
+   *  buildEndpointList), UND weil das Steuerelement selbst im Modus "locked" disabled ist (ein
+   *  Tooltip darauf käme in Chromium nie an — deaktivierte Controls bekommen keine Pointer-Events). */
   hintAs?: "desc" | "tooltip";
+  /** Wohin gezeichnet wird statt in `setting.controlEl` selbst (optional). Nötig, wenn der Picker
+   *  asynchron nach bereits gezeichneten Geschwistern (Mülleimer, Warn-Icon) in dieselbe Zeile
+   *  soll — Obsidians `add*`-Methoden hängen sonst immer ans Ende von `controlEl` an, unabhängig
+   *  von der Aufrufreihenfolge im Code (siehe buildEndpointList). */
+  target?: HTMLElement;
 }
 
 /**
@@ -335,7 +342,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** Zeichnet die Modell-Auswahl in eine bestehende Setting-Zeile. Kennt die Regeln nicht —
    *  die stehen in resolveModelChoice (model_choice.ts). */
   private renderModelPicker(opts: ModelPickerOpts): void {
-    const { setting: s, choice } = opts;
+    const { setting: s, choice, target } = opts;
     const hintAs = opts.hintAs ?? "desc";
     if (choice.hint && hintAs === "desc") s.setDesc(choice.hint);
 
@@ -344,7 +351,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         t.setPlaceholder(opts.placeholder).setValue(choice.value);
         t.inputEl.setAttribute("aria-label", opts.ariaLabel);
         t.inputEl.addEventListener("blur", () => { opts.onPick(t.getValue().trim()); });
-        if (choice.hint && hintAs === "tooltip") setTooltip(t.inputEl, choice.hint);
+        target?.appendChild(t.inputEl);
       });
     } else {
       s.addDropdown(d => {
@@ -353,16 +360,23 @@ export class VaultRagSettingTab extends PluginSettingTab {
         d.selectEl.setAttribute("aria-label", opts.ariaLabel);
         if (choice.mode === "locked") d.setDisabled(true);
         else d.onChange((v: string) => { opts.onPick(v); });
-        if (choice.hint && hintAs === "tooltip") setTooltip(d.selectEl, choice.hint);
+        target?.appendChild(d.selectEl);
       });
     }
 
-    if (choice.mode !== "dropdown") {
-      s.addExtraButton(b => b
-        .setIcon("refresh-cw")
-        .setTooltip("Modelle abrufen")
-        .onClick(() => { opts.onRefresh(); }));
-    }
+    // „Modelle abrufen" zeichnet IMMER, in allen drei Modi — auch im Regelfall (dropdown), sonst
+    // lässt sich eine frisch installierte Modell-Liste nicht auffrischen, ohne die Einstellungen
+    // neu zu öffnen. Er ist außerdem der Träger des Hinweistexts bei hintAs "tooltip": er ist als
+    // einziges Element in jedem Modus nie disabled (anders als das <select> im Modus "locked"),
+    // ein Tooltip landet dort also zuverlässig. Der eigene Zweck bleibt erhalten — der Hinweis wird
+    // an den Button-Tooltip angehängt, nicht dessen Ersatz.
+    s.addExtraButton(b => {
+      const tooltip = choice.hint && hintAs === "tooltip"
+        ? `${choice.hint} · Modelle abrufen`
+        : "Modelle abrufen";
+      b.setIcon("refresh-cw").setTooltip(tooltip).onClick(() => { opts.onRefresh(); });
+      target?.appendChild(b.extraSettingsEl);
+    });
   }
 
   private searchGroup(): SettingDefinitionGroup {
@@ -990,12 +1004,19 @@ export class VaultRagSettingTab extends PluginSettingTab {
         // Modell-Override: Dropdown mit den Modellen GENAU DIESES Endpunkts. Die Liste kommt
         // aus dem Tab-Cache (loadModelList), nicht vom aktiven Client — eine Zeile kann einen
         // ganz anderen Anbieter meinen als den gerade verbundenen.
+        // Platz SYNCHRON reservieren: der Picker zeichnet erst nach dem geladenen Promise, der
+        // Mülleimer/das Warn-Icon gleich darunter aber synchron. Ohne Reservierung hängt Obsidian
+        // (das jede add*-Komponente in Aufrufreihenfolge an controlEl anhängt) das Dropdown ans
+        // Ende der Zeile — hinter den Mülleimer, ein Layout-Sprung inklusive. `renderModelPicker`
+        // zeichnet über `target` deshalb direkt in dieses Element statt in `s.controlEl`.
+        const modelSlot = s.controlEl.createSpan({ cls: "vault-rag-model-slot" });
         const listKey = normalizeEndpoint(cfg.url);
         const gen = this.modelListGeneration;
         void this.loadModelList(listKey, opts.clientFor(cfg)).then(({ models, reachable }) => {
           if (gen !== this.modelListGeneration) return;   // Liste hat sich verschoben
           this.renderModelPicker({
             setting: s,
+            target: modelSlot,
             choice: resolveModelChoice({
               reachable, models, current: cfg.model ?? "",
               allowEmpty: true, emptyLabel: `globales Modell (${opts.globalModel() || "nicht gesetzt"})`,

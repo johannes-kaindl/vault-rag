@@ -290,3 +290,18 @@
   flex: 1 1 12em;
   min-width: 8em;
 }
+/* Reservierter Platz für das Modell-Dropdown (Auffüllen der Zeile erst nach dem geladenen
+   Promise, siehe buildEndpointList). Selbst ein Flex-Container, damit Dropdown/Freitext + der
+   „Modelle abrufen"-Knopf innerhalb genauso mitwachsen wie URL/Schlüssel daneben. */
+.vault-rag-ep-row .setting-item-control .vault-rag-model-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  flex: 1 1 12em;
+  min-width: 10em;
+}
+.vault-rag-ep-row .setting-item-control .vault-rag-model-slot select,
+.vault-rag-ep-row .setting-item-control .vault-rag-model-slot input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}

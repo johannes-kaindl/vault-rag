@@ -11,6 +11,7 @@ import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { applyEndpointEdit, effectiveModel, carriesApiKey, type EndpointConfig } from "./endpoint_config";
+import { resolveModelChoice, type ModelChoice } from "./model_choice";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
 
@@ -81,6 +82,30 @@ export class RestoreBackupModal extends Modal {
   onClose(): void { this.contentEl.empty(); }
 }
 
+interface ModelPickerOpts {
+  /** Zeile, in die gezeichnet wird (bereits vorhandene Setting). */
+  setting: Setting;
+  choice: ModelChoice;
+  /** Für Screenreader — in einer Endpunkt-Zeile stehen drei Felder nebeneinander. */
+  ariaLabel: string;
+  placeholder: string;
+  /** Speichern + Nachwirkungen (reconnect, showInfo/showCaps, commit) — je Stelle verschieden. */
+  onPick: (value: string) => void;
+  /** Cache für diesen Endpunkt verwerfen und neu zeichnen. */
+  onRefresh: () => void;
+  /** Wie der Hinweistext aus ModelChoice dargestellt wird. "desc" (Vorgabe) schreibt ihn als
+   *  Beschreibung unter die Zeile; "tooltip" hängt ihn an den „Modelle abrufen"-Knopf — nötig in
+   *  den Endpunkt-Zeilen, die bewusst keinen Zeilentext tragen (siehe Kommentar in
+   *  buildEndpointList), UND weil das Steuerelement selbst im Modus "locked" disabled ist (ein
+   *  Tooltip darauf käme in Chromium nie an — deaktivierte Controls bekommen keine Pointer-Events). */
+  hintAs?: "desc" | "tooltip";
+  /** Wohin gezeichnet wird statt in `setting.controlEl` selbst (optional). Nötig, wenn der Picker
+   *  asynchron nach bereits gezeichneten Geschwistern (Mülleimer, Warn-Icon) in dieselbe Zeile
+   *  soll — Obsidians `add*`-Methoden hängen sonst immer ans Ende von `controlEl` an, unabhängig
+   *  von der Aufrufreihenfolge im Code (siehe buildEndpointList). */
+  target?: HTMLElement;
+}
+
 /**
  * Settings-Tab. `getSettingDefinitions()` liefert die deklarative Struktur (7 Gruppen); einfache
  * Zeilen sind reine `control`-Definitionen, dynamische Zeilen (Endpoint-Listen, Modell-Dropdowns,
@@ -111,6 +136,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
   // (renderImperative() pro Rebuild) — das Flag macht in beiden EINMAL pro Öffnen daraus;
   // hide() setzt es zurück, damit das nächste Öffnen wieder re-resolved.
   private resolvedOnOpen = false;
+  /** Modell-Listen je Endpunkt, Schlüssel = normalizeEndpoint(url).
+   *  Überlebt bewusst refreshUi(): der Tab wird bei JEDEM URL-Commit neu gebaut, und
+   *  reconnect() pingt dabei jeden Endpunkt (bis 5 s). Ohne Cache zöge jedes Tippen an
+   *  einer URL sämtliche Modell-Listen erneut. Stirbt in hide(). */
+  private modelLists = new Map<string, Promise<{ models: string[]; reachable: boolean }>>();
+  /** Läuft parallel zu jeder listen-FORMändernden Mutation hoch. Eine Antwort, die zu einer
+   *  alten Generation gehört, wird verworfen — sonst schriebe eine langsame Antwort (z.B.
+   *  LM-Studio-Timeout, danach schnelles Ollama) in eine Zeile, die inzwischen einen anderen
+   *  Endpunkt zeigt. */
+  private modelListGeneration = 0;
 
   constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
 
@@ -260,6 +295,92 @@ export class VaultRagSettingTab extends PluginSettingTab {
     return setting.settingEl;
   }
 
+  /** Holt die Modell-Liste eines Endpunkts (mit Cache). Sparsam: eine nicht leere Liste
+   *  beweist die Erreichbarkeit bereits — nur bei leerer Liste wird zusätzlich geprobt, um
+   *  „offline" von „gibt keine Liste heraus" zu trennen. */
+  private loadModelList(
+    key: string,
+    client: { listModels(): Promise<string[]>; probe(): Promise<EndpointStatus> } | undefined,
+  ): Promise<{ models: string[]; reachable: boolean }> {
+    const cached = this.modelLists.get(key);
+    if (cached) return cached;
+
+    // Cache das Promise selbst vor dem ersten await — gleichzeitige Aufrufer wartet auf
+    // dieselbe Anfrage statt je einen HTTP-Request zu starten.
+    let promise: Promise<{ models: string[]; reachable: boolean }>;
+
+    if (!client) {
+      // Absicherung, kein Produktivpfad: main.ts hält embedder/chatClient immer gesetzt, sobald
+      // das Plugin geladen ist. Dieser Zweig ist nur aus Tests erreichbar (Client fehlt dort
+      // bewusst) und liefert dann einen Offline-Zustand statt zu werfen.
+      promise = Promise.resolve({ models: [], reachable: false });
+    } else {
+      // Client vorhanden: starte die Anfrage und löse bei Fehler den Cache-Eintrag auf.
+      promise = (async () => {
+        const models = await client.listModels();
+        const reachable = models.length > 0 ? true : (await client.probe()).reachable;
+        return { models, reachable };
+      })().catch(() => {
+        // Nur den eigenen Eintrag verwerfen: lief zwischen Start und Fehlschlag bereits ein
+        // invalidateModelList + neuer loadModelList, steht unter `key` schon ein anderes
+        // (neueres) Promise — das darf dieser Zweig nicht mitreißen, sonst kostet es nur eine
+        // überflüssige Anfrage statt einer falschen. listModels()/probe() fangen Fehler ohnehin
+        // schon selbst ab; dies hier ist reines Rückfallnetz für andere Fehlschläge.
+        if (this.modelLists.get(key) === promise) this.modelLists.delete(key);
+        return { models: [], reachable: false };
+      });
+    }
+
+    this.modelLists.set(key, promise);
+    return promise;
+  }
+
+  /** Verwirft einen Cache-Eintrag. Nötig nach „Modelle abrufen" und nach jedem
+   *  apiKey-Commit: vorher lieferte der Endpunkt vermutlich 401 und damit eine leere Liste. */
+  private invalidateModelList(key: string): void {
+    this.modelLists.delete(key);
+  }
+
+  /** Zeichnet die Modell-Auswahl in eine bestehende Setting-Zeile. Kennt die Regeln nicht —
+   *  die stehen in resolveModelChoice (model_choice.ts). */
+  private renderModelPicker(opts: ModelPickerOpts): void {
+    const { setting: s, choice, target } = opts;
+    const hintAs = opts.hintAs ?? "desc";
+    if (choice.hint && hintAs === "desc") s.setDesc(choice.hint);
+
+    if (choice.mode === "freetext") {
+      s.addText(t => {
+        t.setPlaceholder(opts.placeholder).setValue(choice.value);
+        t.inputEl.setAttribute("aria-label", opts.ariaLabel);
+        t.inputEl.addEventListener("blur", () => { opts.onPick(t.getValue().trim()); });
+        target?.appendChild(t.inputEl);
+      });
+    } else {
+      s.addDropdown(d => {
+        for (const o of choice.options) d.addOption(o.value, o.label);
+        d.setValue(choice.value);
+        d.selectEl.setAttribute("aria-label", opts.ariaLabel);
+        if (choice.mode === "locked") d.setDisabled(true);
+        else d.onChange((v: string) => { opts.onPick(v); });
+        target?.appendChild(d.selectEl);
+      });
+    }
+
+    // „Modelle abrufen" zeichnet IMMER, in allen drei Modi — auch im Regelfall (dropdown), sonst
+    // lässt sich eine frisch installierte Modell-Liste nicht auffrischen, ohne die Einstellungen
+    // neu zu öffnen. Er ist außerdem der Träger des Hinweistexts bei hintAs "tooltip": er ist als
+    // einziges Element in jedem Modus nie disabled (anders als das <select> im Modus "locked"),
+    // ein Tooltip landet dort also zuverlässig. Der eigene Zweck bleibt erhalten — der Hinweis wird
+    // an den Button-Tooltip angehängt, nicht dessen Ersatz.
+    s.addExtraButton(b => {
+      const tooltip = choice.hint && hintAs === "tooltip"
+        ? `${choice.hint} · Modelle abrufen`
+        : "Modelle abrufen";
+      b.setIcon("refresh-cw").setTooltip(tooltip).onClick(() => { opts.onRefresh(); });
+      target?.appendChild(b.extraSettingsEl);
+    });
+  }
+
   private searchGroup(): SettingDefinitionGroup {
     return { type: "group", heading: "Suche", items: [
       { name: "Anzahl verwandter Notizen",
@@ -405,35 +526,34 @@ export class VaultRagSettingTab extends PluginSettingTab {
       get: () => this.plugin.settings.embeddingEndpoints,
       set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
       active: () => this.plugin.activeEmbeddingEndpoint,
-      probe: (cfg) => new EmbeddingClient(cfg.url, effectiveModel(cfg, this.plugin.settings.embeddingModel), cfg.apiKey).probe(),
+      clientFor: (cfg) => new EmbeddingClient(cfg.url, effectiveModel(cfg, this.plugin.settings.embeddingModel), cfg.apiKey),
+      globalModel: () => this.plugin.settings.embeddingModel,
       reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
     });
   };
 
-  /** render-Hatch: Embedding-Modell-Dropdown. Zeichnet eine frische Setting im hostFor-Container. */
+  /** render-Hatch: Embedding-Modell. Zeichnet über den gemeinsamen Picker. */
   private renderEmbeddingModel = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Embedding-Modell").setDesc("Modellname wie auf dem Endpoint verfügbar");
-    void this.plugin.embedder?.listModels().then((models: string[]) => {
-      const cur = this.plugin.settings.embeddingModel;
-      if (models.length) {
-        const list = models.includes(cur) ? models : [cur, ...models];
-        s.addDropdown(d => {
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange((v: string) => {
-            this.plugin.settings.embeddingModel = v;
-            void this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectEmbedder();
-          });
-        });
-      } else {
-        s.addText(t => t.setPlaceholder("qwen3-embedding:8b").setValue(cur).onChange(async (v: string) => {
-          this.plugin.settings.embeddingModel = v.trim();
-          await this.plugin.saveSettings();
+    const key = this.plugin.activeEmbeddingEndpoint ?? "";
+    const gen = this.modelListGeneration;
+    void this.loadModelList(key, this.plugin.embedder).then(({ models, reachable }) => {
+      if (gen !== this.modelListGeneration) return;   // verspätete Antwort — Zeile ist tot
+      this.renderModelPicker({
+        setting: s,
+        choice: resolveModelChoice({
+          reachable, models, current: this.plugin.settings.embeddingModel, allowEmpty: false,
+        }),
+        ariaLabel: "Embedding-Modell",
+        placeholder: "qwen3-embedding:8b",
+        onPick: (v: string) => {
+          this.plugin.settings.embeddingModel = v;
+          void this.plugin.saveSettings();
           void this.plugin.resolveAndReconnectEmbedder();
-        }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
-      }
+        },
+        onRefresh: () => { this.invalidateModelList(key); this.refreshUi(); },
+      });
     });
   };
 
@@ -615,43 +735,43 @@ export class VaultRagSettingTab extends PluginSettingTab {
       get: () => this.plugin.settings.chatEndpoints,
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
       active: () => this.plugin.activeChatEndpoint,
-      probe: (cfg) => new ChatClient(cfg.url, effectiveModel(cfg, this.plugin.settings.chatModel), cfg.apiKey).probe(),
+      clientFor: (cfg) => new ChatClient(cfg.url, effectiveModel(cfg, this.plugin.settings.chatModel), cfg.apiKey),
+      globalModel: () => this.plugin.settings.chatModel,
       reconnect: () => this.plugin.resolveAndReconnectChat(),
     });
   };
 
-  /** render-Hatch: Chat-Modell-Dropdown. Zeichnet eine frische Setting im hostFor-Container. Löst
-   *  showInfo/showCaps aus — die schreiben in infoValue/lastCaps, gelesen von den render-Hatches
-   *  Modelldetails/Fähigkeiten (Cross-Referenz über Render-State, kein direkter Aufruf). */
+  /** render-Hatch: Chat-Modell. Löst zusätzlich showInfo/showCaps aus — die schreiben in
+   *  infoValue/lastCaps, gelesen von den render-Hatches Modelldetails/Fähigkeiten
+   *  (Cross-Referenz über Render-State, kein direkter Aufruf). */
   private renderChatModel = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Chat-Modell").setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
-    void this.plugin.chatClient?.listModels().then((models: string[]) => {
-      if (models.length) {
-        const cur = this.plugin.settings.chatModel;
-        const list = models.includes(cur) ? models : [cur, ...models];
-        s.addDropdown(d => {
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange((v: string) => {
-            this.plugin.settings.chatModel = v;
-            void this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectChat();
-            this.showInfo(v);
-            this.showCaps(v);
-          });
-        });
-      } else {
-        s.setDesc('Server offline — Modellname eintippen, dann „Modelle laden“');
-        s.addText(t => t.setPlaceholder("qwen3").setValue(this.plugin.settings.chatModel)
-          .onChange(async (v: string) => {
-            this.plugin.settings.chatModel = v.trim();
-            await this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectChat();
-          }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
-      }
+    const key = this.plugin.activeChatEndpoint ?? "";
+    const gen = this.modelListGeneration;
+    void this.loadModelList(key, this.plugin.chatClient).then(({ models, reachable }) => {
+      // Modelldetails/Fähigkeiten sind eigene Zeilen und laut Plan unabhängig von der
+      // Modell-Auswahl-Zeile selbst — sie laufen deshalb VOR dem Generations-Guard, sonst
+      // blieben beide Zeilen bei einer verworfenen Generation leer statt sich zu befüllen.
       this.showInfo(this.plugin.settings.chatModel);
       this.showCaps(this.plugin.settings.chatModel);
+      if (gen !== this.modelListGeneration) return;
+      this.renderModelPicker({
+        setting: s,
+        choice: resolveModelChoice({
+          reachable, models, current: this.plugin.settings.chatModel, allowEmpty: false,
+        }),
+        ariaLabel: "Chat-Modell",
+        placeholder: "qwen3",
+        onPick: (v: string) => {
+          this.plugin.settings.chatModel = v;
+          void this.plugin.saveSettings();
+          void this.plugin.resolveAndReconnectChat();
+          this.showInfo(v);
+          this.showCaps(v);
+        },
+        onRefresh: () => { this.invalidateModelList(key); this.refreshUi(); },
+      });
     });
   };
 
@@ -701,33 +821,30 @@ export class VaultRagSettingTab extends PluginSettingTab {
       });
   };
 
-  /** render-Hatch: Smart-Apply-Modell-Dropdown. Zeichnet in hostFor. Leer-Option zuerst: der
-   *  leere Wert ist bedeutungstragend (= Chat-Modell erben). */
+  /** render-Hatch: Smart-Apply-Modell. Der leere Wert ist bedeutungstragend
+   *  (= Chat-Modell erben), deshalb allowEmpty. */
   private renderSmartApplyModel = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Smart-Apply-Modell")
       .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.');
-    void this.plugin.chatClient?.listModels().then((models: string[]) => {
-      const cur = this.plugin.settings.smartApplyModel;
-      if (models.length) {
-        const list = cur && !models.includes(cur) ? [cur, ...models] : models;
-        s.addDropdown(d => {
-          d.addOption("", "Chat-Modell verwenden");
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange(async (v: string) => {
-            this.plugin.settings.smartApplyModel = v;
-            await this.plugin.saveSettings();
-          });
-        });
-      } else {
-        s.setDesc('Server offline — Modellname eintippen (leer = Chat-Modell), dann „Modelle laden"');
-        s.addText(t => t.setPlaceholder("leer = Chat-Modell").setValue(cur)
-          .onChange(async (v: string) => {
-            this.plugin.settings.smartApplyModel = v.trim();
-            await this.plugin.saveSettings();
-          }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
-      }
+    const key = this.plugin.activeChatEndpoint ?? "";
+    const gen = this.modelListGeneration;
+    void this.loadModelList(key, this.plugin.chatClient).then(({ models, reachable }) => {
+      if (gen !== this.modelListGeneration) return;
+      this.renderModelPicker({
+        setting: s,
+        choice: resolveModelChoice({
+          reachable, models, current: this.plugin.settings.smartApplyModel,
+          allowEmpty: true, emptyLabel: "Chat-Modell verwenden",
+        }),
+        ariaLabel: "Smart-Apply-Modell",
+        placeholder: "leer = Chat-Modell",
+        onPick: (v: string) => {
+          this.plugin.settings.smartApplyModel = v;
+          void this.plugin.saveSettings();
+        },
+        onRefresh: () => { this.invalidateModelList(key); this.refreshUi(); },
+      });
     });
   };
 
@@ -762,6 +879,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     if (this.mcpPortRestartTimer !== null) { window.clearTimeout(this.mcpPortRestartTimer); this.mcpPortRestartTimer = null; }
     this.runRowCleanups();
     this.resolvedOnOpen = false;
+    this.modelLists.clear();
     super.hide();
   }
 
@@ -777,7 +895,13 @@ export class VaultRagSettingTab extends PluginSettingTab {
     label: string; desc: string; placeholder: string;
     get: () => EndpointConfig[]; set: (eps: EndpointConfig[]) => void;
     active: () => string | null;
-    probe: (cfg: EndpointConfig) => Promise<EndpointStatus>;
+    /** Client GENAU dieser Zeile (URL + Schlüssel der Zeile) — trägt sowohl die Erreichbarkeits-
+     *  Probe (Status-Icon) als auch die Modell-Liste (Dropdown). EIN Client statt zwei getrennt
+     *  parametrierten Konstruktionen, damit Status-Icon und Modell-Liste nie über dieselbe Zeile
+     *  auseinanderlaufen können. */
+    clientFor: (cfg: EndpointConfig) => { listModels(): Promise<string[]>; probe(): Promise<EndpointStatus> };
+    /** Globales Modell, das gilt, wenn die Zeile keinen Override trägt. */
+    globalModel: () => string;
     reconnect: () => Promise<void>;
   }): void {
     const eps = opts.get();
@@ -794,10 +918,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
       opts.containerEl.setAttribute("aria-busy", locked ? "true" : "false");  // "false" = gültiger ARIA-Ruhezustand
     };
     const setRowsDisabled = (disabled: boolean): void => {
-      opts.containerEl.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")
+      opts.containerEl.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>("input, button, select")
         .forEach(el => { el.disabled = disabled; });
     };
-    const lockRows = (): void => { setLockState(true); setRowsDisabled(true); };
+    const lockRows = (): void => {
+      this.modelListGeneration++;
+      setLockState(true);
+      setRowsDisabled(true);
+    };
     // Idempotente Freigabe beim Betreten: Klasse und aria-busy überleben sonst den 1.13-Pfad —
     // refreshUi() geht dort über update(), und hostFor leert zwar die Kinder des Containers, aber
     // nicht seine Klassen/Attribute. Ohne das bliebe die Liste dauerhaft pointer-events: none.
@@ -852,7 +980,15 @@ export class VaultRagSettingTab extends PluginSettingTab {
         if (rerender) lockRows();
         // apiKey ändert die Listen-FORM nicht (kein Re-Render) — das Drittanbieter-Icon muss sich
         // deshalb hier selbst aktualisieren, statt auf den (bewusst ausbleibenden) Neuaufbau zu warten.
-        if (field === "apiKey") syncThirdPartyIcon(carriesApiKey(updated[i]));
+        if (field === "apiKey") {
+          syncThirdPartyIcon(carriesApiKey(updated[i]));
+          // Ohne Schlüssel lieferte der Endpunkt vermutlich 401 → leere Liste → Notausgang.
+          // Mit Schlüssel hat er eine Liste; der alte Eintrag wäre eine Lüge. Anders als das
+          // Drittanbieter-Icon oben korrigiert sich die Modell-Zeile dadurch NICHT selbst —
+          // sichtbar wird die neue Liste erst beim nächsten Zeilen-Neuaufbau (URL-Commit,
+          // „Modelle abrufen", Tab-Reload), da dieser Commit bewusst kein refreshUi() auslöst.
+          this.invalidateModelList(normalizeEndpoint(updated[i].url));
+        }
         opts.set(updated);
         const chain = this.plugin.saveSettings().then(() => opts.reconnect());
         void (rerender ? chain.then(() => this.refreshUi()) : chain).catch(failSafe);
@@ -873,10 +1009,32 @@ export class VaultRagSettingTab extends PluginSettingTab {
           tx.inputEl.setAttribute("aria-label", `API-Schlüssel für ${cfg.url} (leer = lokaler Server)`);
           tx.inputEl.addEventListener("blur", () => { commit("apiKey", tx.getValue()); });
         });
-        s.addText(tx => {
-          tx.setPlaceholder("Modell (leer = globales)").setValue(cfg.model ?? "");
-          tx.inputEl.setAttribute("aria-label", `Modell für ${cfg.url} (leer = globales Modell)`);
-          tx.inputEl.addEventListener("blur", () => { commit("model", tx.getValue()); });
+        // Modell-Override: Dropdown mit den Modellen GENAU DIESES Endpunkts. Die Liste kommt
+        // aus dem Tab-Cache (loadModelList), nicht vom aktiven Client — eine Zeile kann einen
+        // ganz anderen Anbieter meinen als den gerade verbundenen.
+        // Platz SYNCHRON reservieren: der Picker zeichnet erst nach dem geladenen Promise, der
+        // Mülleimer/das Warn-Icon gleich darunter aber synchron. Ohne Reservierung hängt Obsidian
+        // (das jede add*-Komponente in Aufrufreihenfolge an controlEl anhängt) das Dropdown ans
+        // Ende der Zeile — hinter den Mülleimer, ein Layout-Sprung inklusive. `renderModelPicker`
+        // zeichnet über `target` deshalb direkt in dieses Element statt in `s.controlEl`.
+        const modelSlot = s.controlEl.createSpan({ cls: "vault-rag-model-slot" });
+        const listKey = normalizeEndpoint(cfg.url);
+        const gen = this.modelListGeneration;
+        void this.loadModelList(listKey, opts.clientFor(cfg)).then(({ models, reachable }) => {
+          if (gen !== this.modelListGeneration) return;   // Liste hat sich verschoben
+          this.renderModelPicker({
+            setting: s,
+            target: modelSlot,
+            choice: resolveModelChoice({
+              reachable, models, current: cfg.model ?? "",
+              allowEmpty: true, emptyLabel: `globales Modell (${opts.globalModel() || "nicht gesetzt"})`,
+            }),
+            ariaLabel: `Modell für ${cfg.url} (leer = globales Modell)`,
+            placeholder: "Modell (leer = globales)",
+            onPick: (v: string) => { commit("model", v); },
+            onRefresh: () => { this.invalidateModelList(listKey); this.refreshUi(); },
+            hintAs: "tooltip",
+          });
         });
       }
       // Löschen: expliziter Mülleimer-Button (nicht am leeren Add-Feld). Das Status-Icon links
@@ -898,7 +1056,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       const ep = cfg.url.trim();
       if (!isAdder && ep) {
         setIcon(statusIcon, "loader"); setTooltip(statusIcon, "prüfe…");
-        void opts.probe(cfg).then(status => {
+        void opts.clientFor(cfg).probe().then(status => {
           statusIcon.empty();
           setIcon(statusIcon, status.reachable ? "circle-check" : "circle-x");
           statusIcon.toggleClass("is-ok", status.reachable);

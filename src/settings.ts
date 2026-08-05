@@ -310,7 +310,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     let promise: Promise<{ models: string[]; reachable: boolean }>;
 
     if (!client) {
-      // Kein Client: aufgelöstes Promise mit Offline-Zustand.
+      // Absicherung, kein Produktivpfad: main.ts hält embedder/chatClient immer gesetzt, sobald
+      // das Plugin geladen ist. Dieser Zweig ist nur aus Tests erreichbar (Client fehlt dort
+      // bewusst) und liefert dann einen Offline-Zustand statt zu werfen.
       promise = Promise.resolve({ models: [], reachable: false });
     } else {
       // Client vorhanden: starte die Anfrage und löse bei Fehler den Cache-Eintrag auf.
@@ -318,13 +320,13 @@ export class VaultRagSettingTab extends PluginSettingTab {
         const models = await client.listModels();
         const reachable = models.length > 0 ? true : (await client.probe()).reachable;
         return { models, reachable };
-      })().catch((err) => {
-        // Fehler: entferne aus Cache, damit nächste Anfrage es neu versucht statt das
-        // rejected Promise dauerhaft zu cachen.
-        this.modelLists.delete(key);
-        // Fehler abfangen und in einen offline-Zustand umwandeln statt weiterzuwerfen
-        // — listModels() und probe() fangen Fehler bereits selbst ab, aber die IIFE
-        // könnte aus anderen Gründen fehlschlagen.
+      })().catch(() => {
+        // Nur den eigenen Eintrag verwerfen: lief zwischen Start und Fehlschlag bereits ein
+        // invalidateModelList + neuer loadModelList, steht unter `key` schon ein anderes
+        // (neueres) Promise — das darf dieser Zweig nicht mitreißen, sonst kostet es nur eine
+        // überflüssige Anfrage statt einer falschen. listModels()/probe() fangen Fehler ohnehin
+        // schon selbst ab; dies hier ist reines Rückfallnetz für andere Fehlschläge.
+        if (this.modelLists.get(key) === promise) this.modelLists.delete(key);
         return { models: [], reachable: false };
       });
     }
@@ -748,6 +750,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const key = this.plugin.activeChatEndpoint ?? "";
     const gen = this.modelListGeneration;
     void this.loadModelList(key, this.plugin.chatClient).then(({ models, reachable }) => {
+      // Modelldetails/Fähigkeiten sind eigene Zeilen und laut Plan unabhängig von der
+      // Modell-Auswahl-Zeile selbst — sie laufen deshalb VOR dem Generations-Guard, sonst
+      // blieben beide Zeilen bei einer verworfenen Generation leer statt sich zu befüllen.
+      this.showInfo(this.plugin.settings.chatModel);
+      this.showCaps(this.plugin.settings.chatModel);
       if (gen !== this.modelListGeneration) return;
       this.renderModelPicker({
         setting: s,
@@ -765,8 +772,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
         },
         onRefresh: () => { this.invalidateModelList(key); this.refreshUi(); },
       });
-      this.showInfo(this.plugin.settings.chatModel);
-      this.showCaps(this.plugin.settings.chatModel);
     });
   };
 
@@ -843,7 +848,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     });
   };
 
-  /** Body des früheren „Testen”-Buttons aus buildThinking (das Toggle daneben ist jetzt
+  /** Body des früheren „Testen“-Buttons aus buildThinking (das Toggle daneben ist jetzt
    *  deklarativ). Ohne Button-Disable-Handling — Rückmeldung nur noch über Notice. Bei
    *  bestätigtem Thinking-Nachweis: Caps hochstufen + Fähigkeiten-Zeile neu zeichnen. */
   private async runThinkingTest(): Promise<void> {
@@ -978,7 +983,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
         if (field === "apiKey") {
           syncThirdPartyIcon(carriesApiKey(updated[i]));
           // Ohne Schlüssel lieferte der Endpunkt vermutlich 401 → leere Liste → Notausgang.
-          // Mit Schlüssel hat er eine Liste; der alte Eintrag wäre eine Lüge.
+          // Mit Schlüssel hat er eine Liste; der alte Eintrag wäre eine Lüge. Anders als das
+          // Drittanbieter-Icon oben korrigiert sich die Modell-Zeile dadurch NICHT selbst —
+          // sichtbar wird die neue Liste erst beim nächsten Zeilen-Neuaufbau (URL-Commit,
+          // „Modelle abrufen", Tab-Reload), da dieser Commit bewusst kein refreshUi() auslöst.
           this.invalidateModelList(normalizeEndpoint(updated[i].url));
         }
         opts.set(updated);

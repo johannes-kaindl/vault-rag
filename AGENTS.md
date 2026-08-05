@@ -157,7 +157,9 @@ settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab —
                   eine nicht leere Liste beweist Erreichbarkeit bereits, `probe()` läuft nur bei
                   leerer Liste nach. Ein Generationszähler (`modelListGeneration`, hochgezählt in
                   `lockRows()` vor jeder form-ändernden Mutation) verwirft verspätete Antworten;
-                  „Modelle abrufen" und ein API-Schlüssel-Commit verwerfen den Cache-Eintrag gezielt.
+                  „Modelle abrufen" und ein API-Schlüssel-Commit verwerfen den Cache-Eintrag gezielt —
+                  sichtbar wird die neue Liste dabei aber erst beim nächsten Zeilen-Neuaufbau, der
+                  apiKey-Commit selbst löst bewusst kein `refreshUi()` aus.
                   **Zweigleisig:** ab 1.13 rendert das Framework deklarativ +
                   durchsuchbar; auf ≤1.12 (minAppVersion 1.12.7 — 1.13 ist Catalyst-Preview) läuft
                   `display() { renderImperative() }`, das dieselbe `getSettingDefinitions()`-Struktur
@@ -270,7 +272,7 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (712 Tests, 53 Files)
+npm test                          # vitest run     (801 Tests, 58 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
 npx vitest run tests/<datei>      # eine Test-Datei

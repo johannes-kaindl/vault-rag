@@ -39,7 +39,7 @@ export interface ModelChoiceInput {
 const HINT_NO_LIST =
   "Endpunkt gibt keine Modell-Liste heraus — Namen von Hand eintragen.";
 const HINT_UNREACHABLE =
-  "Endpunkt nicht erreichbar — gespeicherter Wert bleibt erhalten. \"Modelle abrufen\", sobald er läuft.";
+  "Endpunkt nicht erreichbar — gespeicherter Wert bleibt erhalten. „Modelle abrufen“, sobald er läuft.";
 
 /**
  * INVARIANTE: In den Modi "dropdown" und "locked" enthält `options` immer `value`.

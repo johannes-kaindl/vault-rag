@@ -49,6 +49,11 @@
    flex-basis: 100% erzwingt den Umbruch im ohnehin umbrechenden .setting-item-control. */
 .vault-rag-ep-row .setting-item-control .vault-rag-ep-state {
   flex: 0 0 100%;
+  /* stateEl wird VOR warnIcon/thirdPartyIcon angelegt (Erst-Render-Reihenfolge in
+     buildEndpointList) — ohne order würden die beiden Icons hinter die volle-Breite-Zeile
+     rutschen statt in der Feldreihe zu bleiben. order:1 hält die Rolle visuell zuletzt,
+     unabhängig davon, was später noch an controlEl angehängt wird. */
+  order: 1;
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   margin-top: 2px;

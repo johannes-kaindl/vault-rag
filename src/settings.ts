@@ -40,7 +40,7 @@ export interface VaultRagPluginHost extends Plugin {
   /** Embedding-Modell des geladenen Index — genutzt, um das Modell einer Endpunkt-Zeile
    *  gegen den Index abzugleichen (`modelFits` in `buildEndpointList`). Schmaler Getter statt
    *  öffentlichem `index`-Feld: die UI braucht nur diesen String. */
-  indexEmbeddingModel: string | undefined;
+  readonly indexEmbeddingModel: string | undefined;
   embedder: EmbeddingClient;
   chatClient: ChatClient;
   /** Modell, das Chat-Anfragen tatsächlich mitschicken (Zeilen-Override des aktiven
@@ -190,8 +190,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private ensureResolvedOnOpen(): void {
     if (this.resolvedOnOpen) return;
     this.resolvedOnOpen = true;
-    void this.plugin.resolveAndReconnectEmbedder();
-    void this.plugin.resolveAndReconnectChat();
+    // Re-Render NACH Abschluss beider Resolver — sonst zeigt eine Zeile (z.B. Status-Icon +
+    // Rollen-Text) noch den Stand von vor dem Resolve, während main.ts activeEmbeddingEndpoint/
+    // activeChatEndpoint längst umgeschaltet hat: eine Zeile behauptet "aktiv", während eine
+    // andere per Live-Status "verbunden" meldet — genau die Diskrepanz, die die Rollen-Zeile
+    // verhindern soll. Kein Loop: resolvedOnOpen ist zu diesem Zeitpunkt bereits true, der
+    // Rebuild ruft ensureResolvedOnOpen() erneut auf, das dort sofort returned.
+    void Promise.all([
+      this.plugin.resolveAndReconnectEmbedder(),
+      this.plugin.resolveAndReconnectChat(),
+    ]).then(() => this.refreshUi());
   }
 
   // ── Imperativer Fallback (Obsidian < 1.13) ──────────────────────────────
@@ -949,6 +957,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
       setLockState(false);
       setRowsDisabled(false);
       new Notice("Endpunkt-Änderung konnte nicht gespeichert werden — bitte erneut versuchen.", 8000);
+      // Re-Render statt bloßem Entsperren: bei einer gescheiterten Kette hat opts.set(...) die
+      // Settings im Speicher bereits mutiert, bevor saveSettings()/reconnect() geworfen hat — ohne
+      // Rebuild zeigt das DOM weiter die alte Reihenfolge/Indizes, und der nächste Klick auf
+      // Mülleimer/„zuerst verwenden" träfe den falschen Eintrag.
+      this.refreshUi();
     };
     // Beschriftung + Erklärung als EIGENE Zeile ohne Steuerelemente. Vorher hingen sie an der
     // ersten Endpunkt-Zeile — Obsidians `Setting` teilt die Zeile in Info (links) und Controls

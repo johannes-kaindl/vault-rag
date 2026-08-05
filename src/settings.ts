@@ -93,6 +93,10 @@ interface ModelPickerOpts {
   onPick: (value: string) => void;
   /** Cache für diesen Endpunkt verwerfen und neu zeichnen. */
   onRefresh: () => void;
+  /** Wie der Hinweistext aus ModelChoice dargestellt wird. "desc" (Vorgabe) schreibt ihn als
+   *  Beschreibung unter die Zeile; "tooltip" hängt ihn ans Steuerelement — nötig in den
+   *  Endpunkt-Zeilen, die bewusst keinen Zeilentext tragen (siehe Kommentar in buildEndpointList). */
+  hintAs?: "desc" | "tooltip";
 }
 
 /**
@@ -332,13 +336,15 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  die stehen in resolveModelChoice (model_choice.ts). */
   private renderModelPicker(opts: ModelPickerOpts): void {
     const { setting: s, choice } = opts;
-    if (choice.hint) s.setDesc(choice.hint);
+    const hintAs = opts.hintAs ?? "desc";
+    if (choice.hint && hintAs === "desc") s.setDesc(choice.hint);
 
     if (choice.mode === "freetext") {
       s.addText(t => {
         t.setPlaceholder(opts.placeholder).setValue(choice.value);
         t.inputEl.setAttribute("aria-label", opts.ariaLabel);
         t.inputEl.addEventListener("blur", () => { opts.onPick(t.getValue().trim()); });
+        if (choice.hint && hintAs === "tooltip") setTooltip(t.inputEl, choice.hint);
       });
     } else {
       s.addDropdown(d => {
@@ -347,6 +353,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         d.selectEl.setAttribute("aria-label", opts.ariaLabel);
         if (choice.mode === "locked") d.setDisabled(true);
         else d.onChange((v: string) => { opts.onPick(v); });
+        if (choice.hint && hintAs === "tooltip") setTooltip(d.selectEl, choice.hint);
       });
     }
 
@@ -504,6 +511,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
       set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
       active: () => this.plugin.activeEmbeddingEndpoint,
       probe: (cfg) => new EmbeddingClient(cfg.url, effectiveModel(cfg, this.plugin.settings.embeddingModel), cfg.apiKey).probe(),
+      clientFor: (cfg) => new EmbeddingClient(cfg.url, effectiveModel(cfg, this.plugin.settings.embeddingModel), cfg.apiKey),
+      globalModel: () => this.plugin.settings.embeddingModel,
       reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
     });
   };
@@ -712,6 +721,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
       active: () => this.plugin.activeChatEndpoint,
       probe: (cfg) => new ChatClient(cfg.url, effectiveModel(cfg, this.plugin.settings.chatModel), cfg.apiKey).probe(),
+      clientFor: (cfg) => new ChatClient(cfg.url, effectiveModel(cfg, this.plugin.settings.chatModel), cfg.apiKey),
+      globalModel: () => this.plugin.settings.chatModel,
       reconnect: () => this.plugin.resolveAndReconnectChat(),
     });
   };
@@ -868,6 +879,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
     get: () => EndpointConfig[]; set: (eps: EndpointConfig[]) => void;
     active: () => string | null;
     probe: (cfg: EndpointConfig) => Promise<EndpointStatus>;
+    /** Client für die Modell-Liste GENAU dieser Zeile (URL + Schlüssel der Zeile). */
+    clientFor: (cfg: EndpointConfig) => { listModels(): Promise<string[]>; probe(): Promise<EndpointStatus> };
+    /** Globales Modell, das gilt, wenn die Zeile keinen Override trägt. */
+    globalModel: () => string;
     reconnect: () => Promise<void>;
   }): void {
     const eps = opts.get();
@@ -884,10 +899,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
       opts.containerEl.setAttribute("aria-busy", locked ? "true" : "false");  // "false" = gültiger ARIA-Ruhezustand
     };
     const setRowsDisabled = (disabled: boolean): void => {
-      opts.containerEl.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")
+      opts.containerEl.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>("input, button, select")
         .forEach(el => { el.disabled = disabled; });
     };
-    const lockRows = (): void => { setLockState(true); setRowsDisabled(true); };
+    const lockRows = (): void => {
+      this.modelListGeneration++;
+      setLockState(true);
+      setRowsDisabled(true);
+    };
     // Idempotente Freigabe beim Betreten: Klasse und aria-busy überleben sonst den 1.13-Pfad —
     // refreshUi() geht dort über update(), und hostFor leert zwar die Kinder des Containers, aber
     // nicht seine Klassen/Attribute. Ohne das bliebe die Liste dauerhaft pointer-events: none.
@@ -942,7 +961,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
         if (rerender) lockRows();
         // apiKey ändert die Listen-FORM nicht (kein Re-Render) — das Drittanbieter-Icon muss sich
         // deshalb hier selbst aktualisieren, statt auf den (bewusst ausbleibenden) Neuaufbau zu warten.
-        if (field === "apiKey") syncThirdPartyIcon(carriesApiKey(updated[i]));
+        if (field === "apiKey") {
+          syncThirdPartyIcon(carriesApiKey(updated[i]));
+          // Ohne Schlüssel lieferte der Endpunkt vermutlich 401 → leere Liste → Notausgang.
+          // Mit Schlüssel hat er eine Liste; der alte Eintrag wäre eine Lüge.
+          this.invalidateModelList(normalizeEndpoint(updated[i].url));
+        }
         opts.set(updated);
         const chain = this.plugin.saveSettings().then(() => opts.reconnect());
         void (rerender ? chain.then(() => this.refreshUi()) : chain).catch(failSafe);
@@ -963,10 +987,25 @@ export class VaultRagSettingTab extends PluginSettingTab {
           tx.inputEl.setAttribute("aria-label", `API-Schlüssel für ${cfg.url} (leer = lokaler Server)`);
           tx.inputEl.addEventListener("blur", () => { commit("apiKey", tx.getValue()); });
         });
-        s.addText(tx => {
-          tx.setPlaceholder("Modell (leer = globales)").setValue(cfg.model ?? "");
-          tx.inputEl.setAttribute("aria-label", `Modell für ${cfg.url} (leer = globales Modell)`);
-          tx.inputEl.addEventListener("blur", () => { commit("model", tx.getValue()); });
+        // Modell-Override: Dropdown mit den Modellen GENAU DIESES Endpunkts. Die Liste kommt
+        // aus dem Tab-Cache (loadModelList), nicht vom aktiven Client — eine Zeile kann einen
+        // ganz anderen Anbieter meinen als den gerade verbundenen.
+        const listKey = normalizeEndpoint(cfg.url);
+        const gen = this.modelListGeneration;
+        void this.loadModelList(listKey, opts.clientFor(cfg)).then(({ models, reachable }) => {
+          if (gen !== this.modelListGeneration) return;   // Liste hat sich verschoben
+          this.renderModelPicker({
+            setting: s,
+            choice: resolveModelChoice({
+              reachable, models, current: cfg.model ?? "",
+              allowEmpty: true, emptyLabel: `globales Modell (${opts.globalModel() || "nicht gesetzt"})`,
+            }),
+            ariaLabel: `Modell für ${cfg.url} (leer = globales Modell)`,
+            placeholder: "Modell (leer = globales)",
+            onPick: (v: string) => { commit("model", v); },
+            onRefresh: () => { this.invalidateModelList(listKey); this.refreshUi(); },
+            hintAs: "tooltip",
+          });
         });
       }
       // Löschen: expliziter Mülleimer-Button (nicht am leeren Add-Feld). Das Status-Icon links

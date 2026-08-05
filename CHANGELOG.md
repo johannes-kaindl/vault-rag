@@ -12,6 +12,12 @@ All notable changes to this project are documented here. The format follows
   OpenAI …) genauso in die Endpunkt-Liste eintragen wie lokale Server — die Liste bleibt eine
   Fallback-Kette, der erste erreichbare gewinnt. Der Schlüssel wird maskiert eingegeben und liegt
   wie alle Einstellungen unverschlüsselt in `data.json`.
+- **Modellauswahl als Dropdown statt Freitext:** Alle vier Modellname-Felder der Einstellungen
+  (Embedding-Modell, Chat-Modell, Smart-Apply-Modell, Modell-Override je Endpunkt-Zeile) zeigen
+  jetzt eine Liste der vom Endpunkt gemeldeten Modelle statt eines Textfelds — bisher war das
+  Endpunkt-Override der einzige Freitext dieser vier und damit tippfehleranfällig. Ist der
+  Endpunkt nicht erreichbar, bleibt der gespeicherte Wert sichtbar, aber gesperrt; liefert er
+  keine Modell-Liste, bleibt es beim Freitextfeld.
 - **Modell-Schutz für den Embedding-Index:** Da ein Index an das Modell gebunden ist, mit dem er
   gebaut wurde, überspringt der Endpunkt-Resolver jeden Kandidaten, dessen Embedding-Modell nicht
   zum Index passt, und jeder Schreibvorgang (Live-Embedding, „Index vervollständigen") wird

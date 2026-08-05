@@ -123,17 +123,39 @@ live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename ·
                   tatsächlichen Counts vor jedem live-Persist statt gecachtem Zustand) ·
                   healMissing (additiver Delta-Reindex für Self-Heal) · markUnready/markFresh
                   (Gefahrenzustand-Schalter) · noteCount-Getter.
+model_choice.ts   `resolveModelChoice(input) → { mode, options, value, hint }` — EINE Wahrheit für
+                  alle vier Modellname-Felder der Einstellungen (Embedding-, Chat-, Smart-Apply-Modell,
+                  Endpunkt-Zeilen-Override). Drei Modi: `dropdown` (Endpunkt liefert eine Liste),
+                  `locked` (Endpunkt nicht erreichbar — gespeicherter Wert bleibt sichtbar, aber
+                  unveränderbar), `freetext` (erreichbar, aber ohne Liste). Invariante: in `dropdown`
+                  und `locked` steht `value` **immer** unter `options` — sonst fällt ein `<select>`
+                  still auf die erste Option zurück und überschreibt einen gültigen, nur nicht
+                  gelisteten Wert beim nächsten Speichern; ein solcher Wert bekommt stattdessen eine
+                  eigene Option mit Zusatz „(gespeichert)". Obsidian-frei, Zeichnen liegt beim Host
+                  (`renderModelPicker` in `settings.ts`).
 settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab — vollständig deklarativ
                   (Obsidian 1.13 `getSettingDefinitions()`, 7 Gruppen, durchsuchbar): einfache
                   Zeilen sind `control`-Definitionen, `get/setControlValue` liest/schreibt sie
                   (mit Coercion + Seiteneffekten wie refresh/setStatusBarVisible). Dynamische
                   Zeilen (Endpoint-Listen — pro Zeile URL + maskiertes API-Schlüssel-Feld +
-                  Modell-Override, gesperrt während einer form-ändernden Mutation läuft, plus
-                  `alert-triangle`-Hinweis-Icon bei gesetztem Schlüssel (`carriesApiKey`) — Form/Icon
-                  + Tooltip, nie Farbe allein, Schlüssel selbst nie im Text; das Icon schaltet sich
-                  beim apiKey-Commit **in-place** um, weil dieser Commit bewusst kein `refreshUi()`
-                  auslöst (Tab-Neuaufbau bleibt URL-Commits vorbehalten) —,
-                  Modell-Dropdowns, Status-Poll alle 2 s, MCP-Sektion) sind render-Hatches.
+                  Modell-Override als Dropdown, gesperrt während einer form-ändernden Mutation läuft,
+                  plus `alert-triangle`-Hinweis-Icon bei gesetztem Schlüssel (`carriesApiKey`) —
+                  Form/Icon + Tooltip, nie Farbe allein, Schlüssel selbst nie im Text; das Icon
+                  schaltet sich beim apiKey-Commit **in-place** um, weil dieser Commit bewusst kein
+                  `refreshUi()` auslöst (Tab-Neuaufbau bleibt URL-Commits vorbehalten) —,
+                  Status-Poll alle 2 s, MCP-Sektion) sind render-Hatches. Die vier Modellname-Felder
+                  zeichnet `renderModelPicker` (dünner Host über `resolveModelChoice`,
+                  `model_choice.ts`) — welcher Wert wo gilt, entscheidet `model_choice.ts`, wie
+                  gezeichnet wird `renderModelPicker` (`hintAs: "desc"|"tooltip"`: Endpunkt-Zeilen
+                  bekommen den Hinweis als Tooltip statt als Zeilentext, weil sie bewusst keinen
+                  tragen — Layout, siehe Kommentar in `buildEndpointList`). Modell-Listen werden pro
+                  Endpunkt-URL in `modelLists` gecacht (`Map<string, Promise<{models, reachable}>>`
+                  — Promises, nicht nur Ergebnisse, damit gleichzeitig startende render-Hatches sich
+                  eine Anfrage teilen; überlebt `refreshUi()`, stirbt in `hide()`); sparsam geprobt —
+                  eine nicht leere Liste beweist Erreichbarkeit bereits, `probe()` läuft nur bei
+                  leerer Liste nach. Ein Generationszähler (`modelListGeneration`, hochgezählt in
+                  `lockRows()` vor jeder form-ändernden Mutation) verwirft verspätete Antworten;
+                  „Modelle abrufen" und ein API-Schlüssel-Commit verwerfen den Cache-Eintrag gezielt.
                   **Zweigleisig:** ab 1.13 rendert das Framework deklarativ +
                   durchsuchbar; auf ≤1.12 (minAppVersion 1.12.7 — 1.13 ist Catalyst-Preview) läuft
                   `display() { renderImperative() }`, das dieselbe `getSettingDefinitions()`-Struktur

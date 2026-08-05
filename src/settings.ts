@@ -992,6 +992,13 @@ export class VaultRagSettingTab extends PluginSettingTab {
           thirdPartyIcon = null;
         }
       };
+      /** Schreibt die Rollen-Zeile neu, ohne den Tab neu aufzubauen. Wird vom probe-Block
+       *  unten gesetzt (vorher gibt es keine Zeile) und beim Modell-Commit aufgerufen —
+       *  das Modell-Override entscheidet über `skipped-model`, ändert die Listen-FORM aber
+       *  nicht, löst also bewusst kein `refreshUi()` aus. Ohne diesen Rückruf behielte die
+       *  Zeile ihre Aussage von vor der Modellwahl: ein Endpunkt, den der Guard längst
+       *  überspringt, meldete weiter „erreichbar, aber Platz N" (gemeldet 2026-08-05). */
+      let syncRoleLine: (() => void) | null = null;
       // Listen-Mutation NUR bei blur, NICHT in onChange: onChange feuert pro Tastendruck und
       // würde im Add-Feld jeden Zwischenstand (h, ht, htt, …) als eigenen Eintrag anhängen.
       // Nur URL-Änderungen rendern neu (Statuszeile hängt an der URL). Schlüssel/Modell tun das
@@ -1016,7 +1023,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
         }
         opts.set(updated);
         const chain = this.plugin.saveSettings().then(() => opts.reconnect());
-        void (rerender ? chain.then(() => this.refreshUi()) : chain).catch(failSafe);
+        // Das Modell-Override entscheidet mit über die Rolle der Zeile (`skipped-model`).
+        // Erst NACH reconnect() nachziehen: der Resolver kann den Endpunkt wegen des neuen
+        // Modells gerade fallengelassen oder übernommen haben, und die Zeile soll den
+        // Zustand danach zeigen, nicht den davor.
+        const withRoleSync = field === "model" ? chain.then(() => { syncRoleLine?.(); }) : chain;
+        void (rerender ? withRoleSync.then(() => this.refreshUi()) : withRoleSync).catch(failSafe);
       };
       s.addText(tx => {
         tx.setPlaceholder(isAdder ? "Weiteren Endpunkt hinzufügen…" : opts.placeholder).setValue(cfg.url);
@@ -1102,25 +1114,37 @@ export class VaultRagSettingTab extends PluginSettingTab {
         // Control-Container): horizontal ist die Zeile mit drei Feldern + bis zu drei Icons +
         // zwei Knöpfen ausgereizt (Layout-Fix 2026-08-04). Synchron angelegt, asynchron befüllt.
         const stateEl = s.controlEl.createDiv({ cls: "vault-rag-ep-state", text: "prüfe…" });
+        // Erreichbarkeit ändert sich nur durch eine neue Probe, die Rolle aber auch durch das
+        // Modell-Override. Das Probe-Ergebnis wird deshalb festgehalten, damit die Rolle ohne
+        // erneuten Netzzugriff nachgezogen werden kann.
+        let probed: EndpointStatus | null = null;
+        const applyRole = (): void => {
+          if (!probed) return;
+          const isActive = normalizeEndpoint(ep) === (opts.active() ?? "");
+          // Den Eintrag frisch aus der Liste lesen, nicht das `cfg` vom Render-Zeitpunkt:
+          // nach einem Modell-Commit trägt nur die Liste den neuen Wert.
+          const current = opts.get()[i] ?? cfg;
+          const role = endpointRole({
+            isActive,
+            reachable: probed.reachable,
+            // Gilt nur für Embedding-Endpunkte; für Chat hängt kein Index am Modell (immer true).
+            modelFits: opts.modelFits?.(current) ?? true,
+            position: i + 1,
+          });
+          stateEl.setText(describeEndpointRole(role));
+          stateEl.toggleClass("is-active", role.kind === "active");
+        };
+        syncRoleLine = applyRole;
         void opts.clientFor(cfg).probe().then(status => {
           statusIcon.empty();
           setIcon(statusIcon, status.reachable ? "circle-check" : "circle-x");
           statusIcon.toggleClass("is-ok", status.reachable);
           statusIcon.toggleClass("is-error", !status.reachable);
-          const isActive = normalizeEndpoint(ep) === (opts.active() ?? "");
           // Tooltip trägt nur noch die Erreichbarkeits-Diagnose; das frühere " · aktiv" entfällt,
           // weil die Rolle jetzt als Text in der Zeile steht (keine zweite Wahrheit im Hover).
           setTooltip(statusIcon, status.klartext);
-          // Rolle = warum diese Zeile dran ist oder eben nicht. modelFits gilt nur für
-          // Embedding-Endpunkte; für Chat hängt kein Index am Modell (immer true).
-          const role = endpointRole({
-            isActive,
-            reachable: status.reachable,
-            modelFits: opts.modelFits?.(cfg) ?? true,
-            position: i + 1,
-          });
-          stateEl.setText(describeEndpointRole(role));
-          stateEl.toggleClass("is-active", role.kind === "active");
+          probed = status;
+          applyRole();
         });
         // Eingabe-Prüfung: nicht-blockierendes Warn-Icon (WCAG-Form + Tooltip)
         const warnings = validateEndpointInput(ep);

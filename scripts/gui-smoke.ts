@@ -196,6 +196,7 @@ const READ_ROWS = `
         ? state.getBoundingClientRect().top >= url.getBoundingClientRect().bottom - 1
         : null,
       buttonCount: buttons.length,
+      modelValue: (() => { const sel = row.querySelector("select"); return sel ? sel.value : null; })(),
       hasPriorityButton: !!row.querySelector('svg[class*="arrow-up-to-line"], svg[class*="chevrons-up"]'),
       priorityIconClass: (() => {
         const svg = row.querySelector('svg[class*="arrow-up-to-line"], svg[class*="chevrons-up"]');
@@ -216,7 +217,7 @@ const READ_ROWS = `
 
 interface Row {
   index: number; listIndex: number; url: string; state: string | null;
-  hasPriorityButton: boolean; priorityIconClass: string | null;
+  hasPriorityButton: boolean; priorityIconClass: string | null; modelValue: string | null;
   stateWidthRatio: number | null; stateTopBelowFields: boolean | null;
   buttonCount: number; buttonIcons: string[]; warnIconBelowState: boolean | null;
 }
@@ -427,6 +428,38 @@ async function main(): Promise<void> {
     } else {
       record("Klick setzt die Zeile an die Spitze", false,
         inChatList ? "übersprungen — kein zweiter Chat-Endpunkt mit Knopf" : "übersprungen — Chat-Liste hat weniger als zwei Einträge");
+    }
+
+    // --- 7. Rolle folgt dem Modell-Override --------------------------------
+    // Regressionsschutz für eine Fehlerklasse, die zweimal auftrat: die Zustandszeile ist
+    // ein Schnappschuss. Ein Modell-Commit ändert die Rolle (`skipped-model`), löst aber
+    // bewusst kein Neuzeichnen aus — ohne Nachziehen behauptet die Zeile weiter, der
+    // Endpunkt stünde nur hinten an, während der Guard ihn längst überspringt.
+    const overrideRow = withState.find(r => r.listIndex === 0 && r.modelValue);
+    if (overrideRow) {
+      const original = overrideRow.modelValue as string;
+      const rowIndex = overrideRow.index;
+      const setModel = async (value: string): Promise<string | null> => {
+        await settings!.evaluate(`
+          const row = [...document.querySelectorAll(".vault-rag-ep-row")][${rowIndex}];
+          const sel = row.querySelector("select");
+          if (!sel) throw new Error("Kein Modell-Dropdown in der Zeile");
+          sel.value = ${JSON.stringify("__V__")};
+          sel.dispatchEvent(new Event("change"));
+          await new Promise(r => setTimeout(r, 4000));
+        `.replace("__V__", value));
+        const rows2 = await readRowsSettled();
+        return rows2[rowIndex]?.state ?? null;
+      };
+      const withoutOverride = await setModel("");
+      const withOverride = await setModel(original);
+      record(
+        "Rolle folgt dem Modell-Override ohne Tab-Neuaufbau",
+        withoutOverride !== withOverride && withOverride === "übersprungen — Modell passt nicht zum Index",
+        `ohne Override „${withoutOverride}" · mit Override „${withOverride}"`,
+      );
+    } else {
+      console.log("  – Rolle folgt dem Modell-Override: übersprungen (kein Embedding-Endpunkt mit Override konfiguriert)");
     }
   } finally {
     if (savedChatOrder && !keep) {

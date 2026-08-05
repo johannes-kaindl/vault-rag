@@ -130,8 +130,10 @@ model_choice.ts   `resolveModelChoice(input) → { mode, options, value, hint }`
                   unveränderbar), `freetext` (erreichbar, aber ohne Liste). Invariante: in `dropdown`
                   und `locked` steht `value` **immer** unter `options` — sonst fällt ein `<select>`
                   still auf die erste Option zurück und überschreibt einen gültigen, nur nicht
-                  gelisteten Wert beim nächsten Speichern; ein solcher Wert bekommt stattdessen eine
-                  eigene Option mit Zusatz „(gespeichert)". Obsidian-frei, Zeichnen liegt beim Host
+                  gelisteten Wert beim nächsten Speichern. Nur im `dropdown`-Modus bekommt ein
+                  gespeicherter, aber nicht gelisteter Wert deshalb eine eigene Option mit Zusatz
+                  „(gespeichert)"; im `locked`-Modus ist der gespeicherte Wert ohnehin die einzige
+                  Option, es gibt nichts zu unterscheiden. Obsidian-frei, Zeichnen liegt beim Host
                   (`renderModelPicker` in `settings.ts`).
 settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab — vollständig deklarativ
                   (Obsidian 1.13 `getSettingDefinitions()`, 7 Gruppen, durchsuchbar): einfache

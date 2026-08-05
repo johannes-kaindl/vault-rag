@@ -101,3 +101,15 @@ export function applyEndpointEdit(
   next[index] = updated;
   return next;
 }
+
+/** Neue Liste mit dem Eintrag an `index` an der Spitze — die Liste IST die Priorität
+ *  (`resolveAndReconnect*` nimmt den ersten erreichbaren), also ist Umsortieren die
+ *  einzige Wahrheit darüber, welcher Endpunkt bevorzugt wird. Index 0 oder außerhalb:
+ *  unveränderte Kopie, kein Fehler — der Aufrufer muss nicht vorher prüfen. */
+export function moveEndpointToFront(eps: EndpointConfig[], index: number): EndpointConfig[] {
+  if (index <= 0 || index >= eps.length) return [...eps];
+  const next = [...eps];
+  const [moved] = next.splice(index, 1);
+  next.unshift(moved);
+  return next;
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, type EndpointConfig } from "../src/endpoint_config";
+import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, type EndpointConfig } from "../src/endpoint_config";
 
 describe("authHeaders", () => {
   it("ohne Schlüssel → keine Header", () => {
@@ -112,5 +112,36 @@ describe("applyEndpointEdit", () => {
   it("Adder hängt nur bei nicht-leerer URL an", () => {
     expect(applyEndpointEdit(eps, 2, "url", "http://c:1234", true)).toHaveLength(3);
     expect(applyEndpointEdit(eps, 2, "url", "  ", true)).toHaveLength(2);
+  });
+});
+
+describe("moveEndpointToFront", () => {
+  const list = (): EndpointConfig[] => [
+    { url: "http://a" },
+    { url: "http://b", apiKey: "k" },
+    { url: "http://c", model: "m" },
+  ];
+
+  it("holt den Eintrag an die Spitze und erhält die Reihenfolge der übrigen", () => {
+    expect(moveEndpointToFront(list(), 2).map(e => e.url)).toEqual(["http://c", "http://a", "http://b"]);
+  });
+
+  it("nimmt die Felder des Eintrags vollständig mit", () => {
+    expect(moveEndpointToFront(list(), 1)[0]).toEqual({ url: "http://b", apiKey: "k" });
+  });
+
+  it("Index 0 lässt die Liste unverändert", () => {
+    expect(moveEndpointToFront(list(), 0)).toEqual(list());
+  });
+
+  it("Index außerhalb lässt die Liste unverändert", () => {
+    expect(moveEndpointToFront(list(), 9)).toEqual(list());
+    expect(moveEndpointToFront(list(), -1)).toEqual(list());
+  });
+
+  it("mutiert die Eingangsliste nicht", () => {
+    const original = list();
+    moveEndpointToFront(original, 2);
+    expect(original.map(e => e.url)).toEqual(["http://a", "http://b", "http://c"]);
   });
 });

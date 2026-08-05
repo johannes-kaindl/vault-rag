@@ -129,7 +129,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  Überlebt bewusst refreshUi(): der Tab wird bei JEDEM URL-Commit neu gebaut, und
    *  reconnect() pingt dabei jeden Endpunkt (bis 5 s). Ohne Cache zöge jedes Tippen an
    *  einer URL sämtliche Modell-Listen erneut. Stirbt in hide(). */
-  private modelLists = new Map<string, { models: string[]; reachable: boolean }>();
+  private modelLists = new Map<string, Promise<{ models: string[]; reachable: boolean }>>();
   /** Läuft parallel zu jeder listen-FORMändernden Mutation hoch. Eine Antwort, die zu einer
    *  alten Generation gehört, wird verworfen — sonst schriebe eine langsame Antwort (z.B.
    *  LM-Studio-Timeout, danach schnelles Ollama) in eine Zeile, die inzwischen einen anderen
@@ -287,22 +287,39 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** Holt die Modell-Liste eines Endpunkts (mit Cache). Sparsam: eine nicht leere Liste
    *  beweist die Erreichbarkeit bereits — nur bei leerer Liste wird zusätzlich geprobt, um
    *  „offline" von „gibt keine Liste heraus" zu trennen. */
-  private async loadModelList(
+  private loadModelList(
     key: string,
     client: { listModels(): Promise<string[]>; probe(): Promise<EndpointStatus> } | undefined,
   ): Promise<{ models: string[]; reachable: boolean }> {
     const cached = this.modelLists.get(key);
     if (cached) return cached;
+
+    // Cache das Promise selbst vor dem ersten await — gleichzeitige Aufrufer wartet auf
+    // dieselbe Anfrage statt je einen HTTP-Request zu starten.
+    let promise: Promise<{ models: string[]; reachable: boolean }>;
+
     if (!client) {
-      const none = { models: [], reachable: false };
-      this.modelLists.set(key, none);
-      return none;
+      // Kein Client: aufgelöstes Promise mit Offline-Zustand.
+      promise = Promise.resolve({ models: [], reachable: false });
+    } else {
+      // Client vorhanden: starte die Anfrage und löse bei Fehler den Cache-Eintrag auf.
+      promise = (async () => {
+        const models = await client.listModels();
+        const reachable = models.length > 0 ? true : (await client.probe()).reachable;
+        return { models, reachable };
+      })().catch((err) => {
+        // Fehler: entferne aus Cache, damit nächste Anfrage es neu versucht statt das
+        // rejected Promise dauerhaft zu cachen.
+        this.modelLists.delete(key);
+        // Fehler abfangen und in einen offline-Zustand umwandeln statt weiterzuwerfen
+        // — listModels() und probe() fangen Fehler bereits selbst ab, aber die IIFE
+        // könnte aus anderen Gründen fehlschlagen.
+        return { models: [], reachable: false };
+      });
     }
-    const models = await client.listModels();
-    const reachable = models.length > 0 ? true : (await client.probe()).reachable;
-    const entry = { models, reachable };
-    this.modelLists.set(key, entry);
-    return entry;
+
+    this.modelLists.set(key, promise);
+    return promise;
   }
 
   /** Verwirft einen Cache-Eintrag. Nötig nach „Modelle abrufen" und nach jedem
@@ -699,10 +716,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     });
   };
 
-  /** render-Hatch: Chat-Modell-Dropdown. Zeichnet eine frische Setting im hostFor-Container. Löst
-   *  showInfo/showCaps aus — die schreiben in infoValue/lastCaps, gelesen von den render-Hatches
-   *  Modelldetails/Fähigkeiten (Cross-Referenz über Render-State, kein direkter Aufruf). */
-  /** render-Hatch: Chat-Modell. Loest zusaetzlich showInfo/showCaps aus — die schreiben in
+  /** render-Hatch: Chat-Modell. Löst zusätzlich showInfo/showCaps aus — die schreiben in
    *  infoValue/lastCaps, gelesen von den render-Hatches Modelldetails/Fähigkeiten
    *  (Cross-Referenz über Render-State, kein direkter Aufruf). */
   private renderChatModel = (setting: Setting): void => {
@@ -732,7 +746,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
       this.showCaps(this.plugin.settings.chatModel);
     });
   };
-
 
   /** render-Hatch: Modelldetails-Zeile. Setzt infoValue, das showInfo() (aus renderChatModel)
    *  asynchron befüllt. */
@@ -780,8 +793,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
       });
   };
 
-  /** render-Hatch: Smart-Apply-Modell-Dropdown. Zeichnet in hostFor. Leer-Option zuerst: der
-   *  leere Wert ist bedeutungstragend (= Chat-Modell erben). */
   /** render-Hatch: Smart-Apply-Modell. Der leere Wert ist bedeutungstragend
    *  (= Chat-Modell erben), deshalb allowEmpty. */
   private renderSmartApplyModel = (setting: Setting): void => {
@@ -809,8 +820,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     });
   };
 
-
-  /** Body des früheren „Testen“-Buttons aus buildThinking (das Toggle daneben ist jetzt
+  /** Body des früheren „Testen”-Buttons aus buildThinking (das Toggle daneben ist jetzt
    *  deklarativ). Ohne Button-Disable-Handling — Rückmeldung nur noch über Notice. Bei
    *  bestätigtem Thinking-Nachweis: Caps hochstufen + Fähigkeiten-Zeile neu zeichnen. */
   private async runThinkingTest(): Promise<void> {

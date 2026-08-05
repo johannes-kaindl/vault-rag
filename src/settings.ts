@@ -702,37 +702,37 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** render-Hatch: Chat-Modell-Dropdown. Zeichnet eine frische Setting im hostFor-Container. Löst
    *  showInfo/showCaps aus — die schreiben in infoValue/lastCaps, gelesen von den render-Hatches
    *  Modelldetails/Fähigkeiten (Cross-Referenz über Render-State, kein direkter Aufruf). */
+  /** render-Hatch: Chat-Modell. Loest zusaetzlich showInfo/showCaps aus — die schreiben in
+   *  infoValue/lastCaps, gelesen von den render-Hatches Modelldetails/Fähigkeiten
+   *  (Cross-Referenz über Render-State, kein direkter Aufruf). */
   private renderChatModel = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Chat-Modell").setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
-    void this.plugin.chatClient?.listModels().then((models: string[]) => {
-      if (models.length) {
-        const cur = this.plugin.settings.chatModel;
-        const list = models.includes(cur) ? models : [cur, ...models];
-        s.addDropdown(d => {
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange((v: string) => {
-            this.plugin.settings.chatModel = v;
-            void this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectChat();
-            this.showInfo(v);
-            this.showCaps(v);
-          });
-        });
-      } else {
-        s.setDesc('Server offline — Modellname eintippen, dann „Modelle laden“');
-        s.addText(t => t.setPlaceholder("qwen3").setValue(this.plugin.settings.chatModel)
-          .onChange(async (v: string) => {
-            this.plugin.settings.chatModel = v.trim();
-            await this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectChat();
-          }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
-      }
+    const key = this.plugin.activeChatEndpoint ?? "";
+    const gen = this.modelListGeneration;
+    void this.loadModelList(key, this.plugin.chatClient).then(({ models, reachable }) => {
+      if (gen !== this.modelListGeneration) return;
+      this.renderModelPicker({
+        setting: s,
+        choice: resolveModelChoice({
+          reachable, models, current: this.plugin.settings.chatModel, allowEmpty: false,
+        }),
+        ariaLabel: "Chat-Modell",
+        placeholder: "qwen3",
+        onPick: (v: string) => {
+          this.plugin.settings.chatModel = v;
+          void this.plugin.saveSettings();
+          void this.plugin.resolveAndReconnectChat();
+          this.showInfo(v);
+          this.showCaps(v);
+        },
+        onRefresh: () => { this.invalidateModelList(key); this.refreshUi(); },
+      });
       this.showInfo(this.plugin.settings.chatModel);
       this.showCaps(this.plugin.settings.chatModel);
     });
   };
+
 
   /** render-Hatch: Modelldetails-Zeile. Setzt infoValue, das showInfo() (aus renderChatModel)
    *  asynchron befüllt. */
@@ -782,33 +782,33 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   /** render-Hatch: Smart-Apply-Modell-Dropdown. Zeichnet in hostFor. Leer-Option zuerst: der
    *  leere Wert ist bedeutungstragend (= Chat-Modell erben). */
+  /** render-Hatch: Smart-Apply-Modell. Der leere Wert ist bedeutungstragend
+   *  (= Chat-Modell erben), deshalb allowEmpty. */
   private renderSmartApplyModel = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Smart-Apply-Modell")
       .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.');
-    void this.plugin.chatClient?.listModels().then((models: string[]) => {
-      const cur = this.plugin.settings.smartApplyModel;
-      if (models.length) {
-        const list = cur && !models.includes(cur) ? [cur, ...models] : models;
-        s.addDropdown(d => {
-          d.addOption("", "Chat-Modell verwenden");
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange(async (v: string) => {
-            this.plugin.settings.smartApplyModel = v;
-            await this.plugin.saveSettings();
-          });
-        });
-      } else {
-        s.setDesc('Server offline — Modellname eintippen (leer = Chat-Modell), dann „Modelle laden"');
-        s.addText(t => t.setPlaceholder("leer = Chat-Modell").setValue(cur)
-          .onChange(async (v: string) => {
-            this.plugin.settings.smartApplyModel = v.trim();
-            await this.plugin.saveSettings();
-          }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
-      }
+    const key = this.plugin.activeChatEndpoint ?? "";
+    const gen = this.modelListGeneration;
+    void this.loadModelList(key, this.plugin.chatClient).then(({ models, reachable }) => {
+      if (gen !== this.modelListGeneration) return;
+      this.renderModelPicker({
+        setting: s,
+        choice: resolveModelChoice({
+          reachable, models, current: this.plugin.settings.smartApplyModel,
+          allowEmpty: true, emptyLabel: "Chat-Modell verwenden",
+        }),
+        ariaLabel: "Smart-Apply-Modell",
+        placeholder: "leer = Chat-Modell",
+        onPick: (v: string) => {
+          this.plugin.settings.smartApplyModel = v;
+          void this.plugin.saveSettings();
+        },
+        onRefresh: () => { this.invalidateModelList(key); this.refreshUi(); },
+      });
     });
   };
+
 
   /** Body des früheren „Testen“-Buttons aus buildThinking (das Toggle daneben ist jetzt
    *  deklarativ). Ohne Button-Disable-Handling — Rückmeldung nur noch über Notice. Bei

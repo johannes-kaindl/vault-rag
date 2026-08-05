@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Endpunkt-Priorität ohne Löschen änderbar:** Jede Endpunkt-Zeile (ab Platz 2) bekommt einen
+  „Zuerst verwenden"-Knopf, der sie an die Spitze der Fallback-Liste setzt. Da die Liste selbst
+  die Priorität ist (der erste erreichbare Endpunkt gewinnt), war Umsortieren bisher nur über
+  Löschen + Neuanlegen möglich. Jede Zeile zeigt außerdem ihre aktuelle Rolle als Text
+  („aktiv" / „erreichbar, aber Platz N" / „nicht erreichbar" / „übersprungen — Modell passt nicht
+  zum Index"), damit nie unklar ist, welcher Endpunkt gerade tatsächlich genutzt wird.
+
+### Fixed
+- **Aktiver Endpunkt war optisch nie markiert:** Die Hervorhebung setzte `font-weight` auf den
+  Status-Icon-Container — der trägt aber nur ein SVG, auf dem `font-weight` wirkungslos ist. Die
+  aktive Zeile sah daher genauso aus wie jede andere erreichbare. Die Markierung sitzt jetzt auf
+  dem neuen Rollen-Text der Zeile, wo sie tatsächlich sichtbar wird.
+
 ## [0.19.0] — 2026-08-05
 
 ### Added

@@ -56,8 +56,10 @@ class FakeText {
   onChange(_cb: (v: string) => void) { return this; }
 }
 class FakeDropdown {
+  selectEl = makeFakeEl();
   addOption() { return this; }
   setValue() { return this; }
+  setDisabled() { return this; }
   onChange(_cb: (v: string) => void) { return this; }
 }
 export class ButtonComponent {

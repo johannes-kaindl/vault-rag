@@ -11,6 +11,7 @@ import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { applyEndpointEdit, effectiveModel, carriesApiKey, type EndpointConfig } from "./endpoint_config";
+import { resolveModelChoice, type ModelChoice } from "./model_choice";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
 
@@ -81,6 +82,19 @@ export class RestoreBackupModal extends Modal {
   onClose(): void { this.contentEl.empty(); }
 }
 
+interface ModelPickerOpts {
+  /** Zeile, in die gezeichnet wird (bereits vorhandene Setting). */
+  setting: Setting;
+  choice: ModelChoice;
+  /** Für Screenreader — in einer Endpunkt-Zeile stehen drei Felder nebeneinander. */
+  ariaLabel: string;
+  placeholder: string;
+  /** Speichern + Nachwirkungen (reconnect, showInfo/showCaps, commit) — je Stelle verschieden. */
+  onPick: (value: string) => void;
+  /** Cache für diesen Endpunkt verwerfen und neu zeichnen. */
+  onRefresh: () => void;
+}
+
 /**
  * Settings-Tab. `getSettingDefinitions()` liefert die deklarative Struktur (7 Gruppen); einfache
  * Zeilen sind reine `control`-Definitionen, dynamische Zeilen (Endpoint-Listen, Modell-Dropdowns,
@@ -111,6 +125,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
   // (renderImperative() pro Rebuild) — das Flag macht in beiden EINMAL pro Öffnen daraus;
   // hide() setzt es zurück, damit das nächste Öffnen wieder re-resolved.
   private resolvedOnOpen = false;
+  /** Modell-Listen je Endpunkt, Schlüssel = normalizeEndpoint(url).
+   *  Überlebt bewusst refreshUi(): der Tab wird bei JEDEM URL-Commit neu gebaut, und
+   *  reconnect() pingt dabei jeden Endpunkt (bis 5 s). Ohne Cache zöge jedes Tippen an
+   *  einer URL sämtliche Modell-Listen erneut. Stirbt in hide(). */
+  private modelLists = new Map<string, { models: string[]; reachable: boolean }>();
+  /** Läuft parallel zu jeder listen-FORMändernden Mutation hoch. Eine Antwort, die zu einer
+   *  alten Generation gehört, wird verworfen — sonst schriebe eine langsame Antwort (z.B.
+   *  LM-Studio-Timeout, danach schnelles Ollama) in eine Zeile, die inzwischen einen anderen
+   *  Endpunkt zeigt. */
+  private modelListGeneration = 0;
 
   constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
 
@@ -258,6 +282,63 @@ export class VaultRagSettingTab extends PluginSettingTab {
     setting.settingEl.empty();
     setting.settingEl.removeClass("setting-item");
     return setting.settingEl;
+  }
+
+  /** Holt die Modell-Liste eines Endpunkts (mit Cache). Sparsam: eine nicht leere Liste
+   *  beweist die Erreichbarkeit bereits — nur bei leerer Liste wird zusätzlich geprobt, um
+   *  „offline" von „gibt keine Liste heraus" zu trennen. */
+  private async loadModelList(
+    key: string,
+    client: { listModels(): Promise<string[]>; probe(): Promise<EndpointStatus> } | undefined,
+  ): Promise<{ models: string[]; reachable: boolean }> {
+    const cached = this.modelLists.get(key);
+    if (cached) return cached;
+    if (!client) {
+      const none = { models: [], reachable: false };
+      this.modelLists.set(key, none);
+      return none;
+    }
+    const models = await client.listModels();
+    const reachable = models.length > 0 ? true : (await client.probe()).reachable;
+    const entry = { models, reachable };
+    this.modelLists.set(key, entry);
+    return entry;
+  }
+
+  /** Verwirft einen Cache-Eintrag. Nötig nach „Modelle abrufen" und nach jedem
+   *  apiKey-Commit: vorher lieferte der Endpunkt vermutlich 401 und damit eine leere Liste. */
+  private invalidateModelList(key: string): void {
+    this.modelLists.delete(key);
+  }
+
+  /** Zeichnet die Modell-Auswahl in eine bestehende Setting-Zeile. Kennt die Regeln nicht —
+   *  die stehen in resolveModelChoice (model_choice.ts). */
+  private renderModelPicker(opts: ModelPickerOpts): void {
+    const { setting: s, choice } = opts;
+    if (choice.hint) s.setDesc(choice.hint);
+
+    if (choice.mode === "freetext") {
+      s.addText(t => {
+        t.setPlaceholder(opts.placeholder).setValue(choice.value);
+        t.inputEl.setAttribute("aria-label", opts.ariaLabel);
+        t.inputEl.addEventListener("blur", () => { opts.onPick(t.getValue().trim()); });
+      });
+    } else {
+      s.addDropdown(d => {
+        for (const o of choice.options) d.addOption(o.value, o.label);
+        d.setValue(choice.value);
+        d.selectEl.setAttribute("aria-label", opts.ariaLabel);
+        if (choice.mode === "locked") d.setDisabled(true);
+        else d.onChange((v: string) => { opts.onPick(v); });
+      });
+    }
+
+    if (choice.mode !== "dropdown") {
+      s.addExtraButton(b => b
+        .setIcon("refresh-cw")
+        .setTooltip("Modelle abrufen")
+        .onClick(() => { opts.onRefresh(); }));
+    }
   }
 
   private searchGroup(): SettingDefinitionGroup {
@@ -410,30 +491,28 @@ export class VaultRagSettingTab extends PluginSettingTab {
     });
   };
 
-  /** render-Hatch: Embedding-Modell-Dropdown. Zeichnet eine frische Setting im hostFor-Container. */
+  /** render-Hatch: Embedding-Modell. Zeichnet über den gemeinsamen Picker. */
   private renderEmbeddingModel = (setting: Setting): void => {
     const host = this.hostFor(setting);
     const s = new Setting(host).setName("Embedding-Modell").setDesc("Modellname wie auf dem Endpoint verfügbar");
-    void this.plugin.embedder?.listModels().then((models: string[]) => {
-      const cur = this.plugin.settings.embeddingModel;
-      if (models.length) {
-        const list = models.includes(cur) ? models : [cur, ...models];
-        s.addDropdown(d => {
-          list.forEach((m: string) => { d.addOption(m, m); });
-          d.setValue(cur).onChange((v: string) => {
-            this.plugin.settings.embeddingModel = v;
-            void this.plugin.saveSettings();
-            void this.plugin.resolveAndReconnectEmbedder();
-          });
-        });
-      } else {
-        s.addText(t => t.setPlaceholder("qwen3-embedding:8b").setValue(cur).onChange(async (v: string) => {
-          this.plugin.settings.embeddingModel = v.trim();
-          await this.plugin.saveSettings();
+    const key = this.plugin.activeEmbeddingEndpoint ?? "";
+    const gen = this.modelListGeneration;
+    void this.loadModelList(key, this.plugin.embedder).then(({ models, reachable }) => {
+      if (gen !== this.modelListGeneration) return;   // verspätete Antwort — Zeile ist tot
+      this.renderModelPicker({
+        setting: s,
+        choice: resolveModelChoice({
+          reachable, models, current: this.plugin.settings.embeddingModel, allowEmpty: false,
+        }),
+        ariaLabel: "Embedding-Modell",
+        placeholder: "qwen3-embedding:8b",
+        onPick: (v: string) => {
+          this.plugin.settings.embeddingModel = v;
+          void this.plugin.saveSettings();
           void this.plugin.resolveAndReconnectEmbedder();
-        }));
-        s.addButton(b => b.setButtonText("Modelle laden").onClick(() => this.refreshUi()));
-      }
+        },
+        onRefresh: () => { this.invalidateModelList(key); this.refreshUi(); },
+      });
     });
   };
 
@@ -762,6 +841,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     if (this.mcpPortRestartTimer !== null) { window.clearTimeout(this.mcpPortRestartTimer); this.mcpPortRestartTimer = null; }
     this.runRowCleanups();
     this.resolvedOnOpen = false;
+    this.modelLists.clear();
     super.hide();
   }
 

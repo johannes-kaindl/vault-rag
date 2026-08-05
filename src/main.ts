@@ -59,7 +59,11 @@ const SELECTION_DEBOUNCE_MS = 150;
 
 export default class VaultRagPlugin extends Plugin {
   settings!: VaultRagSettings;
-  private index: VaultIndex | null = null;
+  // Nicht mehr private: VaultRagPluginHost (settings.ts) liest ihn read-only, um das
+  // Modell einer Endpunkt-Zeile gegen manifest.embedding_model zu prüfen (Zustandszeile,
+  // 2026-08-05). Innerhalb dieser Klasse weiter wie ein privates Feld behandeln — nur
+  // main.ts schreibt ihn.
+  index: VaultIndex | null = null;
   private facade!: RetrievalFacade;
   private guardedRead: (rel: string) => Promise<string> = (p) => this.app.vault.adapter.read(p);
   private lastMtime = 0;

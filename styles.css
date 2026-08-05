@@ -36,13 +36,27 @@
 .vault-rag-ep-status svg { width: 14px; height: 14px; }
 .vault-rag-ep-status.is-ok { color: var(--text-success); }
 .vault-rag-ep-status.is-error { color: var(--text-error); }
-.vault-rag-ep-status.is-active { font-weight: var(--font-bold); }
 .vault-rag-ep-warn { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-warning); }
 .vault-rag-ep-warn svg { width: 14px; height: 14px; }
 /* Drittanbieter-Hinweis (Schlüssel gesetzt): sachlicher Hinweis, keine Fehler-Warnung — bewusst
    gedämpfter als .vault-rag-ep-warn, Bedeutung trägt das Dreieck + der Tooltip, nicht die Farbe. */
 .vault-rag-ep-thirdparty { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-muted); }
 .vault-rag-ep-thirdparty svg { width: 14px; height: 14px; }
+/* Rolle der Zeile als Text unter den Feldern: „aktiv" / „erreichbar, aber Platz N" / … .
+   Erreichbarkeit trägt das Icon (Form), die Rolle dieser Text — keins von beiden über Farbe
+   allein (WCAG 1.4.1). Die frühere Auszeichnung saß auf dem Icon-Container und war wirkungslos:
+   font-weight greift auf einem SVG nicht.
+   flex-basis: 100% erzwingt den Umbruch im ohnehin umbrechenden .setting-item-control. */
+.vault-rag-ep-row .setting-item-control .vault-rag-ep-state {
+  flex: 0 0 100%;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.vault-rag-ep-row .setting-item-control .vault-rag-ep-state.is-active {
+  color: var(--text-normal);
+  font-weight: var(--font-bold);
+}
 /* Speicher-/Lösch-Fenster: die gerenderten Zeilen-Indizes sind stale, bis der Re-Render kommt —
    Eingaben und Icon-Buttons (divs, kein disabled) sind solange gesperrt. */
 .vault-rag-ep-busy { pointer-events: none; opacity: 0.6; }

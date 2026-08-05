@@ -10,7 +10,9 @@ import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, type EndpointConfig } from "./endpoint_config";
+import type { VaultIndex } from "./index";
+import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, type EndpointConfig } from "./endpoint_config";
+import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
@@ -36,6 +38,9 @@ type Caps = { vision: string; thinking: { support: string; confidence: string } 
 /** Die Plugin-Oberfläche, die der Settings-Tab nutzt — getypt statt `any`. */
 export interface VaultRagPluginHost extends Plugin {
   settings: VaultRagSettings;
+  /** Geladener Index (nur lesend genutzt — z.B. um das Modell einer Endpunkt-Zeile gegen
+   *  `manifest.embedding_model` zu prüfen, siehe `modelFits` in `buildEndpointList`). */
+  index: VaultIndex | null;
   embedder: EmbeddingClient;
   chatClient: ChatClient;
   /** Modell, das Chat-Anfragen tatsächlich mitschicken (Zeilen-Override des aktiven
@@ -528,6 +533,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
       active: () => this.plugin.activeEmbeddingEndpoint,
       clientFor: (cfg) => new EmbeddingClient(cfg.url, effectiveModel(cfg, this.plugin.settings.embeddingModel), cfg.apiKey),
       globalModel: () => this.plugin.settings.embeddingModel,
+      modelFits: (cfg) => embeddingModelMatchesIndex(
+        effectiveModel(cfg, this.plugin.settings.embeddingModel),
+        this.plugin.index?.manifest.embedding_model,
+      ),
       reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
     });
   };
@@ -902,6 +911,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     clientFor: (cfg: EndpointConfig) => { listModels(): Promise<string[]>; probe(): Promise<EndpointStatus> };
     /** Globales Modell, das gilt, wenn die Zeile keinen Override trägt. */
     globalModel: () => string;
+    /** Nur Embedding-Listen: passt das (Override-)Modell dieser Zeile zum geladenen Index?
+     *  Fehlt der Callback (Chat-Liste), gilt true — dort hängt kein Index am Modell. */
+    modelFits?: (cfg: EndpointConfig) => boolean;
     reconnect: () => Promise<void>;
   }): void {
     const eps = opts.get();
@@ -1073,14 +1085,29 @@ export class VaultRagSettingTab extends PluginSettingTab {
       const ep = cfg.url.trim();
       if (!isAdder && ep) {
         setIcon(statusIcon, "loader"); setTooltip(statusIcon, "prüfe…");
+        // Rolle der Zeile als eigene Zeile UNTER den Feldern (flex-basis 100% im umbrechenden
+        // Control-Container): horizontal ist die Zeile mit drei Feldern + bis zu drei Icons +
+        // zwei Knöpfen ausgereizt (Layout-Fix 2026-08-04). Synchron angelegt, asynchron befüllt.
+        const stateEl = s.controlEl.createDiv({ cls: "vault-rag-ep-state", text: "prüfe…" });
         void opts.clientFor(cfg).probe().then(status => {
           statusIcon.empty();
           setIcon(statusIcon, status.reachable ? "circle-check" : "circle-x");
           statusIcon.toggleClass("is-ok", status.reachable);
           statusIcon.toggleClass("is-error", !status.reachable);
           const isActive = normalizeEndpoint(ep) === (opts.active() ?? "");
-          statusIcon.toggleClass("is-active", isActive);
-          setTooltip(statusIcon, status.klartext + (isActive ? " · aktiv" : ""));
+          // Tooltip trägt nur noch die Erreichbarkeits-Diagnose; das frühere " · aktiv" entfällt,
+          // weil die Rolle jetzt als Text in der Zeile steht (keine zweite Wahrheit im Hover).
+          setTooltip(statusIcon, status.klartext);
+          // Rolle = warum diese Zeile dran ist oder eben nicht. modelFits gilt nur für
+          // Embedding-Endpunkte; für Chat hängt kein Index am Modell (immer true).
+          const role = endpointRole({
+            isActive,
+            reachable: status.reachable,
+            modelFits: opts.modelFits?.(cfg) ?? true,
+            position: i + 1,
+          });
+          stateEl.setText(describeEndpointRole(role));
+          stateEl.toggleClass("is-active", role.kind === "active");
         });
         // Eingabe-Prüfung: nicht-blockierendes Warn-Icon (WCAG-Form + Tooltip)
         const warnings = validateEndpointInput(ep);

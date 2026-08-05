@@ -67,6 +67,10 @@ export function resolveModelChoice(input: ModelChoiceInput): ModelChoice {
   if (current && !input.models.includes(current)) {
     // Nicht gelistet, aber gespeichert: sichtbar machen statt still verlieren.
     options.push({ value: current, label: `${current} (gespeichert)` });
+  } else if (!current && !input.allowEmpty) {
+    // Sicherung der Invariante: Ist der Wert leer und nicht bedeutungstragend,
+    // ein <select> ohne diese Option würde still auf das erste Modell fallen.
+    options.push({ value: "", label: "—" });
   }
   for (const m of input.models) options.push({ value: m, label: m });
 

@@ -78,4 +78,17 @@ describe("resolveModelChoice", () => {
     expect(c.options.map(o => o.value)).toEqual(["qwen3"]);
     expect(c.options.some(o => o.label.includes("gespeichert"))).toBe(false);
   });
+
+  it("Dropdown mit leerer Liste und allowEmpty=false → Platzhalter-Option schützt Invariante", () => {
+    // Regression: User leert das Modell über Freitext (Endpunkt offline), Endpunkt meldet
+    // später Liste. Muss Invariante einhalten: <select> ohne passende Option fällt still
+    // auf erste zurück und würde den leeren Wert überschreiben.
+    const c = resolveModelChoice({
+      reachable: true, models: ["a", "b"], current: "", allowEmpty: false,
+    });
+    expect(c.mode).toBe("dropdown");
+    expect(c.value).toBe("");
+    expect(c.options.some(o => o.value === c.value)).toBe(true);
+    expect(c.options[0]).toEqual({ value: "", label: "—" });
+  });
 });

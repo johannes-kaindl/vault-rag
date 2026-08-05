@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { ChatSession } from "../src/chat_session";
+import { ChatHttpError } from "../src/chat_error";
 
 function mkSession(streamImpl?: any, assembleImpl?: any) {
   const client: any = { ping: async () => true, stream: streamImpl ?? (async (_m: any, onContent: (t: string) => void) => { onContent("Hi"); onContent("!"); return { content: "Hi!", reasoning: "" }; }) };
@@ -30,6 +31,18 @@ describe("ChatSession", () => {
     const r = await s.send("x", [], () => {});
     expect(r.error).toContain("nicht erreichbar");
     expect(s.messages[1].error).toContain("nicht erreichbar");
+  });
+  it("HTTP-Fehler wird durchgereicht statt durch eine Erreichbarkeits-Vermutung ersetzt", async () => {
+    const { s } = mkSession(async () => { throw new ChatHttpError(401, '{"detail":"Not authenticated"}'); });
+    const r = await s.send("x", [], () => {});
+    expect(r.error).toContain("401");
+    expect(r.error).toMatch(/Schlüssel/);
+    expect(r.error).toContain("Not authenticated");
+  });
+  it("Serverbegründung eines 400 landet in der Nachricht — dort steht der Grund", async () => {
+    const { s } = mkSession(async () => { throw new ChatHttpError(400, '{"error":{"message":"model not found"}}'); });
+    const r = await s.send("x", [], () => {});
+    expect(r.error).toContain("model not found");
   });
   it("assemble-Fehler → Hinweis an der Nachricht", async () => {
     const { s } = mkSession(undefined, async () => { throw new Error("ctx weg"); });

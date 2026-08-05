@@ -1,5 +1,6 @@
 import { ThinkSplitter } from "./vendor/kit/think";
 import { parseSSE } from "./vendor/kit/sse";
+import { ChatHttpError } from "./chat_error";
 
 /** Streamt einen OpenAI-kompatiblen SSE-Stream über `XMLHttpRequest` (nicht `fetch`: Obsidian
  *  empfiehlt `requestUrl`, das aber NICHT streamen kann — XHR ist der erlaubte Streaming-Primitive).
@@ -46,7 +47,10 @@ export function streamSSE(
       drain(parseSSE(buffer));
       const tail = splitter.flush();
       emit(tail.content, tail.reasoning);
-      if (xhr.status < 200 || xhr.status >= 300) reject(new Error(`Chat HTTP ${xhr.status}`));
+      // Body mitgeben, nicht nur den Status: bei 400/401 steht die eigentliche Ursache
+      // in der Antwort ("Not authenticated", "model … not found"). Wer hier nur
+      // `Chat HTTP 401` wirft, zwingt die Anzeige-Schicht zum Raten.
+      if (xhr.status < 200 || xhr.status >= 300) reject(new ChatHttpError(xhr.status, xhr.responseText));
       else resolve({ content, reasoning, model });
     };
     if (signal) signal.addEventListener("abort", () => xhr.abort());

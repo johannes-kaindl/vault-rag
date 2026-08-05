@@ -1,5 +1,6 @@
 import { ChatClient, ChatMessage } from "./chat_client";
 import { ContextResult } from "./context_source";
+import { chatErrorMessage } from "./chat_error";
 
 export interface ChatSessionDeps {
   client: () => ChatClient;
@@ -56,7 +57,11 @@ export class ChatSession {
       return { sources: ctx.sources };
     } catch (e) {
       const aborted = (e as { name?: string })?.name === "AbortError";
-      if (!aborted) assistant.error = "Chat-LLM nicht erreichbar (lokal/VPN).";
+      // Den echten Fehler übersetzen, nicht ersetzen: bei einem HTTP-Fehler steht die
+      // Ursache in der Serverantwort (Schlüssel, Modellname, Pfad). Die frühere
+      // Festmeldung „nicht erreichbar (lokal/VPN)" behauptete stattdessen ein
+      // Netzproblem — bei einem gehosteten Endpunkt schickt das in die Irre.
+      if (!aborted) assistant.error = chatErrorMessage(e);
       return { sources: ctx.sources, error: aborted ? undefined : assistant.error };
     }
   }

@@ -104,4 +104,11 @@ describe("streamSSE (XHR)", () => {
     xhr.feed([""], 500);
     await expect(p).rejects.toThrow("500");
   });
+
+  it("trägt Status UND Fehlerbody — sonst ist die Ursache am Empfänger nicht mehr zu sehen", async () => {
+    const xhr = installFakeXHR();
+    const p = streamSSE("u", init, () => {}, () => {});
+    xhr.feed(['{"detail":"Not authenticated"}'], 401);
+    await expect(p).rejects.toMatchObject({ status: 401, body: '{"detail":"Not authenticated"}' });
+  });
 });

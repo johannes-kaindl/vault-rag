@@ -59,11 +59,7 @@ const SELECTION_DEBOUNCE_MS = 150;
 
 export default class VaultRagPlugin extends Plugin {
   settings!: VaultRagSettings;
-  // Nicht mehr private: VaultRagPluginHost (settings.ts) liest ihn read-only, um das
-  // Modell einer Endpunkt-Zeile gegen manifest.embedding_model zu prüfen (Zustandszeile,
-  // 2026-08-05). Innerhalb dieser Klasse weiter wie ein privates Feld behandeln — nur
-  // main.ts schreibt ihn.
-  index: VaultIndex | null = null;
+  private index: VaultIndex | null = null;
   private facade!: RetrievalFacade;
   private guardedRead: (rel: string) => Promise<string> = (p) => this.app.vault.adapter.read(p);
   private lastMtime = 0;
@@ -582,6 +578,13 @@ export default class VaultRagPlugin extends Plugin {
    *  garantiert existieren). */
   private get smartApplyModelInUse(): string {
     return chatRequestModel(this.chatEndpointInUse, this.settings.smartApplyModel, this.settings.chatModel);
+  }
+
+  /** Embedding-Modell des geladenen Index — für den Modell-Guard der Einstellungs-UI.
+   *  Getter statt öffentlichem `index`: die UI braucht genau diesen String, nicht den Index
+   *  (VaultRagPluginHost soll eine schmale Vertragsfläche bleiben). */
+  get indexEmbeddingModel(): string | undefined {
+    return this.index?.manifest.embedding_model;
   }
 
   /** Embedder-Reachability mit EINEM Re-Resolve-Retry: aktiven pingen; schlägt fehl,

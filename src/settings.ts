@@ -10,7 +10,6 @@ import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import type { VaultIndex } from "./index";
 import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, type EndpointConfig } from "./endpoint_config";
 import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
@@ -38,9 +37,10 @@ type Caps = { vision: string; thinking: { support: string; confidence: string } 
 /** Die Plugin-Oberfläche, die der Settings-Tab nutzt — getypt statt `any`. */
 export interface VaultRagPluginHost extends Plugin {
   settings: VaultRagSettings;
-  /** Geladener Index (nur lesend genutzt — z.B. um das Modell einer Endpunkt-Zeile gegen
-   *  `manifest.embedding_model` zu prüfen, siehe `modelFits` in `buildEndpointList`). */
-  index: VaultIndex | null;
+  /** Embedding-Modell des geladenen Index — genutzt, um das Modell einer Endpunkt-Zeile
+   *  gegen den Index abzugleichen (`modelFits` in `buildEndpointList`). Schmaler Getter statt
+   *  öffentlichem `index`-Feld: die UI braucht nur diesen String. */
+  indexEmbeddingModel: string | undefined;
   embedder: EmbeddingClient;
   chatClient: ChatClient;
   /** Modell, das Chat-Anfragen tatsächlich mitschicken (Zeilen-Override des aktiven
@@ -535,7 +535,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       globalModel: () => this.plugin.settings.embeddingModel,
       modelFits: (cfg) => embeddingModelMatchesIndex(
         effectiveModel(cfg, this.plugin.settings.embeddingModel),
-        this.plugin.index?.manifest.embedding_model,
+        this.plugin.indexEmbeddingModel,
       ),
       reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
     });

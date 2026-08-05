@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-08-05
+
 ### Added
 - **Endpunkt-Priorität ohne Löschen änderbar:** Jede Endpunkt-Zeile (ab Platz 2) bekommt einen
   „Zuerst verwenden"-Knopf, der sie an die Spitze der Fallback-Liste setzt. Da die Liste selbst

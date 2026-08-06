@@ -1,4 +1,4 @@
-// vendored from obsidian-kit#0.20.0, src/pure/endpoint_diagnostics.ts
+// vendored from obsidian-kit#0.24.0, src/pure/endpoint_diagnostics.ts
 export type EndpointStatusKind =
   | "ok" | "refused" | "unknown-host" | "timeout" | "not-an-llm-api" | "unauthorized" | "unknown";
 
@@ -101,4 +101,19 @@ export function validateEndpointInput(url: string): EndpointWarning[] {
     warnings.push({ rule: "placeholder-ip", message: "Sieht aus wie eine Beispiel-/Platzhalter-Adresse" });
   }
   return warnings;
+}
+
+/** Zieht die Modell-ids aus der Antwort von `GET /v1/models` (OpenAI-kompatible Form
+ *  `{ data: [{ id }] }`). Tolerant gegen alles, was ein Endpunkt statt JSON liefern kann:
+ *  HTML-Fehlerseiten, `null`, fehlendes `data`, Einträge ohne `id`. Wirft nie — ein
+ *  unbrauchbarer Body ergibt eine leere Liste, die der Aufrufer wie „keine Modelle"
+ *  behandelt. Gegenstück zu `classifyEndpointStatus`, das denselben Body auf
+ *  *Erreichbarkeit* prüft; beide werden typisch am selben Probe-Ergebnis aufgerufen. */
+export function extractModelIds(body: unknown): string[] {
+  if (typeof body !== "object" || body === null) return [];
+  const data = (body as { data?: unknown }).data;
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((entry) => (typeof entry === "object" && entry !== null ? (entry as { id?: unknown }).id : undefined))
+    .filter((id): id is string => typeof id === "string");
 }

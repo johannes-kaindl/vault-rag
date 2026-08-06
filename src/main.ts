@@ -8,6 +8,7 @@ import { chatRequestModel, effectiveModel, migrateEndpointList, type EndpointCon
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { mergeSettings } from "./vendor/kit/settings";
+import { withTimeout } from "./vendor/kit/timeout";
 import { EmbeddingClient } from "./embedder";
 import { LiveIndexer } from "./live_indexer";
 import { PendingQueue } from "./pending_queue";
@@ -1440,12 +1441,8 @@ export default class VaultRagPlugin extends Plugin {
       jsonrpc: "2.0", id: 1, method: "initialize",
       params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "vault-retrieval-selfcheck", version: this.manifest.version } },
     });
-    let timer: number | undefined;
-    const timeout = new Promise<"__timeout__">(resolve => {
-      timer = window.setTimeout(() => resolve("__timeout__"), 5000);
-    });
     try {
-      const raced = await Promise.race([
+      const raced = await withTimeout(
         requestUrl({
           url, method: "POST", throw: false,
           headers: {
@@ -1455,15 +1452,14 @@ export default class VaultRagPlugin extends Plugin {
           },
           body,
         }),
-        timeout,
-      ]);
-      if (raced === "__timeout__") return classifySelfCheck({ networkError: true, status: 0, bodyText: "" });
-      return classifySelfCheck({ networkError: false, status: raced.status, bodyText: raced.text });
+        5000,
+        window,
+      );
+      if (raced.timedOut) return classifySelfCheck({ networkError: true, status: 0, bodyText: "" });
+      return classifySelfCheck({ networkError: false, status: raced.value.status, bodyText: raced.value.text });
     } catch (e) {
       console.warn("vault-rag: MCP-Selbsttest fehlgeschlagen", e);
       return classifySelfCheck({ networkError: true, status: 0, bodyText: "" });
-    } finally {
-      if (timer) window.clearTimeout(timer);
     }
   }
 

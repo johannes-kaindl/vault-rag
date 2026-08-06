@@ -2,6 +2,7 @@
   "note": "Verbatim snapshots. Never hand-edit. Re-copy from obsidian-kit to update. collapsible.ts: eigener Datei-Header-Pin @0.13.0, nicht von dieser VENDOR.json abgedeckt, aktuell ohne Consumer im Repo (unused).",
   "modules": [
     { "file": "confirm.ts", "source": "obsidian-kit", "version": "0.17.1", "sha": "635f745" },
-    { "file": "folder-suggest.ts", "source": "obsidian-kit", "version": "0.18.0", "sha": "988f4fd" }
+    { "file": "folder-suggest.ts", "source": "obsidian-kit", "version": "0.18.0", "sha": "988f4fd" },
+    { "file": "settings_walker.ts", "source": "obsidian-kit", "version": "0.25.0", "sha": "1ca3861" }
   ]
 }

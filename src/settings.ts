@@ -1,5 +1,5 @@
 import { App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, setIcon, setTooltip } from "obsidian";
-import type { SettingDefinitionItem, SettingDefinitionGroup, SettingDefinition, SettingControl } from "obsidian";
+import type { SettingDefinitionItem, SettingDefinitionGroup } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
@@ -9,6 +9,7 @@ import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
+import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, type EndpointConfig } from "./endpoint_config";
 import { embeddingModelMatchesIndex } from "./index_guard";
@@ -131,10 +132,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
   // zusätzlich defensiv alle hier gesammelten Intervalle ab (API garantiert Cleanup beim
   // Fenster-Zerstören nicht).
   private pollIntervals: number[] = [];
-  // Cleanup-Funktionen, die render-Hatches beim Zeichnen zurückgeben (z.B. renderEmbeddingStatus).
-  // Ab 1.13 ruft das Framework diese vor dem Zerlegen einer Zeile selbst auf; renderImperative()
+  // Cleanup-Funktion des letzten renderSettingDefinitions()-Laufs (Kit-Walker, settings_walker.ts).
+  // Ab 1.13 ruft das Framework sie vor dem Zerlegen einer Zeile selbst auf; renderImperative()
   // muss denselben Vertrag einhalten und sie vor jedem Rebuild abräumen (siehe dort).
-  private rowCleanups: Array<() => void> = [];
+  private cleanupPrevious: () => void = () => {};
   // Einmal pro Tab-Öffnen (nicht pro Re-Render) Embedder+Chat re-resolven — ersetzt das
   // resolvedOnOpen-Gate aus dem alten display(). getSettingDefinitions() läuft sowohl im
   // nativen Pfad (Framework ruft pro update() erneut auf) als auch im Fallback
@@ -212,100 +213,20 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private renderImperative(): void {
     // Vorherigen Durchlauf abräumen, bevor die Zeilen zerlegt werden — sonst laufen z.B. die
     // 2s-Polls von renderEmbeddingStatus bei jedem refreshUi()-Rebuild unbegrenzt weiter (Leak).
-    this.runRowCleanups();
+    this.cleanupPrevious();
     this.containerEl.empty();
-    for (const item of this.getSettingDefinitions()) this.renderDefinitionItem(this.containerEl, item);
-  }
-
-  /** Führt alle gesammelten Row-Cleanups aus und leert die Liste. Guarded — eine werfende
-   *  Cleanup-Funktion darf weder den Rebuild in renderImperative() (vor containerEl.empty())
-   *  noch das Abräumen in hide() abbrechen; sonst blieben nachfolgende Cleanups hängen bzw.
-   *  die alte UI dupliziert stehen. */
-  private runRowCleanups(): void {
-    for (const c of this.rowCleanups) {
-      try { c(); } catch { /* Cleanup best-effort — ein Fehler darf den Rest nicht blockieren */ }
-    }
-    this.rowCleanups = [];
+    this.cleanupPrevious = renderSettingDefinitions(
+      this.containerEl,
+      this.getSettingDefinitions(),
+      this,
+      this.app,
+    );
   }
 
   /** Re-Render des Tabs. Ab 1.13 exponiert das deklarative Framework update(); auf dem <1.13-Fallback
-   *  existiert die Methode nicht → renderImperative() erneut laufen. Der Cast auf einen anonymen Typ
-   *  nimmt `obsidianmd/no-unsupported-api` die Sicht auf SettingTab.update (1.13-only). */
+   *  existiert die Methode nicht → renderImperative() erneut laufen. */
   private refreshUi(): void {
-    const self = this as unknown as { update?: () => void };
-    if (typeof self.update === "function") self.update();
-    else this.renderImperative();
-  }
-
-  private renderDefinitionItem(containerEl: HTMLElement, item: SettingDefinitionItem): void {
-    if ((item as SettingDefinitionGroup).type === "group") {
-      const g = item as SettingDefinitionGroup;
-      if (g.heading) new Setting(containerEl).setName(g.heading).setHeading();
-      for (const sub of g.items ?? []) this.renderDefinitionItem(containerEl, sub);
-      return;
-    }
-    const def = item as SettingDefinition & { render?: unknown; action?: unknown; control?: SettingControl };
-    const s = new Setting(containerEl);
-    if (def.name) s.setName(def.name);
-    if (def.desc) s.setDesc(def.desc);
-    if (typeof def.render === "function") {
-      const cleanup = (def.render as (s: Setting, g?: unknown) => void | (() => void))(s);
-      if (typeof cleanup === "function") this.rowCleanups.push(cleanup);
-      return;
-    }
-    if (typeof def.action === "function") {
-      const action = def.action;
-      s.addButton(b => b.setButtonText(def.name).onClick(() => action(s.settingEl, 0)));
-      return;
-    }
-    if (def.control) this.renderControl(s, def.name, def.control);
-    // empty: nur name/desc (bereits gesetzt)
-  }
-
-  /** Rendert einen einzelnen deklarativen Control-Typ mit der klassischen Setting-API.
-   *  `setDynamicTooltip()` ist bewusst NICHT verwendet (deprecated seit 1.13 — der Slider-Wert
-   *  ist heute inline im Namen sichtbar, s. displayFormat); der Fallback zeigt den Wert deshalb
-   *  ausschließlich über denselben Namens-Mechanismus wie die Deklarativ-API. */
-  private renderControl(s: Setting, name: string, c: SettingControl): void {
-    const key = c.key;
-    const cur = this.getControlValue(key);
-    const save = (v: unknown): void => { void this.setControlValue(key, v); };
-    switch (c.type) {
-      case "slider": {
-        const fmt = c.displayFormat;
-        const label = (v: number): void => { if (fmt) s.setName(`${name}: ${fmt(v)}`); };
-        label(cur as number);
-        s.addSlider(sl => sl.setLimits(c.min, c.max, c.step).setValue(cur as number)
-          .onChange((v: number) => { save(v); label(v); }));
-        break;
-      }
-      case "toggle":
-        s.addToggle(t => t.setValue(cur as boolean).onChange(save));
-        break;
-      case "dropdown":
-        s.addDropdown(d => { for (const [k, v] of Object.entries(c.options)) d.addOption(k, v); d.setValue(cur as string).onChange(save); });
-        break;
-      case "textarea":
-        s.addTextArea(t => { t.setValue(cur as string).onChange(save); if (c.rows) t.inputEl.rows = c.rows; });
-        break;
-      case "folder":
-        s.addText(t => { t.setPlaceholder(c.placeholder ?? "").setValue(cur as string).onChange(save);
-          new FolderSuggest(this.app, t.inputEl).onSelect((p: string) => { t.setValue(p); save(p); }); });
-        break;
-      case "text":
-      default:
-        s.addText(t => t.setPlaceholder((c as { placeholder?: string }).placeholder ?? "").setValue(cur as string).onChange(save));
-        break;
-    }
-  }
-
-  /** Macht die von der API übergebene Setting-Row zu einem neutralen Block-Container:
-   *  render-Hatches, die mehrere Rows zeichnen, dürfen sonst nicht in die Zwei-Spalten-.setting-item.
-   *  Achtung: leert settingEl → Desc muss der Hatch selbst neu setzen. */
-  private hostFor(setting: Setting): HTMLElement {
-    setting.settingEl.empty();
-    setting.settingEl.removeClass("setting-item");
-    return setting.settingEl;
+    refreshSettingsTab(this, () => this.renderImperative());
   }
 
   /** Holt die Modell-Liste eines Endpunkts (mit Cache). Sparsam: eine nicht leere Liste
@@ -527,10 +448,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
     ] };
   }
 
-  /** render-Hatch: Embedding-Endpunkt-Liste. Zeichnet in hostFor über buildEndpointList. */
+  /** render-Hatch: Embedding-Endpunkt-Liste. Zeichnet in settingBodyHost über buildEndpointList. */
   private renderEmbeddingEndpoints = (setting: Setting): void => {
     this.ensureResolvedOnOpen();
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     this.buildEndpointList({
       containerEl: host,
       label: "Embedding-Endpunkte",
@@ -551,7 +472,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   /** render-Hatch: Embedding-Modell. Zeichnet über den gemeinsamen Picker. */
   private renderEmbeddingModel = (setting: Setting): void => {
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     const s = new Setting(host).setName("Embedding-Modell").setDesc("Modellname wie auf dem Endpoint verfügbar");
     const key = this.plugin.activeEmbeddingEndpoint ?? "";
     const gen = this.modelListGeneration;
@@ -577,7 +498,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** render-Hatch: Embedding-Status-Zeile mit 2s-Poll. Das Intervall wird in pollIntervals
    *  gesammelt und als Cleanup-Funktion zurückgegeben — hide() räumt pollIntervals defensiv ab. */
   private renderEmbeddingStatus = (setting: Setting): (() => void) => {
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     const s = new Setting(host).setName("Embedding-Status");
     const val = s.controlEl.createSpan({ cls: "vault-rag-info-value" });
     const dot = val.createSpan({ cls: "vault-rag-conn-dot" });
@@ -609,7 +530,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   /** render-Hatch: Index-Ordner-Pfad + „Übernehmen". */
   private renderIndexDir = (setting: Setting): void => {
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     const s = new Setting(host);
     let typed = this.plugin.settings.indexDir;
     s.setName("Index-Ordner")
@@ -635,7 +556,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** render-Hatch: Index-Zustand-Zeile (dynamische Desc via indexHealthReadout +
    *  „Vervollständigen"-Button); indexDelta() wird bei jedem Render/update() frisch geholt. */
   private renderIndexHealth = (setting: Setting): void => {
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     const { embedded, total, healthy, emptyCount } = this.plugin.indexDelta();
     new Setting(host)
       .setName("Index-Zustand")
@@ -649,7 +570,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** render-Hatch: komplette MCP-Sektion. Bedingte Zeilen (nur bei mcpEnabled) und der
    *  Client-Snippet-`<pre>`-Block sitzen alle in diesem einen Hatch. */
   private renderMcpSection = (setting: Setting): void => {
-    const containerEl = this.hostFor(setting);
+    const containerEl = settingBodyHost(setting);
     new Setting(containerEl)
       .setName("MCP-Server aktivieren")
       .setDesc("Lokaler HTTP-Server, über den externe LLM-Agents (z. B. Claude Code) den Vault durchsuchen. Nur Desktop, nur solange Obsidian läuft. Loopback (127.0.0.1) + Token.")
@@ -741,9 +662,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     pre.setText(buildClientSnippet(this.mcpClient, { url, token: maskToken(token) }));
   };
 
-  /** render-Hatch: Chat-Endpunkt-Liste. Zeichnet in hostFor über buildEndpointList. */
+  /** render-Hatch: Chat-Endpunkt-Liste. Zeichnet in settingBodyHost über buildEndpointList. */
   private renderChatEndpoints = (setting: Setting): void => {
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     this.buildEndpointList({
       containerEl: host,
       label: "Chat-Endpunkte",
@@ -762,7 +683,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  infoValue/lastCaps, gelesen von den render-Hatches Modelldetails/Fähigkeiten
    *  (Cross-Referenz über Render-State, kein direkter Aufruf). */
   private renderChatModel = (setting: Setting): void => {
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     const s = new Setting(host).setName("Chat-Modell").setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
     const key = this.plugin.activeChatEndpoint ?? "";
     const gen = this.modelListGeneration;
@@ -795,7 +716,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** render-Hatch: Modelldetails-Zeile. Setzt infoValue, das showInfo() (aus renderChatModel)
    *  asynchron befüllt. */
   private renderModelDetails = (setting: Setting): void => {
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     const s = new Setting(host).setName("Modelldetails");
     this.infoValue = s.controlEl.createSpan({ cls: "vault-rag-info-value", text: "…" });
   };
@@ -803,7 +724,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** render-Hatch: Fähigkeiten-Zeile. Setzt capSetting, das showCaps() (renderChatModel) und
    *  runThinkingTest() bei einer Caps-Upgrade re-rendern. */
   private renderCapsRow = (setting: Setting): void => {
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     const s = new Setting(host).setName("Fähigkeiten");
     this.capSetting = s;
     this.renderCaps(s, this.lastCaps);
@@ -813,7 +734,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  Obergrenze modell-gekoppelt ist: updateBudgetMax() (aufgerufen aus showInfo, sobald das
    *  Modell-Fenster bekannt ist) klemmt Limits/Wert live nach. */
   private renderBudget = (setting: Setting): void => {
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     const s = new Setting(host);
     s.setName(`Kontext-Budget: ${this.plugin.settings.contextCharBudget.toLocaleString("de-DE")} Zeichen`)
       .setDesc("Maximale Gesamtlänge des Notiz-Kontexts (anteilig verteilt). Obergrenze richtet sich nach dem Modell-Fenster.")
@@ -841,7 +762,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** render-Hatch: Smart-Apply-Modell. Der leere Wert ist bedeutungstragend
    *  (= Chat-Modell erben), deshalb allowEmpty. */
   private renderSmartApplyModel = (setting: Setting): void => {
-    const host = this.hostFor(setting);
+    const host = settingBodyHost(setting);
     const s = new Setting(host).setName("Smart-Apply-Modell")
       .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.');
     const key = this.plugin.activeChatEndpoint ?? "";
@@ -894,7 +815,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     for (const id of this.pollIntervals) window.clearInterval(id);
     this.pollIntervals = [];
     if (this.mcpPortRestartTimer !== null) { window.clearTimeout(this.mcpPortRestartTimer); this.mcpPortRestartTimer = null; }
-    this.runRowCleanups();
+    this.cleanupPrevious();
+    this.cleanupPrevious = () => {};
     this.resolvedOnOpen = false;
     this.modelLists.clear();
     super.hide();
@@ -947,7 +869,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       setRowsDisabled(true);
     };
     // Idempotente Freigabe beim Betreten: Klasse und aria-busy überleben sonst den 1.13-Pfad —
-    // refreshUi() geht dort über update(), und hostFor leert zwar die Kinder des Containers, aber
+    // refreshUi() geht dort über update(), und settingBodyHost leert zwar die Kinder des Containers, aber
     // nicht seine Klassen/Attribute. Ohne das bliebe die Liste dauerhaft pointer-events: none.
     // Nur der Zustand: die Zeilen entstehen erst darunter, es gibt hier noch nichts zu entsperren.
     setLockState(false);

@@ -18,6 +18,7 @@
     "dev": "node esbuild.config.mjs",
     "test": "node scripts/check-no-abs-paths.mjs && node scripts/check-no-nul-bytes.mjs && vitest run",
     "lint": "eslint src --max-warnings 0",
+    "gate": "npm run typecheck && npm test && npm run lint && npm run build",
     "typecheck": "tsc --noEmit",
     "version-bump": "node scripts/version-bump.mjs",
     "release": "node scripts/release.mjs",

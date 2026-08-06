@@ -2,7 +2,7 @@ import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
 import { httpJson, probeEndpoint } from "./http";
 import { authHeaders } from "./endpoint_config";
-import { EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
+import { EndpointStatus, extractModelIds } from "./vendor/kit/endpoint_diagnostics";
 
 export class EmbeddingClient {
   private endpoint: string;
@@ -25,8 +25,7 @@ export class EmbeddingClient {
     try {
       const { status, json } = await httpJson({ url: `${this.endpoint}/v1/models`, headers: authHeaders(this.apiKey) });
       if (status !== 200) return [];
-      const j = json as { data?: { id?: string }[] };
-      return (j.data ?? []).map(m => m.id).filter((x): x is string => typeof x === "string").sort();
+      return extractModelIds(json).sort();
     } catch { return []; }
   }
 

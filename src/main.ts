@@ -1,4 +1,6 @@
-import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView, getLanguage } from "obsidian";
+import "./i18n/strings";
+import { pickLang, setLang, t } from "./vendor/kit/i18n";
 import { VaultIndex } from "./index";
 import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
@@ -175,6 +177,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   async onload() {
+    setLang(pickLang(getLanguage()));
     // Prä-0.19-data.json trägt die Endpunkte als blanke URL-Strings (und noch älter als
     // Einzelfeld) — hier ehrlich getypt, migriert wird gleich darunter.
     const loaded = await this.loadData() as (Omit<Partial<VaultRagSettings>, "embeddingEndpoints" | "chatEndpoints"> & {

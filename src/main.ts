@@ -355,7 +355,7 @@ export default class VaultRagPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor) => {
       if (!editor.getSelection().trim()) return;
       menu.addItem(item => item
-        .setTitle("Abschnitt umformatieren")
+        .setTitle(t("command.reformatSelection"))
         .setIcon("wand")
         .onClick(() => void this.reformatFromCommand()));
     }));

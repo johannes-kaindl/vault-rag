@@ -434,7 +434,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       { name: "Smart-Apply-Temperatur",
         desc: "Temperatur für den Umsortier-Call (0 = deterministisch — empfohlen für reproduzierbare Vorschläge).",
         control: { type: "slider", key: "smartApplyTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
-      { name: "Smart-Apply-Modell", desc: 'Modell für den Umsortier-Call. Leer = Chat-Modell verwenden.',
+      { name: t("settings.smartApplyModel.name"), desc: 'Modell für den Umsortier-Call. Leer = Chat-Modell verwenden.',
         render: this.renderSmartApplyModel },
       { name: "Thinking unterdrücken (Smart Apply)",
         desc: "Sendet Suppress-Hints für den Smart-Apply-Call — sinnvoll bei Thinking-Modellen, die auch strukturiert schreiben können.",
@@ -484,7 +484,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         choice: resolveModelChoice({
           reachable, models, current: this.plugin.settings.embeddingModel, allowEmpty: false,
         }),
-        ariaLabel: "Embedding-Modell",
+        ariaLabel: t("settings.embeddingModel.name"),
         placeholder: "qwen3-embedding:8b",
         onPick: (v: string) => {
           this.plugin.settings.embeddingModel = v;
@@ -700,7 +700,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         choice: resolveModelChoice({
           reachable, models, current: this.plugin.settings.chatModel, allowEmpty: false,
         }),
-        ariaLabel: "Chat-Modell",
+        ariaLabel: t("settings.chatModel.name"),
         placeholder: "qwen3",
         onPick: (v: string) => {
           this.plugin.settings.chatModel = v;
@@ -776,7 +776,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           reachable, models, current: this.plugin.settings.smartApplyModel,
           allowEmpty: true, emptyLabel: "Chat-Modell verwenden",
         }),
-        ariaLabel: "Smart-Apply-Modell",
+        ariaLabel: t("settings.smartApplyModel.name"),
         placeholder: "leer = Chat-Modell",
         onPick: (v: string) => {
           this.plugin.settings.smartApplyModel = v;

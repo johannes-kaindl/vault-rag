@@ -292,19 +292,19 @@ export default class VaultRagPlugin extends Plugin {
 
     this.addCommand({
       id: "reindex-vault",
-      name: "Vault neu indizieren",
+      name: t("command.reindexVault"),
       callback: () => void this.reindexVault(),
     });
 
     this.addCommand({
       id: "heal-index",
-      name: "Index vervollständigen (fehlende Notizen)",
+      name: t("command.healIndex"),
       callback: () => void this.healVault(),
     });
 
     this.addCommand({
       id: "restore-index-backup",
-      name: "Index aus Backup wiederherstellen",
+      name: t("command.restoreBackup"),
       callback: () => void (async () => { new RestoreBackupModal(this.app, await this.listBackups(), (n) => void this.restoreBackup(n)).open(); })(),
     });
 
@@ -324,13 +324,13 @@ export default class VaultRagPlugin extends Plugin {
     // this.smartApply/this.templateRanker (oben im smartApplyEnabled-Block gebaut) bereits existieren.
     this.registerView(VIEW_TYPE_HUB, (leaf: WorkspaceLeaf) => new VaultRetrievalView(leaf, this.buildPanels(), "related"));
     this.addRibbonIcon("layers", "Vault Retrieval", () => void this.openHub("related"));
-    this.addCommand({ id: "open-related", name: "Verwandte Notizen öffnen", callback: () => void this.openHub("related") });
-    this.addCommand({ id: "open-semantic-search", name: "Semantische Suche öffnen", callback: () => void this.openHub("search") });
-    this.addCommand({ id: "open-vault-chat", name: "Vault Chat öffnen", callback: () => void this.openHub("chat") });
-    this.addCommand({ id: "open-reformat", name: "Umformatieren-Panel öffnen", callback: () => void this.openHub("reformat") });
+    this.addCommand({ id: "open-related", name: t("command.openRelated"), callback: () => void this.openHub("related") });
+    this.addCommand({ id: "open-semantic-search", name: t("command.openSemanticSearch"), callback: () => void this.openHub("search") });
+    this.addCommand({ id: "open-vault-chat", name: t("command.openVaultChat"), callback: () => void this.openHub("chat") });
+    this.addCommand({ id: "open-reformat", name: t("command.openReformat"), callback: () => void this.openHub("reformat") });
     this.addCommand({
       id: "smart-apply-active-note",
-      name: "Smart Apply auf aktive Notiz",
+      name: t("command.smartApplyActiveNote"),
       checkCallback: (checking: boolean) => {
         const f = this.app.workspace.getActiveFile();
         const ok = f instanceof TFile && f.extension === "md" && this.settings.smartApplyEnabled;
@@ -341,7 +341,7 @@ export default class VaultRagPlugin extends Plugin {
 
     this.addCommand({
       id: "reformat-selection",
-      name: "Abschnitt umformatieren",
+      name: t("command.reformatSelection"),
       // Bewusst `callback` statt `editorCallback`: editorCallback blendet den Command
       // aus der Palette aus, sobald kein Editor aktiv ist (Lesemodus, Fokus in der
       // Sidebar) — er verschwand dadurch kommentarlos. Jetzt immer sichtbar und
@@ -405,7 +405,7 @@ export default class VaultRagPlugin extends Plugin {
           params: () => ({ model: this.chatModelInUse, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
         }),
         openPath: this.openPath,
-        copyText: (t: string) => { void navigator.clipboard.writeText(t); new Notice("Kopiert"); },
+        copyText: (text: string) => { void navigator.clipboard.writeText(text); new Notice(t("main.copied")); },
         ping: () => this.chatReady(),
         listModels: () => this.chatClient.listModels(),
         getModel: () => this.settings.chatModel,
@@ -525,12 +525,7 @@ export default class VaultRagPlugin extends Plugin {
     if (signature === this.lastSkipNotice) return;
     this.lastSkipNotice = signature;
     if (!skipped.length) return;
-    new Notice(
-      `Embedding-Endpunkt übersprungen: ${skipped.join(", ")} passt nicht zum Modell des Index `
-      + `(${indexModel ?? "unbekannt"}). Ein Wechsel des Embedding-Modells erfordert einen `
-      + `vollständigen Neuaufbau des Index.`,
-      10000,
-    );
+    new Notice(t("main.embeddingEndpointSkipped", skipped.join(", "), indexModel ?? t("main.unknown")), 10000);
   }
 
   /** Nutzertext für eine Schreib-Blockade — egal ob geworfen (`persist`) oder vorab entschieden
@@ -538,9 +533,7 @@ export default class VaultRagPlugin extends Plugin {
    *  „Index wirkt beschädigt"-Meldung wäre dort schlicht falsch. Nie mit Schlüssel. */
   private blockedMessage(kind: PersistBlockedError["kind"] | undefined, fallback: string): string {
     if (kind !== "model-mismatch") return fallback;
-    return "⚠ Vault Retrieval: Das Embedding-Modell dieses Endpunkts passt nicht zum Index — "
-      + "es wird nichts geschrieben (Schreibschutz). Suche und Lesen laufen weiter. Ausweg: passenden "
-      + 'Endpunkt eintragen oder „Vault neu indizieren".';
+    return t("main.blockedModelMismatch");
   }
 
   /** Wie `blockedMessage`, nur direkt aus einem gefangenen Fehler — auch aus einem `unknown`
@@ -643,7 +636,7 @@ export default class VaultRagPlugin extends Plugin {
       // Datenverlust-Schutz (B-vor-A): hatte der alte Ordner einen vollständigen Index, MUSS der
       // neue ihn nach der Migration auch haben — sonst nichts umstellen, nichts persistieren, nichts löschen.
       if ((await this.indexComplete(oldDir)) && !(await this.indexComplete(target))) {
-        new Notice(`Index-Verlegung nach „${target}" unvollständig — nichts geändert, „${oldDir}" bleibt aktiv.`);
+        new Notice(t("main.indexMoveIncomplete", target, oldDir));
         return;
       }
       this.settings.indexDir = target;
@@ -659,7 +652,7 @@ export default class VaultRagPlugin extends Plugin {
       if (this.index) {
         await this.cleanupIndexDir(oldDir);
       } else {
-        new Notice(`Neuer Index unter „${target}" nicht ladbar — alter Ordner „${oldDir}" bleibt als Sicherung erhalten.`);
+        new Notice(t("main.newIndexNotLoadable", target, oldDir));
       }
     } finally {
       this.isSwitchingIndexDir = false;
@@ -679,13 +672,13 @@ export default class VaultRagPlugin extends Plugin {
     try {
       const listing = await this.app.vault.adapter.list(dir);
       if (!onlyContainsIndexFiles(listing.files ?? [], listing.folders ?? [])) {
-        new Notice(`Alter Index-Ordner „${dir}" enthält weitere Dateien — bitte manuell prüfen.`);
+        new Notice(t("main.oldFolderHasFiles", dir));
         return;
       }
       await removeDirDeep(this.app.vault.adapter, dir);
     } catch (e) {
       console.warn("vault-rag: cleanupIndexDir failed", e);
-      new Notice(`Alter Index-Ordner „${dir}" konnte nicht entfernt werden — bitte manuell prüfen.`);
+      new Notice(t("main.oldFolderRemoveFailed", dir));
     }
   }
 
@@ -775,7 +768,7 @@ export default class VaultRagPlugin extends Plugin {
     let files: string[] = [];
     try { files = (await this.app.vault.adapter.list(src)).files ?? []; } catch { /* → unvollständig */ }
     if (!hasAllRequiredFiles(files)) {
-      new Notice(`Backup „${name}" unvollständig — Wiederherstellung abgebrochen.`);
+      new Notice(t("main.backupIncomplete", name));
       return;
     }
     // Legacy-Backup (Prä-0.18-Tripel, kein Container): die korrupte index.bin im indexDir MUSS weg,
@@ -789,7 +782,7 @@ export default class VaultRagPlugin extends Plugin {
     }
     await migrateIndex(this.app.vault.adapter, src, this.settings.indexDir);
     await this.loadIndex();
-    new Notice(this.indexHealthy ? "Index aus Backup wiederhergestellt." : "Wiederhergestellter Index ließ sich nicht laden.");
+    new Notice(this.indexHealthy ? t("main.restoredFromBackup") : t("main.restoredIndexNotLoadable"));
   }
 
   /** Command-/Kontextmenü-Weg: Zustand frisch erfassen, Picker zeigen, ausführen. */
@@ -806,9 +799,9 @@ export default class VaultRagPlugin extends Plugin {
   async runTransform(def: TransformDef, instruction?: string): Promise<void> {
     const cap = this.lastCapture;
     if (!cap || !canRun(this.lastReadiness)) { new Notice(readinessMessage(this.lastReadiness)); return; }
-    if (!this.captureIsLive(cap)) { new Notice("Die Notiz ist nicht mehr offen — bitte neu markieren."); return; }
+    if (!this.captureIsLive(cap)) { new Notice(t("main.noteNoLongerOpen")); return; }
     if (isRangeStale(cap.editor.getRange(cap.from, cap.to), cap.text)) {
-      new Notice("Die Auswahl hat sich geändert — bitte neu markieren."); return;
+      new Notice(t("main.selectionChangedReselect")); return;
     }
 
     // Umgebende Leerzeichen nicht in den Transform geben, beim Zurückschreiben wieder anfügen.
@@ -816,7 +809,7 @@ export default class VaultRagPlugin extends Plugin {
 
     if (def.kind === "mechanical") {
       const result = def.run(core);
-      if (result == null) { new Notice(`„${def.label}" passt nicht zur Auswahl.`); return; }
+      if (result == null) { new Notice(t("main.transformDoesNotFit", def.label)); return; }
       cap.editor.replaceRange(lead + result + trail, cap.from, cap.to);
       return;
     }
@@ -842,7 +835,7 @@ export default class VaultRagPlugin extends Plugin {
       onApply: (result) => {
         // Erneut prüfen: zwischen Öffnen des Modals und „Anwenden" kann editiert worden sein.
         if (!this.captureIsLive(cap) || isRangeStale(cap.editor.getRange(cap.from, cap.to), cap.text)) {
-          new Notice("Die Auswahl hat sich geändert — nichts eingefügt.");
+          new Notice(t("main.selectionChangedNothingInserted"));
           return;
         }
         cap.editor.replaceRange(lead + result + trail, cap.from, cap.to);
@@ -852,7 +845,7 @@ export default class VaultRagPlugin extends Plugin {
 
   /** Kompakter Zustands-Text für die Robustheits-Sektion in den Einstellungen. */
   indexHealthReadout(embedded: number, total: number, healthy: boolean, emptyCount = 0): string {
-    if (!healthy) return "⚠ Embedding-Index beschädigt — Laden fehlgeschlagen (Schreibschutz aktiv; deine Notizen sind unberührt)";
+    if (!healthy) return t("main.indexDamagedLoadFailed");
     return indexDeltaReadout(embedded, total, emptyCount);
   }
 
@@ -892,7 +885,7 @@ export default class VaultRagPlugin extends Plugin {
       // Konservativ: nur bei substanzieller Lücke laut werden (>5% UND >20 Notizen),
       // und nur wenn der Embedder erreichbar ist (sonst ist die Lücke evtl. temporär).
       if (embeddable.length > 20 && embeddable.length > vaultPaths.length * 0.05 && await this.embedderReady()) {
-        new Notice(`vault-rag: ${embeddable.length} von ${vaultPaths.length} Notizen fehlen im Index.`, 8000);
+        new Notice(t("main.notesMissingFromIndex", embeddable.length, vaultPaths.length), 8000);
         // Fire-and-forget: loadIndex() blockiert onload() nicht auf User-Interaktion.
         void confirmAction(this.app, {
           title: "Index vervollständigen?",
@@ -916,7 +909,7 @@ export default class VaultRagPlugin extends Plugin {
       this.liveIndexer.markUnready();
       this.indexHealthy = false;
       this.syncProgress();
-      new Notice("⚠ Vault Retrieval: Der Embedding-Index für die Ähnlichkeitssuche ist beschädigt — deine Notizen sind unberührt, nur der Suchindex. Schreibschutz aktiv; automatische Wiederherstellung wird versucht.", 10000);
+      new Notice(t("main.indexCorruptAutoHealAttempt"), 10000);
       // Fire-and-forget: die Heal-Kaskade darf onload()/loadIndex() nicht auf Netz/Backups blocken.
       void this.attemptAutoHeal();
     }
@@ -943,7 +936,7 @@ export default class VaultRagPlugin extends Plugin {
       // Versuch wieder freigeben: ein transient offline gestarteter Obsidian darf den einzigen
       // Versuch der Episode nicht verbrauchen — der nächste corrupt-Load probiert es erneut.
       this.autoHealAttempted = false;
-      new Notice("vault-rag: Automatische Wiederherstellung nicht möglich (Embedding-Endpoint nicht erreichbar) — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      new Notice(t("main.autoHealImpossibleEndpointUnreachable"), 10000);
       return;
     }
     let candidate: VaultIndex | null = null;
@@ -952,7 +945,7 @@ export default class VaultRagPlugin extends Plugin {
       if (candidate) break;
     }
     if (!candidate) { // keine beweisbare Basis → Status quo, aber nicht stumm (Spec §Heal-Kaskade Schritt 3)
-      if (!this.indexHealthy) new Notice("vault-rag: Automatische Wiederherstellung nicht möglich (kein intaktes lokales Backup gefunden) — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      if (!this.indexHealthy) new Notice(t("main.autoHealImpossibleNoBackup"), 10000);
       return;
     }
     const base = candidate;
@@ -962,7 +955,7 @@ export default class VaultRagPlugin extends Plugin {
     // (verifyBackupCandidate, CRC-Beweis), also dieselbe Regel (assertModelSafeToPersist) auf
     // dieselbe Frage anwenden, bevor additiv fremde Vektoren einmischen.
     if (!assertModelSafeToPersist(base.manifest.embedding_model, this.embeddingModelInUse, "heal").allowed) {
-      new Notice("vault-rag: Automatische Wiederherstellung nicht möglich — das Backup wurde mit einem anderen Embedding-Modell gebaut als der aktive Endpunkt. Schreibschutz bleibt aktiv; passenden Endpunkt eintragen oder neu indizieren.", 10000);
+      new Notice(t("main.autoHealImpossibleModelMismatch"), 10000);
       return;
     }
     // liveIndexer einmal snapshotten (Repo-Konvention, vgl. handleDelete/drainPending): ein
@@ -993,16 +986,16 @@ export default class VaultRagPlugin extends Plugin {
       // ewig auf „automatische Wiederherstellung wird versucht" sitzen.
       console.warn("vault-rag: attemptAutoHeal failed", e);
       li.markUnready();
-      new Notice("vault-rag: Automatische Wiederherstellung fehlgeschlagen — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      new Notice(t("main.autoHealFailed"), 10000);
       return;
     }
     // guter Index steht wieder → stiller Abbruch, keine Notice; Versuch wieder freigeben (s. o.).
     if (aborted) { this.autoHealAttempted = false; return; }
     if (healed) {
-      new Notice(`vault-rag: Index automatisch aus Backup wiederhergestellt — ${added} Notizen ergänzt.`, 8000);
+      new Notice(t("main.autoHealRestoredFromBackup", added), 8000);
       await this.loadIndex(); // lädt den frisch persistierten Container → gesunder Zustand
     } else {
-      new Notice("vault-rag: Automatische Wiederherstellung unvollständig — Schreibschutz bleibt aktiv. Über Einstellungen › Index-Robustheit wiederherstellen oder neu indizieren.", 10000);
+      new Notice(t("main.autoHealIncomplete"), 10000);
     }
   }
 
@@ -1025,7 +1018,7 @@ export default class VaultRagPlugin extends Plugin {
           this.indexHealthy = true;
           this.liveIndexer.init(prevIndex);
           this.syncProgress();
-          new Notice(`vault-rag: Reload lieferte einen schlechteren Index (${newCount} statt ${prevCount}) — guter Index behalten. „Index vervollständigen", um zu vereinen.`, 10000);
+          new Notice(t("main.reloadWorseIndex", newCount, prevCount), 10000);
         } else {
           void this.snapshotIndex(); // NUR bei gutem, übernommenem Reload snapshotten (siehe Fix 3)
         }
@@ -1078,7 +1071,7 @@ export default class VaultRagPlugin extends Plugin {
         } catch (e) {
           if (e instanceof PersistBlockedError) {
             this.indexHealthy = false;
-            new Notice(this.persistBlockedMessage(e, "⚠ Vault Retrieval: Embedding-Index wirkt beschädigt — Änderung vorgemerkt statt überschrieben (Schreibschutz). Deine Notizen sind unberührt."), 8000);
+            new Notice(this.persistBlockedMessage(e, t("main.persistBlockedGeneric")), 8000);
           }
           await this.pendingQueue.add(path);
           this.syncProgress();
@@ -1112,7 +1105,7 @@ export default class VaultRagPlugin extends Plugin {
         this.syncProgress();
         this.refresh();
       } catch (e) {
-        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, "⚠ vault-rag: Löschung nicht persistiert (Schreibschutz)."), 8000); }
+        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, t("main.persistBlockedDelete")), 8000); }
         else console.warn("vault-rag: handleDelete failed", e);
       }
     });
@@ -1135,7 +1128,7 @@ export default class VaultRagPlugin extends Plugin {
           this.syncProgress();
           this.refresh();
         } catch (e) {
-          if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, "⚠ vault-rag: Umbenennung nicht persistiert (Schreibschutz)."), 8000); }
+          if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, t("main.persistBlockedRename")), 8000); }
           else console.warn("vault-rag: handleRename failed", e);
         }
       });
@@ -1197,12 +1190,12 @@ export default class VaultRagPlugin extends Plugin {
 
   async reindexVault(): Promise<void> {
     if (!(await this.embedderReady())) {
-      new Notice("Embedding-Endpoint nicht erreichbar — Vault-Indizierung abgebrochen.");
+      new Notice(t("main.embeddingUnreachableIndexAborted"));
       return;
     }
     const allPaths = this.vaultMarkdownPaths();
     const total = allPaths.length;
-    const notice = new Notice(`Indiziere Vault… 0/${total}`, 0);
+    const notice = new Notice(t("main.indexingProgress", 0, total), 0);
     // Statusleiste fürs Reindex einblenden (falls aus), damit man die Notice wegklicken kann
     // und den Fortschritt unten weiterverfolgt; am Ende auf das Setting zurücksetzen.
     const statusReveal = !this.statusBarEl;
@@ -1217,7 +1210,7 @@ export default class VaultRagPlugin extends Plugin {
         (done, _indexed, tot) => {
           this.embeddingProgress.reindex = { done, total: tot };
           this.updateStatusBar();
-          notice.setMessage(`Indiziere Vault… ${done}/${tot}`);
+          notice.setMessage(t("main.indexingProgress", done, tot));
         },
       );
       // Voll-Reindex hat den ganzen Vault gelesen → frischeste Leer-Klassifikation.
@@ -1227,10 +1220,10 @@ export default class VaultRagPlugin extends Plugin {
       this.indexHealthy = true;
       this.refresh();
       void this.snapshotIndex();
-      notice.setMessage(`Vault indiziert: ${report.added} Notizen.`);
+      notice.setMessage(t("main.indexingComplete", report.added));
     } catch (e) {
       console.warn("vault-rag: reindexVault failed", e);
-      notice.setMessage(this.persistBlockedMessage(e, "Vault-Indizierung fehlgeschlagen."));
+      notice.setMessage(this.persistBlockedMessage(e, t("main.indexingFailed")));
     } finally {
       this.embeddingProgress.reindex = null;
       this.embeddingProgress.isEmbedding = false;
@@ -1243,7 +1236,7 @@ export default class VaultRagPlugin extends Plugin {
   /** Delta-Reindex: nur im Vault vorhandene, aber nicht indizierte Notizen nachziehen. */
   async healVault(): Promise<void> {
     if (!(await this.embedderReady())) {
-      new Notice("Embedding-Endpoint nicht erreichbar — Vervollständigen abgebrochen.");
+      new Notice(t("main.embeddingUnreachableHealAborted"));
       return;
     }
     // liveIndexer einmal snapshotten (Repo-Konvention, vgl. handleDelete/drainPending/attemptAutoHeal):
@@ -1254,7 +1247,7 @@ export default class VaultRagPlugin extends Plugin {
     if (!li.isReady()) {
       // isReady() false heißt: kein geladener Index ODER Schreibschutz nach Load-/Heal-Fehler —
       // „kein Index geladen" allein wäre in der zweiten Lage sachlich falsch.
-      new Notice(`Kein sicherer Basis-Index verfügbar (nicht geladen oder Schreibschutz) — bitte „Aus Backup wiederherstellen" oder „Vault neu indizieren".`);
+      new Notice(t("main.noSafeBaseIndex"));
       return;
     }
     // Modell-Verträglichkeit VOR dem Embedden klären (Disk-Wahrheit, dieselbe Regel wie in
@@ -1263,18 +1256,18 @@ export default class VaultRagPlugin extends Plugin {
     // schriebe sie mit. Nicht embedden ist billiger als zurückrollen.
     const gate = await li.checkModelAgainstDisk("heal");
     if (!gate.allowed) {
-      new Notice(this.blockedMessage(gate.kind, "Vervollständigen abgebrochen: Der Index auf Platte ist gerade nicht lesbar (Sync läuft oder Container beschädigt) — bitte später erneut versuchen oder aus einem Backup wiederherstellen."), 10000);
+      new Notice(this.blockedMessage(gate.kind, t("main.healAbortedIndexUnreadable")), 10000);
       return;
     }
     const vaultPaths = this.vaultMarkdownPaths();
     const indexPaths = [...(this.index ? this.index.paths : [])];
     const { missing } = diffIndexVsVault(indexPaths, vaultPaths);
-    if (missing.length === 0) { new Notice("Index ist vollständig — nichts zu tun."); return; }
+    if (missing.length === 0) { new Notice(t("main.indexAlreadyComplete")); return; }
     // Bekannte leere Pfade nicht erneut embedden — Fortschritt/Meldung zählen sonst 179
     // statt der 1 echten Lücke (inkonsistent zur Index-Zustand-Zeile).
     const { embeddable, knownEmpty } = splitHealTargets(missing, this.emptyNotePaths);
     if (embeddable.length === 0) { new Notice(healResultMessage(0, knownEmpty.length, 0)); return; }
-    const notice = new Notice(`Vervollständige Index… 0/${embeddable.length}`, 0);
+    const notice = new Notice(t("main.healingProgress", 0, embeddable.length), 0);
     const statusReveal = !this.statusBarEl;
     if (statusReveal) this.setStatusBarVisible(true);
     this.embeddingProgress.isEmbedding = true;
@@ -1287,7 +1280,7 @@ export default class VaultRagPlugin extends Plugin {
         (done, _indexed, tot) => {
           this.embeddingProgress.reindex = { done, total: tot };
           this.updateStatusBar();
-          notice.setMessage(`Vervollständige Index… ${done}/${tot}`);
+          notice.setMessage(t("main.healingProgress", done, tot));
         },
       );
       // Leer-Set aktualisieren: bekannte Leere bleiben, frisch entdeckte kommen dazu.
@@ -1302,7 +1295,7 @@ export default class VaultRagPlugin extends Plugin {
       notice.setMessage(healResultMessage(report.added, knownEmpty.length + report.skippedEmpty.length, report.failed.length));
     } catch (e) {
       console.warn("vault-rag: healVault failed", e);
-      notice.setMessage(this.persistBlockedMessage(e, "Vervollständigen fehlgeschlagen."));
+      notice.setMessage(this.persistBlockedMessage(e, t("main.healingFailed")));
     } finally {
       this.embeddingProgress.reindex = null;
       this.embeddingProgress.isEmbedding = false;
@@ -1395,7 +1388,7 @@ export default class VaultRagPlugin extends Plugin {
       if (list.length === 1) {
         tpl = list[0];
       } else if (list.length === 0) {
-        new Notice("Keine Vorlage in " + this.settings.templateDir + " — lege eine an");
+        new Notice(t("main.noTemplateFound", this.settings.templateDir));
         throw new Error("keine-vorlage");
       } else {
         throw new Error("vorlage-waehlen");
@@ -1494,7 +1487,7 @@ export default class VaultRagPlugin extends Plugin {
     } catch (e) {
       this.mcpLastStartError = mapStartError(e as { code?: string; message?: string });
       console.warn("vault-rag: MCP-Server-Start fehlgeschlagen", e);
-      new Notice(`⚠ MCP-Server konnte nicht starten (${this.mcpLastStartError}): ${String((e as Error).message ?? e)}`, 8000);
+      new Notice(t("main.mcpStartFailed", this.mcpLastStartError, String((e as Error).message ?? e)), 8000);
       this.mcpServer = null;
     }
   }

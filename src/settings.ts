@@ -334,9 +334,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   private embeddingGroup(): SettingDefinitionGroup {
     return { type: "group", heading: "Live-Embedding", items: [
-      { name: "Embedding-Endpunkte", desc: "", render: this.renderEmbeddingEndpoints },
-      { name: "Embedding-Modell", desc: "Modellname wie auf dem Endpoint verfügbar", render: this.renderEmbeddingModel },
-      { name: "Embedding-Status", desc: "", render: this.renderEmbeddingStatus },
+      { name: t("settings.embeddingEndpoints.label"), desc: "", render: this.renderEmbeddingEndpoints },
+      { name: t("settings.embeddingModel.name"), desc: t("settings.embeddingModel.desc"), render: this.renderEmbeddingModel },
+      { name: t("settings.embeddingStatus.name"), desc: "", render: this.renderEmbeddingStatus },
       { name: "Debounce", desc: "Wartezeit nach dem letzten Speichern, bevor neu eingebettet wird",
         control: { type: "slider", key: "debounceMs", min: 500, max: 10000, step: 500,
           displayFormat: (v: number) => `${v / 1000} s` } },
@@ -347,7 +347,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
   private indexGroup(): SettingDefinitionGroup {
     return { type: "group", heading: "Index", items: [
-      { name: "Index-Ordner", desc: "", render: this.renderIndexDir },
+      { name: t("settings.indexFolder.name"), desc: "", render: this.renderIndexDir },
       { name: "Index-Ordner im Datei-Explorer ausblenden",
         desc: "Versteckt den Index-Ordner kosmetisch im Datei-Explorer. Daten, Sync und Suche bleiben unberührt. Standardmäßig an.",
         control: { type: "toggle", key: "hideIndexFolder" } },
@@ -359,7 +359,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  einer Stelle — kein zweiter Reindex-Button mehr in „Index". */
   private robustnessGroup(): SettingDefinitionGroup {
     return { type: "group", heading: "Index-Robustheit", items: [
-      { name: "Index-Zustand", desc: "", render: this.renderIndexHealth },
+      { name: t("settings.indexHealth.name"), desc: "", render: this.renderIndexHealth },
       { name: "Aus Backup wiederherstellen",
         desc: "Geräte-lokale Sicherungen des Index (letzte 3). Ersetzt den aktuellen Index.",
         action: () => { void (async () => {
@@ -393,10 +393,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  Action-Zeile, das Toggle selbst ist deklarativ. */
   private chatGroup(): SettingDefinitionGroup {
     return { type: "group", heading: "Chat", items: [
-      { name: "Chat-Endpunkte", desc: "", render: this.renderChatEndpoints },
-      { name: "Chat-Modell", desc: "Modellname wie auf dem Chat-Endpoint verfügbar", render: this.renderChatModel },
-      { name: "Modelldetails", desc: "", render: this.renderModelDetails },
-      { name: "Fähigkeiten", desc: "", render: this.renderCapsRow },
+      { name: t("settings.chatEndpoints.label"), desc: "", render: this.renderChatEndpoints },
+      { name: t("settings.chatModel.name"), desc: t("settings.chatModel.desc"), render: this.renderChatModel },
+      { name: t("settings.modelDetails.name"), desc: "", render: this.renderModelDetails },
+      { name: t("settings.capabilities.name"), desc: "", render: this.renderCapsRow },
       { name: "Kontext-Notizen", desc: "Wie viele Notizen als Kontext in den Chat gehen (Auto-RAG)",
         control: { type: "slider", key: "chatK", min: 1, max: 20, step: 1, displayFormat: (v: number) => String(v) } },
       { name: "Kontext-Budget", desc: "", render: this.renderBudget },
@@ -517,7 +517,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       // Nur die eingebettete Zahl hier — der echte Rückstand (fehlende Notizen) lebt als EINE
       // Wahrheit in der Index-Zustand-Zeile (Index-Robustheit). „pending" war die transiente
       // Offline-Queue und kollidierte optisch mit dem Deckungs-Delta.
-      const counts = p ? `${p.embeddedNotes.toLocaleString("de-DE")} eingebettet` : "";
+      const counts = p ? `${p.embeddedNotes.toLocaleString()} eingebettet` : "";
       const act = p?.isEmbedding ? "Embedding läuft" : "";
       text.setText([conn, act, counts].filter(Boolean).join(" · "));
     };
@@ -1127,7 +1127,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     void this.plugin.chatClient?.modelInfo(model).then((info: { contextLength?: number; quantization?: string; state?: string } | null) => {
       if (!this.infoValue) return;
       if (info) {
-        const ctx = info.contextLength ? `max Context ${info.contextLength.toLocaleString("de-DE")}` : "";
+        const ctx = info.contextLength ? `max Context ${info.contextLength.toLocaleString()}` : "";
         this.infoValue.setText([ctx, info.quantization, info.state].filter(Boolean).join(" · ") || "geladen");
         // Budget-Obergrenze ans Modell-Fenster koppeln (~4 Zeichen/Token).
         if (info.contextLength) this.updateBudgetMax(info.contextLength * 4);

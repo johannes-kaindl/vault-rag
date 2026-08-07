@@ -1,4 +1,5 @@
 import { setIcon, Notice } from "obsidian";
+import { t } from "./vendor/kit/i18n";
 import type { FmValue, FmChange, FmRow, Confidence } from "./frontmatter";
 import type { ApplyProposal, ApplyResult, ApplySelection } from "./smart_apply";
 import { assembleProposedText, defaultSelection } from "./smart_apply";
@@ -745,7 +746,7 @@ export class SmartApplyPanel implements HubPanel {
   async start(): Promise<void> {
     const path = this.deps.activeNotePath();
     if (path === null) {
-      new Notice("Keine aktive Markdown-Notiz — öffne eine Notiz und versuche es erneut.");
+      new Notice(t("smartApply.noActiveNote"));
       return;
     }
     const templatePath = this.selectedTemplate;
@@ -784,7 +785,7 @@ export class SmartApplyPanel implements HubPanel {
         this.templateHint = 'Konnte den Typ nicht automatisch zuordnen — bitte Vorlage oben wählen';
       } else {
         this.errorText = msg;
-        new Notice(`Smart Apply: ${msg}`);
+        new Notice(t("smartApply.error", msg));
         this.state = "error";
       }
     } finally {
@@ -808,7 +809,7 @@ export class SmartApplyPanel implements HubPanel {
       }
       // reason === "blocked" → stay in diff (guard banner already explains it)
     } catch (e) {
-      new Notice(`Smart Apply: ${e instanceof Error ? e.message : String(e)}`);
+      new Notice(t("smartApply.error", e instanceof Error ? e.message : String(e)));
     } finally {
       this.accepting = false;
     }
@@ -837,7 +838,7 @@ export class SmartApplyPanel implements HubPanel {
   private async onRebuild(): Promise<void> {
     const path = this.proposal?.notePath ?? this.deps.activeNotePath();
     if (path === null || path === undefined) {
-      new Notice("Keine aktive Markdown-Notiz — öffne eine Notiz und versuche es erneut.");
+      new Notice(t("smartApply.noActiveNote"));
       this.state = "idle";
       this.render();
       return;
@@ -855,7 +856,7 @@ export class SmartApplyPanel implements HubPanel {
     try {
       await undo();
     } catch (e) {
-      new Notice(`Smart Apply: ${e instanceof Error ? e.message : String(e)}`);
+      new Notice(t("smartApply.error", e instanceof Error ? e.message : String(e)));
       return; // Write fehlgeschlagen → Zustand nicht togglen (bliebe sonst inkonsistent zur Platte)
     }
     // Im applied-Zustand bleiben, aber als „rückgängig gemacht" — der Button wird zu Redo.
@@ -869,7 +870,7 @@ export class SmartApplyPanel implements HubPanel {
     try {
       await redo();
     } catch (e) {
-      new Notice(`Smart Apply: ${e instanceof Error ? e.message : String(e)}`);
+      new Notice(t("smartApply.error", e instanceof Error ? e.message : String(e)));
       return;
     }
     this.undone = false;

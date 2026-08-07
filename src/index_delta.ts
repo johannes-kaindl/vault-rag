@@ -1,10 +1,10 @@
 import { chunkMarkdown } from "./chunker";
 import { t } from "./vendor/kit/i18n";
 
-/** Formatiert den Index-Füllstand als "embedded / total Notizen" (de-DE), mit
- *  Vollständigkeits-Hinweis wenn nichts fehlt und optionalem Hinweis auf ignorierte
- *  leere Notizen. Pure — keine Obsidian-Abhängigkeit, daher direkt testbar ohne main.ts
- *  (das "obsidian" importiert). */
+/** Formatiert den Index-Füllstand als "embedded / total notes" (i18n via t(),
+ *  Zahlformat über die Runtime-Default-Locale), mit Vollständigkeits-Hinweis wenn
+ *  nichts fehlt und optionalem Hinweis auf ignorierte leere Notizen. Pure — keine
+ *  Obsidian-Abhängigkeit, daher direkt testbar ohne main.ts (das "obsidian" importiert). */
 export function indexDeltaReadout(embedded: number, total: number, emptyCount = 0): string {
   const fmt = (n: number): string => n.toLocaleString();
   const complete = embedded >= total ? t("indexDelta.complete") : "";

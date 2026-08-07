@@ -16,6 +16,7 @@ import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
+import { t } from "./vendor/kit/i18n";
 
 export { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT };
 export type { VaultRagSettings };
@@ -81,7 +82,7 @@ export class RestoreBackupModal extends Modal {
     contentEl.createEl("h2", { text: "Aus Backup wiederherstellen" });
     if (this.entries.length === 0) { contentEl.createEl("p", { text: "Keine Backups vorhanden." }); return; }
     for (const e of this.entries) {
-      const row = new Setting(contentEl).setName(`${e.count.toLocaleString("de-DE")} Notizen`).setDesc(e.name);
+      const row = new Setting(contentEl).setName(t("settings.recentNoteCount", e.count.toLocaleString())).setDesc(e.name);
       row.addButton(b => applyDestructive(b.setButtonText("Wiederherstellen")).onClick(() => { this.close(); this.onPick(e.name); }));
     }
   }
@@ -454,8 +455,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const host = settingBodyHost(setting);
     this.buildEndpointList({
       containerEl: host,
-      label: "Embedding-Endpunkte",
-      desc: "Pro Zeile: Adresse · API-Schlüssel · Modell. Die Endpunkte werden der Reihe nach probiert, der erste erreichbare wird genutzt. Lokale Server (Ollama/MLX/LM Studio) brauchen weder Schlüssel noch Modell — leer lassen heißt „globales Modell\". Für gehostete Anbieter beides eintragen.",
+      label: t("settings.embeddingEndpoints.label"),
+      desc: t("settings.embeddingEndpoints.desc"),
       placeholder: "http://localhost:11434",
       get: () => this.plugin.settings.embeddingEndpoints,
       set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
@@ -473,7 +474,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** render-Hatch: Embedding-Modell. Zeichnet über den gemeinsamen Picker. */
   private renderEmbeddingModel = (setting: Setting): void => {
     const host = settingBodyHost(setting);
-    const s = new Setting(host).setName("Embedding-Modell").setDesc("Modellname wie auf dem Endpoint verfügbar");
+    const s = new Setting(host).setName(t("settings.embeddingModel.name")).setDesc(t("settings.embeddingModel.desc"));
     const key = this.plugin.activeEmbeddingEndpoint ?? "";
     const gen = this.modelListGeneration;
     void this.loadModelList(key, this.plugin.embedder).then(({ models, reachable }) => {
@@ -499,7 +500,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  gesammelt und als Cleanup-Funktion zurückgegeben — hide() räumt pollIntervals defensiv ab. */
   private renderEmbeddingStatus = (setting: Setting): (() => void) => {
     const host = settingBodyHost(setting);
-    const s = new Setting(host).setName("Embedding-Status");
+    const s = new Setting(host).setName(t("settings.embeddingStatus.name"));
     const val = s.controlEl.createSpan({ cls: "vault-rag-info-value" });
     const dot = val.createSpan({ cls: "vault-rag-conn-dot" });
     const text = val.createSpan();
@@ -533,8 +534,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const host = settingBodyHost(setting);
     const s = new Setting(host);
     let typed = this.plugin.settings.indexDir;
-    s.setName("Index-Ordner")
-      .setDesc('Wo der Vektor-Index gespeichert wird. Synct cross-device (inkl. iPhone) nur mit der Obsidian-Sync-Option „Sync all other types". Ein Pfad mit „." am Anfang wird von Obsidian Sync ignoriert.')
+    s.setName(t("settings.indexFolder.name"))
+      .setDesc(t("settings.indexFolder.desc"))
       .addText(t => {
         t.setPlaceholder("_vaultrag").setValue(this.plugin.settings.indexDir);
         t.onChange((v: string) => { typed = v; });
@@ -543,11 +544,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .addButton(b => b.setButtonText("Übernehmen").onClick(async () => {
         const norm = normalizeIndexDir(typed);
         if (norm === "" || norm === normalizeIndexDir(this.plugin.settings.indexDir)) return;
-        if (isDotPath(norm)) new Notice('Index-Ordner beginnt mit „." — synct dann nicht cross-device (auch nicht aufs iPhone).');
+        if (isDotPath(norm)) new Notice(t("settings.indexFolder.dotWarning"));
         b.setButtonText("Verschiebe…"); b.setDisabled(true);
         try {
           await this.plugin.changeIndexDir(norm);
-          new Notice(`Index verschoben nach „${norm}".`);
+          new Notice(t("settings.indexFolder.moved", norm));
         } finally { b.setButtonText("Übernehmen"); b.setDisabled(false); }
         this.refreshUi();
       }));
@@ -559,7 +560,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const host = settingBodyHost(setting);
     const { embedded, total, healthy, emptyCount } = this.plugin.indexDelta();
     new Setting(host)
-      .setName("Index-Zustand")
+      .setName(t("settings.indexHealth.name"))
       .setDesc(this.plugin.indexHealthReadout(embedded, total, healthy, emptyCount))
       .addButton(b => b
         .setButtonText("Vervollständigen")
@@ -572,8 +573,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private renderMcpSection = (setting: Setting): void => {
     const containerEl = settingBodyHost(setting);
     new Setting(containerEl)
-      .setName("MCP-Server aktivieren")
-      .setDesc("Lokaler HTTP-Server, über den externe LLM-Agents (z. B. Claude Code) den Vault durchsuchen. Nur Desktop, nur solange Obsidian läuft. Loopback (127.0.0.1) + Token.")
+      .setName(t("settings.mcpEnable.name"))
+      .setDesc(t("settings.mcpEnable.desc"))
       .addToggle(t => t.setValue(this.plugin.settings.mcpEnabled).onChange(async (v: boolean) => {
         this.plugin.settings.mcpEnabled = v;
         if (v) this.plugin.ensureMcpToken();
@@ -583,8 +584,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
       }));
 
     new Setting(containerEl)
-      .setName("Port")
-      .setDesc("Loopback-Port des MCP-Servers (Default 8123). Änderung startet den Server neu.")
+      .setName(t("settings.mcpPort.name"))
+      .setDesc(t("settings.mcpPort.desc"))
       .addText(t => t.setPlaceholder("8123").setValue(String(this.plugin.settings.mcpPort))
         .onChange(async (v: string) => {
           const n = parseInt(v, 10);
@@ -605,27 +606,27 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const status = this.plugin.mcpServerRunning()
       ? `läuft · ${this.plugin.mcpServerAddress() ?? ""}`
       : (this.plugin.settings.mcpEnabled ? `aus — ${detail ?? "Start fehlgeschlagen"}` : "aus");
-    new Setting(containerEl).setName("Status").setDesc(status);
+    new Setting(containerEl).setName(t("settings.mcpStatus.name")).setDesc(status);
 
     if (!this.plugin.settings.mcpEnabled) return;
 
     const token = this.plugin.settings.mcpToken;
 
     new Setting(containerEl)
-      .setName("Token")
+      .setName(t("settings.mcpToken.name"))
       .setDesc(this.showMcpToken ? token : maskToken(token))
       .addButton(b => b.setButtonText(this.showMcpToken ? "Verbergen" : "Anzeigen")
         .onClick(() => { this.showMcpToken = !this.showMcpToken; this.refreshUi(); }))
       .addButton(b => applyDestructive(b.setButtonText("Neu generieren"))
         .onClick(async () => {
           await this.plugin.rotateMcpToken();
-          new Notice("Neuer Token — alte Clients müssen neu verbunden werden");
+          new Notice(t("settings.mcpToken.regenerated"));
           this.refreshUi();
         }));
 
     new Setting(containerEl)
-      .setName("Verbindung testen")
-      .setDesc("Prüft den Server über den Loopback-Endpunkt — wie ein externer Client.")
+      .setName(t("settings.mcpTestConnection.name"))
+      .setDesc(t("settings.mcpTestConnection.desc"))
       .addButton(b => b.setButtonText("Testen")
         .onClick(async () => {
           b.setDisabled(true);
@@ -635,18 +636,18 @@ export class VaultRagSettingTab extends PluginSettingTab {
             : res === "unauthorized" ? "Token stimmt nicht"
             : res === "unreachable" ? "Server nicht erreichbar (aus? Port?)"
             : "Antwort ist kein MCP";
-          new Notice(`MCP-Selbsttest: ${msg}`);
+          new Notice(t("settings.mcpSelfTest", msg));
         }));
 
     new Setting(containerEl)
-      .setName("Angebotene Tools")
-      .setDesc("search · related · read_note — read-only Zugriff auf den Vault-Index.");
+      .setName(t("settings.mcpTools.name"))
+      .setDesc(t("settings.mcpTools.desc"));
 
     const url = this.plugin.mcpServerAddress() ?? `http://127.0.0.1:${this.plugin.settings.mcpPort}/mcp`;
 
     new Setting(containerEl)
-      .setName("Client-Setup")
-      .setDesc("Config für deinen MCP-Client — Client wählen, dann kopieren.")
+      .setName(t("settings.mcpClientSetup.name"))
+      .setDesc(t("settings.mcpClientSetup.desc"))
       .addDropdown(d => {
         for (const c of MCP_CLIENTS) d.addOption(c.id, c.label);
         d.setValue(this.mcpClient);
@@ -655,7 +656,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .addButton(b => b.setButtonText("Kopieren")
         .onClick(() => {
           void navigator.clipboard.writeText(buildClientSnippet(this.mcpClient, { url, token }));
-          new Notice("MCP-Config kopiert");
+          new Notice(t("settings.mcpConfigCopied"));
         }));
 
     const pre = containerEl.createEl("pre", { cls: "vault-rag-mcp-snippet" });
@@ -667,8 +668,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const host = settingBodyHost(setting);
     this.buildEndpointList({
       containerEl: host,
-      label: "Chat-Endpunkte",
-      desc: "Pro Zeile: Adresse · API-Schlüssel · Modell. Die Endpunkte werden der Reihe nach probiert, der erste erreichbare wird genutzt. Lokale Server (Ollama/MLX/LM Studio) brauchen weder Schlüssel noch Modell — leer lassen heißt „globales Modell\". Für gehostete Anbieter beides eintragen.",
+      label: t("settings.chatEndpoints.label"),
+      desc: t("settings.chatEndpoints.desc"),
       placeholder: "http://localhost:1234",
       get: () => this.plugin.settings.chatEndpoints,
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
@@ -684,7 +685,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  (Cross-Referenz über Render-State, kein direkter Aufruf). */
   private renderChatModel = (setting: Setting): void => {
     const host = settingBodyHost(setting);
-    const s = new Setting(host).setName("Chat-Modell").setDesc("Modellname wie auf dem Chat-Endpoint verfügbar");
+    const s = new Setting(host).setName(t("settings.chatModel.name")).setDesc(t("settings.chatModel.desc"));
     const key = this.plugin.activeChatEndpoint ?? "";
     const gen = this.modelListGeneration;
     void this.loadModelList(key, this.plugin.chatClient).then(({ models, reachable }) => {
@@ -717,7 +718,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  asynchron befüllt. */
   private renderModelDetails = (setting: Setting): void => {
     const host = settingBodyHost(setting);
-    const s = new Setting(host).setName("Modelldetails");
+    const s = new Setting(host).setName(t("settings.modelDetails.name"));
     this.infoValue = s.controlEl.createSpan({ cls: "vault-rag-info-value", text: "…" });
   };
 
@@ -725,7 +726,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  runThinkingTest() bei einer Caps-Upgrade re-rendern. */
   private renderCapsRow = (setting: Setting): void => {
     const host = settingBodyHost(setting);
-    const s = new Setting(host).setName("Fähigkeiten");
+    const s = new Setting(host).setName(t("settings.capabilities.name"));
     this.capSetting = s;
     this.renderCaps(s, this.lastCaps);
   };
@@ -736,12 +737,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private renderBudget = (setting: Setting): void => {
     const host = settingBodyHost(setting);
     const s = new Setting(host);
-    s.setName(`Kontext-Budget: ${this.plugin.settings.contextCharBudget.toLocaleString("de-DE")} Zeichen`)
-      .setDesc("Maximale Gesamtlänge des Notiz-Kontexts (anteilig verteilt). Obergrenze richtet sich nach dem Modell-Fenster.")
+    s.setName(t("settings.contextBudget.name", this.plugin.settings.contextCharBudget.toLocaleString()))
+      .setDesc(t("settings.contextBudget.desc"))
       .addSlider(sl => {
         sl.setLimits(2000, 32000, 1000).setValue(this.plugin.settings.contextCharBudget)          .onChange(async (v: number) => {
             this.plugin.settings.contextCharBudget = v;
-            s.setName(`Kontext-Budget: ${v.toLocaleString("de-DE")} Zeichen`);
+            s.setName(t("settings.contextBudget.name", v.toLocaleString()));
             await this.plugin.saveSettings();
           });
         // Sobald das Modell-Fenster bekannt ist (showInfo): Slider-Max daran koppeln + Wert klemmen.
@@ -750,7 +751,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           sl.setLimits(2000, max, 1000);
           const val = Math.min(this.plugin.settings.contextCharBudget, max);
           sl.setValue(val);
-          s.setName(`Kontext-Budget: ${val.toLocaleString("de-DE")} / max ~${max.toLocaleString("de-DE")} Zeichen`);
+          s.setName(t("settings.contextBudget.nameWithMax", val.toLocaleString(), max.toLocaleString()));
           if (val !== this.plugin.settings.contextCharBudget) {
             this.plugin.settings.contextCharBudget = val;   // nur bei echter Klemmung schreiben
             void this.plugin.saveSettings();
@@ -763,8 +764,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  (= Chat-Modell erben), deshalb allowEmpty. */
   private renderSmartApplyModel = (setting: Setting): void => {
     const host = settingBodyHost(setting);
-    const s = new Setting(host).setName("Smart-Apply-Modell")
-      .setDesc('Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt "Chat" verwenden.');
+    const s = new Setting(host).setName(t("settings.smartApplyModel.name"))
+      .setDesc(t("settings.smartApplyModel.desc"));
     const key = this.plugin.activeChatEndpoint ?? "";
     const gen = this.modelListGeneration;
     void this.loadModelList(key, this.plugin.chatClient).then(({ models, reachable }) => {
@@ -794,20 +795,20 @@ export class VaultRagSettingTab extends PluginSettingTab {
     // Zeilen-Override ist das nicht `settings.chatModel`, und ein Test gegen den anderen
     // Namen liefe ins Leere („Endpoint nicht erreichbar" statt eines Thinking-Befunds).
     const model = this.plugin.chatModelInUse;
-    if (isAlwaysOnThinker(model)) { new Notice("Dieses Modell denkt immer (nur low/medium/high)."); return; }
+    if (isAlwaysOnThinker(model)) { new Notice(t("settings.thinkerAlwaysOn")); return; }
     try {
       const res = await this.plugin.chatClient.stream(
         [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
         () => {}, () => {}, undefined, { model, suppressThinking: true });
       const happened = reasoningHappened(res.content, res.reasoning);
-      new Notice(happened ? "Modell denkt trotz „aus“" : "Thinking wird unterdrückt");
+      new Notice(happened ? t("settings.thinkingDespiteOff") : t("settings.thinkingSuppressed"));
       if (happened) {
         // Live-Nachweis, dass das Modell denkt → Fähigkeiten-Zeile hochstufen.
         this.lastCaps = { ...this.lastCaps, thinking: { support: "always", confidence: "confirmed" } };
         if (this.capSetting) this.renderCaps(this.capSetting, this.lastCaps);
       }
     } catch {
-      new Notice("Chat-Endpoint nicht erreichbar");
+      new Notice(t("settings.chatEndpointUnreachable"));
     }
   }
 
@@ -878,7 +879,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const failSafe = (): void => {
       setLockState(false);
       setRowsDisabled(false);
-      new Notice("Endpunkt-Änderung konnte nicht gespeichert werden — bitte erneut versuchen.", 8000);
+      new Notice(t("settings.endpointSaveFailed"), 8000);
       // Re-Render statt bloßem Entsperren: bei einer gescheiterten Kette hat opts.set(...) die
       // Settings im Speicher bereits mutiert, bevor saveSettings()/reconnect() geworfen hat — ohne
       // Rebuild zeigt das DOM weiter die alte Reihenfolge/Indizes, und der nächste Klick auf
@@ -954,7 +955,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       };
       s.addText(tx => {
         tx.setPlaceholder(isAdder ? "Weiteren Endpunkt hinzufügen…" : opts.placeholder).setValue(cfg.url);
-        tx.inputEl.setAttribute("aria-label", isAdder ? `${opts.label}: weiteren Endpunkt hinzufügen` : `${opts.label}: URL`);
+        tx.inputEl.setAttribute("aria-label", isAdder ? t("settings.endpointRow.ariaAdd", opts.label) : `${opts.label}: URL`);
         tx.inputEl.addEventListener("blur", () => { commit("url", tx.getValue()); });
       });
       // Schlüssel + Modell nur an bestehenden Einträgen — am leeren Adder gäbe es nichts zu tragen.

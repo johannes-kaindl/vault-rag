@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-08-07
+
 ### Added
 - **Englische Benutzeroberfläche — vault-rag spricht jetzt zwei Sprachen.** Bisher war die
   gesamte Oberfläche fest deutsch, unabhängig von der Spracheinstellung in Obsidian. Jetzt

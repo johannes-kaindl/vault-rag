@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Englische Benutzeroberfläche — vault-rag spricht jetzt zwei Sprachen.** Bisher war die
+  gesamte Oberfläche fest deutsch, unabhängig von der Spracheinstellung in Obsidian. Jetzt
+  richtet sich das Plugin nach `Obsidian → Einstellungen → Über → Sprache`: **Englisch ist die
+  kanonische Fassung**, Deutsch wird ausgeliefert, jede andere Sprache fällt auf Englisch
+  zurück. Umgestellt sind die Einstellungen, alle Befehle der Befehlspalette, die Meldungen
+  (Notices) des Plugins sowie die Text-Bausteine für Index-Delta und Umformatieren-Bereitschaft.
+
+### Changed
+- **Zahlen werden in der Sprache der Oberfläche formatiert** statt fest nach deutscher
+  Konvention — eine englische Oberfläche zeigt `1,234` statt `1.234`.
+
+### Notes
+- Die Sprachumstellung ist **noch nicht vollständig**: ein Teil der Einstellungs-Zeilen, die
+  Statusleiste sowie einige Zustandstexte im Smart-Apply-Bereich sind weiterhin fest deutsch.
+  Diese Reste folgen in einer zweiten Runde.
+
 ## [0.20.0] — 2026-08-05
 
 ### Added

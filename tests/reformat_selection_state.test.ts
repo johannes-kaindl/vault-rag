@@ -3,13 +3,14 @@ import {
   readinessMessage, canRun, selectionPreview, isRangeStale, groupTransforms,
 } from "../src/reformat_selection_state";
 import { TRANSFORMS } from "../src/reformat_transforms";
+import "../src/i18n/strings"; // Register i18n strings
 
 describe("readinessMessage", () => {
   it("nennt für jeden blockierten Zustand einen Klartext-Grund", () => {
     expect(readinessMessage({ kind: "reading-mode" }))
-      .toBe("Formatierung im Lese-Modus nicht möglich — wechsle in den Bearbeiten-Modus.");
-    expect(readinessMessage({ kind: "no-selection" })).toBe("Nichts markiert.");
-    expect(readinessMessage({ kind: "no-editor" })).toBe("Keine Notiz im Bearbeiten-Modus geöffnet.");
+      .toBe("Formatting not possible in reading mode — switch to editing mode.");
+    expect(readinessMessage({ kind: "no-selection" })).toBe("Nothing selected.");
+    expect(readinessMessage({ kind: "no-editor" })).toBe("No note open in editing mode.");
   });
   it("ist bei ready leer (dort zeigt das Panel die Auswahl-Vorschau)", () => {
     expect(readinessMessage({ kind: "ready", text: "x" })).toBe("");

@@ -1,4 +1,5 @@
 import type { TransformDef, MechanicalTransform, LlmTransform } from "./reformat_transforms";
+import { t } from "./vendor/kit/i18n";
 
 /** Ob ein Transform gerade laufen kann — und wenn nein, warum nicht. */
 export type ReformatReadiness =
@@ -12,9 +13,9 @@ export type ReformatReadiness =
 export function readinessMessage(r: ReformatReadiness): string {
   switch (r.kind) {
     case "ready": return "";
-    case "reading-mode": return "Formatierung im Lese-Modus nicht möglich — wechsle in den Bearbeiten-Modus.";
-    case "no-selection": return "Nichts markiert.";
-    case "no-editor": return "Keine Notiz im Bearbeiten-Modus geöffnet.";
+    case "reading-mode": return t("reformat.readingMode");
+    case "no-selection": return t("reformat.noSelection");
+    case "no-editor": return t("reformat.noEditor");
   }
 }
 

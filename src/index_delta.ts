@@ -1,14 +1,15 @@
 import { chunkMarkdown } from "./chunker";
+import { t } from "./vendor/kit/i18n";
 
 /** Formatiert den Index-Füllstand als "embedded / total Notizen" (de-DE), mit
  *  Vollständigkeits-Hinweis wenn nichts fehlt und optionalem Hinweis auf ignorierte
  *  leere Notizen. Pure — keine Obsidian-Abhängigkeit, daher direkt testbar ohne main.ts
  *  (das "obsidian" importiert). */
 export function indexDeltaReadout(embedded: number, total: number, emptyCount = 0): string {
-  const fmt = (n: number): string => n.toLocaleString("de-DE");
-  const complete = embedded >= total ? " (vollständig)" : "";
-  const empty = emptyCount > 0 ? ` · ${fmt(emptyCount)} leere Notizen ignoriert` : "";
-  return `${fmt(embedded)} / ${fmt(total)} Notizen${complete}${empty}`;
+  const fmt = (n: number): string => n.toLocaleString();
+  const complete = embedded >= total ? t("indexDelta.complete") : "";
+  const empty = emptyCount > 0 ? t("indexDelta.emptyIgnored", fmt(emptyCount)) : "";
+  return `${t("indexDelta.readout", fmt(embedded), fmt(total))}${complete}${empty}`;
 }
 
 /** Rechnet das Anzeige-Delta unter Ausschluss nicht-indexierbarer (chunk-loser) Notizen:
@@ -58,12 +59,14 @@ export function splitHealTargets(
 /** Ehrliche Heal-Abschluss-Meldung: weist leere und fehlgeschlagene Notizen getrennt aus,
  *  statt sie stumm in „0 ergänzt" zu verstecken. */
 export function healResultMessage(added: number, skippedEmpty: number, failed: number): string {
-  const fmt = (n: number): string => n.toLocaleString("de-DE");
+  const fmt = (n: number): string => n.toLocaleString();
   if (added === 0 && failed === 0 && skippedEmpty > 0) {
-    return `Index vollständig — ${fmt(skippedEmpty)} leere Notizen übersprungen (kein Inhalt).`;
+    return t("indexDelta.completeEmptySkipped", fmt(skippedEmpty));
   }
-  let msg = `Index vervollständigt: ${fmt(added)} ${added === 1 ? "Notiz" : "Notizen"} ergänzt`;
-  if (skippedEmpty > 0) msg += ` · ${fmt(skippedEmpty)} leere übersprungen`;
-  if (failed > 0) msg += ` · ${fmt(failed)} fehlgeschlagen`;
+  let msg = added === 1
+    ? t("indexDelta.completed.singular", fmt(added))
+    : t("indexDelta.completed.plural", fmt(added));
+  if (skippedEmpty > 0) msg += t("indexDelta.skippedEmptySuffix", fmt(skippedEmpty));
+  if (failed > 0) msg += t("indexDelta.failedSuffix", fmt(failed));
   return msg + ".";
 }

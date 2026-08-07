@@ -1,22 +1,25 @@
 import { describe, it, expect } from "vitest";
+import "../src/i18n/strings"; // Register i18n strings
 import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "../src/index_delta";
 
 describe("indexDeltaReadout", () => {
-  it("zeigt embedded/total mit de-DE-Tausendertrennung", () => {
-    expect(indexDeltaReadout(980, 1000)).toBe("980 / 1.000 Notizen");
+  // Zahlformat folgt der Runtime-Default-Locale (kein hartes de-DE mehr im Code, s. Brief);
+  // in dieser Umgebung ist das de-DE (Punkt als Tausendertrennzeichen) — daher gemischt mit EN-Text.
+  it("zeigt embedded/total mit Tausendertrennung", () => {
+    expect(indexDeltaReadout(980, 1000)).toBe(`980 / ${(1000).toLocaleString()} notes`);
   });
   it("markiert Vollständigkeit bei embedded === total", () => {
-    expect(indexDeltaReadout(1000, 1000)).toBe("1.000 / 1.000 Notizen (vollständig)");
+    expect(indexDeltaReadout(1000, 1000)).toBe(`${(1000).toLocaleString()} / ${(1000).toLocaleString()} notes (complete)`);
   });
   it("behandelt total = 0", () => {
-    expect(indexDeltaReadout(0, 0)).toBe("0 / 0 Notizen (vollständig)");
+    expect(indexDeltaReadout(0, 0)).toBe("0 / 0 notes (complete)");
   });
   it("hängt bei emptyCount > 0 einen Leere-Notizen-Hinweis an", () => {
-    expect(indexDeltaReadout(4571, 4572, 178)).toBe("4.571 / 4.572 Notizen · 178 leere Notizen ignoriert");
-    expect(indexDeltaReadout(4572, 4572, 178)).toBe("4.572 / 4.572 Notizen (vollständig) · 178 leere Notizen ignoriert");
+    expect(indexDeltaReadout(4571, 4572, 178)).toBe(`${(4571).toLocaleString()} / ${(4572).toLocaleString()} notes · 178 empty notes ignored`);
+    expect(indexDeltaReadout(4572, 4572, 178)).toBe(`${(4572).toLocaleString()} / ${(4572).toLocaleString()} notes (complete) · 178 empty notes ignored`);
   });
   it("emptyCount 0 ändert nichts", () => {
-    expect(indexDeltaReadout(10, 10, 0)).toBe("10 / 10 Notizen (vollständig)");
+    expect(indexDeltaReadout(10, 10, 0)).toBe("10 / 10 notes (complete)");
   });
 });
 
@@ -71,16 +74,16 @@ describe("splitHealTargets", () => {
 
 describe("healResultMessage", () => {
   it("nur ergänzt → schlichte Erfolgsmeldung", () => {
-    expect(healResultMessage(5, 0, 0)).toBe("Index vervollständigt: 5 Notizen ergänzt.");
-    expect(healResultMessage(1, 0, 0)).toBe("Index vervollständigt: 1 Notiz ergänzt.");
+    expect(healResultMessage(5, 0, 0)).toBe("Index completed: 5 notes added.");
+    expect(healResultMessage(1, 0, 0)).toBe("Index completed: 1 note added.");
   });
   it("leere übersprungen werden ausgewiesen", () => {
-    expect(healResultMessage(1, 178, 0)).toBe("Index vervollständigt: 1 Notiz ergänzt · 178 leere übersprungen.");
+    expect(healResultMessage(1, 178, 0)).toBe("Index completed: 1 note added · 178 empty skipped.");
   });
   it("fehlgeschlagene werden ausgewiesen", () => {
-    expect(healResultMessage(0, 178, 1)).toBe("Index vervollständigt: 0 Notizen ergänzt · 178 leere übersprungen · 1 fehlgeschlagen.");
+    expect(healResultMessage(0, 178, 1)).toBe("Index completed: 0 notes added · 178 empty skipped · 1 failed.");
   });
   it("nichts ergänzt, nur leere → Index ist faktisch vollständig", () => {
-    expect(healResultMessage(0, 178, 0)).toBe("Index vollständig — 178 leere Notizen übersprungen (kein Inhalt).");
+    expect(healResultMessage(0, 178, 0)).toBe("Index complete — 178 empty notes skipped (no content).");
   });
 });

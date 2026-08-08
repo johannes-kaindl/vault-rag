@@ -19,6 +19,16 @@ const VISION = [
 ];
 const VISION_TOKEN = /(^|[-_:/. ])vl([-_:/. ]|$)/;        // qwen2-vl, qwen3-vl
 const GLM_V = /glm-4(\.\d+)?v/;                            // glm-4v, glm-4.1v, glm-4.5v
+// ⚠️ FEHLERHAFT — Fix liegt fertig in obsidian-kit 0.25.1, siehe TaskNote „Vision-Heuristik
+// meldet Gemma 3/4 fälschlich als vision-los" im Cockpit. Diese beiden Ausdrücke kennen nur die
+// Ollama-Schreibweise: LM Studios `google/gemma-3-4b-it` und die gesamte Gemma-4-Reihe fallen
+// durch und werden als „keine Vision" angezeigt, obwohl sie multimodal sind (2026-08-07 durch
+// den aktiven Vision-Test in image-to-markdown belegt). Kit-Fassung:
+//   const GEMMA_VISION = /gemma[-_]?[34]/;
+//   const GEMMA_TEXT   = /gemma[-_]?3[-_:]?(1b|270m)/;
+// Bewusst NICHT hier von Hand gepatcht: diese Datei ist der Fork von vor der Kit-Extraktion und
+// soll bei der geplanten Migration durch das vendorte Modul ersetzt werden — ein Handpatch würde
+// die Divergenz nur vertiefen.
 const GEMMA3_VISION = /gemma3/;                            // ≥4B; 1b/270m sind text-only
 const GEMMA3_TEXT = /gemma3:(1b|270m)/;
 const MISTRAL_VISION = /mistral-small.*(3\.1|3\.2)/;

@@ -206,9 +206,11 @@ reformat_prompts.ts     Pure Prompt-Builder je LLM-Zielformat (`buildTransformMe
                   `REFORMAT_MAX_TOKENS`. Anti-Fabrication im System-Prompt; NICHT verwandt mit
                   `note_restructurer.ANTI_FABRICATION` (das ist SmartApplys JSON-Protokoll).
 reformat_transforms.ts  `TRANSFORMS`-Registry — **einzige Wahrheit** für Picker UND Sidebar-Panel.
-                  Diskriminierte Union über `kind`: mechanisch trägt `run(text) → string|null`
-                  (null = Struktur passt nicht), llm trägt `buildMessages`; genau ein Eintrag
-                  hat `freetext: true`.
+                  Diskriminierte Union über `kind`; jeder Eintrag trägt `labelKey` (nicht das
+                  fertige Label) — die Registry ist eine Modul-Konstante, ihre Labels müssen
+                  deshalb erst zur Zeichenzeit übersetzt werden. Mechanisch trägt zusätzlich
+                  `run(text) → string|null` (null = Struktur passt nicht), llm trägt
+                  `buildMessages`; genau ein Eintrag hat `freetext: true`.
 reformat_selection_state.ts  Pure Bereitschafts-/Anzeige-Logik (Slice C.2): `ReformatReadiness`
                   (ready/reading-mode/no-selection/no-editor) · `readinessMessage` (EINE Wahrheit
                   für Notice und Panel-Kopfzeile) · `canRun` · `selectionPreview` ·

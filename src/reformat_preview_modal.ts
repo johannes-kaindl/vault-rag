@@ -1,5 +1,6 @@
 import { App, Modal, ButtonComponent } from "obsidian";
 import { waitingMessage } from "./reformat_progress";
+import { t } from "./vendor/kit/i18n";
 
 export interface ReformatPreviewOpts {
   /** Der markierte Ur-Text (nur Anzeige). */
@@ -26,15 +27,15 @@ export class ReformatPreviewModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
-    contentEl.createEl("h2", { text: "Umformatieren – Vorschau" });
-    contentEl.createEl("p", { cls: "vault-rag-reformat-label", text: "Original" });
+    contentEl.createEl("h2", { text: t("reformatPreview.title") });
+    contentEl.createEl("p", { cls: "vault-rag-reformat-label", text: t("reformatPreview.original") });
     contentEl.createEl("pre", { cls: "vault-rag-reformat-original", text: this.opts.original });
-    contentEl.createEl("p", { cls: "vault-rag-reformat-label", text: "Ergebnis" });
+    contentEl.createEl("p", { cls: "vault-rag-reformat-label", text: t("reformatPreview.result") });
     this.resultEl = contentEl.createEl("pre", { cls: "vault-rag-reformat-result" });
     const row = contentEl.createDiv({ cls: "modal-button-container" });
-    new ButtonComponent(row).setButtonText("Verwerfen").onClick(() => this.close());
-    new ButtonComponent(row).setButtonText("Neu generieren").onClick(() => void this.run());
-    this.applyBtn = new ButtonComponent(row).setButtonText("Anwenden").setCta()
+    new ButtonComponent(row).setButtonText(t("reformatPreview.discard")).onClick(() => this.close());
+    new ButtonComponent(row).setButtonText(t("reformatPreview.regenerate")).onClick(() => void this.run());
+    this.applyBtn = new ButtonComponent(row).setButtonText(t("reformatPreview.apply")).setCta()
       .setDisabled(true)
       .onClick(() => { this.opts.onApply(this.result); this.close(); });
     void this.run();
@@ -74,7 +75,7 @@ export class ReformatPreviewModal extends Modal {
     } catch (e) {
       if (this.controller !== ctrl) return;
       this.stopWaitTimer();
-      this.resultEl?.setText(`Fehler: ${e instanceof Error ? e.message : String(e)}`);
+      this.resultEl?.setText(t("reformatPreview.error", e instanceof Error ? e.message : String(e)));
       this.applyBtn?.setDisabled(true);
     }
   }

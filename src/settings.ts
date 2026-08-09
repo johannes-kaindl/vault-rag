@@ -649,7 +649,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .setName(t("settings.mcpClientSetup.name"))
       .setDesc(t("settings.mcpClientSetup.desc"))
       .addDropdown(d => {
-        for (const c of MCP_CLIENTS) d.addOption(c.id, c.label);
+        for (const c of MCP_CLIENTS) d.addOption(c.id, t(c.labelKey));
         d.setValue(this.mcpClient);
         d.onChange((v: string) => { this.mcpClient = v as McpClientId; this.refreshUi(); });
       })

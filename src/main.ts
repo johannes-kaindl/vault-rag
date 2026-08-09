@@ -1435,7 +1435,7 @@ export default class VaultRagPlugin extends Plugin {
     if (!url) return "unreachable";
     const body = JSON.stringify({
       jsonrpc: "2.0", id: 1, method: "initialize",
-      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "vault-retrieval-selfcheck", version: this.manifest.version } },
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "vault-retrieval-selfcheck", version: this.manifest.version } },   // i18n-exempt: JSON-RPC-Client-Kennung (Protokoll, kein UI-Text)
     });
     try {
       const raced = await withTimeout(

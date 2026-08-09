@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Englische Benutzeroberfläche vollständig.** Die zweite Runde der Sprachumstellung (siehe
+  0.21.0-Notiz) hebt die restlichen fest-deutschen Stellen auf die Sprachschicht: Endpunkt-Zeilen
+  und -Rollen, Backup-Verwaltung, Statusleiste, Vervollständigen-Dialog, Chat-Fehlertexte,
+  Smart-Apply-Panel (inkl. Block-Zählung), die Umformatieren-Vorschau, das Kontext-Panel des
+  Chats und die Client-Auswahl im MCP-Setup. Rund 250 Strings über 14 Dateien sind jetzt über
+  `t()` geführt.
+- **Regressionsschutz für die Sprachschicht:** ein struktureller Wächter-Test
+  (`tests/i18n/no_german_ui.test.ts`) läuft über sämtliche `src/**/*.ts`-Dateien und meldet jede
+  Text-Senke (Setting-Name, Tooltip, Button-Text, `aria-label`, `text:`/`label:`-Property), die
+  ein String-Literal erreicht, ohne durch `t()` zu laufen — sprachunabhängig statt über eine
+  Wortliste, die morgen schon veraltet wäre (`tests/i18n/sink_guard.ts`, aus Task 7 dieses Slices).
+
+### Notes
+- Zwei bewusst deutsch gebliebene Stellen: die `Confidence`-Werte `hoch`/`mittel`/`niedrig` in
+  `src/frontmatter.ts` (Frontmatter-Daten echter Notizen, keine UI) und die MCP-Tool-Beschreibungen
+  in `src/mcp/register_tools.ts` (liest ein Agent, kein Mensch — gehören auf Englisch, aber in
+  einen eigenen, kleinen Commit außerhalb dieses Slices).
+
 ## [0.21.0] — 2026-08-07
 
 ### Added

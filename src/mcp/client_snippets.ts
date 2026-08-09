@@ -1,15 +1,20 @@
 /** Setup-Snippets für externe MCP-Clients. Rein datengetrieben (URL + Token rein, String raus),
- *  obsidian-frei → in Node testbar. Servername überall "vault-retrieval". */
+ *  obsidian-frei → in Node testbar. Servername überall "vault-retrieval".
+ *  `label` trägt einen `labelKey` statt des fertigen Textes (wie `reformat_transforms.ts`) —
+ *  MCP_CLIENTS ist eine Modul-Konstante, `t()` darf dort nicht direkt stehen (t() niemals auf
+ *  Modul-Ebene); der Renderer (`settings.ts`) übersetzt erst zur Zeichenzeit. `hint` ist dagegen
+ *  ein technischer Konfigurations-Fragment-Bezeichner (CLI-Aufruf-Anfang, JSON-Blockname) —
+ *  aktuell nirgends gerendert und selbst wenn: kein Fließtext, keine Übersetzung nötig. */
 
 export type McpClientId = "claude-code" | "opencode" | "openclaw" | "generic";
 
-export interface McpClient { id: McpClientId; label: string; hint: string }
+export interface McpClient { id: McpClientId; labelKey: string; hint: string }
 
 export const MCP_CLIENTS: McpClient[] = [
-  { id: "claude-code", label: "Claude Code (CLI)", hint: "claude mcp add …" },
-  { id: "opencode", label: "OpenCode (opencode.json)", hint: "mcp-Block" },
-  { id: "openclaw", label: "OpenClaw (config)", hint: "mcp.servers-Block" },
-  { id: "generic", label: "Generisch (.mcp.json)", hint: "mcpServers-Block" },
+  { id: "claude-code", labelKey: "mcpClient.label.claudeCode", hint: "claude mcp add …" },   // i18n-exempt: technischer Konfig-Fragment-Bezeichner, kein Fließtext
+  { id: "opencode", labelKey: "mcpClient.label.opencode", hint: "mcp-Block" },   // i18n-exempt: technischer Konfig-Fragment-Bezeichner, kein Fließtext
+  { id: "openclaw", labelKey: "mcpClient.label.openclaw", hint: "mcp.servers-Block" },   // i18n-exempt: technischer Konfig-Fragment-Bezeichner, kein Fließtext
+  { id: "generic", labelKey: "mcpClient.label.generic", hint: "mcpServers-Block" },   // i18n-exempt: technischer Konfig-Fragment-Bezeichner, kein Fließtext
 ];
 
 const SERVER_NAME = "vault-retrieval";

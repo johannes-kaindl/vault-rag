@@ -377,6 +377,27 @@ export const EN = {
   "modelChoice.hintNoList": "Endpoint does not expose a model list — enter the name by hand.",
   "modelChoice.hintUnreachable": "Endpoint unreachable — the saved value is kept. Use \"Fetch models\" once it is running.",
   "modelChoice.savedLabel": "{0} (saved)",
+
+  // context_panel.ts
+  "context.count": "Context ({0})",
+  "context.auto": "Auto {0}",
+  "context.addActive": "+ Active note",
+  "context.addNote": "+ Note",
+
+  // mcp/client_snippets.ts (Dropdown-Optionen im MCP-Setup)
+  "mcpClient.label.claudeCode": "Claude Code (CLI)",
+  "mcpClient.label.opencode": "OpenCode (opencode.json)",
+  "mcpClient.label.openclaw": "OpenClaw (config)",
+  "mcpClient.label.generic": "Generic (.mcp.json)",
+
+  // reformat_preview_modal.ts
+  "reformatPreview.title": "Reformat – Preview",
+  "reformatPreview.original": "Original",
+  "reformatPreview.result": "Result",
+  "reformatPreview.discard": "Discard",
+  "reformatPreview.regenerate": "Regenerate",
+  "reformatPreview.apply": "Apply",
+  "reformatPreview.error": "Error: {0}",
 } as const;
 
 export const DE = {
@@ -749,6 +770,27 @@ export const DE = {
   "modelChoice.hintNoList": "Endpunkt gibt keine Modell-Liste heraus — Namen von Hand eintragen.",
   "modelChoice.hintUnreachable": "Endpunkt nicht erreichbar — gespeicherter Wert bleibt erhalten. „Modelle abrufen“, sobald er läuft.",
   "modelChoice.savedLabel": "{0} (gespeichert)",
+
+  // context_panel.ts
+  "context.count": "Kontext ({0})",
+  "context.auto": "Auto {0}",
+  "context.addActive": "+ Aktive Notiz",
+  "context.addNote": "+ Notiz",
+
+  // mcp/client_snippets.ts (Dropdown-Optionen im MCP-Setup)
+  "mcpClient.label.claudeCode": "Claude Code (CLI)",
+  "mcpClient.label.opencode": "OpenCode (opencode.json)",
+  "mcpClient.label.openclaw": "OpenClaw (config)",
+  "mcpClient.label.generic": "Generisch (.mcp.json)",
+
+  // reformat_preview_modal.ts
+  "reformatPreview.title": "Umformatieren – Vorschau",
+  "reformatPreview.original": "Original",
+  "reformatPreview.result": "Ergebnis",
+  "reformatPreview.discard": "Verwerfen",
+  "reformatPreview.regenerate": "Neu generieren",
+  "reformatPreview.apply": "Anwenden",
+  "reformatPreview.error": "Fehler: {0}",
 } satisfies Record<keyof typeof EN, string>;
 
 defineStrings({ en: EN, de: DE });

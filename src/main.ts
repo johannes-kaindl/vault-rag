@@ -888,10 +888,10 @@ export default class VaultRagPlugin extends Plugin {
         new Notice(t("main.notesMissingFromIndex", embeddable.length, vaultPaths.length), 8000);
         // Fire-and-forget: loadIndex() blockiert onload() nicht auf User-Interaktion.
         void confirmAction(this.app, {
-          title: "Index vervollständigen?",
-          message: `${embeddable.length} von ${vaultPaths.length} Notizen fehlen im Index. Nur die fehlenden werden neu eingebettet (Delta) — der bestehende Index bleibt erhalten.`,
-          confirmLabel: "Jetzt vervollständigen",
-          cancelLabel: "Später",
+          title: t("confirm.completeIndex.title"),
+          message: t("confirm.completeIndex.message", embeddable.length, vaultPaths.length),
+          confirmLabel: t("confirm.completeIndex.confirm"),
+          cancelLabel: t("confirm.completeIndex.cancel"),
           warning: false,
         }).then((ok) => { if (ok) void this.healVault(); });
       }
@@ -1330,18 +1330,18 @@ export default class VaultRagPlugin extends Plugin {
   private updateStatusBar(): void {
     if (!this.statusBarEl) return;
     if (!this.indexHealthy) {
-      this.statusBarEl.setText("⚠ Suchindex beschädigt");
+      this.statusBarEl.setText(t("status.indexCorrupt"));
       return;
     }
     const p = this.embeddingProgress;
     if (p.reindex) {
-      this.statusBarEl.setText(`↻ Indiziere ${p.reindex.done.toLocaleString("de-DE")}/${p.reindex.total.toLocaleString("de-DE")}`);
+      this.statusBarEl.setText(t("status.reindexing", p.reindex.done.toLocaleString(), p.reindex.total.toLocaleString()));
     } else if (p.isEmbedding) {
-      this.statusBarEl.setText("↻ embedding…");
+      this.statusBarEl.setText(t("status.embedding"));
     } else if (p.pendingNotes > 0) {
-      this.statusBarEl.setText(`● ${p.embeddedNotes.toLocaleString("de-DE")} | ⏳ ${p.pendingNotes}`);
+      this.statusBarEl.setText(t("status.countPending", p.embeddedNotes.toLocaleString(), p.pendingNotes));
     } else {
-      this.statusBarEl.setText(`● ${p.embeddedNotes.toLocaleString("de-DE")}`);
+      this.statusBarEl.setText(t("status.count", p.embeddedNotes.toLocaleString()));
     }
   }
 

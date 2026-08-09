@@ -1,6 +1,6 @@
 {
   "name": "vault-retrieval",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "On-device retrieval over your vault — related notes, semantic search — plus grounded chat with the LLM endpoint you configure.",
   "keywords": [
     "obsidian",

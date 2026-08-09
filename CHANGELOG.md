@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-08-09
+
 ### Added
 - **Englische Benutzeroberfläche für die reguläre Bedienoberfläche vollständig** (Panels,
   Einstellungen, Befehle, Meldungen, Statusleiste, Fehlertexte). Die zweite Runde der

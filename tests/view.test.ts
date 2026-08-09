@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { RelatedPanel, renderHits } from "../src/view";
 import { makeFakeEl } from "./__mocks__/obsidian";
+import "../src/i18n/strings"; // Register i18n strings
+
+describe("RelatedPanel label", () => {
+  it("nennt den Tab auf Englisch (Default-Sprache)", () => {
+    const panel = new RelatedPanel({ getHits: () => [], openPath: () => {} });
+    expect(panel.label).toBe("Related");
+  });
+});
 
 function mountPanel(deps: ConstructorParameters<typeof RelatedPanel>[0]) {
   const container = makeFakeEl();

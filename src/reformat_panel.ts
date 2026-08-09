@@ -3,6 +3,7 @@ import { TRANSFORMS, TransformDef } from "./reformat_transforms";
 import {
   ReformatReadiness, canRun, readinessMessage, selectionPreview, groupTransforms,
 } from "./reformat_selection_state";
+import { t } from "./vendor/kit/i18n";
 
 export interface ReformatPanelDeps {
   /** Aktueller Bereitschaftszustand (vom Plugin mitgeschrieben). */
@@ -15,7 +16,7 @@ export interface ReformatPanelDeps {
  *  solange keine brauchbare Auswahl existiert — der Grund steht in der Kopfzeile. */
 export class ReformatPanel implements HubPanel {
   readonly id = "reformat" as const;
-  readonly label = "Umformatieren";
+  get label(): string { return t("panel.reformat.label"); }
   readonly icon = "wand";
 
   private statusEl: HTMLElement | null = null;
@@ -32,18 +33,18 @@ export class ReformatPanel implements HubPanel {
     const freetext = groups.llm.filter(d => d.freetext);
     const plainLlm = groups.llm.filter(d => !d.freetext);
 
-    this.renderGroup(container, "Sofort · offline", groups.mechanical);
-    this.renderGroup(container, "Mit Vorschau · lokales LLM", plainLlm);
+    this.renderGroup(container, t("panel.reformat.groupInstant"), groups.mechanical);
+    this.renderGroup(container, t("panel.reformat.groupPreview"), plainLlm);
 
     const ft = freetext[0];
     if (ft) {
-      container.createDiv({ cls: "vault-rag-reformat-group-title", text: "Eigene Anweisung" });
+      container.createDiv({ cls: "vault-rag-reformat-group-title", text: t("panel.reformat.groupFreetext") });
       const row = container.createDiv({ cls: "vault-rag-reformat-freetext" });
       const ta = row.createEl("textarea", { cls: "vault-rag-reformat-panel-instruction" });
       ta.setAttr("rows", "2");
-      ta.setAttr("placeholder", "z.B. mach eine Vergleichstabelle mit Pro/Contra");
+      ta.setAttr("placeholder", t("panel.reformat.instructionPlaceholder"));
       this.instructionEl = ta;
-      const btn = row.createEl("button", { cls: "vault-rag-reformat-btn", text: "Umformatieren" });
+      const btn = row.createEl("button", { cls: "vault-rag-reformat-btn", text: t("panel.reformat.run") });
       btn.addEventListener("click", () => {
         const instr = ta.value.trim();
         if (!instr) return;
@@ -75,10 +76,10 @@ export class ReformatPanel implements HubPanel {
       this.statusEl.empty();
       if (r.kind === "ready") {
         const { snippet, lines } = selectionPreview(r.text);
-        this.statusEl.createDiv({ cls: "vault-rag-reformat-sel", text: `Markiert: „${snippet}“` });
+        this.statusEl.createDiv({ cls: "vault-rag-reformat-sel", text: t("panel.reformat.selected", snippet) });
         this.statusEl.createDiv({
           cls: "vault-rag-reformat-meta",
-          text: lines === 1 ? "1 Zeile" : `${lines} Zeilen`,
+          text: lines === 1 ? t("panel.reformat.lineOne") : t("panel.reformat.lineMany", lines),
         });
       } else {
         this.statusEl.createDiv({ cls: "vault-rag-reformat-blocked", text: readinessMessage(r) });

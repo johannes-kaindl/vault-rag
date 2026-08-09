@@ -3,6 +3,7 @@ import { ChatSession } from "./chat_session";
 import { ContextPanel, ContextPanelDeps } from "./context_panel";
 import { isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import { HubPanel, TabId } from "./hub_panel";
+import { t } from "./vendor/kit/i18n";
 
 export const VIEW_TYPE_CHAT = "vault-rag-chat";
 
@@ -23,7 +24,7 @@ export interface ChatViewDeps extends ContextPanelDeps {
 
 export class ChatPanel implements HubPanel {
   readonly id: TabId = "chat";
-  readonly label = "Chat";
+  get label(): string { return t("panel.chat.label"); }
   readonly icon = "message-square";
   private container!: HTMLElement;
   private panel: ContextPanel;
@@ -67,13 +68,13 @@ export class ChatPanel implements HubPanel {
       this.panel.mount(c.createDiv({ cls: "vault-rag-chat-context" }));
       const row = c.createDiv({ cls: "vault-rag-chat-input-row" });
       const input = row.createEl("textarea", { cls: "vault-rag-chat-input" });
-      input.rows = 3; input.placeholder = "Frag deinen Vault…";
+      input.rows = 3; input.placeholder = t("panel.chat.inputPlaceholder");
       this.inputEl = input;
       input.addEventListener("input", () => { this.autoGrow(); this.scheduleQuery(input.value ?? ""); });
       input.addEventListener("keydown", (e: KeyboardEvent) => this.onKeydown(e));
-      this.sendBtn = row.createEl("button", { cls: "vault-rag-chat-send mod-cta", text: "Senden" });
+      this.sendBtn = row.createEl("button", { cls: "vault-rag-chat-send mod-cta", text: t("panel.chat.send") });
       this.sendBtn.addEventListener("click", () => this.onSendClick());
-      row.createEl("button", { cls: "vault-rag-chat-new", text: "Neu" }).addEventListener("click", () => this.newChat());
+      row.createEl("button", { cls: "vault-rag-chat-new", text: t("panel.chat.new") }).addEventListener("click", () => this.newChat());
     };
 
     if (this.deps.inputPosition() === "top") { buildInput(); buildMessages(); }
@@ -128,25 +129,25 @@ export class ChatPanel implements HubPanel {
     el.empty();
     const icon = el.createSpan({ cls: "vault-rag-chat-think-icon" });
     setIcon(icon, "brain");
-    el.createSpan({ cls: "vault-rag-chat-think-label", text: always ? "Thinking: immer an" : suppressed ? "Thinking: aus" : "Thinking: an" });
+    el.createSpan({ cls: "vault-rag-chat-think-label", text: always ? t("panel.chat.thinkAlways") : suppressed ? t("panel.chat.thinkOff") : t("panel.chat.thinkOn") });
     el.setAttribute("aria-label", always
-      ? "Dieses Modell denkt immer (nicht abschaltbar)"
-      : suppressed ? "Thinking ist aus — klicken zum Einschalten" : "Thinking ist an — klicken zum Ausschalten");
+      ? t("panel.chat.thinkAlwaysAria")
+      : suppressed ? t("panel.chat.thinkOffAria") : t("panel.chat.thinkOnAria"));
     el.toggleClass("is-disabled", always);
     el.toggleClass("is-off", !always && suppressed);
   }
 
   async refreshStatus(): Promise<void> {
     const el = this.statusEl; if (!el) return;
-    el.setText("Chat-LLM: prüfe…");
+    el.setText(t("panel.chat.checking"));
     const ok = await this.deps.ping();
-    el.setText(ok ? "● Chat-LLM verbunden" : "○ Chat-LLM offline — in den Settings prüfen");
+    el.setText(ok ? t("panel.chat.connected") : t("panel.chat.offline"));
   }
 
   newChat(): void {
     this.deps.session.reset();
     this.stopWorking();
-    this.running = false; this.sendBtn?.setText("Senden");
+    this.running = false; this.sendBtn?.setText(t("panel.chat.send"));
     this.workingEl?.setText("");
     this.renderMessages();
   }
@@ -163,13 +164,13 @@ export class ChatPanel implements HubPanel {
     if (this.debTimer !== null) { window.clearTimeout(this.debTimer); this.debTimer = null; }
     if (this.inputEl) this.inputEl.value = "";
     const paths = this.panel.currentPaths();
-    this.running = true; this.sendBtn?.setText("Stop");
+    this.running = true; this.sendBtn?.setText(t("panel.chat.stop"));
     const pending = this.deps.session.send(q, paths, () => this.renderMessages());
     this.renderMessages();   // Frage erscheint sofort (User-Nachricht wurde synchron gepusht)
     this.startWorking();
     await pending;
     this.stopWorking();
-    this.running = false; this.sendBtn?.setText("Senden");
+    this.running = false; this.sendBtn?.setText(t("panel.chat.send"));
     this.panel.reset();
     this.renderMessages();
   }
@@ -181,8 +182,8 @@ export class ChatPanel implements HubPanel {
       const msgs = this.deps.session.messages;
       const live = msgs[msgs.length - 1];
       const thinking = !!live && live.role === "assistant" && live.content === "" && !!(live.reasoning ?? "");
-      const phase = thinking ? "denkt nach" : "generiert";
-      el.setText(`● ${phase}… ${((Date.now() - this.workStart) / 1000).toFixed(1)} s`);
+      const elapsed = ((Date.now() - this.workStart) / 1000).toFixed(1);
+      el.setText(thinking ? t("panel.chat.workingThinking", elapsed) : t("panel.chat.workingGenerating", elapsed));
     };
     tick();
     this.timer = window.setInterval(tick, 100);
@@ -191,7 +192,7 @@ export class ChatPanel implements HubPanel {
   private stopWorking(): void {
     if (this.timer !== null) { window.clearInterval(this.timer); this.timer = null; }
     if (this.workStart && this.workingEl) {
-      this.workingEl.setText(`✓ Antwort in ${((Date.now() - this.workStart) / 1000).toFixed(1)} s`);
+      this.workingEl.setText(t("panel.chat.answeredIn", ((Date.now() - this.workStart) / 1000).toFixed(1)));
     }
   }
 
@@ -208,14 +209,14 @@ export class ChatPanel implements HubPanel {
         const live = m === last && m.content === "" && !m.error;
         const det = el.createEl("details", { cls: "vault-rag-chat-reasoning" });
         det.open = live;
-        det.createEl("summary", { cls: "vault-rag-chat-reasoning-sum", text: live ? "💭 denkt nach…" : "💭 Gedanken" });
+        det.createEl("summary", { cls: "vault-rag-chat-reasoning-sum", text: live ? t("panel.chat.reasoningLive") : t("panel.chat.reasoningDone") });
         det.createDiv({ cls: "vault-rag-chat-reasoning-body", text: m.reasoning });
       }
       if (m.content) el.createDiv({ cls: `vault-rag-chat-msg is-${m.role}`, text: m.content });
       if (m.error) el.createDiv({ cls: "vault-rag-chat-state", text: m.error });
       if (m.role === "assistant" && m.content) {
         const actions = el.createDiv({ cls: "vault-rag-chat-msg-actions" });
-        const copyBtn = actions.createEl("button", { cls: "vault-rag-chat-copy clickable-icon", attr: { "aria-label": "Antwort kopieren" } });
+        const copyBtn = actions.createEl("button", { cls: "vault-rag-chat-copy clickable-icon", attr: { "aria-label": t("panel.chat.copyAnswerAria") } });
         setIcon(copyBtn, "copy");
         copyBtn.addEventListener("click", () => this.deps.copyText(m.content));
       }

@@ -1,5 +1,6 @@
 import { Hit } from "./retriever";
 import { HubPanel, TabId } from "./hub_panel";
+import { t } from "./vendor/kit/i18n";
 
 export const VIEW_TYPE_RELATED = "vault-rag-related";
 
@@ -17,7 +18,7 @@ export function renderHits(el: HTMLElement, hits: Hit[], openPath: (path: string
 
 export class RelatedPanel implements HubPanel {
   readonly id: TabId = "related";
-  readonly label = "Ähnlich";
+  get label(): string { return t("panel.related.label"); }
   readonly icon = "waypoints";
   private container!: HTMLElement;
   private visible = false;
@@ -37,7 +38,7 @@ export class RelatedPanel implements HubPanel {
   refreshContext(): void {
     const c = this.container; c.empty();
     const hits = this.deps.getHits();
-    if (hits.length === 0) { c.createDiv({ cls: "vault-rag-empty", text: "Keine verwandten Notizen (oder Notiz noch nicht indexiert)." }); return; }
+    if (hits.length === 0) { c.createDiv({ cls: "vault-rag-empty", text: t("panel.related.empty") }); return; }
     renderHits(c, hits, this.deps.openPath);
   }
 }

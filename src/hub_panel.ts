@@ -4,6 +4,8 @@ export type TabId = "related" | "search" | "chat" | "smart-apply" | "reformat";
  *  bleibt gemountet (State-Persistenz), wird nur per display:none aus-/eingeblendet. */
 export interface HubPanel {
   readonly id: TabId;
+  /** Tab-Beschriftung. Implementierungen liefern sie als Getter (`get label()`), damit
+   *  die Sprachwahl aus dem onload greift und nicht der Import-Zeitpunkt gewinnt. */
   readonly label: string;
   readonly icon: string;
   /** Einmaliger Aufbau in den übergebenen Container. Synchron; async-Init intern via void. */

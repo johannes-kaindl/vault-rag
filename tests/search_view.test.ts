@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import { SearchPanel, SearchResult } from "../src/search_view";
 import { makeFakeEl } from "./__mocks__/obsidian";
+import "../src/i18n/strings"; // Register i18n strings
+
+describe("SearchPanel label", () => {
+  it("nennt den Tab auf Englisch (Default-Sprache)", () => {
+    const panel = new SearchPanel({ search: async () => ({ kind: "hits", hits: [] }), openPath: () => {} });
+    expect(panel.label).toBe("Search");
+  });
+});
 
 function mkPanel(search: (q: string) => Promise<SearchResult>, openPath = () => {}) {
   const container = makeFakeEl();
@@ -33,16 +41,16 @@ describe("SearchPanel", () => {
   it("offline-Zustand", async () => {
     const { panel, container } = mkPanel(async () => ({ kind: "offline" }));
     await panel.runQuery("hallo welt");
-    expect(states(container).some((s: any) => s.textContent.includes("nicht erreichbar"))).toBe(true);
+    expect(states(container).some((s: any) => s.textContent.includes("unreachable"))).toBe(true);
   });
   it("no-index-Zustand", async () => {
     const { panel, container } = mkPanel(async () => ({ kind: "no-index" }));
     await panel.runQuery("hallo welt");
-    expect(states(container).some((s: any) => s.textContent.includes("Kein Index"))).toBe(true);
+    expect(states(container).some((s: any) => s.textContent.includes("No index"))).toBe(true);
   });
   it("0 Treffer zeigt Schwellen-Hinweis", async () => {
     const { panel, container } = mkPanel(async () => ({ kind: "hits", hits: [] }));
     await panel.runQuery("hallo welt");
-    expect(states(container).some((s: any) => s.textContent.includes("Keine Treffer"))).toBe(true);
+    expect(states(container).some((s: any) => s.textContent.includes("No matches"))).toBe(true);
   });
 });

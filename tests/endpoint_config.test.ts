@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, type EndpointConfig } from "../src/endpoint_config";
+import "../src/i18n/strings"; // Register i18n strings
 
 describe("authHeaders", () => {
   it("ohne Schlüssel → keine Header", () => {
@@ -168,19 +169,29 @@ describe("endpointRole", () => {
 
 describe("describeEndpointRole", () => {
   it("benennt den aktiven Endpunkt", () => {
-    expect(describeEndpointRole({ kind: "active" })).toBe("aktiv");
+    expect(describeEndpointRole({ kind: "active" })).toBe("active");
   });
 
   it("nennt bei standby die Position — sonst bliebe offen, warum er nicht dran ist", () => {
-    expect(describeEndpointRole({ kind: "standby", position: 3 })).toBe("erreichbar, aber Platz 3");
+    expect(describeEndpointRole({ kind: "standby", position: 3 })).toBe("reachable, but position 3");
   });
 
   it("benennt Nichterreichbarkeit", () => {
-    expect(describeEndpointRole({ kind: "unreachable" })).toBe("nicht erreichbar");
+    expect(describeEndpointRole({ kind: "unreachable" })).toBe("unreachable");
   });
 
   it("erklärt den Modell-Guard, statt ihn nur zu behaupten", () => {
     expect(describeEndpointRole({ kind: "skipped-model" }))
-      .toBe("übersprungen — Modell passt nicht zum Index");
+      .toBe("skipped — model does not match the index");
+  });
+});
+
+describe("describeEndpointRole i18n", () => {
+  it("liefert die Rollentexte auf Englisch", () => {
+    expect(describeEndpointRole({ kind: "active" })).toBe("active");
+    expect(describeEndpointRole({ kind: "standby", position: 2 })).toBe("reachable, but position 2");
+    expect(describeEndpointRole({ kind: "unreachable" })).toBe("unreachable");
+    expect(describeEndpointRole({ kind: "skipped-model" }))
+      .toBe("skipped — model does not match the index");
   });
 });

@@ -1,6 +1,8 @@
 /** Obsidian-freie Wahrheit für Endpunkt-Einträge: Struktur, Auth-Header, Modellwahl,
  *  Migration alter String-Listen und Listen-Bearbeitung. */
 
+import { t } from "./vendor/kit/i18n";
+
 export interface EndpointConfig {
   url: string;
   /** Leer/fehlend = kein Authorization-Header (lokaler Server). */
@@ -140,9 +142,9 @@ export function endpointRole(input: {
 /** EINE Wahrheit für Zeilentext und Tooltip. */
 export function describeEndpointRole(role: EndpointRole): string {
   switch (role.kind) {
-    case "active": return "aktiv";
-    case "standby": return `erreichbar, aber Platz ${role.position}`;
-    case "unreachable": return "nicht erreichbar";
-    case "skipped-model": return "übersprungen — Modell passt nicht zum Index";
+    case "active": return t("endpointRole.active");
+    case "standby": return t("endpointRole.standby", role.position);
+    case "unreachable": return t("endpointRole.unreachable");
+    case "skipped-model": return t("endpointRole.skippedModel");
   }
 }

@@ -1,6 +1,7 @@
 import { ThinkSplitter } from "./vendor/kit/think";
 import { parseSSE } from "./vendor/kit/sse";
 import { ChatHttpError } from "./chat_error";
+import { t } from "./vendor/kit/i18n";
 
 /** Streamt einen OpenAI-kompatiblen SSE-Stream über `XMLHttpRequest` (nicht `fetch`: Obsidian
  *  empfiehlt `requestUrl`, das aber NICHT streamen kann — XHR ist der erlaubte Streaming-Primitive).
@@ -39,7 +40,7 @@ export function streamSSE(
     xhr.open(init.method, url);
     for (const [k, v] of Object.entries(init.headers)) xhr.setRequestHeader(k, v);
     xhr.onprogress = (): void => pump();
-    xhr.onerror = (): void => reject(new Error("Chat-Netzwerkfehler"));
+    xhr.onerror = (): void => reject(new Error(t("sse.networkError")));
     xhr.onabort = (): void => reject(abortError());
     xhr.onload = (): void => {
       pump();

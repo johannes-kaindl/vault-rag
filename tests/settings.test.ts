@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
+import { join } from "node:path";
 import { DEFAULT_SETTINGS, VaultRagSettings, applyDestructive, VaultRagSettingTab } from "../src/settings";
 import { makeFakeEl } from "./__mocks__/obsidian";
+import { findUntranslatedSinks } from "./i18n/sink_guard";
+import "../src/i18n/strings"; // Register i18n strings
 
 describe("settings", () => {
   it("hat sinnvolle Defaults", () => {
@@ -210,18 +213,25 @@ describe("getSettingDefinitions – Struktur", () => {
     }
   });
 
+  // Reihenfolge ist durch getSettingDefinitions() fest (search, embedding, index,
+  // robustness, mcp, chat, smartApply) — die Gruppe wird deshalb über ihre Position im
+  // Array gefunden, nicht über ihre (übersetzte) Überschrift. Das entkoppelt Lookup und
+  // Text-Prüfung: die Überschrift wird danach gegen ein Literal geprüft, das NICHT über
+  // t()/dieselbe Dictionary-Auswertung wie die Produktivzeile läuft — sonst kann die
+  // Prüfung nicht mehr fehlschlagen, wenn ein Übersetzungswert verfälscht wird (siehe
+  // tests/index_delta.test.ts für dieselbe, hier bereits einmal behobene Fehlerklasse).
   it("Suche-Gruppe hat k, minSim, exclude", () => {
     const { tab } = makeTab();
-    const search = groups(tab).find(g => g.heading === "Suche");
-    expect(search).toBeTruthy();
+    const search = groups(tab)[0];
+    expect(search.heading).toBe("Search");
     const keys = (search!.items as any[]).filter(i => i.control).map(i => i.control.key);
     expect(keys).toEqual(["k", "minSim", "exclude"]);
   });
 
   it("Live-Embedding-Gruppe: Debounce/Statusleiste deklarativ, 3 render-Hatches", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Live-Embedding");
-    expect(g).toBeTruthy();
+    const g = groups(tab)[1];
+    expect(g.heading).toBe("Live embedding");
     const items = g.items as any[];
     const controlKeys = items.filter(i => i.control).map(i => i.control.key);
     expect(controlKeys).toEqual(["debounceMs", "showStatusBar"]);
@@ -230,8 +240,8 @@ describe("getSettingDefinitions – Struktur", () => {
 
   it("Index-Gruppe: Index-Ordner render-Hatch + hideIndexFolder toggle", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Index");
-    expect(g).toBeTruthy();
+    const g = groups(tab)[2];
+    expect(g.heading).toBe("Index");
     const items = g.items as any[];
     expect(items.filter(i => typeof i.render === "function").length).toBe(1);
     expect(items.filter(i => i.control).map(i => i.control.key)).toEqual(["hideIndexFolder"]);
@@ -239,8 +249,8 @@ describe("getSettingDefinitions – Struktur", () => {
 
   it("Index-Robustheit-Gruppe: 1 render-Hatch (Zustand) + 2 action-Zeilen", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Index-Robustheit");
-    expect(g).toBeTruthy();
+    const g = groups(tab)[3];
+    expect(g.heading).toBe("Index robustness");
     const items = g.items as any[];
     expect(items.filter(i => typeof i.render === "function").length).toBe(1);
     expect(items.filter(i => typeof i.action === "function").length).toBe(2);
@@ -248,8 +258,8 @@ describe("getSettingDefinitions – Struktur", () => {
 
   it("MCP-Gruppe: genau ein render-Hatch", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "MCP-Server");
-    expect(g).toBeTruthy();
+    const g = groups(tab)[4];
+    expect(g.heading).toBe("MCP server");
     const items = g.items as any[];
     expect(items.length).toBe(1);
     expect(typeof items[0].render).toBe("function");
@@ -318,5 +328,33 @@ describe("renderImperative (display-Fallback für <1.13)", () => {
     tab.display();
     expect(spy).toHaveBeenCalled();
     tab.hide();   // räumt den 2s-Poll aus renderEmbeddingStatus ab (sonst Timer-Leak über das Test-Teardown)
+  });
+});
+
+describe("getSettingDefinitions i18n", () => {
+  it("liefert die Gruppentitel und Zeilennamen auf Englisch", () => {
+    const { tab } = makeTab();
+    const defs = tab.getSettingDefinitions();
+    const flat = JSON.stringify(defs);
+    // Statt eines bloßen not.toMatch() wird bei einem Treffer die Fundstelle (±40 Zeichen
+    // Kontext) im Failure-Text mitgeliefert, statt nur "expected false to be true".
+    const umlautMatch = flat.match(/.{0,40}[äöüßÄÖÜ].{0,40}/);
+    expect(umlautMatch?.[0] ?? null, "deutsches Sonderzeichen im Array gefunden").toBeNull();
+    const guillemetMatch = flat.match(/.{0,40}[„“].{0,40}/);
+    expect(guillemetMatch?.[0] ?? null, "deutsches Anführungszeichen im Array gefunden").toBeNull();
+  });
+});
+
+describe("settings render hatches i18n", () => {
+  it("keine Text-Senke in settings.ts erreicht ein Literal, ohne durch t() zu laufen", () => {
+    // Fix-Runde 1 (Task-7-Review): eine Wortliste bekannter deutscher Wörter ist ein
+    // Schnappschuss der eigenen Arbeit, kein Wächter — der Reviewer hat das mit
+    // `createEl("p", { text: "Verbindung" }) ` gezeigt (kein Sonderzeichen, kein Listen-Wort,
+    // trotzdem ein Fund). Die Prüfung fragt deshalb nicht mehr "ist das deutsch?", sondern
+    // "erreicht dieser String eine Text-Senke, ohne durch t() zu laufen?" — strukturell
+    // entscheidbar, sprachunabhängig. Siehe tests/i18n/sink_guard.ts für Senken-Liste,
+    // Ausnahmen (i18n-exempt-Marker, buchstabenlose Literale) und bekannte Grenzen.
+    const findings = findUntranslatedSinks(join(__dirname, "..", "src", "settings.ts"));
+    expect(findings.map(f => `${f.line}: ${f.text}`)).toEqual([]);
   });
 });

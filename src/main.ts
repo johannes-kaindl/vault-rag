@@ -250,9 +250,9 @@ export default class VaultRagPlugin extends Plugin {
           listTemplates: async () =>
             templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir),
           typeOf: async (p) => extractType(await this.app.vault.adapter.read(p)),
-          embed: async (t) => {
-            const e = await this.facade.embedQuery(t);
-            if (e.kind !== "vec") throw new Error("kein Index / Embedder offline");
+          embed: async (text) => {
+            const e = await this.facade.embedQuery(text);
+            if (e.kind !== "vec") throw new Error(t("main.embedderOffline"));
             return e.vec;
           },
           // Weiterhin gebraucht: detectType() (template_matcher.ts) ruft deps.search() für den
@@ -282,9 +282,9 @@ export default class VaultRagPlugin extends Plugin {
         // Persistierter Vault-Vektor (note-level) — wie der RAG-Retriever; spart das Neu-Einbetten
         // indexierter Vorlagen/Notizen komplett.
         indexVector: (p) => this.index?.vectorFor(p) ?? null,
-        embed: async (t) => {
-          const e = await this.facade.embedQuery(t);
-          if (e.kind !== "vec") throw new Error("kein Index / Embedder offline");
+        embed: async (text) => {
+          const e = await this.facade.embedQuery(text);
+          if (e.kind !== "vec") throw new Error(t("main.embedderOffline"));
           return e.vec;
         },
       });
@@ -470,8 +470,8 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private migrateOldLeaves(): void {
-    for (const t of [VIEW_TYPE_RELATED, VIEW_TYPE_SEARCH, VIEW_TYPE_CHAT, VIEW_TYPE_SMART_APPLY]) {
-      for (const leaf of this.app.workspace.getLeavesOfType(t)) leaf.detach();
+    for (const viewType of [VIEW_TYPE_RELATED, VIEW_TYPE_SEARCH, VIEW_TYPE_CHAT, VIEW_TYPE_SMART_APPLY]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(viewType)) leaf.detach();
     }
   }
 
@@ -809,7 +809,7 @@ export default class VaultRagPlugin extends Plugin {
 
     if (def.kind === "mechanical") {
       const result = def.run(core);
-      if (result == null) { new Notice(t("main.transformDoesNotFit", def.label)); return; }
+      if (result == null) { new Notice(t("main.transformDoesNotFit", t(def.labelKey))); return; }
       cap.editor.replaceRange(lead + result + trail, cap.from, cap.to);
       return;
     }
@@ -888,10 +888,10 @@ export default class VaultRagPlugin extends Plugin {
         new Notice(t("main.notesMissingFromIndex", embeddable.length, vaultPaths.length), 8000);
         // Fire-and-forget: loadIndex() blockiert onload() nicht auf User-Interaktion.
         void confirmAction(this.app, {
-          title: "Index vervollständigen?",
-          message: `${embeddable.length} von ${vaultPaths.length} Notizen fehlen im Index. Nur die fehlenden werden neu eingebettet (Delta) — der bestehende Index bleibt erhalten.`,
-          confirmLabel: "Jetzt vervollständigen",
-          cancelLabel: "Später",
+          title: t("confirm.completeIndex.title"),
+          message: t("confirm.completeIndex.message", embeddable.length, vaultPaths.length),
+          confirmLabel: t("confirm.completeIndex.confirm"),
+          cancelLabel: t("confirm.completeIndex.cancel"),
           warning: false,
         }).then((ok) => { if (ok) void this.healVault(); });
       }
@@ -1330,18 +1330,18 @@ export default class VaultRagPlugin extends Plugin {
   private updateStatusBar(): void {
     if (!this.statusBarEl) return;
     if (!this.indexHealthy) {
-      this.statusBarEl.setText("⚠ Suchindex beschädigt");
+      this.statusBarEl.setText(t("status.indexCorrupt"));
       return;
     }
     const p = this.embeddingProgress;
     if (p.reindex) {
-      this.statusBarEl.setText(`↻ Indiziere ${p.reindex.done.toLocaleString("de-DE")}/${p.reindex.total.toLocaleString("de-DE")}`);
+      this.statusBarEl.setText(t("status.reindexing", p.reindex.done.toLocaleString(), p.reindex.total.toLocaleString()));
     } else if (p.isEmbedding) {
-      this.statusBarEl.setText("↻ embedding…");
+      this.statusBarEl.setText(t("status.embedding"));
     } else if (p.pendingNotes > 0) {
-      this.statusBarEl.setText(`● ${p.embeddedNotes.toLocaleString("de-DE")} | ⏳ ${p.pendingNotes}`);
+      this.statusBarEl.setText(t("status.countPending", p.embeddedNotes.toLocaleString(), p.pendingNotes));
     } else {
-      this.statusBarEl.setText(`● ${p.embeddedNotes.toLocaleString("de-DE")}`);
+      this.statusBarEl.setText(t("status.count", p.embeddedNotes.toLocaleString()));
     }
   }
 
@@ -1375,7 +1375,7 @@ export default class VaultRagPlugin extends Plugin {
     onReasoning: (t: string) => void,
   ): Promise<ApplyProposal> {
     const core = this.smartApply;
-    if (!core) throw new Error("Smart Apply ist deaktiviert");
+    if (!core) throw new Error(t("main.smartApplyDisabled"));
     if (templatePath !== "") {
       // Explizite Vorlage aus dem Cockpit-Dropdown — direkt verwenden, kein detect().
       return core.propose(notePath, templatePath, mode, onToken, onReasoning);
@@ -1435,7 +1435,7 @@ export default class VaultRagPlugin extends Plugin {
     if (!url) return "unreachable";
     const body = JSON.stringify({
       jsonrpc: "2.0", id: 1, method: "initialize",
-      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "vault-retrieval-selfcheck", version: this.manifest.version } },
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "vault-retrieval-selfcheck", version: this.manifest.version } },   // i18n-exempt: JSON-RPC-Client-Kennung (Protokoll, kein UI-Text)
     });
     try {
       const raced = await withTimeout(

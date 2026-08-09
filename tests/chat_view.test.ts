@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ChatPanel } from "../src/chat_view";
 import { makeFakeEl } from "./__mocks__/obsidian";
+import "../src/i18n/strings"; // Register i18n strings
 
 function all(el: any, cls: string): any[] {
   const out: any[] = [];
@@ -44,6 +45,13 @@ async function mkPanel(opts: { send?: any; ping?: any; copyText?: any; listModel
   return { panel, container, session, opened };
 }
 
+describe("ChatPanel label", () => {
+  it("nennt den Tab auf Englisch (Default-Sprache)", async () => {
+    const { panel } = await mkPanel();
+    expect(panel.label).toBe("Chat");
+  });
+});
+
 describe("ChatPanel", () => {
   it("id ist 'chat'", async () => {
     expect((await mkPanel()).panel.id).toBe("chat");
@@ -86,7 +94,7 @@ describe("ChatPanel", () => {
   });
   it("zeigt Verbindungsstatus nach mount", async () => {
     const okP = await mkPanel({ ping: async () => true });
-    expect(all(okP.container, "vault-rag-chat-status")[0].textContent).toContain("verbunden");
+    expect(all(okP.container, "vault-rag-chat-status")[0].textContent).toContain("connected");
     const offP = await mkPanel({ ping: async () => false });
     expect(all(offP.container, "vault-rag-chat-status")[0].textContent).toContain("offline");
   });
@@ -99,7 +107,7 @@ describe("ChatPanel", () => {
     const btn = () => all(container, "vault-rag-chat-send")[0];
     expect(btn().textContent).toBe("Stop");
     finish(); await p;
-    expect(btn().textContent).toBe("Senden");
+    expect(btn().textContent).toBe("Send");
   });
   it("Neuer Chat leert den Verlauf und die Anzeige", async () => {
     const { panel, container, session } = await mkPanel();
@@ -124,7 +132,7 @@ describe("ChatPanel", () => {
     expect(blocks.length).toBe(1);
     expect(blocks[0].open).toBe(false);
     expect(all(container, "vault-rag-chat-reasoning-body")[0].textContent).toBe("weil X");
-    expect(all(container, "vault-rag-chat-reasoning-sum")[0].textContent).toContain("Gedanken");
+    expect(all(container, "vault-rag-chat-reasoning-sum")[0].textContent).toContain("Thoughts");
   });
   it("Gedanken-Block ist offen + 'denkt nach' während des Denkens", async () => {
     const { panel, container, session } = await mkPanel();
@@ -134,7 +142,7 @@ describe("ChatPanel", () => {
     ];
     (panel as any).renderMessages();
     expect(all(container, "vault-rag-chat-reasoning")[0].open).toBe(true);
-    expect(all(container, "vault-rag-chat-reasoning-sum")[0].textContent).toContain("denkt nach");
+    expect(all(container, "vault-rag-chat-reasoning-sum")[0].textContent).toContain("thinking");
   });
   it("kein Gedanken-Block ohne reasoning", async () => {
     const { panel, container, session } = await mkPanel();

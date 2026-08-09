@@ -79,11 +79,11 @@ export class RestoreBackupModal extends Modal {
   constructor(app: App, private entries: { name: string; count: number }[], private onPick: (name: string) => void) { super(app); }
   onOpen(): void {
     const { contentEl } = this;
-    contentEl.createEl("h2", { text: "Aus Backup wiederherstellen" });
-    if (this.entries.length === 0) { contentEl.createEl("p", { text: "Keine Backups vorhanden." }); return; }
+    contentEl.createEl("h2", { text: t("settings.robustness.restoreBackup.name") });
+    if (this.entries.length === 0) { contentEl.createEl("p", { text: t("settings.restore.empty") }); return; }
     for (const e of this.entries) {
       const row = new Setting(contentEl).setName(t("settings.recentNoteCount", e.count.toLocaleString())).setDesc(e.name);
-      row.addButton(b => applyDestructive(b.setButtonText("Wiederherstellen")).onClick(() => { this.close(); this.onPick(e.name); }));
+      row.addButton(b => applyDestructive(b.setButtonText(t("settings.restore.button"))).onClick(() => { this.close(); this.onPick(e.name); }));
     }
   }
   onClose(): void { this.contentEl.empty(); }
@@ -309,47 +309,47 @@ export class VaultRagSettingTab extends PluginSettingTab {
     // an den Button-Tooltip angehängt, nicht dessen Ersatz.
     s.addExtraButton(b => {
       const tooltip = choice.hint && hintAs === "tooltip"
-        ? `${choice.hint} · Modelle abrufen`
-        : "Modelle abrufen";
+        ? `${choice.hint} · ${t("settings.button.fetchModels")}`
+        : t("settings.button.fetchModels");
       b.setIcon("refresh-cw").setTooltip(tooltip).onClick(() => { opts.onRefresh(); });
       target?.appendChild(b.extraSettingsEl);
     });
   }
 
   private searchGroup(): SettingDefinitionGroup {
-    return { type: "group", heading: "Suche", items: [
-      { name: "Anzahl verwandter Notizen",
-        desc: "Wie viele ähnliche Notizen im Panel angezeigt werden (5–50)",
+    return { type: "group", heading: t("settings.search.group"), items: [
+      { name: t("settings.search.count.name"),
+        desc: t("settings.search.count.desc"),
         control: { type: "slider", key: "k", min: 5, max: 50, step: 1,
           displayFormat: (v: number) => String(v) } },
-      { name: "Mindest-Ähnlichkeit",
-        desc: "Notizen unterhalb dieser Schwelle werden ausgeblendet — niedriger = mehr Treffer, unschärfer",
+      { name: t("settings.search.minSim.name"),
+        desc: t("settings.search.minSim.desc"),
         control: { type: "slider", key: "minSim", min: 0, max: 0.9, step: 0.05,
           displayFormat: (v: number) => `${Math.round(v * 100)} %` } },
-      { name: "Ausschluss-Pfade",
-        desc: "Kommagetrennte Pfade, die nicht eingebettet werden (z.B. Templates/, Archive/). Versteckte Pfade (Konfig-Ordner, Papierkorb) sind immer automatisch ausgeschlossen.",
-        control: { type: "text", key: "exclude", placeholder: "Templates/, Archive/" } },
+      { name: t("settings.search.exclude.name"),
+        desc: t("settings.search.exclude.desc"),
+        control: { type: "text", key: "exclude", placeholder: "Templates/, Archive/" } },   // i18n-exempt: Pfad-Beispiel, sprachneutral (Ordnernamen)
     ] };
   }
 
   private embeddingGroup(): SettingDefinitionGroup {
-    return { type: "group", heading: "Live-Embedding", items: [
+    return { type: "group", heading: t("settings.embedding.group"), items: [
       { name: t("settings.embeddingEndpoints.label"), desc: "", render: this.renderEmbeddingEndpoints },
       { name: t("settings.embeddingModel.name"), desc: t("settings.embeddingModel.desc"), render: this.renderEmbeddingModel },
       { name: t("settings.embeddingStatus.name"), desc: "", render: this.renderEmbeddingStatus },
-      { name: "Debounce", desc: "Wartezeit nach dem letzten Speichern, bevor neu eingebettet wird",
+      { name: t("settings.embedding.debounce.name"), desc: t("settings.embedding.debounce.desc"),
         control: { type: "slider", key: "debounceMs", min: 500, max: 10000, step: 500,
           displayFormat: (v: number) => `${v / 1000} s` } },
-      { name: "Fortschritt in Statusleiste", desc: "Zeigt Embedding-Status in der unteren Obsidian-Leiste",
+      { name: t("settings.embedding.statusBar.name"), desc: t("settings.embedding.statusBar.desc"),
         control: { type: "toggle", key: "showStatusBar" } },
     ] };
   }
 
   private indexGroup(): SettingDefinitionGroup {
-    return { type: "group", heading: "Index", items: [
+    return { type: "group", heading: t("settings.index.group"), items: [
       { name: t("settings.indexFolder.name"), desc: "", render: this.renderIndexDir },
-      { name: "Index-Ordner im Datei-Explorer ausblenden",
-        desc: "Versteckt den Index-Ordner kosmetisch im Datei-Explorer. Daten, Sync und Suche bleiben unberührt. Standardmäßig an.",
+      { name: t("settings.index.hideFolder.name"),
+        desc: t("settings.index.hideFolder.desc"),
         control: { type: "toggle", key: "hideIndexFolder" } },
     ] };
   }
@@ -358,21 +358,21 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  bündelt alle Wiederherstellungs-Aktionen (Zustand, Delta-Heal, Backup, Voll-Reindex) an
    *  einer Stelle — kein zweiter Reindex-Button mehr in „Index". */
   private robustnessGroup(): SettingDefinitionGroup {
-    return { type: "group", heading: "Index-Robustheit", items: [
+    return { type: "group", heading: t("settings.robustness.group"), items: [
       { name: t("settings.indexHealth.name"), desc: "", render: this.renderIndexHealth },
-      { name: "Aus Backup wiederherstellen",
-        desc: "Geräte-lokale Sicherungen des Index (letzte 3). Ersetzt den aktuellen Index.",
+      { name: t("settings.robustness.restoreBackup.name"),
+        desc: t("settings.robustness.restoreBackup.desc"),
         action: () => { void (async () => {
           new RestoreBackupModal(this.app, await this.plugin.listBackups(), (n) => void this.plugin.restoreBackup(n)).open();
         })(); } },
-      { name: "Vault neu indizieren",
-        desc: "Baut den kompletten Index von Grund auf neu — der letzte Ausweg.",
+      { name: t("command.reindexVault"),
+        desc: t("settings.robustness.reindex.desc"),
         action: () => {
           void confirmAction(this.app, {
-            title: "Vault neu indizieren?",
-            message: "Alle Notizen werden neu eingebettet — das kann dauern. Dein bestehender Index bleibt erhalten, bis die Indizierung vollständig durchläuft.",
-            confirmLabel: "Neu indizieren",
-            cancelLabel: "Abbrechen",
+            title: t("settings.robustness.reindexConfirm.title"),
+            message: t("settings.robustness.reindexConfirm.message"),
+            confirmLabel: t("settings.robustness.reindexConfirm.confirmLabel"),
+            cancelLabel: t("settings.robustness.reindexConfirm.cancelLabel"),
           }).then((ok) => { if (ok) void this.plugin.reindexVault(); });
         } },
     ] };
@@ -382,8 +382,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  Port-Debounce-Restart, Client-Dropdown, Snippet-`<pre>`) — deshalb EIN render-Hatch statt
    *  einzelner Controls, der den kompletten bisherigen buildMcpSection-Body zeichnet. */
   private mcpGroup(): SettingDefinitionGroup {
-    return { type: "group", heading: "MCP-Server", items: [
-      { name: "MCP-Server", desc: "", render: this.renderMcpSection },
+    return { type: "group", heading: t("settings.mcp.group"), items: [
+      { name: t("settings.mcp.row.name"), desc: "", render: this.renderMcpSection },
     ] };
   }
 
@@ -392,26 +392,26 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  gekoppelt). „Thinking testen“ war ein Button IN der Toggle-Zeile — jetzt eigene
    *  Action-Zeile, das Toggle selbst ist deklarativ. */
   private chatGroup(): SettingDefinitionGroup {
-    return { type: "group", heading: "Chat", items: [
+    return { type: "group", heading: t("settings.chat.group"), items: [
       { name: t("settings.chatEndpoints.label"), desc: "", render: this.renderChatEndpoints },
       { name: t("settings.chatModel.name"), desc: t("settings.chatModel.desc"), render: this.renderChatModel },
       { name: t("settings.modelDetails.name"), desc: "", render: this.renderModelDetails },
       { name: t("settings.capabilities.name"), desc: "", render: this.renderCapsRow },
-      { name: "Kontext-Notizen", desc: "Wie viele Notizen als Kontext in den Chat gehen (Auto-RAG)",
+      { name: t("settings.chat.contextNotes.name"), desc: t("settings.chat.contextNotes.desc"),
         control: { type: "slider", key: "chatK", min: 1, max: 20, step: 1, displayFormat: (v: number) => String(v) } },
-      { name: "Kontext-Budget", desc: "", render: this.renderBudget },
-      { name: "Temperatur", desc: "Kreativität vs. Bestimmtheit (0 = deterministisch, höher = kreativer)",
+      { name: t("settings.chat.contextBudget.name"), desc: "", render: this.renderBudget },
+      { name: t("settings.chat.temperature.name"), desc: t("settings.chat.temperature.desc"),
         control: { type: "slider", key: "chatTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
-      { name: "System-Prompt", desc: "Grundanweisung an das Modell. Der Notiz-Kontext wird automatisch angehängt.",
+      { name: t("settings.chat.systemPrompt.name"), desc: t("settings.chat.systemPrompt.desc"),
         control: { type: "textarea", key: "chatSystemPrompt", rows: 8 } },
-      { name: "Eingabe-Position", desc: "Wo die Chat-Eingabe sitzt (greift beim nächsten Öffnen des Panels)",
-        control: { type: "dropdown", key: "chatInputPosition", options: { bottom: "Unten", top: "Oben" } } },
-      { name: "Thinking unterdrücken",
-        desc: "Standard für neue Chats. Sendet Suppress-Hints (reasoning_effort/enable_thinking). Pro Chat im Panel umschaltbar.",
+      { name: t("settings.chat.inputPosition.name"), desc: t("settings.chat.inputPosition.desc"),
+        control: { type: "dropdown", key: "chatInputPosition", options: { bottom: t("settings.chat.inputPosition.optionBottom"), top: t("settings.chat.inputPosition.optionTop") } } },
+      { name: t("settings.chat.suppressThinking.name"),
+        desc: t("settings.chat.suppressThinking.desc"),
         control: { type: "toggle", key: "suppressThinking" } },
-      { name: "Thinking testen", desc: "Prüft, ob das Modell bei „unterdrücken“ wirklich abschaltet.",
+      { name: t("settings.chat.testThinking.name"), desc: t("settings.chat.testThinking.desc"),
         action: () => { void this.runThinkingTest(); } },
-      { name: "Enter sendet", desc: "An: Enter sendet, Shift+Enter macht eine neue Zeile. Aus: umgekehrt.",
+      { name: t("settings.chat.enterSends.name"), desc: t("settings.chat.enterSends.desc"),
         control: { type: "toggle", key: "enterSends" } },
     ] };
   }
@@ -422,30 +422,30 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  Normalisierung passiert bereits in setControlValue (Task 2). Nur das Modell-Dropdown bleibt
    *  ein render-Hatch (Cross-Referenz auf plugin.chatClient, Online/Offline-Fallback). */
   private smartApplyGroup(): SettingDefinitionGroup {
-    return { type: "group", heading: "Smart Apply", items: [
-      { name: "Smart Apply aktivieren",
-        desc: "Schaltet Befehl, Ribbon-Icon und Panel frei: eine unstrukturierte Notiz hinter einem Diff-Gate in die Struktur einer Vorlage überführen. Greift beim nächsten Neuladen des Plugins.",
+    return { type: "group", heading: t("settings.smartApply.group"), items: [
+      { name: t("settings.smartApply.enable.name"),
+        desc: t("settings.smartApply.enable.desc"),
         control: { type: "toggle", key: "smartApplyEnabled" } },
-      { name: "Verbindung",
-        desc: 'Smart Apply nutzt die Chat-Verbindung (Endpoint, Modell) aus dem Abschnitt „Chat" — kein eigener Endpoint nötig.' },
-      { name: "Vorlagen-Ordner",
-        desc: "Ordner mit den Vorlagen — Markdown-Dateien darin und in Unterordnern werden berücksichtigt. Ausgenommen sind Folder Notes (Datei trägt den Namen ihres Ordners).",
-        control: { type: "folder", key: "templateDir", placeholder: "Templates/" } },
-      { name: "Smart-Apply-Temperatur",
-        desc: "Temperatur für den Umsortier-Call (0 = deterministisch — empfohlen für reproduzierbare Vorschläge).",
+      { name: t("settings.smartApply.connection.name"),
+        desc: t("settings.smartApply.connection.desc") },
+      { name: t("settings.smartApply.templateDir.name"),
+        desc: t("settings.smartApply.templateDir.desc"),
+        control: { type: "folder", key: "templateDir", placeholder: "Templates/" } },   // i18n-exempt: Pfad-Beispiel, sprachneutral (Ordnername)
+      { name: t("settings.smartApply.temperature.name"),
+        desc: t("settings.smartApply.temperature.desc"),
         control: { type: "slider", key: "smartApplyTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
-      { name: t("settings.smartApplyModel.name"), desc: 'Modell für den Umsortier-Call. Leer = Chat-Modell verwenden.',
+      { name: t("settings.smartApplyModel.name"), desc: t("settings.smartApply.modelRow.desc"),
         render: this.renderSmartApplyModel },
-      { name: "Thinking unterdrücken (Smart Apply)",
-        desc: "Sendet Suppress-Hints für den Smart-Apply-Call — sinnvoll bei Thinking-Modellen, die auch strukturiert schreiben können.",
+      { name: t("settings.smartApply.suppressThinking.name"),
+        desc: t("settings.smartApply.suppressThinking.desc"),
         control: { type: "toggle", key: "smartApplySuppressThinking" } },
-      { name: "Smart-Apply-Max-Tokens",
-        desc: "Maximale Anzahl generierter Tokens für den Umsortier-Call (512–16384). Höher = sicher für große Notizen.",
+      { name: t("settings.smartApply.maxTokens.name"),
+        desc: t("settings.smartApply.maxTokens.desc"),
         control: { type: "slider", key: "smartApplyMaxTokens", min: 512, max: 16384, step: 512, displayFormat: (v: number) => String(v) } },
-      { name: "Smart-Apply-Standardmodus",
-        desc: "Für Vorlagen ohne eigene Modus-Angabe. Additiv lässt das LLM Werte erschließen und ergänzen (mit Konfidenz).",
+      { name: t("settings.smartApply.defaultMode.name"),
+        desc: t("settings.smartApply.defaultMode.desc"),
         control: { type: "dropdown", key: "smartApplyDefaultMode",
-          options: { deterministisch: "Deterministisch (nur zuordnen)", additiv: "Additiv (erschließen + ergänzen)" } } },
+          options: { deterministisch: t("settings.smartApply.defaultMode.optionDeterministic"), additiv: t("settings.smartApply.defaultMode.optionAdditive") } } },
     ] };
   }
 
@@ -457,7 +457,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       containerEl: host,
       label: t("settings.embeddingEndpoints.label"),
       desc: t("settings.embeddingEndpoints.desc"),
-      placeholder: "http://localhost:11434",
+      placeholder: "http://localhost:11434",   // i18n-exempt: URL-Beispiel, sprachneutral
       get: () => this.plugin.settings.embeddingEndpoints,
       set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
       active: () => this.plugin.activeEmbeddingEndpoint,
@@ -485,7 +485,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           reachable, models, current: this.plugin.settings.embeddingModel, allowEmpty: false,
         }),
         ariaLabel: t("settings.embeddingModel.name"),
-        placeholder: "qwen3-embedding:8b",
+        placeholder: "qwen3-embedding:8b",   // i18n-exempt: Modellname-Beispiel, sprachneutral
         onPick: (v: string) => {
           this.plugin.settings.embeddingModel = v;
           void this.plugin.saveSettings();
@@ -512,13 +512,13 @@ export class VaultRagSettingTab extends PluginSettingTab {
       // Form (Icon) trägt den Status, Farbe nur sekundär — lesbar auch bei Farbsehschwäche (WCAG 1.4.1).
       setIcon(dot, connected === null ? "loader" : connected ? "circle-check" : "circle-x");
       const active = this.plugin.activeEmbeddingEndpoint;
-      const conn = connected === null ? "prüfe…" : connected ? (active ? `verbunden via ${active}` : "verbunden") : "offline";
+      const conn = connected === null ? t("settings.conn.checking") : connected ? (active ? t("settings.conn.connectedVia", active) : t("settings.conn.connected")) : t("settings.conn.offline");
       const p = this.plugin.embeddingProgress as { isEmbedding: boolean; embeddedNotes: number; pendingNotes: number } | undefined;
       // Nur die eingebettete Zahl hier — der echte Rückstand (fehlende Notizen) lebt als EINE
       // Wahrheit in der Index-Zustand-Zeile (Index-Robustheit). „pending" war die transiente
       // Offline-Queue und kollidierte optisch mit dem Deckungs-Delta.
-      const counts = p ? `${p.embeddedNotes.toLocaleString()} eingebettet` : "";
-      const act = p?.isEmbedding ? "Embedding läuft" : "";
+      const counts = p ? t("settings.conn.embeddedCount", p.embeddedNotes.toLocaleString()) : "";
+      const act = p?.isEmbedding ? t("settings.conn.embedding") : "";
       text.setText([conn, act, counts].filter(Boolean).join(" · "));
     };
     render();
@@ -537,19 +537,19 @@ export class VaultRagSettingTab extends PluginSettingTab {
     s.setName(t("settings.indexFolder.name"))
       .setDesc(t("settings.indexFolder.desc"))
       .addText(t => {
-        t.setPlaceholder("_vaultrag").setValue(this.plugin.settings.indexDir);
+        t.setPlaceholder("_vaultrag").setValue(this.plugin.settings.indexDir);   // i18n-exempt: Ordnername-Beispiel, sprachneutral
         t.onChange((v: string) => { typed = v; });
         new FolderSuggest(this.app, t.inputEl).onSelect((path: string) => { typed = path; t.setValue(path); });
       })
-      .addButton(b => b.setButtonText("Übernehmen").onClick(async () => {
+      .addButton(b => b.setButtonText(t("settings.button.apply")).onClick(async () => {
         const norm = normalizeIndexDir(typed);
         if (norm === "" || norm === normalizeIndexDir(this.plugin.settings.indexDir)) return;
         if (isDotPath(norm)) new Notice(t("settings.indexFolder.dotWarning"));
-        b.setButtonText("Verschiebe…"); b.setDisabled(true);
+        b.setButtonText(t("settings.indexFolder.moving")); b.setDisabled(true);
         try {
           await this.plugin.changeIndexDir(norm);
           new Notice(t("settings.indexFolder.moved", norm));
-        } finally { b.setButtonText("Übernehmen"); b.setDisabled(false); }
+        } finally { b.setButtonText(t("settings.button.apply")); b.setDisabled(false); }
         this.refreshUi();
       }));
   };
@@ -563,7 +563,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .setName(t("settings.indexHealth.name"))
       .setDesc(this.plugin.indexHealthReadout(embedded, total, healthy, emptyCount))
       .addButton(b => b
-        .setButtonText("Vervollständigen")
+        .setButtonText(t("settings.button.complete"))
         .setDisabled(!healthy || embedded >= total)
         .onClick(() => { void this.plugin.healVault(); }));
   };
@@ -604,8 +604,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
 
     const detail = this.plugin.mcpStartError();
     const status = this.plugin.mcpServerRunning()
-      ? `läuft · ${this.plugin.mcpServerAddress() ?? ""}`
-      : (this.plugin.settings.mcpEnabled ? `aus — ${detail ?? "Start fehlgeschlagen"}` : "aus");
+      ? t("settings.mcp.running", this.plugin.mcpServerAddress() ?? "")
+      : (this.plugin.settings.mcpEnabled ? t("settings.mcp.offWithDetail", detail ?? t("settings.mcp.startFailed")) : t("settings.mcp.off"));
     new Setting(containerEl).setName(t("settings.mcpStatus.name")).setDesc(status);
 
     if (!this.plugin.settings.mcpEnabled) return;
@@ -615,9 +615,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName(t("settings.mcpToken.name"))
       .setDesc(this.showMcpToken ? token : maskToken(token))
-      .addButton(b => b.setButtonText(this.showMcpToken ? "Verbergen" : "Anzeigen")
+      .addButton(b => b.setButtonText(this.showMcpToken ? t("settings.button.hide") : t("settings.button.show"))
         .onClick(() => { this.showMcpToken = !this.showMcpToken; this.refreshUi(); }))
-      .addButton(b => applyDestructive(b.setButtonText("Neu generieren"))
+      .addButton(b => applyDestructive(b.setButtonText(t("settings.button.regenerate")))
         .onClick(async () => {
           await this.plugin.rotateMcpToken();
           new Notice(t("settings.mcpToken.regenerated"));
@@ -627,15 +627,15 @@ export class VaultRagSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName(t("settings.mcpTestConnection.name"))
       .setDesc(t("settings.mcpTestConnection.desc"))
-      .addButton(b => b.setButtonText("Testen")
+      .addButton(b => b.setButtonText(t("settings.button.testConnection"))
         .onClick(async () => {
           b.setDisabled(true);
           const res = await this.plugin.mcpSelfCheck();
           b.setDisabled(false);
-          const msg = res === "ok" ? "✓ 3 Tools erreichbar"
-            : res === "unauthorized" ? "Token stimmt nicht"
-            : res === "unreachable" ? "Server nicht erreichbar (aus? Port?)"
-            : "Antwort ist kein MCP";
+          const msg = res === "ok" ? t("settings.mcp.selfTest.ok")
+            : res === "unauthorized" ? t("settings.mcp.selfTest.unauthorized")
+            : res === "unreachable" ? t("settings.mcp.selfTest.unreachable")
+            : t("settings.mcp.selfTest.badResponse");
           new Notice(t("settings.mcpSelfTest", msg));
         }));
 
@@ -649,11 +649,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
       .setName(t("settings.mcpClientSetup.name"))
       .setDesc(t("settings.mcpClientSetup.desc"))
       .addDropdown(d => {
-        for (const c of MCP_CLIENTS) d.addOption(c.id, c.label);
+        for (const c of MCP_CLIENTS) d.addOption(c.id, t(c.labelKey));
         d.setValue(this.mcpClient);
         d.onChange((v: string) => { this.mcpClient = v as McpClientId; this.refreshUi(); });
       })
-      .addButton(b => b.setButtonText("Kopieren")
+      .addButton(b => b.setButtonText(t("settings.button.copy"))
         .onClick(() => {
           void navigator.clipboard.writeText(buildClientSnippet(this.mcpClient, { url, token }));
           new Notice(t("settings.mcpConfigCopied"));
@@ -670,7 +670,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       containerEl: host,
       label: t("settings.chatEndpoints.label"),
       desc: t("settings.chatEndpoints.desc"),
-      placeholder: "http://localhost:1234",
+      placeholder: "http://localhost:1234",   // i18n-exempt: URL-Beispiel, sprachneutral
       get: () => this.plugin.settings.chatEndpoints,
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
       active: () => this.plugin.activeChatEndpoint,
@@ -701,7 +701,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           reachable, models, current: this.plugin.settings.chatModel, allowEmpty: false,
         }),
         ariaLabel: t("settings.chatModel.name"),
-        placeholder: "qwen3",
+        placeholder: "qwen3",   // i18n-exempt: Modellname-Beispiel, sprachneutral
         onPick: (v: string) => {
           this.plugin.settings.chatModel = v;
           void this.plugin.saveSettings();
@@ -719,7 +719,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private renderModelDetails = (setting: Setting): void => {
     const host = settingBodyHost(setting);
     const s = new Setting(host).setName(t("settings.modelDetails.name"));
-    this.infoValue = s.controlEl.createSpan({ cls: "vault-rag-info-value", text: "…" });
+    this.infoValue = s.controlEl.createSpan({ cls: "vault-rag-info-value", text: t("settings.loadingPlaceholder") });
   };
 
   /** render-Hatch: Fähigkeiten-Zeile. Setzt capSetting, das showCaps() (renderChatModel) und
@@ -774,10 +774,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
         setting: s,
         choice: resolveModelChoice({
           reachable, models, current: this.plugin.settings.smartApplyModel,
-          allowEmpty: true, emptyLabel: "Chat-Modell verwenden",
+          allowEmpty: true, emptyLabel: t("settings.smartApplyModel.emptyLabel"),
         }),
         ariaLabel: t("settings.smartApplyModel.name"),
-        placeholder: "leer = Chat-Modell",
+        placeholder: t("settings.smartApplyModel.placeholder"),
         onPick: (v: string) => {
           this.plugin.settings.smartApplyModel = v;
           void this.plugin.saveSettings();
@@ -798,7 +798,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     if (isAlwaysOnThinker(model)) { new Notice(t("settings.thinkerAlwaysOn")); return; }
     try {
       const res = await this.plugin.chatClient.stream(
-        [{ role: "user", content: "Antworte in genau einem Wort: Hallo." }],
+        [{ role: "user", content: t("settings.thinkingTest.prompt") }],
         () => {}, () => {}, undefined, { model, suppressThinking: true });
       const happened = reasoningHappened(res.content, res.reasoning);
       new Notice(happened ? t("settings.thinkingDespiteOff") : t("settings.thinkingSuppressed"));
@@ -909,7 +909,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           if (thirdPartyIcon) return;   // schon da — nicht doppelt anlegen
           thirdPartyIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-thirdparty" });
           setIcon(thirdPartyIcon, "alert-triangle");
-          setTooltip(thirdPartyIcon, "Endpunkt mit Schlüssel — Inhalte, die an ihn gesendet werden, gehen an diesen Anbieter.");
+          setTooltip(thirdPartyIcon, t("settings.endpoint.keyWarning"));
         } else if (thirdPartyIcon) {
           thirdPartyIcon.remove();
           thirdPartyIcon = null;
@@ -954,8 +954,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
         void (rerender ? withRoleSync.then(() => this.refreshUi()) : withRoleSync).catch(failSafe);
       };
       s.addText(tx => {
-        tx.setPlaceholder(isAdder ? "Weiteren Endpunkt hinzufügen…" : opts.placeholder).setValue(cfg.url);
-        tx.inputEl.setAttribute("aria-label", isAdder ? t("settings.endpointRow.ariaAdd", opts.label) : `${opts.label}: URL`);
+        tx.setPlaceholder(isAdder ? t("settings.endpoint.addPlaceholder") : opts.placeholder).setValue(cfg.url);
+        tx.inputEl.setAttribute("aria-label", isAdder ? t("settings.endpointRow.ariaAdd", opts.label) : t("settings.endpointRow.ariaUrl", opts.label));
         tx.inputEl.addEventListener("blur", () => { commit("url", tx.getValue()); });
       });
       // Schlüssel + Modell nur an bestehenden Einträgen — am leeren Adder gäbe es nichts zu tragen.
@@ -963,10 +963,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
       // Felder in einer Zeile sind für Screenreader nicht auseinanderzuhalten.
       if (!isAdder) {
         s.addText(tx => {
-          tx.setPlaceholder("API-Schlüssel (leer = lokaler Server)").setValue(cfg.apiKey ?? "");
+          tx.setPlaceholder(t("settings.endpoint.keyPlaceholder")).setValue(cfg.apiKey ?? "");
           tx.inputEl.type = "password";                    // maskiert gegen Schultergucken/Screenshots
           tx.inputEl.setAttribute("autocomplete", "off");
-          tx.inputEl.setAttribute("aria-label", `API-Schlüssel für ${cfg.url} (leer = lokaler Server)`);
+          tx.inputEl.setAttribute("aria-label", t("settings.endpoint.keyAria", cfg.url));
           tx.inputEl.addEventListener("blur", () => { commit("apiKey", tx.getValue()); });
         });
         // Modell-Override: Dropdown mit den Modellen GENAU DIESES Endpunkts. Die Liste kommt
@@ -987,10 +987,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
             target: modelSlot,
             choice: resolveModelChoice({
               reachable, models, current: cfg.model ?? "",
-              allowEmpty: true, emptyLabel: `globales Modell (${opts.globalModel() || "nicht gesetzt"})`,
+              allowEmpty: true, emptyLabel: t("settings.endpoint.emptyModelLabel", opts.globalModel() || t("settings.endpoint.notSet")),
             }),
-            ariaLabel: `Modell für ${cfg.url} (leer = globales Modell)`,
-            placeholder: "Modell (leer = globales)",
+            ariaLabel: t("settings.endpoint.modelAria", cfg.url),
+            placeholder: t("settings.endpoint.modelPlaceholder"),
             onPick: (v: string) => { commit("model", v); },
             onRefresh: () => { this.invalidateModelList(listKey); this.refreshUi(); },
             hintAs: "tooltip",
@@ -1004,7 +1004,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       if (!isAdder && i > 0) {
         s.addExtraButton(b => b
           .setIcon("arrow-up-to-line")
-          .setTooltip("Zuerst verwenden — an den Anfang der Liste setzen")
+          .setTooltip(t("settings.endpoint.moveToFrontTooltip"))
           .onClick(() => {
             lockRows();
             opts.set(moveEndpointToFront(opts.get(), i));
@@ -1019,7 +1019,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       if (!isAdder) {
         s.addExtraButton(b => b
           .setIcon("trash-2")
-          .setTooltip("Endpunkt entfernen")
+          .setTooltip(t("settings.endpoint.removeTooltip"))
           .onClick(() => {
             lockRows();
             opts.set(applyEndpointEdit(opts.get(), i, "url", "", false));
@@ -1032,11 +1032,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
       // Pro-Feld-Status in A11y-Form (Form + Text + Farbe): loader → check/x, aktiver markiert.
       const ep = cfg.url.trim();
       if (!isAdder && ep) {
-        setIcon(statusIcon, "loader"); setTooltip(statusIcon, "prüfe…");
+        setIcon(statusIcon, "loader"); setTooltip(statusIcon, t("settings.conn.checking"));
         // Rolle der Zeile als eigene Zeile UNTER den Feldern (flex-basis 100% im umbrechenden
         // Control-Container): horizontal ist die Zeile mit drei Feldern + bis zu drei Icons +
         // zwei Knöpfen ausgereizt (Layout-Fix 2026-08-04). Synchron angelegt, asynchron befüllt.
-        const stateEl = s.controlEl.createDiv({ cls: "vault-rag-ep-state", text: "prüfe…" });
+        const stateEl = s.controlEl.createDiv({ cls: "vault-rag-ep-state", text: t("settings.conn.checking") });
         // Erreichbarkeit ändert sich nur durch eine neue Probe, die Rolle aber auch durch das
         // Modell-Override. Das Probe-Ergebnis wird deshalb festgehalten, damit die Rolle ohne
         // erneuten Netzzugriff nachgezogen werden kann.
@@ -1088,7 +1088,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     ENDPOINT_PRESETS.forEach(preset => {
       actions.addButton(b => b
         .setButtonText(`+ ${preset.label}`)
-        .setTooltip(`${preset.url} hinzufügen`)
+        .setTooltip(t("settings.endpoint.addPreset", preset.url))
         .onClick(() => {
           const cur = opts.get();
           if (cur.some(c => c.url === preset.url)) return;   // schon in der Liste — kein Duplikat anhängen
@@ -1100,7 +1100,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
             .catch(failSafe);
         }));
     });
-    actions.addButton(b => b.setButtonText("Verbindung prüfen").onClick(() => this.refreshUi()));
+    actions.addButton(b => b.setButtonText(t("settings.button.checkConnection")).onClick(() => this.refreshUi()));
   }
 
   /** Capability-Chips (Lucide-Icons) in die controlEl der Fähigkeiten-Zeile. */
@@ -1114,11 +1114,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
     let any = false;
     if (c.vision !== "no") { chip("eye", c.vision === "confirmed" ? "Vision" : "Vision?", c.vision !== "confirmed"); any = true; }
     if (c.thinking.support !== "none") {
-      const t = c.thinking.support === "always" ? "Thinking (immer an)" : "Thinking";
-      chip("brain", c.thinking.confidence === "confirmed" ? t : t + "?", c.thinking.confidence !== "confirmed");
+      const label = c.thinking.support === "always" ? t("settings.thinking.alwaysOn") : "Thinking";
+      chip("brain", c.thinking.confidence === "confirmed" ? label : label + "?", c.thinking.confidence !== "confirmed");
       any = true;
     }
-    if (!any) el.setText("keine besonderen Fähigkeiten erkannt");
+    if (!any) el.setText(t("settings.caps.none"));
   }
 
   private showInfo(model: string): void {
@@ -1127,12 +1127,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
     void this.plugin.chatClient?.modelInfo(model).then((info: { contextLength?: number; quantization?: string; state?: string } | null) => {
       if (!this.infoValue) return;
       if (info) {
-        const ctx = info.contextLength ? `max Context ${info.contextLength.toLocaleString()}` : "";
-        this.infoValue.setText([ctx, info.quantization, info.state].filter(Boolean).join(" · ") || "geladen");
+        const ctx = info.contextLength ? t("settings.modelDetails.maxContext", info.contextLength.toLocaleString()) : "";
+        this.infoValue.setText([ctx, info.quantization, info.state].filter(Boolean).join(" · ") || t("settings.caps.loaded"));
         // Budget-Obergrenze ans Modell-Fenster koppeln (~4 Zeichen/Token).
         if (info.contextLength) this.updateBudgetMax(info.contextLength * 4);
       } else {
-        this.infoValue.setText("keine Details (braucht LM Studios /api/v0/models)");
+        this.infoValue.setText(t("settings.caps.noDetails"));
       }
     });
   }

@@ -1,3 +1,5 @@
+import { t } from "./vendor/kit/i18n";
+
 export interface ContextPanelDeps {
   embed: (q: string) => Promise<Float32Array>;
   search: (vec: Float32Array, n: number) => string[];
@@ -26,13 +28,13 @@ export class ContextPanel {
   mount(el: HTMLElement): void {
     el.empty();
     const head = el.createDiv({ cls: "vault-rag-ctx-head" });
-    this.countEl = head.createSpan({ cls: "vault-rag-ctx-count", text: "Kontext (0)" });
+    this.countEl = head.createSpan({ cls: "vault-rag-ctx-count", text: t("context.count", 0) });
     const kWrap = head.createDiv({ cls: "vault-rag-ctx-k" });
     kWrap.createEl("button", { cls: "vault-rag-ctx-kdec", text: "−" }).addEventListener("click", () => this.setAutoK(this.autoK - 1));
-    this.kEl = kWrap.createSpan({ cls: "vault-rag-ctx-kval", text: `Auto ${this.autoK}` });
+    this.kEl = kWrap.createSpan({ cls: "vault-rag-ctx-kval", text: t("context.auto", this.autoK) });
     kWrap.createEl("button", { cls: "vault-rag-ctx-kinc", text: "+" }).addEventListener("click", () => this.setAutoK(this.autoK + 1));
-    head.createEl("button", { cls: "vault-rag-ctx-active", text: "+ Aktive Notiz" }).addEventListener("click", () => this.addActive());
-    head.createEl("button", { cls: "vault-rag-ctx-pick", text: "+ Notiz" }).addEventListener("click", () => void this.addViaPicker());
+    head.createEl("button", { cls: "vault-rag-ctx-active", text: t("context.addActive") }).addEventListener("click", () => this.addActive());
+    head.createEl("button", { cls: "vault-rag-ctx-pick", text: t("context.addNote") }).addEventListener("click", () => void this.addViaPicker());
     this.listEl = el.createDiv({ cls: "vault-rag-ctx-list" });
     this.render();
   }
@@ -67,7 +69,7 @@ export class ContextPanel {
     const next = Math.max(0, n);
     const increasing = next > this.autoK;
     this.autoK = next;
-    this.kEl?.setText(`Auto ${this.autoK}`);
+    this.kEl?.setText(t("context.auto", this.autoK));
     // Bei Erhöhung über den geholten Puffer hinaus neu retrieven, sonst nur neu rechnen.
     if (increasing && this.ranked.length < next + this.pinned.length && this.lastQuery.length >= MIN_QUERY) {
       void this.setQuery(this.lastQuery);
@@ -80,7 +82,7 @@ export class ContextPanel {
 
   private render(): void {
     const el = this.listEl; if (!el) return; el.empty();
-    this.countEl?.setText(`Kontext (${this.currentPaths().length})`);
+    this.countEl?.setText(t("context.count", this.currentPaths().length));
     for (const p of this.pinned) {
       const chip = el.createSpan({ cls: "vault-rag-ctx-chip is-pinned", text: `📌 ${this.basename(p)} ✕` });
       chip.addEventListener("click", () => this.unpin(p));

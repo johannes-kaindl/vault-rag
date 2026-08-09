@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { ChatSession } from "../src/chat_session";
 import { ChatHttpError } from "../src/chat_error";
+import "../src/i18n/strings"; // Register i18n strings
 
 function mkSession(streamImpl?: any, assembleImpl?: any) {
   const client: any = { ping: async () => true, stream: streamImpl ?? (async (_m: any, onContent: (t: string) => void) => { onContent("Hi"); onContent("!"); return { content: "Hi!", reasoning: "" }; }) };
@@ -29,14 +30,14 @@ describe("ChatSession", () => {
   it("Client-Fehler → error an der Nachricht", async () => {
     const { s } = mkSession(async () => { throw new Error("boom"); });
     const r = await s.send("x", [], () => {});
-    expect(r.error).toContain("nicht erreichbar");
-    expect(s.messages[1].error).toContain("nicht erreichbar");
+    expect(r.error).toContain("unreachable");
+    expect(s.messages[1].error).toContain("unreachable");
   });
   it("HTTP-Fehler wird durchgereicht statt durch eine Erreichbarkeits-Vermutung ersetzt", async () => {
     const { s } = mkSession(async () => { throw new ChatHttpError(401, '{"detail":"Not authenticated"}'); });
     const r = await s.send("x", [], () => {});
     expect(r.error).toContain("401");
-    expect(r.error).toMatch(/Schlüssel/);
+    expect(r.error).toMatch(/API key/);
     expect(r.error).toContain("Not authenticated");
   });
   it("Serverbegründung eines 400 landet in der Nachricht — dort steht der Grund", async () => {
@@ -53,7 +54,7 @@ describe("ChatSession", () => {
   it("leere Antwort → Hinweis", async () => {
     const { s } = mkSession(async () => ({ content: "", reasoning: "" }));
     await s.send("x", ["a.md"], () => {});
-    expect(s.messages[1].error).toContain("Leere Antwort");
+    expect(s.messages[1].error).toContain("Empty response");
   });
   it("pusht die User-Nachricht synchron, vor assemble", () => {
     let resolve: (v: any) => void = () => {};

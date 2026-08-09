@@ -1,6 +1,7 @@
 import { Hit } from "./retriever";
 import { renderHits } from "./view";
 import { HubPanel, TabId } from "./hub_panel";
+import { t } from "./vendor/kit/i18n";
 
 export const VIEW_TYPE_SEARCH = "vault-rag-search";
 
@@ -19,7 +20,7 @@ const DEBOUNCE_MS = 400;
 
 export class SearchPanel implements HubPanel {
   readonly id: TabId = "search";
-  readonly label = "Suche";
+  get label(): string { return t("panel.search.label"); }
   readonly icon = "search";
   private container!: HTMLElement;
   private inputEl: HTMLInputElement | null = null;
@@ -33,12 +34,12 @@ export class SearchPanel implements HubPanel {
     const c = this.container; c.empty();
     const input = c.createEl("input", { cls: "vault-rag-search-input" });
     input.type = "text";
-    input.placeholder = "Semantisch suchen…";
+    input.placeholder = t("panel.search.placeholder");
     this.inputEl = input;
     this.resultsEl = c.createDiv({ cls: "vault-rag-search-results" });
     input.addEventListener("input", () => this.schedule(input.value ?? ""));
     input.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") void this.runQuery(input.value ?? ""); });
-    this.renderState("Suchbegriff eingeben (≥3 Zeichen).");
+    this.renderState(t("panel.search.prompt"));
   }
 
   private schedule(query: string): void {
@@ -48,14 +49,14 @@ export class SearchPanel implements HubPanel {
 
   async runQuery(query: string): Promise<void> {
     const q = query.trim();
-    if (q.length < MIN_QUERY) { this.renderState("Suchbegriff eingeben (≥3 Zeichen)."); return; }
+    if (q.length < MIN_QUERY) { this.renderState(t("panel.search.prompt")); return; }
     this.renderResult(await this.deps.search(q));
   }
 
   renderResult(result: SearchResult): void {
-    if (result.kind === "offline") return this.renderState("Embedder nicht erreichbar (lokal/VPN).");
-    if (result.kind === "no-index") return this.renderState('Kein Index — über den Befehl „Vault neu indizieren“ erstellen.');
-    if (result.hits.length === 0) return this.renderState("Keine Treffer über der Schwelle.");
+    if (result.kind === "offline") return this.renderState(t("panel.search.offline"));
+    if (result.kind === "no-index") return this.renderState(t("panel.search.noIndex"));
+    if (result.hits.length === 0) return this.renderState(t("panel.search.noHits"));
     const el = this.resultsEl!; el.empty();
     renderHits(el, result.hits, this.deps.openPath);
   }

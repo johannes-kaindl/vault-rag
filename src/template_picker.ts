@@ -1,5 +1,6 @@
 import { App, FuzzySuggestModal, TFile } from "obsidian";
 import { templateFilesUnder } from "./template_matcher";
+import { t } from "./vendor/kit/i18n";
 
 class TemplatePicker extends FuzzySuggestModal<TFile> {
   private settled = false;
@@ -10,7 +11,7 @@ class TemplatePicker extends FuzzySuggestModal<TFile> {
     private done: (p: string | null) => void,
   ) {
     super(app);
-    this.setPlaceholder("Vorlage wählen…");
+    this.setPlaceholder(t("picker.template.placeholder"));
     if (preselect) {
       // Seedet die Sucheingabe; Ranking ist score-basiert, daher zusätzlich der (Vorschlag)-Marker.
       this.inputEl.value = preselect.split("/").pop()!.replace(/\.md$/, "");
@@ -27,7 +28,7 @@ class TemplatePicker extends FuzzySuggestModal<TFile> {
   getItemText(f: TFile): string {
     // (Vorschlag)-Marker ist das echte Signal: Obsidians Fuzzy-Ranking sortiert score-basiert
     // und garantiert KEIN Top-Sticking des geseedeten Eintrags.
-    return f.path === this.preselect ? `${f.path}  (Vorschlag)` : f.path;
+    return f.path === this.preselect ? `${f.path}  ${t("picker.template.suggestion")}` : f.path;
   }
   onChooseItem(f: TFile): void { this.settle(f.path); }
   onClose(): void {

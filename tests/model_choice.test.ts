@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { resolveModelChoice } from "../src/model_choice";
+import "../src/i18n/strings"; // Register i18n strings
 
 describe("resolveModelChoice", () => {
   it("erreichbar mit Liste, gespeichertes Modell ist dabei → Dropdown", () => {
@@ -17,7 +18,7 @@ describe("resolveModelChoice", () => {
       reachable: true, models: ["a", "b"], current: "weg", allowEmpty: false,
     });
     expect(c.mode).toBe("dropdown");
-    expect(c.options[0]).toEqual({ value: "weg", label: "weg (gespeichert)" });
+    expect(c.options[0]).toEqual({ value: "weg", label: "weg (saved)" });
     // Invariante: der gespeicherte Wert ist IMMER eine Option — sonst fällt das
     // <select> still auf die erste zurück und überschreibt ihn beim nächsten Speichern.
     expect(c.options.some(o => o.value === c.value)).toBe(true);
@@ -38,7 +39,7 @@ describe("resolveModelChoice", () => {
     });
     expect(c.mode).toBe("freetext");
     expect(c.value).toBe("gpt-4o");
-    expect(c.hint).toContain("keine Modell-Liste");
+    expect(c.hint).toContain("does not expose a model list");
   });
 
   it("nicht erreichbar → gesperrt, Optionen enthalten genau den gespeicherten Wert", () => {
@@ -48,7 +49,7 @@ describe("resolveModelChoice", () => {
     expect(c.mode).toBe("locked");
     expect(c.options).toEqual([{ value: "qwen3", label: "qwen3" }]);
     expect(c.value).toBe("qwen3");
-    expect(c.hint).toContain("nicht erreichbar");
+    expect(c.hint).toContain("unreachable");
   });
 
   it("nicht erreichbar, nichts gespeichert, allowEmpty → nur die Leer-Option", () => {
@@ -76,7 +77,7 @@ describe("resolveModelChoice", () => {
     });
     expect(c.value).toBe("qwen3");
     expect(c.options.map(o => o.value)).toEqual(["qwen3"]);
-    expect(c.options.some(o => o.label.includes("gespeichert"))).toBe(false);
+    expect(c.options.some(o => o.label.includes("saved"))).toBe(false);
   });
 
   it("Dropdown mit leerer Liste und allowEmpty=false → Platzhalter-Option schützt Invariante", () => {
@@ -90,5 +91,13 @@ describe("resolveModelChoice", () => {
     expect(c.value).toBe("");
     expect(c.options.some(o => o.value === c.value)).toBe(true);
     expect(c.options[0]).toEqual({ value: "", label: "—" });
+  });
+});
+
+describe("resolveModelChoice hints i18n", () => {
+  it("gibt den Locked-Hinweis auf Englisch", () => {
+    const r = resolveModelChoice({ current: "foo", models: [], reachable: false, allowEmpty: false });
+    expect(r.mode).toBe("locked");
+    expect(r.hint).toBe("Endpoint unreachable — the saved value is kept. Use \"Fetch models\" once it is running.");
   });
 });

@@ -47,17 +47,22 @@ const CHANGE_ICON: Record<FmChange, string> = {
 // Form (Symbol) trägt die Bedeutung, nicht nur Farbe — lesbar auch bei Farbsehschwäche.
 const CONF_SYMBOL: Record<Confidence, string> = { hoch: "●", mittel: "◐", niedrig: "○" };
 
-const MODE_LABELS: { id: ApplyMode; label: string }[] = [
-  { id: "deterministisch", label: "Deterministisch" },
-  { id: "additiv", label: "Additiv" },
-  { id: "transformativ", label: "Transformativ" },
+export const MODE_LABELS: { id: ApplyMode; labelKey: string }[] = [
+  { id: "deterministisch", labelKey: "smartApply.modeDeterministic" },
+  { id: "additiv", labelKey: "smartApply.modeAdditive" },
+  { id: "transformativ", labelKey: "smartApply.modeTransformative" },
 ];
+
+/** EINE Wahrheit für die Block-Zählung — ersetzt die zwei Inline-Ternaries. */
+export function blockCountLabel(n: number): string {
+  return n === 1 ? t("smartApply.blocks.singular", n) : t("smartApply.blocks.plural", n);
+}
 
 // ── SmartApplyPanel (persistent cockpit) ─────────────────────────────────────────
 
 export class SmartApplyPanel implements HubPanel {
   readonly id: TabId = "smart-apply";
-  readonly label = "Smart Apply";
+  get label(): string { return t("smartApply.label"); }
   readonly icon = "wand-2";
   private container!: HTMLElement;
   private visible = false;
@@ -202,11 +207,11 @@ export class SmartApplyPanel implements HubPanel {
     const row2 = header.createDiv({ cls: "vault-rag-sa-header-row" });
 
     const running = this.state === "running";
-    const runBtn = row2.createEl("button", { cls: "vault-rag-sa-run mod-cta", text: "Auf aktive Notiz anwenden" });
+    const runBtn = row2.createEl("button", { cls: "vault-rag-sa-run mod-cta", text: t("smartApply.runLabel") });
     runBtn.toggleClass("is-disabled", running);
     runBtn.addEventListener("click", () => { if (!running) void this.start(); });
 
-    const stopBtn = row2.createEl("button", { cls: "vault-rag-sa-stop", text: "Stop" });
+    const stopBtn = row2.createEl("button", { cls: "vault-rag-sa-stop", text: t("smartApply.stop") });
     stopBtn.toggleClass("is-disabled", !running);
     stopBtn.addEventListener("click", () => this.deps.abort());
 
@@ -221,7 +226,7 @@ export class SmartApplyPanel implements HubPanel {
     const wrap = header.createDiv({ cls: "vault-rag-sa-mode" });
     for (const m of MODE_LABELS) {
       const disabled = m.id === "transformativ";
-      const seg = wrap.createEl("button", { cls: "vault-rag-sa-mode-btn", text: m.label });
+      const seg = wrap.createEl("button", { cls: "vault-rag-sa-mode-btn", text: t(m.labelKey) });
       seg.toggleClass("is-disabled", disabled);
       seg.toggleClass("is-active", this.selectedMode === m.id);
       if (!disabled) {
@@ -247,17 +252,17 @@ export class SmartApplyPanel implements HubPanel {
       this.auditTrail = checkbox.checked;
       this.reassemble();
     });
-    wrap.createSpan({ cls: "vault-rag-sa-audit-label", text: "Provenienz behalten" });
+    wrap.createSpan({ cls: "vault-rag-sa-audit-label", text: t("smartApply.provenance") });
   }
 
   private renderRankList(header: HTMLElement): void {
     const wrap = header.createDiv({ cls: "vault-rag-sa-ranklist" });
     if (this.ranking.length === 0) {
-      wrap.createDiv({ cls: "vault-rag-sa-rank-empty", text: "Keine Vorlage erkannt — Vorlagen-Ordner in den Einstellungen prüfen." });
+      wrap.createDiv({ cls: "vault-rag-sa-rank-empty", text: t("smartApply.noTemplate") });
       return;
     }
     if (this.ranking.every(r => r.source === "fallback")) {
-      wrap.createDiv({ cls: "vault-rag-sa-rank-note", text: "offline — Ranking nicht verfügbar, Vorlage manuell wählen" });
+      wrap.createDiv({ cls: "vault-rag-sa-rank-note", text: t("smartApply.offlineRanking") });
     }
     const maxScore = Math.max(0, ...this.ranking.map(r => r.score));
     const TOP_N = 5;
@@ -272,10 +277,12 @@ export class SmartApplyPanel implements HubPanel {
       const pct = r.source === "confirmed" ? 100 : (maxScore > 0 ? Math.round((r.score / maxScore) * 100) : 0);
       const bar = row.createDiv({ cls: "vault-rag-sa-rank-bar" });
       bar.style.setProperty("--vault-rag-sa-rank-pct", `${pct}%`);
-      row.createSpan({ cls: "vault-rag-sa-rank-pct", text: r.source === "confirmed" ? "Frontmatter-Typ" : `${pct}%` });
+      const isConfirmed = r.source === "confirmed";
+      const pctLabel = isConfirmed ? t("smartApply.rankFmType") : `${pct}%`;
+      row.createSpan({ cls: "vault-rag-sa-rank-pct", text: pctLabel });
     }
     if (this.ranking.length > TOP_N && !this.expandedRanks) {
-      const more = wrap.createDiv({ cls: "vault-rag-sa-rank-more", text: `weitere ${this.ranking.length - TOP_N} ▾` });
+      const more = wrap.createDiv({ cls: "vault-rag-sa-rank-more", text: t("smartApply.moreRanks", this.ranking.length - TOP_N) });
       more.addEventListener("click", () => { this.expandedRanks = true; this.render(); });
     }
   }
@@ -289,11 +296,11 @@ export class SmartApplyPanel implements HubPanel {
     setIcon(icon, "brain");
     el.createSpan({
       cls: "vault-rag-sa-think-label",
-      text: always ? "Thinking: immer an" : suppressed ? "Thinking: aus" : "Thinking: an",
+      text: always ? t("smartApply.thinkAlwaysOn") : suppressed ? t("smartApply.thinkOff") : t("smartApply.thinkOn"),
     });
     el.setAttribute("aria-label", always
-      ? "Dieses Modell denkt immer (nicht abschaltbar)"
-      : suppressed ? "Thinking ist aus — klicken zum Einschalten" : "Thinking ist an — klicken zum Ausschalten");
+      ? t("smartApply.thinkAriaAlways")
+      : suppressed ? t("smartApply.thinkAriaOff") : t("smartApply.thinkAriaOn"));
     el.toggleClass("is-disabled", always);
     el.toggleClass("is-off", !always && suppressed);
   }
@@ -353,22 +360,22 @@ export class SmartApplyPanel implements HubPanel {
     if (this.connected === null) {
       dot.toggleClass("is-checking", true);
       setIcon(dot, "loader");
-      label.setText("Smart-Apply-LLM: prüfe…");
+      label.setText(t("smartApply.llmChecking"));
     } else if (this.connected) {
       dot.toggleClass("is-ok", true);
       setIcon(dot, "circle-check");
-      label.setText("Smart-Apply-LLM verbunden");
+      label.setText(t("smartApply.llmConnected"));
     } else {
       dot.toggleClass("is-error", true);
       setIcon(dot, "circle-x");
-      label.setText("Smart-Apply-LLM offline — in den Settings prüfen");
+      label.setText(t("smartApply.llmOffline"));
     }
-    this.connEl.setAttribute("aria-label", "Smart-Apply-LLM-Verbindung erneut prüfen");
-    this.connEl.setAttribute("title", "Verbindung erneut prüfen");
+    this.connEl.setAttribute("aria-label", t("smartApply.recheckAria"));
+    this.connEl.setAttribute("title", t("smartApply.recheckTitle"));
     this.connEl.addEventListener("click", () => void this.refreshConn());
     const refresh = this.connEl.createSpan({ cls: "vault-rag-sa-conn-refresh clickable-icon" });
     setIcon(refresh, "refresh-cw");
-    refresh.setAttribute("aria-label", "Verbindung erneut prüfen");
+    refresh.setAttribute("aria-label", t("smartApply.recheckTitle"));
     refresh.addEventListener("click", (e) => { e?.stopPropagation(); void this.refreshConn(); });
   }
 
@@ -385,7 +392,7 @@ export class SmartApplyPanel implements HubPanel {
   private renderIdle(c: HTMLElement): void {
     c.createDiv({
       cls: "vault-rag-sa-idle",
-      text: "Wähle eine Notiz und drücke 'Auf aktive Notiz anwenden'.",
+      text: t("smartApply.pickNote"),
     });
     if (this.templateHint) {
       c.createDiv({ cls: "vault-rag-sa-template-hint", text: this.templateHint });
@@ -397,28 +404,28 @@ export class SmartApplyPanel implements HubPanel {
   private renderRunning(c: HTMLElement): void {
     const wrap = c.createDiv({ cls: "vault-rag-sa-running" });
     this.elapsedEl = wrap.createDiv({ cls: "vault-rag-sa-elapsed" });
-    this.elapsedEl.setText("● arbeitet… 0.0 s");
+    this.elapsedEl.setText(t("smartApply.working", "0.0"));
 
     const det = wrap.createEl("details", { cls: "vault-rag-sa-reasoning" });
     det.open = true;
-    det.createEl("summary", { cls: "vault-rag-sa-reasoning-sum", text: "💭 Denken" });
+    det.createEl("summary", { cls: "vault-rag-sa-reasoning-sum", text: t("smartApply.thinkingSummary") });
     this.reasoningBodyEl = det.createDiv({ cls: "vault-rag-sa-reasoning-body" });
     this.reasoningBodyEl.setText(this.reasoningText);
 
     const stream = wrap.createEl("details", { cls: "vault-rag-sa-stream-wrap" });
     stream.open = false;
-    stream.createEl("summary", { cls: "vault-rag-sa-stream-sum", text: "Roh-Stream" });
+    stream.createEl("summary", { cls: "vault-rag-sa-stream-sum", text: t("smartApply.rawStream") });
     this.streamPaneEl = stream.createEl("pre", { cls: "vault-rag-sa-stream" });
     this.streamPaneEl.setText(this.streamText);
   }
 
-  private onToken(t: string): void {
-    this.streamText += t;
+  private onToken(chunk: string): void {
+    this.streamText += chunk;
     if (this.streamPaneEl) this.streamPaneEl.setText(this.streamText);
   }
 
-  private onReasoning(t: string): void {
-    this.reasoningText += t;
+  private onReasoning(chunk: string): void {
+    this.reasoningText += chunk;
     if (this.reasoningBodyEl) this.reasoningBodyEl.setText(this.reasoningText);
   }
 
@@ -438,8 +445,8 @@ export class SmartApplyPanel implements HubPanel {
   }
 
   private truncate(s: string, max: number): string {
-    const t = s.replace(/\s+/g, " ").trim();
-    return t.length > max ? t.slice(0, max - 1) + "…" : t;
+    const trimmed = s.replace(/\s+/g, " ").trim();
+    return trimmed.length > max ? trimmed.slice(0, max - 1) + "…" : trimmed;
   }
 
   private renderReflow(c: HTMLElement, p: ApplyProposal): void {
@@ -447,7 +454,7 @@ export class SmartApplyPanel implements HubPanel {
     // irreführendes „nichts verloren". Der Scan-Kopf zeigt den Fehler.
     if (p.sectionDiff.length === 0 && p.unassigned.length === 0) return;
     const sec = c.createDiv({ cls: "vault-rag-sa-reflow" });
-    sec.createDiv({ cls: "vault-rag-sa-section-title", text: "Body-Reflow" });
+    sec.createDiv({ cls: "vault-rag-sa-section-title", text: t("smartApply.bodyReflow") });
     for (const sd of p.sectionDiff) {
       const row = sec.createDiv({ cls: "vault-rag-sa-reflow-row" });
       row.toggleClass("is-empty", sd.blockIds.length === 0);
@@ -456,14 +463,14 @@ export class SmartApplyPanel implements HubPanel {
       const n = sd.blockIds.length;
       head.createSpan({
         cls: "vault-rag-sa-reflow-count",
-        text: n === 0 ? "—" : `${n} ${n === 1 ? "Block" : "Blöcke"}`,
+        text: n === 0 ? "—" : blockCountLabel(n),
       });
       if (sd.provenance) {
         row.createDiv({ cls: "vault-rag-sa-reflow-prov", text: this.truncate(sd.provenance, 80) });
       }
       for (const add of p.additions.filter((a) => a.targetHeading === sd.heading)) {
         const addRow = row.createDiv({ cls: "vault-rag-sa-add" });
-        addRow.createSpan({ cls: "vault-rag-sa-add-marker", text: "＋ ergänzt" });
+        addRow.createSpan({ cls: "vault-rag-sa-add-marker", text: t("smartApply.added") });
         addRow.createSpan({ cls: "vault-rag-sa-add-text", text: this.truncate(add.text, 80) });
         this.renderConfidenceBadge(addRow, add.confidence);
         const id = add.id;
@@ -482,14 +489,14 @@ export class SmartApplyPanel implements HubPanel {
     if (p.unassigned.length === 0) {
       left.toggleClass("is-ok", true);
       setIcon(icon, "circle-check");
-      left.createSpan({ cls: "vault-rag-sa-leftover-label", text: "Übrig: nichts verloren" });
+      left.createSpan({ cls: "vault-rag-sa-leftover-label", text: t("smartApply.nothingLost") });
     } else {
       left.toggleClass("is-warn", true);
       setIcon(icon, "alert-triangle");
       const n = p.unassigned.length;
       left.createSpan({
         cls: "vault-rag-sa-leftover-label",
-        text: `${n} ${n === 1 ? "Block" : "Blöcke"} nicht zugeordnet`,
+        text: t("smartApply.unassignedCount", blockCountLabel(n)),
       });
       const list = sec.createDiv({ cls: "vault-rag-sa-leftover-list" });
       for (const b of p.unassigned) {
@@ -499,9 +506,9 @@ export class SmartApplyPanel implements HubPanel {
   }
 
   private detectionLabel(d: ApplyProposal["detection"]): string {
-    if (d.confidence === "confirmed") return "Typ aus Frontmatter";
-    if (d.source === "rag") return "automatisch erkannt";
-    return "manuell gewählt";
+    if (d.confidence === "confirmed") return t("smartApply.detectFromFrontmatter");
+    if (d.source === "rag") return t("smartApply.detectAuto");
+    return t("smartApply.manualChoice");
   }
 
   private renderGuardScan(c: HTMLElement, p: ApplyProposal): void {
@@ -514,12 +521,12 @@ export class SmartApplyPanel implements HubPanel {
     setIcon(sIcon, p.hardOk ? "circle-check" : "circle-x");
     status.createSpan({
       cls: "vault-rag-sa-scan-status-label",
-      text: p.hardOk ? "Bereit zum Anwenden" : "Anwenden gesperrt",
+      text: p.hardOk ? t("smartApply.readyToApply") : t("smartApply.applyBlocked"),
     });
 
     banner.createDiv({
       cls: "vault-rag-sa-scan-tpl",
-      text: `Vorlage: ${p.type} · ${this.detectionLabel(p.detection)}`,
+      text: t("smartApply.templateLine", p.type, this.detectionLabel(p.detection)),
     });
 
     const assigned = p.sectionDiff.reduce((sum, sd) => sum + sd.blockIds.length, 0);
@@ -527,7 +534,7 @@ export class SmartApplyPanel implements HubPanel {
     const setCount = p.fmRows.filter((row) => !this.isMutedRow(row)).length;
     banner.createDiv({
       cls: "vault-rag-sa-scan-stats",
-      text: `${assigned}/${total} Blöcke zugeordnet · ${p.unassigned.length} übrig · ${setCount} Felder gesetzt`,
+      text: t("smartApply.summary", assigned, total, p.unassigned.length, setCount),
     });
 
     if (!p.hardOk) {
@@ -543,15 +550,15 @@ export class SmartApplyPanel implements HubPanel {
 
   private renderRawDetails(c: HTMLElement, p: ApplyProposal): void {
     const det = c.createEl("details", { cls: "vault-rag-sa-raw" });
-    det.createEl("summary", { cls: "vault-rag-sa-raw-sum", text: "Rohtext anzeigen (Original / Vorschlag)" });
+    det.createEl("summary", { cls: "vault-rag-sa-raw-sum", text: t("smartApply.showRaw") });
     const surfaces = det.createDiv({ cls: "vault-rag-sa-surfaces" });
 
     const origCol = surfaces.createDiv({ cls: "vault-rag-sa-surface" });
-    origCol.createDiv({ cls: "vault-rag-sa-surface-title", text: "Original" });
+    origCol.createDiv({ cls: "vault-rag-sa-surface-title", text: t("smartApply.original") });
     origCol.createEl("pre", { cls: "vault-rag-sa-orig", text: p.originalText });
 
     const propCol = surfaces.createDiv({ cls: "vault-rag-sa-surface" });
-    propCol.createDiv({ cls: "vault-rag-sa-surface-title", text: "Vorschlag" });
+    propCol.createDiv({ cls: "vault-rag-sa-surface-title", text: t("smartApply.proposal") });
     propCol.createEl("pre", { cls: "vault-rag-sa-prop", text: p.proposedText });
   }
 
@@ -611,7 +618,7 @@ export class SmartApplyPanel implements HubPanel {
   private renderFrontmatter(c: HTMLElement, p: ApplyProposal): void {
     if (p.fmRows.length === 0) return;
     const sec = c.createDiv({ cls: "vault-rag-sa-fm" });
-    sec.createDiv({ cls: "vault-rag-sa-section-title", text: "Frontmatter" });
+    sec.createDiv({ cls: "vault-rag-sa-section-title", text: t("smartApply.frontmatterTitle") });
 
     const setRows = p.fmRows.filter((row) => !this.isMutedRow(row));
     const mutedRows = p.fmRows.filter((row) => this.isMutedRow(row));
@@ -621,8 +628,8 @@ export class SmartApplyPanel implements HubPanel {
       const head = setBox.createDiv({ cls: "vault-rag-sa-fm-head" });
       head.createSpan({ cls: "vault-rag-sa-fm-icon" });
       head.createSpan({ cls: "vault-rag-sa-fm-key" });
-      head.createSpan({ cls: "vault-rag-sa-fm-orig", text: "Original" });
-      head.createSpan({ cls: "vault-rag-sa-fm-prop", text: "Vorschlag" });
+      head.createSpan({ cls: "vault-rag-sa-fm-orig", text: t("smartApply.original") });
+      head.createSpan({ cls: "vault-rag-sa-fm-prop", text: t("smartApply.proposal") });
       for (const row of setRows) this.renderFmRow(setBox, row, p);
     }
 
@@ -631,9 +638,9 @@ export class SmartApplyPanel implements HubPanel {
       const unchanged = mutedRows.length - empty;
       const det = sec.createEl("details", { cls: "vault-rag-sa-fm-muted" });
       const parts: string[] = [];
-      if (empty > 0) parts.push(`${empty} leere`);
-      if (unchanged > 0) parts.push(`${unchanged} unveränderte`);
-      det.createEl("summary", { cls: "vault-rag-sa-fm-muted-sum", text: `${parts.join(" · ")} Felder` });
+      if (empty > 0) parts.push(t("smartApply.fmEmptyCount", empty));
+      if (unchanged > 0) parts.push(t("smartApply.fmUnchangedCount", unchanged));
+      det.createEl("summary", { cls: "vault-rag-sa-fm-muted-sum", text: t("smartApply.fmFieldsSummary", parts.join(" · ")) });
       for (const row of mutedRows) this.renderFmRow(det, row, p);
     }
   }
@@ -641,17 +648,17 @@ export class SmartApplyPanel implements HubPanel {
   private renderActions(c: HTMLElement, p: ApplyProposal): void {
     const bar = c.createDiv({ cls: "vault-rag-sa-actions" });
 
-    const apply = bar.createEl("button", { cls: "vault-rag-sa-apply mod-cta", text: "Anwenden" });
+    const apply = bar.createEl("button", { cls: "vault-rag-sa-apply mod-cta", text: t("smartApply.applyBtn") });
     apply.toggleClass("is-disabled", !p.hardOk);
     apply.addEventListener("click", () => { if (p.hardOk) void this.onAccept(p); });
 
-    bar.createEl("button", { cls: "vault-rag-sa-discard", text: "Verwerfen" })
+    bar.createEl("button", { cls: "vault-rag-sa-discard", text: t("smartApply.discardBtn") })
       .addEventListener("click", () => this.onDiscard());
 
-    bar.createEl("button", { cls: "vault-rag-sa-reroll", text: "Neu generieren" })
+    bar.createEl("button", { cls: "vault-rag-sa-reroll", text: t("smartApply.regenerateBtn") })
       .addEventListener("click", () => void this.onReroll(p));
 
-    bar.createEl("button", { cls: "vault-rag-sa-open-tpl", text: "Vorlage öffnen" })
+    bar.createEl("button", { cls: "vault-rag-sa-open-tpl", text: t("smartApply.openTemplate") })
       .addEventListener("click", () => this.deps.openPath(p.templatePath));
   }
 
@@ -659,7 +666,7 @@ export class SmartApplyPanel implements HubPanel {
     if (!reasoning) return;
     const det = c.createEl("details", { cls: "vault-rag-sa-reasoning" });
     det.open = false;
-    det.createEl("summary", { cls: "vault-rag-sa-reasoning-sum", text: "💭 Gedanken" });
+    det.createEl("summary", { cls: "vault-rag-sa-reasoning-sum", text: t("smartApply.reasoningSummary") });
     det.createDiv({ cls: "vault-rag-sa-reasoning-body", text: reasoning });
   }
 
@@ -672,7 +679,7 @@ export class SmartApplyPanel implements HubPanel {
     box.toggleClass("is-ok", !this.undone);
     box.toggleClass("is-undone", this.undone);
     // Status über Text + Icon-Form kodiert (nicht Farbe) — WCAG 1.4.1.
-    box.setText(this.undone ? `↩ rückgängig gemacht: ${name}` : `✓ angewendet: ${name}`);
+    box.setText(this.undone ? t("smartApply.undone", name) : t("smartApply.applied", name));
     const icon = box.createSpan({ cls: "vault-rag-sa-applied-icon" });
     setIcon(icon, this.undone ? "undo-2" : "check");
 
@@ -680,7 +687,7 @@ export class SmartApplyPanel implements HubPanel {
     // EIN Toggle-Button: nach dem Anwenden „Rückgängig", nach einem Undo „Wiederherstellen".
     const toggleBtn = bar.createEl("button", {
       cls: "vault-rag-sa-undo",
-      text: this.undone ? "Wiederherstellen" : "Rückgängig",
+      text: this.undone ? t("smartApply.restore") : t("smartApply.undo"),
     });
     toggleBtn.toggleClass("is-redo", this.undone);
     const canAct = this.undone ? !!this.lastRedo : !!this.lastUndo;
@@ -695,13 +702,13 @@ export class SmartApplyPanel implements HubPanel {
 
   private renderStale(c: HTMLElement): void {
     const box = c.createDiv({ cls: "vault-rag-sa-stale" });
-    box.setText("Notiz wurde zwischenzeitlich geändert (z.B. durch einen Linter) — neu erzeugen?");
+    box.setText(t("smartApply.noteChanged"));
 
     const bar = c.createDiv({ cls: "vault-rag-sa-actions" });
-    bar.createEl("button", { cls: "vault-rag-sa-rebuild mod-cta", text: "Neu erzeugen & anwenden" })
+    bar.createEl("button", { cls: "vault-rag-sa-rebuild mod-cta", text: t("smartApply.rebuildApply") })
       .addEventListener("click", () => void this.onRebuild());
 
-    bar.createEl("button", { cls: "vault-rag-sa-discard", text: "Verwerfen" })
+    bar.createEl("button", { cls: "vault-rag-sa-discard", text: t("smartApply.discardBtn") })
       .addEventListener("click", () => this.onDiscard());
   }
 
@@ -709,9 +716,9 @@ export class SmartApplyPanel implements HubPanel {
 
   private renderError(c: HTMLElement): void {
     const box = c.createDiv({ cls: "vault-rag-sa-error" });
-    box.setText(this.errorText || "Fehler");
+    box.setText(this.errorText || t("smartApply.genericError"));
     c.createDiv({ cls: "vault-rag-sa-actions" })
-      .createEl("button", { cls: "vault-rag-sa-discard", text: "Zurück" })
+      .createEl("button", { cls: "vault-rag-sa-discard", text: t("smartApply.back") })
       .addEventListener("click", () => this.onDiscard());
   }
 
@@ -721,7 +728,7 @@ export class SmartApplyPanel implements HubPanel {
     this.workStart = Date.now();
     const tick = (): void => {
       if (this.elapsedEl) {
-        this.elapsedEl.setText(`● arbeitet… ${((Date.now() - this.workStart) / 1000).toFixed(1)} s`);
+        this.elapsedEl.setText(t("smartApply.working", ((Date.now() - this.workStart) / 1000).toFixed(1)));
       }
     };
     tick();
@@ -750,7 +757,7 @@ export class SmartApplyPanel implements HubPanel {
       return;
     }
     const templatePath = this.selectedTemplate;
-    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (chunk) => this.onToken(chunk), (chunk) => this.onReasoning(chunk)));
   }
 
   /** Shared build→diff pipeline used by start(), reroll() and stale-rebuild. */
@@ -777,12 +784,12 @@ export class SmartApplyPanel implements HubPanel {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === "abgebrochen") {
-        this.errorText = "Verworfen";
+        this.errorText = t("smartApply.discardedState");
         this.state = "error";
       } else if (msg === "vorlage-waehlen" || msg === "keine-vorlage") {
         this.state = "idle";
         this.errorText = "";
-        this.templateHint = 'Konnte den Typ nicht automatisch zuordnen — bitte Vorlage oben wählen';
+        this.templateHint = t("smartApply.autoDetectFailed");
       } else {
         this.errorText = msg;
         new Notice(t("smartApply.error", msg));
@@ -831,7 +838,7 @@ export class SmartApplyPanel implements HubPanel {
 
   private async onReroll(p: ApplyProposal): Promise<void> {
     const templatePath = this.selectedTemplate || p.templatePath;
-    await this.runBuild(() => this.deps.reroll(p, templatePath, this.selectedMode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    await this.runBuild(() => this.deps.reroll(p, templatePath, this.selectedMode, (chunk) => this.onToken(chunk), (chunk) => this.onReasoning(chunk)));
   }
 
   /** Stale rebuild: re-build against current note, accept again if hardOk. */
@@ -844,7 +851,7 @@ export class SmartApplyPanel implements HubPanel {
       return;
     }
     const templatePath = this.selectedTemplate || (this.proposal?.templatePath ?? "");
-    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (t) => this.onToken(t), (t) => this.onReasoning(t)));
+    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (chunk) => this.onToken(chunk), (chunk) => this.onReasoning(chunk)));
     if (this.state === "diff" && this.proposal && this.proposal.hardOk) {
       await this.onAccept(this.proposal);
     }

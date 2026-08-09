@@ -15,5 +15,5 @@ export async function buildContext(
     blocks.push(`## ${p}\n${text.slice(0, perNote)}`);
     sources.push(p);
   }
-  return { text: blocks.join("\n\n"), sources };
+  return { text: blocks.join("\n\n"), sources };   // i18n-exempt: Daten-Feld (Notiz-Auszüge fürs LLM), keine UI-Senke — Sink-Wächter matcht nur den bloßen Property-Namen "text:"
 }

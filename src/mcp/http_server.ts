@@ -47,7 +47,7 @@ function readBody(req: HttpRequest): Promise<unknown> {
  *  bereits die primäre Schranke; keine allowedOrigins, da Clients wie Claude Code
  *  keine Browser sind und ggf. keinen Origin-Header senden). */
 async function handleMcp(req: HttpRequest, res: HttpResponse, tools: McpTools, version: string, port: number): Promise<void> {
-  const server = new McpServer({ name: "vault-retrieval", version });
+  const server = new McpServer({ name: "vault-retrieval", version });   // i18n-exempt: MCP-Server-Kennung (Protokoll, kein UI-Text)
   registerTools(server, tools);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,

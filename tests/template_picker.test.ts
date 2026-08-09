@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { TFile } from "obsidian";
 import { pickTemplate, _lastPicker } from "../src/template_picker";
+import "../src/i18n/strings"; // Register i18n strings
 
 function tfile(path: string): TFile {
   const f = new TFile();
@@ -52,8 +53,8 @@ describe("pickTemplate", () => {
     // setQuery() lief beim open() (seedet die Sucheingabe); geprüft wird das verlässliche Label-Signal.
     const coding = picker.getItems().find(f => f.path === "Templates/Coding.md")!;
     const buch = picker.getItems().find(f => f.path === "Templates/Buch.md")!;
-    expect(picker.getItemText(coding)).toContain("(Vorschlag)");
-    expect(picker.getItemText(buch)).not.toContain("(Vorschlag)");
+    expect(picker.getItemText(coding)).toContain("(suggestion)");
+    expect(picker.getItemText(buch)).not.toContain("(suggestion)");
     picker.onChooseItem(coding);
     picker.onClose();
     await p;

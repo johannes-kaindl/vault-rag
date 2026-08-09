@@ -1,6 +1,7 @@
 import { ChatClient, ChatMessage } from "./chat_client";
 import { ContextResult } from "./context_source";
 import { chatErrorMessage } from "./chat_error";
+import { t } from "./vendor/kit/i18n";
 
 export interface ChatSessionDeps {
   client: () => ChatClient;
@@ -24,7 +25,7 @@ export class ChatSession {
 
     let ctx: ContextResult;
     try { ctx = await this.deps.assemble(paths); }
-    catch { assistant.error = "Kontext konnte nicht geladen werden."; return { sources: [], error: assistant.error }; }
+    catch { assistant.error = t("chatSession.contextLoadFailed"); return { sources: [], error: assistant.error }; }
 
     const parts = [this.deps.systemPreamble(), ctx.text].filter(Boolean);
     const system: ChatMessage = { role: "system", content: parts.join("\n\n") };
@@ -53,7 +54,7 @@ export class ChatSession {
       assistant.content = result.content;
       assistant.reasoning = result.reasoning || undefined;
       assistant.sources = ctx.sources;
-      if (result.content.trim() === "") assistant.error = "Leere Antwort vom Chat-LLM — Endpoint/Modell in den Settings prüfen.";
+      if (result.content.trim() === "") assistant.error = t("chatSession.emptyResponse");
       return { sources: ctx.sources };
     } catch (e) {
       const aborted = (e as { name?: string })?.name === "AbortError";

@@ -4,7 +4,7 @@ import { buildTransformMessages } from "./reformat_prompts";
 
 export interface MechanicalTransform {
   id: string;
-  label: string;
+  labelKey: string;
   kind: "mechanical";
   /** null = Auswahl passt strukturell nicht (z.B. Transpose auf Nicht-Tabelle). */
   run: (text: string) => string | null;
@@ -12,7 +12,7 @@ export interface MechanicalTransform {
 
 export interface LlmTransform {
   id: string;
-  label: string;
+  labelKey: string;
   kind: "llm";
   /** true nur für "Eigene Anweisung": erfordert eine Freitext-Instruktion. */
   freetext?: boolean;
@@ -23,12 +23,12 @@ export type TransformDef = MechanicalTransform | LlmTransform;
 
 /** Einzige Wahrheit über die verfügbaren Transforms — Picker (Anzeige) und Dispatch lesen sie. */
 export const TRANSFORMS: TransformDef[] = [
-  { id: "transpose", label: "Tabelle kippen", kind: "mechanical", run: transposeTable },
-  { id: "table-to-list", label: "Tabelle → Liste", kind: "mechanical", run: tableToList },
-  { id: "wrap-callout", label: "In Callout einpacken", kind: "mechanical", run: (t) => wrapInCallout(t, "note") },
-  { id: "to-list", label: "→ Liste / Stichpunkte", kind: "llm", buildMessages: (t) => buildTransformMessages("to-list", t) },
-  { id: "to-prose", label: "→ Fließtext", kind: "llm", buildMessages: (t) => buildTransformMessages("to-prose", t) },
-  { id: "to-table", label: "→ Tabelle", kind: "llm", buildMessages: (t) => buildTransformMessages("to-table", t) },
-  { id: "to-mermaid", label: "→ Mermaid-Diagramm", kind: "llm", buildMessages: (t) => buildTransformMessages("to-mermaid", t) },
-  { id: "freetext", label: "Eigene Anweisung…", kind: "llm", freetext: true, buildMessages: (t, instr) => buildTransformMessages("freetext", t, instr) },
+  { id: "transpose", labelKey: "transform.transpose", kind: "mechanical", run: transposeTable },
+  { id: "table-to-list", labelKey: "transform.tableToList", kind: "mechanical", run: tableToList },
+  { id: "wrap-callout", labelKey: "transform.wrapCallout", kind: "mechanical", run: (text) => wrapInCallout(text, "note") },
+  { id: "to-list", labelKey: "transform.toList", kind: "llm", buildMessages: (text) => buildTransformMessages("to-list", text) },
+  { id: "to-prose", labelKey: "transform.toProse", kind: "llm", buildMessages: (text) => buildTransformMessages("to-prose", text) },
+  { id: "to-table", labelKey: "transform.toTable", kind: "llm", buildMessages: (text) => buildTransformMessages("to-table", text) },
+  { id: "to-mermaid", labelKey: "transform.toMermaid", kind: "llm", buildMessages: (text) => buildTransformMessages("to-mermaid", text) },
+  { id: "freetext", labelKey: "transform.freetext", kind: "llm", freetext: true, buildMessages: (text, instr) => buildTransformMessages("freetext", text, instr) },
 ];

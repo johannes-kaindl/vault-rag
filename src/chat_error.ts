@@ -12,6 +12,8 @@
  *  `detail` ergänzt — die FastAPI-Form, die OpenWebUI und andere Python-Backends schicken.
  */
 
+import { t } from "./vendor/kit/i18n";
+
 /** Transportfehler MIT HTTP-Antwort. Trägt Status + Rohbody, damit die Anzeige-Schicht
  *  entscheiden kann — ein `Error("Chat HTTP 401")` hätte den Body bereits weggeworfen. */
 export class ChatHttpError extends Error {
@@ -49,7 +51,7 @@ function serverDetail(body: string): string {
 }
 
 function withDetail(text: string, detail: string): string {
-  return detail ? `${text} — Server: ${detail}` : text;
+  return detail ? t("chatError.serverDetail", text, detail) : text;
 }
 
 /** EINE Wahrheit für den Fehlertext einer fehlgeschlagenen Chat-Anfrage. */
@@ -57,28 +59,22 @@ export function chatErrorMessage(e: unknown): string {
   if (e instanceof ChatHttpError) {
     const detail = serverDetail(e.body);
     if (e.status === 401 || e.status === 403) {
-      return withDetail(
-        `Zugriff verweigert (HTTP ${e.status}) — API-Schlüssel fehlt, ist ungültig oder abgelaufen.`,
-        detail,
-      );
+      return withDetail(t("chatError.denied", e.status), detail);
     }
     if (e.status === 404) {
-      return withDetail(
-        `Chat-Pfad nicht gefunden (HTTP 404) — Adresse des Endpunkts prüfen.`,
-        detail,
-      );
+      return withDetail(t("chatError.notFound"), detail);
     }
     if (e.status === 429) {
-      return withDetail(`Zu viele Anfragen (HTTP 429) — später erneut versuchen.`, detail);
+      return withDetail(t("chatError.tooMany"), detail);
     }
     if (e.status >= 500) {
-      return withDetail(`Server-Fehler am Chat-Endpunkt (HTTP ${e.status}).`, detail);
+      return withDetail(t("chatError.serverError", e.status), detail);
     }
     // 400 und andere 4xx: die Begründung des Servers ist hier der eigentliche Inhalt
     // (fehlender/unbekannter Modellname, ungültige Parameter).
-    return withDetail(`Anfrage abgelehnt (HTTP ${e.status}).`, detail);
+    return withDetail(t("chatError.rejected", e.status), detail);
   }
-  return "Chat-LLM nicht erreichbar — Server aus, Adresse falsch oder Netz/VPN nicht verbunden.";
+  return t("chatError.unreachable");
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

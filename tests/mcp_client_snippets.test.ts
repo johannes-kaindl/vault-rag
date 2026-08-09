@@ -1,11 +1,28 @@
 import { describe, it, expect } from "vitest";
 import { MCP_CLIENTS, buildClientSnippet, maskToken } from "../src/mcp/client_snippets";
+import "../src/i18n/strings"; // Register i18n strings
+import { t } from "../src/vendor/kit/i18n";
 
 const CTX = { url: "http://127.0.0.1:8123/mcp", token: "abcd1234abcd1234" };
 
 describe("MCP_CLIENTS", () => {
   it("listet genau die vier Clients in stabiler Reihenfolge", () => {
     expect(MCP_CLIENTS.map(c => c.id)).toEqual(["claude-code", "opencode", "openclaw", "generic"]);
+  });
+});
+
+describe("MCP_CLIENTS labelKey", () => {
+  it("trägt Keys statt fertiger Labels (Sprache erst zur Zeichenzeit)", () => {
+    for (const c of MCP_CLIENTS) {
+      expect(c.labelKey, c.id).toMatch(/^mcpClient\.label\./);
+    }
+  });
+  it("jeder labelKey löst zu einem englischen Label auf (kein Fallback auf den rohen Key)", () => {
+    const byId = Object.fromEntries(MCP_CLIENTS.map(c => [c.id, t(c.labelKey)]));
+    expect(byId["claude-code"]).toBe("Claude Code (CLI)");
+    expect(byId["opencode"]).toBe("OpenCode (opencode.json)");
+    expect(byId["openclaw"]).toBe("OpenClaw (config)");
+    expect(byId["generic"]).toBe("Generic (.mcp.json)");
   });
 });
 

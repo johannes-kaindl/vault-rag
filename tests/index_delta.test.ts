@@ -3,20 +3,23 @@ import "../src/i18n/strings"; // Register i18n strings
 import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "../src/index_delta";
 
 describe("indexDeltaReadout", () => {
-  // Zahlformat folgt der Runtime-Default-Locale (kein hartes de-DE mehr im Code, s. Brief);
-  // in dieser Umgebung ist das de-DE (Punkt als Tausendertrennzeichen) — daher gemischt mit EN-Text.
+  // Locale ist über vitest.config.ts auf de-DE gepinnt; schlägt diese Prüfung fehl,
+  // hat sich die Umgebung geändert, nicht der Code.
+  it("nutzt de-DE-Tausendertrennung", () => {
+    expect((1000).toLocaleString()).toBe("1.000");
+  });
   it("zeigt embedded/total mit Tausendertrennung", () => {
-    expect(indexDeltaReadout(980, 1000)).toBe(`980 / ${(1000).toLocaleString()} notes`);
+    expect(indexDeltaReadout(980, 1000)).toBe("980 / 1.000 notes");
   });
   it("markiert Vollständigkeit bei embedded === total", () => {
-    expect(indexDeltaReadout(1000, 1000)).toBe(`${(1000).toLocaleString()} / ${(1000).toLocaleString()} notes (complete)`);
+    expect(indexDeltaReadout(1000, 1000)).toBe("1.000 / 1.000 notes (complete)");
   });
   it("behandelt total = 0", () => {
     expect(indexDeltaReadout(0, 0)).toBe("0 / 0 notes (complete)");
   });
   it("hängt bei emptyCount > 0 einen Leere-Notizen-Hinweis an", () => {
-    expect(indexDeltaReadout(4571, 4572, 178)).toBe(`${(4571).toLocaleString()} / ${(4572).toLocaleString()} notes · 178 empty notes ignored`);
-    expect(indexDeltaReadout(4572, 4572, 178)).toBe(`${(4572).toLocaleString()} / ${(4572).toLocaleString()} notes (complete) · 178 empty notes ignored`);
+    expect(indexDeltaReadout(4571, 4572, 178)).toBe("4.571 / 4.572 notes · 178 empty notes ignored");
+    expect(indexDeltaReadout(4572, 4572, 178)).toBe("4.572 / 4.572 notes (complete) · 178 empty notes ignored");
   });
   it("emptyCount 0 ändert nichts", () => {
     expect(indexDeltaReadout(10, 10, 0)).toBe("10 / 10 notes (complete)");

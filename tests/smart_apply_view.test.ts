@@ -6,6 +6,8 @@ import { assembleProposedText, defaultSelection } from "../src/smart_apply";
 import type { TemplateRank } from "../src/template_ranker";
 import type { ApplyMode } from "../src/note_restructurer";
 import { makeFakeEl } from "./__mocks__/obsidian";
+import { blockCountLabel } from "../src/smart_apply_view";
+import "../src/i18n/strings"; // Register i18n strings
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -159,7 +161,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   it("Verbindungspunkt spiegelt ping()=true als verbunden", async () => {
     const { container } = mkPanel({ ping: vi.fn(async () => true) });
     await flush();
-    expect(first(container, "vault-rag-sa-conn").textContent).toContain("verbunden");
+    expect(first(container, "vault-rag-sa-conn").textContent).toContain("connected");
   });
 
   it("Verbindungspunkt spiegelt ping()=false als offline", async () => {
@@ -202,7 +204,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   it("idle-Body zeigt Platzhaltertext", () => {
     const { container } = mkPanel();
     expect(first(container, "vault-rag-sa-idle")).toBeTruthy();
-    expect(first(container, "vault-rag-sa-idle").textContent).toContain("Auf aktive Notiz anwenden");
+    expect(first(container, "vault-rag-sa-idle").textContent).toContain("Apply to active note");
   });
 
   // Step 3 — start() null path
@@ -306,7 +308,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     first(container, "vault-rag-sa-apply").click();
     await flush();
     expect(first(container, "vault-rag-sa-applied")).toBeTruthy();
-    expect(first(container, "vault-rag-sa-applied").textContent).toContain("angewendet");
+    expect(first(container, "vault-rag-sa-applied").textContent).toContain("applied");
     const undoBtn = first(container, "vault-rag-sa-undo");
     expect(undoBtn).toBeTruthy();
     undoBtn.click();
@@ -326,7 +328,7 @@ describe("SmartApplyPanel — Cockpit", () => {
 
     // Angewendet: Button "Rückgängig"
     const undoBtn = first(container, "vault-rag-sa-undo");
-    expect(undoBtn.textContent).toContain("Rückgängig");
+    expect(undoBtn.textContent).toContain("Undo");
 
     // Rückgängig → bleibt in applied, Button wird "Wiederherstellen"
     undoBtn.click();
@@ -334,15 +336,15 @@ describe("SmartApplyPanel — Cockpit", () => {
     expect(undo).toHaveBeenCalledTimes(1);
     expect(first(container, "vault-rag-sa-applied")).toBeTruthy();
     const redoBtn = first(container, "vault-rag-sa-undo");
-    expect(redoBtn.textContent).toContain("Wiederherstellen");
-    expect(first(container, "vault-rag-sa-applied").textContent).toContain("rückgängig");
+    expect(redoBtn.textContent).toContain("Restore");
+    expect(first(container, "vault-rag-sa-applied").textContent).toContain("undone");
 
     // Wiederherstellen → redo aufgerufen, Button wieder "Rückgängig"
     redoBtn.click();
     await flush();
     expect(redo).toHaveBeenCalledTimes(1);
-    expect(first(container, "vault-rag-sa-undo").textContent).toContain("Rückgängig");
-    expect(first(container, "vault-rag-sa-applied").textContent).toContain("angewendet");
+    expect(first(container, "vault-rag-sa-undo").textContent).toContain("Undo");
+    expect(first(container, "vault-rag-sa-applied").textContent).toContain("applied");
   });
 
   it("applied zeigt den Pfad der Notiz", async () => {
@@ -362,7 +364,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     first(container, "vault-rag-sa-apply").click();
     await flush();
     expect(first(container, "vault-rag-sa-stale")).toBeTruthy();
-    expect(first(container, "vault-rag-sa-stale").textContent).toContain("geändert");
+    expect(first(container, "vault-rag-sa-stale").textContent).toContain("changed");
     expect(first(container, "vault-rag-sa-rebuild")).toBeTruthy();
     // nicht mehr im applied/diff
     expect(all(container, "vault-rag-sa-applied").length).toBe(0);
@@ -438,7 +440,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     first(container, "vault-rag-sa-run").click();
     await flush();
     expect(first(container, "vault-rag-sa-error")).toBeTruthy();
-    expect(first(container, "vault-rag-sa-error").textContent).toContain("Verworfen");
+    expect(first(container, "vault-rag-sa-error").textContent).toContain("Discarded");
   });
 
   it("build wirft anderen Fehler → error-Zustand zeigt die Meldung, kein Throw", async () => {
@@ -514,7 +516,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     await flush();
     const reflow = first(container, "vault-rag-sa-reflow");
     expect(reflow.textContent).toContain("Inhalt");
-    expect(reflow.textContent).toContain("1 Block");
+    expect(reflow.textContent).toContain("1 block");
     expect(reflow.textContent).toContain("# roh");   // provenance
     expect(reflow.textContent).toContain("Notizen");
     expect(reflow.textContent).toContain("—");        // leere Notizen-Sektion
@@ -684,13 +686,13 @@ describe("SmartApplyPanel Scan-Kopf", () => {
     await flush();
     expect(first(container, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-check");
     const scan = first(container, "vault-rag-sa-guard");
-    expect(scan.textContent).toContain("Bereit zum Anwenden");
+    expect(scan.textContent).toContain("Ready to apply");
     expect(scan.textContent).toContain("📖 Buch");
-    expect(scan.textContent).toContain("automatisch erkannt");  // detection likely
+    expect(scan.textContent).toContain("detected automatically");  // detection likely
     const stats = first(container, "vault-rag-sa-scan-stats");
     expect(stats.textContent).toContain("1/2");   // 1 von 2 Blöcken zugeordnet
-    expect(stats.textContent).toContain("1 übrig");
-    expect(stats.textContent).toContain("2 Felder gesetzt");  // type + tags(entfernt) prominent
+    expect(stats.textContent).toContain("1 remaining");
+    expect(stats.textContent).toContain("2 fields set");  // type + tags(entfernt) prominent
   });
 
   it("Scan-Kopf bei !hardOk: Form circle-x + gesperrt-Text + Fehl-Checks", async () => {
@@ -768,7 +770,7 @@ describe("SmartApplyPanel Frontmatter-Entrauschung", () => {
     await flush();
     const head = first(container, "vault-rag-sa-fm-head");
     expect(head.textContent).toContain("Original");
-    expect(head.textContent).toContain("Vorschlag");
+    expect(head.textContent).toContain("Proposal");
   });
 
   // Final Whole-Branch-Review — M1: mergeFrontmatter gibt einem nicht-leeren ORIGINAL-Wert
@@ -810,11 +812,11 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
     const { container } = mkPanel();
     const btns = all(container, "vault-rag-sa-mode-btn");
     expect(btns.length).toBe(3);
-    expect(btns.map((b) => b.textContent)).toEqual(["Deterministisch", "Additiv", "Transformativ"]);
-    const transformativ = btns.find((b) => b.textContent === "Transformativ");
+    expect(btns.map((b) => b.textContent)).toEqual(["Deterministic", "Additive", "Transformative"]);
+    const transformativ = btns.find((b) => b.textContent === "Transformative");
     expect(hasClass(transformativ, "is-disabled")).toBe(true);
     // WCAG 1.4.1: aktiver Modus über Text+Klasse, nicht nur Farbe — Default ist "deterministisch".
-    const det = btns.find((b) => b.textContent === "Deterministisch");
+    const det = btns.find((b) => b.textContent === "Deterministic");
     expect(hasClass(det, "is-active")).toBe(true);
   });
 
@@ -856,7 +858,7 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
 
     // Addition unter ihrer Ziel-Heading, mit ＋-ergänzt-Marker.
     const reflow = first(container, "vault-rag-sa-reflow");
-    expect(reflow.textContent).toContain("＋ ergänzt");
+    expect(reflow.textContent).toContain("＋ added");
     expect(reflow.textContent).toContain("Ergänzter Text zur Einordnung");
   });
 
@@ -927,7 +929,7 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
     await flush();
     (deps.build as unknown as ReturnType<typeof vi.fn>).mockClear();
 
-    const additivBtn = all(container, "vault-rag-sa-mode-btn").find((b) => b.textContent === "Additiv");
+    const additivBtn = all(container, "vault-rag-sa-mode-btn").find((b) => b.textContent === "Additive");
     additivBtn.click();
     await flush();
 
@@ -968,5 +970,12 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
     expect(prop.proposedText).toContain("smartapply_erschlossen");
     // Raw-preview pane must agree with the reconciled proposal object.
     expect(first(container, "vault-rag-sa-prop").textContent).toContain("smartapply_erschlossen");
+  });
+});
+
+describe("SmartApplyPanel i18n", () => {
+  it("pluralisiert die Blockzahl", () => {
+    expect(blockCountLabel(1)).toBe("1 block");
+    expect(blockCountLabel(3)).toBe("3 blocks");
   });
 });

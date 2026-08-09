@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from "vitest";
 import { DEFAULT_SETTINGS, VaultRagSettings, applyDestructive, VaultRagSettingTab } from "../src/settings";
 import { makeFakeEl } from "./__mocks__/obsidian";
 import "../src/i18n/strings"; // Register i18n strings
-import { t } from "../src/vendor/kit/i18n";
 
 describe("settings", () => {
   it("hat sinnvolle Defaults", () => {
@@ -212,18 +211,25 @@ describe("getSettingDefinitions – Struktur", () => {
     }
   });
 
+  // Reihenfolge ist durch getSettingDefinitions() fest (search, embedding, index,
+  // robustness, mcp, chat, smartApply) — die Gruppe wird deshalb über ihre Position im
+  // Array gefunden, nicht über ihre (übersetzte) Überschrift. Das entkoppelt Lookup und
+  // Text-Prüfung: die Überschrift wird danach gegen ein Literal geprüft, das NICHT über
+  // t()/dieselbe Dictionary-Auswertung wie die Produktivzeile läuft — sonst kann die
+  // Prüfung nicht mehr fehlschlagen, wenn ein Übersetzungswert verfälscht wird (siehe
+  // tests/index_delta.test.ts für dieselbe, hier bereits einmal behobene Fehlerklasse).
   it("Suche-Gruppe hat k, minSim, exclude", () => {
     const { tab } = makeTab();
-    const search = groups(tab).find(g => g.heading === t("settings.search.group"));
-    expect(search).toBeTruthy();
+    const search = groups(tab)[0];
+    expect(search.heading).toBe("Search");
     const keys = (search!.items as any[]).filter(i => i.control).map(i => i.control.key);
     expect(keys).toEqual(["k", "minSim", "exclude"]);
   });
 
   it("Live-Embedding-Gruppe: Debounce/Statusleiste deklarativ, 3 render-Hatches", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === t("settings.embedding.group"));
-    expect(g).toBeTruthy();
+    const g = groups(tab)[1];
+    expect(g.heading).toBe("Live embedding");
     const items = g.items as any[];
     const controlKeys = items.filter(i => i.control).map(i => i.control.key);
     expect(controlKeys).toEqual(["debounceMs", "showStatusBar"]);
@@ -232,8 +238,8 @@ describe("getSettingDefinitions – Struktur", () => {
 
   it("Index-Gruppe: Index-Ordner render-Hatch + hideIndexFolder toggle", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Index");
-    expect(g).toBeTruthy();
+    const g = groups(tab)[2];
+    expect(g.heading).toBe("Index");
     const items = g.items as any[];
     expect(items.filter(i => typeof i.render === "function").length).toBe(1);
     expect(items.filter(i => i.control).map(i => i.control.key)).toEqual(["hideIndexFolder"]);
@@ -241,8 +247,8 @@ describe("getSettingDefinitions – Struktur", () => {
 
   it("Index-Robustheit-Gruppe: 1 render-Hatch (Zustand) + 2 action-Zeilen", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === t("settings.robustness.group"));
-    expect(g).toBeTruthy();
+    const g = groups(tab)[3];
+    expect(g.heading).toBe("Index robustness");
     const items = g.items as any[];
     expect(items.filter(i => typeof i.render === "function").length).toBe(1);
     expect(items.filter(i => typeof i.action === "function").length).toBe(2);
@@ -250,8 +256,8 @@ describe("getSettingDefinitions – Struktur", () => {
 
   it("MCP-Gruppe: genau ein render-Hatch", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === t("settings.mcp.group"));
-    expect(g).toBeTruthy();
+    const g = groups(tab)[4];
+    expect(g.heading).toBe("MCP server");
     const items = g.items as any[];
     expect(items.length).toBe(1);
     expect(typeof items[0].render).toBe("function");

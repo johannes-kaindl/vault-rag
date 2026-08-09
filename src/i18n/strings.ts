@@ -277,7 +277,7 @@ export const DE = {
   "settings.contextBudget.desc": "Maximale Gesamtlänge des Notiz-Kontexts (anteilig verteilt). Obergrenze richtet sich nach dem Modell-Fenster.",
   "settings.contextBudget.nameWithMax": "Kontext-Budget: {0} / max ~{1} Zeichen",
   "settings.smartApplyModel.name": "Smart-Apply-Modell",
-  "settings.smartApplyModel.desc": "Modell fuer den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt \"Chat\" verwenden.",
+  "settings.smartApplyModel.desc": "Modell für den Umsortier-Call. Leer = Chat-Modell aus dem Abschnitt \"Chat\" verwenden.",
   "settings.thinkerAlwaysOn": "Dieses Modell denkt immer (nur low/medium/high).",
   "settings.thinkingDespiteOff": "Modell denkt trotz „aus“",
   "settings.thinkingSuppressed": "Thinking wird unterdrückt",

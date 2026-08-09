@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { DEFAULT_SETTINGS, VaultRagSettings, applyDestructive, VaultRagSettingTab } from "../src/settings";
 import { makeFakeEl } from "./__mocks__/obsidian";
+import "../src/i18n/strings"; // Register i18n strings
+import { t } from "../src/vendor/kit/i18n";
 
 describe("settings", () => {
   it("hat sinnvolle Defaults", () => {
@@ -212,7 +214,7 @@ describe("getSettingDefinitions – Struktur", () => {
 
   it("Suche-Gruppe hat k, minSim, exclude", () => {
     const { tab } = makeTab();
-    const search = groups(tab).find(g => g.heading === "Suche");
+    const search = groups(tab).find(g => g.heading === t("settings.search.group"));
     expect(search).toBeTruthy();
     const keys = (search!.items as any[]).filter(i => i.control).map(i => i.control.key);
     expect(keys).toEqual(["k", "minSim", "exclude"]);
@@ -220,7 +222,7 @@ describe("getSettingDefinitions – Struktur", () => {
 
   it("Live-Embedding-Gruppe: Debounce/Statusleiste deklarativ, 3 render-Hatches", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Live-Embedding");
+    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === t("settings.embedding.group"));
     expect(g).toBeTruthy();
     const items = g.items as any[];
     const controlKeys = items.filter(i => i.control).map(i => i.control.key);
@@ -239,7 +241,7 @@ describe("getSettingDefinitions – Struktur", () => {
 
   it("Index-Robustheit-Gruppe: 1 render-Hatch (Zustand) + 2 action-Zeilen", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Index-Robustheit");
+    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === t("settings.robustness.group"));
     expect(g).toBeTruthy();
     const items = g.items as any[];
     expect(items.filter(i => typeof i.render === "function").length).toBe(1);
@@ -248,7 +250,7 @@ describe("getSettingDefinitions – Struktur", () => {
 
   it("MCP-Gruppe: genau ein render-Hatch", () => {
     const { tab } = makeTab();
-    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "MCP-Server");
+    const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === t("settings.mcp.group"));
     expect(g).toBeTruthy();
     const items = g.items as any[];
     expect(items.length).toBe(1);
@@ -318,5 +320,19 @@ describe("renderImperative (display-Fallback für <1.13)", () => {
     tab.display();
     expect(spy).toHaveBeenCalled();
     tab.hide();   // räumt den 2s-Poll aus renderEmbeddingStatus ab (sonst Timer-Leak über das Test-Teardown)
+  });
+});
+
+describe("getSettingDefinitions i18n", () => {
+  it("liefert die Gruppentitel und Zeilennamen auf Englisch", () => {
+    const { tab } = makeTab();
+    const defs = tab.getSettingDefinitions();
+    const flat = JSON.stringify(defs);
+    // Statt eines bloßen not.toMatch() wird bei einem Treffer die Fundstelle (±40 Zeichen
+    // Kontext) im Failure-Text mitgeliefert, statt nur "expected false to be true".
+    const umlautMatch = flat.match(/.{0,40}[äöüßÄÖÜ].{0,40}/);
+    expect(umlautMatch?.[0] ?? null, "deutsches Sonderzeichen im Array gefunden").toBeNull();
+    const guillemetMatch = flat.match(/.{0,40}[„“].{0,40}/);
+    expect(guillemetMatch?.[0] ?? null, "deutsches Anführungszeichen im Array gefunden").toBeNull();
   });
 });

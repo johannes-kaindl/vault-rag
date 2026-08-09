@@ -47,7 +47,7 @@ const CHANGE_ICON: Record<FmChange, string> = {
 // Form (Symbol) trägt die Bedeutung, nicht nur Farbe — lesbar auch bei Farbsehschwäche.
 const CONF_SYMBOL: Record<Confidence, string> = { hoch: "●", mittel: "◐", niedrig: "○" };
 
-const MODE_LABELS: { id: ApplyMode; labelKey: string }[] = [
+export const MODE_LABELS: { id: ApplyMode; labelKey: string }[] = [
   { id: "deterministisch", labelKey: "smartApply.modeDeterministic" },
   { id: "additiv", labelKey: "smartApply.modeAdditive" },
   { id: "transformativ", labelKey: "smartApply.modeTransformative" },

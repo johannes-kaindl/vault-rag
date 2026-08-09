@@ -54,7 +54,7 @@ describe("ChatSession", () => {
   it("leere Antwort → Hinweis", async () => {
     const { s } = mkSession(async () => ({ content: "", reasoning: "" }));
     await s.send("x", ["a.md"], () => {});
-    expect(s.messages[1].error).toContain("Leere Antwort");
+    expect(s.messages[1].error).toContain("Empty response");
   });
   it("pusht die User-Nachricht synchron, vor assemble", () => {
     let resolve: (v: any) => void = () => {};

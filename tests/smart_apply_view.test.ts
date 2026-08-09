@@ -6,8 +6,9 @@ import { assembleProposedText, defaultSelection } from "../src/smart_apply";
 import type { TemplateRank } from "../src/template_ranker";
 import type { ApplyMode } from "../src/note_restructurer";
 import { makeFakeEl } from "./__mocks__/obsidian";
-import { blockCountLabel } from "../src/smart_apply_view";
+import { blockCountLabel, MODE_LABELS } from "../src/smart_apply_view";
 import "../src/i18n/strings"; // Register i18n strings
+import { t } from "../src/vendor/kit/i18n";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -977,5 +978,19 @@ describe("SmartApplyPanel i18n", () => {
   it("pluralisiert die Blockzahl", () => {
     expect(blockCountLabel(1)).toBe("1 block");
     expect(blockCountLabel(3)).toBe("3 blocks");
+  });
+});
+
+describe("MODE_LABELS labelKey", () => {
+  it("trägt Keys statt fertiger Labels (Sprache erst zur Zeichenzeit)", () => {
+    for (const m of MODE_LABELS) {
+      expect(m.labelKey, m.id).toMatch(/^smartApply\.mode/);
+    }
+  });
+  it("jeder labelKey löst zu einem englischen Label auf (kein Fallback auf den rohen Key)", () => {
+    const byId = Object.fromEntries(MODE_LABELS.map(m => [m.id, t(m.labelKey)]));
+    expect(byId["deterministisch"]).toBe("Deterministic");
+    expect(byId["additiv"]).toBe("Additive");
+    expect(byId["transformativ"]).toBe("Transformative");
   });
 });

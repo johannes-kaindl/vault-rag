@@ -252,7 +252,7 @@ export default class VaultRagPlugin extends Plugin {
           typeOf: async (p) => extractType(await this.app.vault.adapter.read(p)),
           embed: async (text) => {
             const e = await this.facade.embedQuery(text);
-            if (e.kind !== "vec") throw new Error("kein Index / Embedder offline");
+            if (e.kind !== "vec") throw new Error(t("main.embedderOffline"));
             return e.vec;
           },
           // Weiterhin gebraucht: detectType() (template_matcher.ts) ruft deps.search() für den
@@ -284,7 +284,7 @@ export default class VaultRagPlugin extends Plugin {
         indexVector: (p) => this.index?.vectorFor(p) ?? null,
         embed: async (text) => {
           const e = await this.facade.embedQuery(text);
-          if (e.kind !== "vec") throw new Error("kein Index / Embedder offline");
+          if (e.kind !== "vec") throw new Error(t("main.embedderOffline"));
           return e.vec;
         },
       });
@@ -1375,7 +1375,7 @@ export default class VaultRagPlugin extends Plugin {
     onReasoning: (t: string) => void,
   ): Promise<ApplyProposal> {
     const core = this.smartApply;
-    if (!core) throw new Error("Smart Apply ist deaktiviert");
+    if (!core) throw new Error(t("main.smartApplyDisabled"));
     if (templatePath !== "") {
       // Explizite Vorlage aus dem Cockpit-Dropdown — direkt verwenden, kein detect().
       return core.propose(notePath, templatePath, mode, onToken, onReasoning);

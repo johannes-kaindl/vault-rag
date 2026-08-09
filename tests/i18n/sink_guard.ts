@@ -35,6 +35,17 @@ import { readFileSync } from "node:fs";
  * an eine Senke gereicht wird (`const x = "…"; setText(x)`) — der Fund müsste an der
  * Zuweisung selbst erfolgen, das ist ein Assignment, keine Senke. Für den in Fix-Runde 1
  * gemeldeten Fall (`createEl(..., { text: "…" })`) reicht das aus.
+ *
+ * Zweite bekannte Grenze (Sink-Liste strukturell unvollständig, gefunden in der finalen
+ * Branch-Review, i18n Teil 2): ein `throw new Error("…")` und eine `x.error = "…"`-Zuweisung
+ * sind KEINE Text-Senken in obiger Liste — der Wächter sieht sie also nie, weder als Fund noch
+ * als Freispruch. Trotzdem landen beide Formen roh im UI, sobald der Aufrufer `e.message` bzw.
+ * `x.error` ungefiltert anzeigt (z.B. `smart_apply_view.ts`s Fehlerbox oder `chat_view.ts`s
+ * `createDiv({ text: m.error })`) — ein grüner Lauf dieses Guards ist für diese beiden Formen
+ * daher KEIN Beleg für Übersetzungs-Vollständigkeit. Ein zukünftiger Beitrag, der eine neue
+ * geworfene Fehlermeldung oder `.error`-Zuweisung mit Klartext einführt, muss selbst prüfen, ob
+ * der String einen UI-Sink erreicht (Notice, Fehlerbox, `.error`-Rendering) — der Guard bleibt
+ * für diese Fälle blind, bis er um throw-/Assignment-Erkennung erweitert wird.
  */
 
 export interface SinkFinding {

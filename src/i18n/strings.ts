@@ -88,6 +88,8 @@ export const EN = {
   "main.noTemplateFound": "No template in {0} — create one",
   "main.mcpStartFailed": "⚠ MCP server could not start ({0}): {1}",
   "main.indexDamagedLoadFailed": "⚠ Embedding index damaged — load failed (write protection active; your notes are untouched)",
+  "main.embedderOffline": "no index / embedder offline",
+  "main.smartApplyDisabled": "Smart Apply is disabled",
 
   // main.ts status bar + chat_error.ts
   "status.indexCorrupt": "⚠ Search index corrupted",
@@ -106,6 +108,13 @@ export const EN = {
   "chatError.serverError": "Server error at the chat endpoint (HTTP {0}).",
   "chatError.rejected": "Request rejected (HTTP {0}).",
   "chatError.unreachable": "Chat LLM unreachable — server down, wrong address, or network/VPN not connected.",
+
+  // sse.ts (streamSSE — reaches reformatPreview.error / the Smart Apply error box raw)
+  "sse.networkError": "Chat network error",
+
+  // chat_session.ts (assistant.error — rendered verbatim by chat_view.ts)
+  "chatSession.contextLoadFailed": "Could not load context.",
+  "chatSession.emptyResponse": "Empty response from the chat LLM — check the endpoint/model in the settings.",
 
   // main.ts commands (command palette)
   "command.reindexVault": "Reindex vault",
@@ -486,6 +495,8 @@ export const DE = {
   "main.noTemplateFound": "Keine Vorlage in {0} — lege eine an",
   "main.mcpStartFailed": "⚠ MCP-Server konnte nicht starten ({0}): {1}",
   "main.indexDamagedLoadFailed": "⚠ Embedding-Index beschädigt — Laden fehlgeschlagen (Schreibschutz aktiv; deine Notizen sind unberührt)",
+  "main.embedderOffline": "kein Index / Embedder offline",
+  "main.smartApplyDisabled": "Smart Apply ist deaktiviert",
 
   // main.ts status bar + chat_error.ts
   "status.indexCorrupt": "⚠ Suchindex beschädigt",
@@ -504,6 +515,13 @@ export const DE = {
   "chatError.serverError": "Server-Fehler am Chat-Endpunkt (HTTP {0}).",
   "chatError.rejected": "Anfrage abgelehnt (HTTP {0}).",
   "chatError.unreachable": "Chat-LLM nicht erreichbar — Server aus, Adresse falsch oder Netz/VPN nicht verbunden.",
+
+  // sse.ts (streamSSE — landet roh in reformatPreview.error / der Smart-Apply-Fehlerbox)
+  "sse.networkError": "Chat-Netzwerkfehler",
+
+  // chat_session.ts (assistant.error — wird von chat_view.ts unverändert gerendert)
+  "chatSession.contextLoadFailed": "Kontext konnte nicht geladen werden.",
+  "chatSession.emptyResponse": "Leere Antwort vom Chat-LLM — Endpoint/Modell in den Settings prüfen.",
 
   "command.reindexVault": "Vault neu indizieren",
   "command.healIndex": "Index vervollständigen (fehlende Notizen)",

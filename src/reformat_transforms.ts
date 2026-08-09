@@ -25,10 +25,10 @@ export type TransformDef = MechanicalTransform | LlmTransform;
 export const TRANSFORMS: TransformDef[] = [
   { id: "transpose", label: "Tabelle kippen", kind: "mechanical", run: transposeTable },
   { id: "table-to-list", label: "Tabelle → Liste", kind: "mechanical", run: tableToList },
-  { id: "wrap-callout", label: "In Callout einpacken", kind: "mechanical", run: (t) => wrapInCallout(t, "note") },
-  { id: "to-list", label: "→ Liste / Stichpunkte", kind: "llm", buildMessages: (t) => buildTransformMessages("to-list", t) },
-  { id: "to-prose", label: "→ Fließtext", kind: "llm", buildMessages: (t) => buildTransformMessages("to-prose", t) },
-  { id: "to-table", label: "→ Tabelle", kind: "llm", buildMessages: (t) => buildTransformMessages("to-table", t) },
-  { id: "to-mermaid", label: "→ Mermaid-Diagramm", kind: "llm", buildMessages: (t) => buildTransformMessages("to-mermaid", t) },
-  { id: "freetext", label: "Eigene Anweisung…", kind: "llm", freetext: true, buildMessages: (t, instr) => buildTransformMessages("freetext", t, instr) },
+  { id: "wrap-callout", label: "In Callout einpacken", kind: "mechanical", run: (text) => wrapInCallout(text, "note") },
+  { id: "to-list", label: "→ Liste / Stichpunkte", kind: "llm", buildMessages: (text) => buildTransformMessages("to-list", text) },
+  { id: "to-prose", label: "→ Fließtext", kind: "llm", buildMessages: (text) => buildTransformMessages("to-prose", text) },
+  { id: "to-table", label: "→ Tabelle", kind: "llm", buildMessages: (text) => buildTransformMessages("to-table", text) },
+  { id: "to-mermaid", label: "→ Mermaid-Diagramm", kind: "llm", buildMessages: (text) => buildTransformMessages("to-mermaid", text) },
+  { id: "freetext", label: "Eigene Anweisung…", kind: "llm", freetext: true, buildMessages: (text, instr) => buildTransformMessages("freetext", text, instr) },
 ];

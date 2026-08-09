@@ -250,8 +250,8 @@ export default class VaultRagPlugin extends Plugin {
           listTemplates: async () =>
             templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir),
           typeOf: async (p) => extractType(await this.app.vault.adapter.read(p)),
-          embed: async (t) => {
-            const e = await this.facade.embedQuery(t);
+          embed: async (text) => {
+            const e = await this.facade.embedQuery(text);
             if (e.kind !== "vec") throw new Error("kein Index / Embedder offline");
             return e.vec;
           },
@@ -282,8 +282,8 @@ export default class VaultRagPlugin extends Plugin {
         // Persistierter Vault-Vektor (note-level) — wie der RAG-Retriever; spart das Neu-Einbetten
         // indexierter Vorlagen/Notizen komplett.
         indexVector: (p) => this.index?.vectorFor(p) ?? null,
-        embed: async (t) => {
-          const e = await this.facade.embedQuery(t);
+        embed: async (text) => {
+          const e = await this.facade.embedQuery(text);
           if (e.kind !== "vec") throw new Error("kein Index / Embedder offline");
           return e.vec;
         },
@@ -470,8 +470,8 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private migrateOldLeaves(): void {
-    for (const t of [VIEW_TYPE_RELATED, VIEW_TYPE_SEARCH, VIEW_TYPE_CHAT, VIEW_TYPE_SMART_APPLY]) {
-      for (const leaf of this.app.workspace.getLeavesOfType(t)) leaf.detach();
+    for (const viewType of [VIEW_TYPE_RELATED, VIEW_TYPE_SEARCH, VIEW_TYPE_CHAT, VIEW_TYPE_SMART_APPLY]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(viewType)) leaf.detach();
     }
   }
 

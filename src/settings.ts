@@ -1114,8 +1114,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     let any = false;
     if (c.vision !== "no") { chip("eye", c.vision === "confirmed" ? "Vision" : "Vision?", c.vision !== "confirmed"); any = true; }
     if (c.thinking.support !== "none") {
-      const t = c.thinking.support === "always" ? "Thinking (immer an)" : "Thinking";
-      chip("brain", c.thinking.confidence === "confirmed" ? t : t + "?", c.thinking.confidence !== "confirmed");
+      const label = c.thinking.support === "always" ? "Thinking (immer an)" : "Thinking";
+      chip("brain", c.thinking.confidence === "confirmed" ? label : label + "?", c.thinking.confidence !== "confirmed");
       any = true;
     }
     if (!any) el.setText("keine besonderen Fähigkeiten erkannt");

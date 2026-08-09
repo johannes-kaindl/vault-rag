@@ -61,6 +61,12 @@ obsidianmd-Lint-Regel gesperrt ist — XHR ist der erlaubte Streaming-Primitive.
 ### Modul-Layout (`src/`)
 
 ```
+i18n/strings.ts   EN/DE-Wörterbücher (`EN`/`DE`, 365 Keys je Sprache) für `t()`
+                  (`src/vendor/kit/i18n.ts`) — EN kanonisch, DE die aktuelle deutsche
+                  Übersetzung, Wort für Wort. Schlüsselschema `<datei-ohne-endung>.<sache>
+                  [.variante]`; vorhandene Schlüssel wiederverwenden statt duplizieren.
+                  Wird ausschließlich importiert (`import "./i18n/strings"` in `main.ts`, für
+                  den Registrierungs-Seiteneffekt) — kein Modul greift direkt auf `EN`/`DE` zu.
 index.ts          VaultAdapter-Interface · IndexManifest · VaultIndex · parseIndex ·
                   IndexLoader — Legacy-Leser für das Prä-0.18-Tripel (notes.i8/paths.json/
                   manifest.json), int8→float32 + Renormalisierung (Quant-Drift). `parseIndex`
@@ -256,10 +262,11 @@ Das Prä-0.18-Tripel (`notes.i8`/`paths.json`/`manifest.json`) wird beim ersten 
 ### Vendored Kit Module (`src/vendor/kit/` + `src/vendor/kit-obsidian/`)
 
 **Zwei Ablagen seit 2026-07-27 (workspace-weite Konvention):** `src/vendor/kit/` hält die
-**obsidian-freien** Kit-Module (`endpoint.ts`, `endpoint_diagnostics.ts`, `reasoning.ts`,
-`settings.ts`, `sse.ts`, `think.ts`), `src/vendor/kit-obsidian/` die **obsidian-gekoppelten**
-(`confirm.ts`, `collapsible.ts` + `VENDOR.json`). Beide sind **verbatim-Snapshots — nie von Hand
-editieren**, Updates nur per Neu-Kopie aus obsidian-kit.
+**obsidian-freien** Kit-Module (`endpoint.ts`, `endpoint_diagnostics.ts`, `frontmatter.ts`,
+`i18n.ts`, `reasoning.ts`, `settings.ts`, `sse.ts`, `think.ts`, `timeout.ts`),
+`src/vendor/kit-obsidian/` die **obsidian-gekoppelten** (`confirm.ts`, `collapsible.ts`,
+`folder-suggest.ts`, `settings_walker.ts` + `VENDOR.json`). Beide sind **verbatim-Snapshots — nie
+von Hand editieren**, Updates nur per Neu-Kopie aus obsidian-kit.
 
 `src/vendor/kit-obsidian/confirm.ts` (@0.16.1, `b7aaf7c`) — `confirmAction(app, opts)` als einzige
 Bestätigungs-Modal-Wahrheit; ersetzt seit `210b43c` die repo-eigenen `ConfirmModal`-Klassen in
@@ -316,6 +323,33 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 
 ## Gotchas
 
+- **`setLang()` läuft in `onload`, Modul-Konstanten werden beim `import` ausgewertet — davor.**
+  Ein `t()`, das an Modul-Ebene steht (z.B. `const X = t("foo")` oder in einem Objektliteral,
+  das beim Modul-Laden gebaut wird), friert die Sprache also **still** auf den zu diesem
+  Zeitpunkt geltenden Default (`en`) ein — kein Fehler, kein Lint-Fund, einfach eine UI, die für
+  DE-Nutzer dauerhaft englisch bleibt, egal was `setLang("de")` später tut. Die Regel dahinter:
+  **jede Übersetzung muss zur Anzeigezeit aufgelöst werden, nie zur Definitionszeit.** Der
+  i18n-Layer (Slice „i18n Teil 2") ist konsequent um diese eine Regel herum gebaut, nicht als
+  Nachgedanke:
+  - **`labelKey` statt `label`** in modul-konstanten Registrierungen wie `TRANSFORMS`
+    (`reformat_transforms.ts`), `MCP_CLIENTS` (`mcp/client_snippets.ts`) und `MODE_LABELS`
+    (`smart_apply_view.ts`) — die Registry trägt nur den **Schlüssel** (sprachneutral, an
+    Modul-Ebene unproblematisch), `t(labelKey)` wird erst beim Rendern aufgerufen.
+  - Die früheren `HINT_*`-Modulkonstanten in `model_choice.ts` sind **ersatzlos entfernt**, nicht
+    auf `labelKey` umgestellt — dieselbe Übersetzung wurde stattdessen direkt im
+    Render-Aufrufer (`renderModelPicker`, `settings.ts`) per `t()` gebaut, weil dort ohnehin
+    schon zur Anzeigezeit gerechnet wird.
+  - **`HubPanel.label` ist ein Getter** (`get label(): string { return t("panel.chat.label"); }`
+    in `chat_view.ts`/`search_view.ts`/`view.ts`/`smart_apply_view.ts`/`reformat_panel.ts`), kein
+    Feld — ein Feld würde beim Konstruktor-Lauf (früh, potenziell vor `setLang`) einmalig
+    ausgewertet und eingefroren; der Getter ruft `t()` bei jedem Tab-Leisten-Aufbau neu auf.
+  Zwei Guards schützen die Regel automatisiert (`tests/i18n/keys.test.ts` erkennt `t()` an
+  Modul-Ebene direkt; `tests/i18n/sink_guard.ts` prüft strukturell, ob ein String-Literal eine
+  Text-Senke erreicht, ohne durch `t()` zu laufen) — **aber ein `throw new Error("…")` oder eine
+  `x.error = "…"`-Zuweisung sind für den Sink-Guard unsichtbar** (kein erkannter Senken-Typ),
+  obwohl beide roh im UI landen können (Smart-Apply-Fehlerbox, `chat_view.ts`s
+  `createDiv({ text: m.error })`). Siehe die Doku-Lücke dazu im Docblock von
+  `tests/i18n/sink_guard.ts`.
 - **`data.json`** ist die von Obsidian persistierte Plugin-Konfig (`saveData`) — maschinen-/vault-spezifisch,
   daher git-ignored (nicht committen).
 - **`_vaultrag/` ist bewusst kein Dot-Ordner:** Obsidian Sync ignoriert Dot-Ordner. Daher braucht

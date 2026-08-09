@@ -24,6 +24,10 @@ All notable changes to this project are documented here. The format follows
   `src/frontmatter.ts` (Frontmatter-Daten echter Notizen, keine UI) und die MCP-Tool-Beschreibungen
   in `src/mcp/register_tools.ts` (liest ein Agent, kein Mensch — gehören auf Englisch, aber in
   einen eigenen, kleinen Commit außerhalb dieses Slices).
+- Die drei entfernten fest-deutschen `toLocaleString("de-DE")`-Aufrufe (Statusleiste) formatieren
+  Zahlen jetzt ohne erzwungenes Locale — die Tausendertrennung folgt damit dem **Betriebssystem**,
+  nicht der Obsidian-Oberflächensprache: ein deutsches Obsidian auf einer en-US-Maschine zeigt
+  `● 1,000` innerhalb deutscher Sätze. Kein Regressions-Bug, falls das später auffällt.
 
 ## [0.21.0] — 2026-08-07
 

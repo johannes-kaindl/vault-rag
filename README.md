@@ -11,7 +11,7 @@
 
 Vault Retrieval turns your notes into a searchable knowledge base. Retrieval — related notes, semantic search — always runs on your device. It keeps a small embedding index inside your vault, synced along with it and readable on every device, and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Embedding and chat talk to whatever LLM endpoint you configure — one under your control, local or on your own network, by default. Add a provider's API key, and that traffic goes to them instead.
 
-> **Interface language:** the plugin's UI is currently **German only** — labels, commands and notices are not yet localised. English localisation is in progress. Where you need an exact string to find something in Obsidian (command palette, settings), this README gives it in `code`.
+> **Interface language:** the UI follows Obsidian's own language setting — English by default, German when Obsidian is set to German. A handful of diagnostic strings (endpoint tooltips, Smart Apply guard details) are still German; they are being cleaned up.
 
 ## Features
 
@@ -70,16 +70,16 @@ npm run build      # → main.js
 
 ### Commands
 
-Until the UI is localised, the command palette lists these in German — the middle column is what you type to find them.
+The middle column is what you type in the command palette. On a German Obsidian, the commands appear under their German names instead.
 
 | Command | In the command palette | What it does |
 |---|---|---|
-| Open sidebar (per tab) | `Verwandte Notizen öffnen` · `Semantische Suche öffnen` · `Vault Chat öffnen` · `Umformatieren-Panel öffnen` | Opens the sidebar on that tab |
-| Reformat selection | `Abschnitt umformatieren` | Reshapes the current selection (see step 6) |
-| Smart Apply on active note | `Smart Apply auf aktive Notiz` | Restructures the active note into a template |
-| Reindex vault | `Vault neu indizieren` | Rebuilds the whole index from the vault |
-| Complete the index | `Index vervollständigen (fehlende Notizen)` | Embeds only what the index is missing |
-| Restore index backup | `Index aus Backup wiederherstellen` | Restores a device-local index backup |
+| Open sidebar (per tab) | `Open related notes` · `Open semantic search` · `Open vault chat` · `Open reformat panel` | Opens the sidebar on that tab |
+| Reformat selection | `Reformat section` | Reshapes the current selection (see step 6) |
+| Smart Apply on active note | `Smart Apply on active note` | Restructures the active note into a template |
+| Reindex vault | `Reindex vault` | Rebuilds the whole index from the vault |
+| Complete the index | `Complete index (missing notes)` | Embeds only what the index is missing |
+| Restore index backup | `Restore index from backup` | Restores a device-local index backup |
 
 ### Configuration
 

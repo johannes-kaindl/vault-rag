@@ -11,6 +11,8 @@
 
 Vault Retrieval macht deine Notizen durchsuchbar. Retrieval — verwandte Notizen, semantische Suche — läuft immer auf deinem Gerät. Es hält einen kleinen Embedding-Index **im Vault** — synct mit ihm, lesbar auf jedem Gerät — und beantwortet drei Fragen: *Was habe ich sonst dazu geschrieben? Wo habe ich sowas mal gesagt? Was weiß mein Vault über X?* Embedding und Chat sprechen den LLM-Endpunkt an, den du einträgst — standardmäßig einen unter deiner Kontrolle, lokal oder im eigenen Netz. Trägst du den Schlüssel eines Anbieters ein, gehen diese Inhalte an ihn.
 
+> **Sprache der Oberfläche:** die UI folgt Obsidians eigener Spracheinstellung — Deutsch bei deutschem Obsidian, sonst Englisch. Eine Handvoll Diagnose-Texte (Endpunkt-Tooltips, Smart-Apply-Guard-Details) ist noch fest deutsch; das wird nachgezogen.
+
 ## Features
 
 Alles lebt in **einer Sidebar-Ansicht** mit Tabs: Ähnlich, Suche, Chat, Umformatieren — dazu Smart Apply, sobald du es aktivierst. Die Panels bleiben gemountet: ein laufender Chat-Stream oder ein offener Smart-Apply-Vorgang überlebt den Tab-Wechsel.
@@ -67,6 +69,8 @@ npm run build      # → main.js
 6. Einen Textblock markieren, dann `Abschnitt umformatieren` aus der Befehlspalette oder dem Rechtsklick-Menü — oder den Umformatieren-Tab benutzen. Mechanische Transformationen greifen sofort; LLM-gestützte öffnen eine gestreamte Vorschau. Umformatieren braucht den Bearbeitungsmodus; im Lesemodus bleiben die Buttons deaktiviert und sagen warum. Wird die Notiz geändert, während eine Vorschau offen ist, wird die Ersetzung verweigert statt an der falschen Stelle angewendet.
 
 ### Befehle
+
+Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die Befehle entsprechend englisch.
 
 | Befehl | Wirkung |
 |---|---|

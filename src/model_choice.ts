@@ -5,6 +5,8 @@
  * (`renderModelPicker` in settings.ts).
  */
 
+import { t } from "./vendor/kit/i18n";
+
 export type ModelChoiceMode = "dropdown" | "locked" | "freetext";
 
 export interface ModelOption {
@@ -36,11 +38,6 @@ export interface ModelChoiceInput {
   emptyLabel?: string;
 }
 
-const HINT_NO_LIST =
-  "Endpunkt gibt keine Modell-Liste heraus — Namen von Hand eintragen.";
-const HINT_UNREACHABLE =
-  "Endpunkt nicht erreichbar — gespeicherter Wert bleibt erhalten. „Modelle abrufen“, sobald er läuft.";
-
 /**
  * INVARIANTE: In den Modi "dropdown" und "locked" enthält `options` immer `value`.
  * Ein <select>, dessen Wert nicht unter seinen Optionen steht, fällt still auf die erste
@@ -55,18 +52,18 @@ export function resolveModelChoice(input: ModelChoiceInput): ModelChoice {
     const options: ModelOption[] = current
       ? [{ value: current, label: current }]
       : [input.allowEmpty ? emptyOption : { value: "", label: "—" }];
-    return { mode: "locked", options, value: current, hint: HINT_UNREACHABLE };
+    return { mode: "locked", options, value: current, hint: t("modelChoice.hintUnreachable") };
   }
 
   if (input.models.length === 0) {
-    return { mode: "freetext", options: [], value: current, hint: HINT_NO_LIST };
+    return { mode: "freetext", options: [], value: current, hint: t("modelChoice.hintNoList") };
   }
 
   const options: ModelOption[] = [];
   if (input.allowEmpty) options.push(emptyOption);
   if (current && !input.models.includes(current)) {
     // Nicht gelistet, aber gespeichert: sichtbar machen statt still verlieren.
-    options.push({ value: current, label: `${current} (gespeichert)` });
+    options.push({ value: current, label: t("modelChoice.savedLabel", current) });
   } else if (!current && !input.allowEmpty) {
     // Sicherung der Invariante: Ist der Wert leer und nicht bedeutungstragend,
     // ein <select> ohne diese Option würde still auf das erste Modell fallen.

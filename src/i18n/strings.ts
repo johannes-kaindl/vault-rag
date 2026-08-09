@@ -289,6 +289,15 @@ export const EN = {
   "settings.smartApplyModel.placeholder": "empty = chat model",
   "settings.thinking.alwaysOn": "Thinking (always on)",
   "settings.thinkingTest.prompt": "Reply in exactly one word: Hello.",
+
+  // endpoint_config.ts + model_choice.ts
+  "endpointRole.active": "active",
+  "endpointRole.standby": "reachable, but position {0}",
+  "endpointRole.unreachable": "unreachable",
+  "endpointRole.skippedModel": "skipped — model does not match the index",
+  "modelChoice.hintNoList": "Endpoint does not expose a model list — enter the name by hand.",
+  "modelChoice.hintUnreachable": "Endpoint unreachable — the saved value is kept. Use \"Fetch models\" once it is running.",
+  "modelChoice.savedLabel": "{0} (saved)",
 } as const;
 
 export const DE = {
@@ -573,6 +582,15 @@ export const DE = {
   "settings.smartApplyModel.placeholder": "leer = Chat-Modell",
   "settings.thinking.alwaysOn": "Thinking (immer an)",
   "settings.thinkingTest.prompt": "Antworte in genau einem Wort: Hallo.",
+
+  // endpoint_config.ts + model_choice.ts
+  "endpointRole.active": "aktiv",
+  "endpointRole.standby": "erreichbar, aber Platz {0}",
+  "endpointRole.unreachable": "nicht erreichbar",
+  "endpointRole.skippedModel": "übersprungen — Modell passt nicht zum Index",
+  "modelChoice.hintNoList": "Endpunkt gibt keine Modell-Liste heraus — Namen von Hand eintragen.",
+  "modelChoice.hintUnreachable": "Endpunkt nicht erreichbar — gespeicherter Wert bleibt erhalten. „Modelle abrufen“, sobald er läuft.",
+  "modelChoice.savedLabel": "{0} (gespeichert)",
 } satisfies Record<keyof typeof EN, string>;
 
 defineStrings({ en: EN, de: DE });

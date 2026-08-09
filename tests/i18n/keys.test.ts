@@ -92,22 +92,29 @@ function isFunctionOpener(prefix: string): boolean {
  * späterem Funktionsaufruf) — per Klammer-Tiefen-Tracking über die ganze Datei: sobald eine
  * öffnende `{` einem Funktions-/Methoden-/Klassenkopf gehört, gilt alles darin (bis zur
  * passenden `}`) als "hinter einem Aufruf verzögert", auch wenn dort z.B. ein Objekt-Literal
- * mit t(…)-Werten steht.
+ * mit t(…)-Werten steht. Zeichen-für-Zeichen statt Zeilen-für-Zeilen: die Tiefe wird an der
+ * *Stelle des t(-Treffers* ausgewertet, nicht am Zeilenanfang — sonst würde eine einzeilige
+ * Funktion wie `function bar(): string { return t("…"); }` fälschlich als Modul-Ebene gemeldet
+ * (die `{` links vom Aufruf muss vor dem Check verarbeitet sein).
  */
 function moduleLevelTCalls(src: string): { line: number; text: string }[] {
   const offenders: { line: number; text: string }[] = [];
   const stack: boolean[] = []; // true = Eintrag ist ein Funktions-/Klassenkörper
   src.split("\n").forEach((rawLine, i) => {
-    const trimmed = rawLine.trim();
-    const deferred = stack.some(Boolean);
-    if (trimmed !== "" && !trimmed.startsWith("//") && /\bt\(\s*["'`]/.test(rawLine) && !deferred) {
-      offenders.push({ line: i + 1, text: trimmed });
-    }
     const codeOnly = stripLineComment(stripStringContents(rawLine));
     for (let ci = 0; ci < codeOnly.length; ci++) {
       const ch = codeOnly[ci];
-      if (ch === "{") stack.push(isFunctionOpener(codeOnly.slice(0, ci)));
-      else if (ch === "}") stack.pop();
+      if (ch === "{") {
+        stack.push(isFunctionOpener(codeOnly.slice(0, ci)));
+      } else if (ch === "}") {
+        stack.pop();
+      } else if (ch === "t" && /^t\(\s*["'`]/.test(codeOnly.slice(ci))) {
+        const prevChar = ci === 0 ? "" : codeOnly[ci - 1];
+        const wordBoundary = !/[A-Za-z0-9_$]/.test(prevChar);
+        if (wordBoundary && !stack.some(Boolean)) {
+          offenders.push({ line: i + 1, text: rawLine.trim() });
+        }
+      }
     }
   });
   return offenders;

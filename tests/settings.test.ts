@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, VaultRagSettings, applyDestructive, VaultRagSettingTab } from "../src/settings";
 import { makeFakeEl } from "./__mocks__/obsidian";
+import { findUntranslatedSinks } from "./i18n/sink_guard";
 import "../src/i18n/strings"; // Register i18n strings
 
 describe("settings", () => {
@@ -346,25 +346,15 @@ describe("getSettingDefinitions i18n", () => {
 });
 
 describe("settings render hatches i18n", () => {
-  it("enthält keine deutschen Literale mehr außerhalb der Sprachdatei", () => {
-    const src = readFileSync(join(__dirname, "..", "src", "settings.ts"), "utf8");
-    // Erweitert gegenüber dem Brief-Vorschlag: die Sonderzeichen-Klasse [äöüßÄÖÜ„] allein
-    // übersieht deutsche Wörter ohne Umlaut/ß (z.B. "Testen", "Kopieren", "Verschiebe…",
-    // "nicht gesetzt") — die aber im gleichen Render-Hatch-Bereich vorkommen. Ergänzt um eine
-    // Wortliste bekannter deutscher Funktions-/Render-Hatch-Wörter aus diesem File sowie um „…"
-    // und „—", die als deutsche Satzzeichen in Tooltips/Placeholders auftauchen, aber keine
-    // Umlaute sind. Geprüft wird nur INNERHALB von String-/Template-Literalen (nicht die ganze
-    // Zeile), damit z.B. deutsche Wörter in Kommentaren (ohnehin per Zeilen-Filter ausgeschlossen)
-    // oder in Bezeichnern keine falschen Treffer erzeugen.
-    const germanMarker = /[äöüßÄÖÜ„…—]|\b(?:und|oder|nicht|kein|keine|ist|sind|für|von|auf|mit|verwenden|abrufen|erreichbar|entfernen|eingebettet|hinzufügen|gesetzt|globales|läuft|fehlgeschlagen|antworte|hallo|testen|kopieren|verbergen|anzeigen|generieren|wiederherstellen|vervollständigen|übernehmen|verschiebe|immer|anfang|liste|setzen|stimmt|antwort|leer|modell|vorhanden)\b/i;
-    const literalRegex = /`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*"/g;
-    const german = src.split("\n")
-      .map((line, i) => ({ line, no: i + 1 }))
-      .filter(({ line }) => !/^\s*(\/\/|\*)/.test(line))
-      .filter(({ line }) => {
-        const literals = line.match(literalRegex) ?? [];
-        return literals.some(lit => germanMarker.test(lit));
-      });
-    expect(german.map(g => `${g.no}: ${g.line.trim()}`)).toEqual([]);
+  it("keine Text-Senke in settings.ts erreicht ein Literal, ohne durch t() zu laufen", () => {
+    // Fix-Runde 1 (Task-7-Review): eine Wortliste bekannter deutscher Wörter ist ein
+    // Schnappschuss der eigenen Arbeit, kein Wächter — der Reviewer hat das mit
+    // `createEl("p", { text: "Verbindung" }) ` gezeigt (kein Sonderzeichen, kein Listen-Wort,
+    // trotzdem ein Fund). Die Prüfung fragt deshalb nicht mehr "ist das deutsch?", sondern
+    // "erreicht dieser String eine Text-Senke, ohne durch t() zu laufen?" — strukturell
+    // entscheidbar, sprachunabhängig. Siehe tests/i18n/sink_guard.ts für Senken-Liste,
+    // Ausnahmen (i18n-exempt-Marker, buchstabenlose Literale) und bekannte Grenzen.
+    const findings = findUntranslatedSinks(join(__dirname, "..", "src", "settings.ts"));
+    expect(findings.map(f => `${f.line}: ${f.text}`)).toEqual([]);
   });
 });

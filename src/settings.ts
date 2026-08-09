@@ -328,7 +328,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           displayFormat: (v: number) => `${Math.round(v * 100)} %` } },
       { name: t("settings.search.exclude.name"),
         desc: t("settings.search.exclude.desc"),
-        control: { type: "text", key: "exclude", placeholder: "Templates/, Archive/" } },
+        control: { type: "text", key: "exclude", placeholder: "Templates/, Archive/" } },   // i18n-exempt: Pfad-Beispiel, sprachneutral (Ordnernamen)
     ] };
   }
 
@@ -430,7 +430,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         desc: t("settings.smartApply.connection.desc") },
       { name: t("settings.smartApply.templateDir.name"),
         desc: t("settings.smartApply.templateDir.desc"),
-        control: { type: "folder", key: "templateDir", placeholder: "Templates/" } },
+        control: { type: "folder", key: "templateDir", placeholder: "Templates/" } },   // i18n-exempt: Pfad-Beispiel, sprachneutral (Ordnername)
       { name: t("settings.smartApply.temperature.name"),
         desc: t("settings.smartApply.temperature.desc"),
         control: { type: "slider", key: "smartApplyTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
@@ -457,7 +457,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       containerEl: host,
       label: t("settings.embeddingEndpoints.label"),
       desc: t("settings.embeddingEndpoints.desc"),
-      placeholder: "http://localhost:11434",
+      placeholder: "http://localhost:11434",   // i18n-exempt: URL-Beispiel, sprachneutral
       get: () => this.plugin.settings.embeddingEndpoints,
       set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
       active: () => this.plugin.activeEmbeddingEndpoint,
@@ -485,7 +485,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           reachable, models, current: this.plugin.settings.embeddingModel, allowEmpty: false,
         }),
         ariaLabel: t("settings.embeddingModel.name"),
-        placeholder: "qwen3-embedding:8b",
+        placeholder: "qwen3-embedding:8b",   // i18n-exempt: Modellname-Beispiel, sprachneutral
         onPick: (v: string) => {
           this.plugin.settings.embeddingModel = v;
           void this.plugin.saveSettings();
@@ -537,7 +537,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     s.setName(t("settings.indexFolder.name"))
       .setDesc(t("settings.indexFolder.desc"))
       .addText(t => {
-        t.setPlaceholder("_vaultrag").setValue(this.plugin.settings.indexDir);
+        t.setPlaceholder("_vaultrag").setValue(this.plugin.settings.indexDir);   // i18n-exempt: Ordnername-Beispiel, sprachneutral
         t.onChange((v: string) => { typed = v; });
         new FolderSuggest(this.app, t.inputEl).onSelect((path: string) => { typed = path; t.setValue(path); });
       })
@@ -670,7 +670,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       containerEl: host,
       label: t("settings.chatEndpoints.label"),
       desc: t("settings.chatEndpoints.desc"),
-      placeholder: "http://localhost:1234",
+      placeholder: "http://localhost:1234",   // i18n-exempt: URL-Beispiel, sprachneutral
       get: () => this.plugin.settings.chatEndpoints,
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
       active: () => this.plugin.activeChatEndpoint,
@@ -701,7 +701,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           reachable, models, current: this.plugin.settings.chatModel, allowEmpty: false,
         }),
         ariaLabel: t("settings.chatModel.name"),
-        placeholder: "qwen3",
+        placeholder: "qwen3",   // i18n-exempt: Modellname-Beispiel, sprachneutral
         onPick: (v: string) => {
           this.plugin.settings.chatModel = v;
           void this.plugin.saveSettings();
@@ -955,7 +955,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       };
       s.addText(tx => {
         tx.setPlaceholder(isAdder ? t("settings.endpoint.addPlaceholder") : opts.placeholder).setValue(cfg.url);
-        tx.inputEl.setAttribute("aria-label", isAdder ? t("settings.endpointRow.ariaAdd", opts.label) : `${opts.label}: URL`);
+        tx.inputEl.setAttribute("aria-label", isAdder ? t("settings.endpointRow.ariaAdd", opts.label) : t("settings.endpointRow.ariaUrl", opts.label));
         tx.inputEl.addEventListener("blur", () => { commit("url", tx.getValue()); });
       });
       // Schlüssel + Modell nur an bestehenden Einträgen — am leeren Adder gäbe es nichts zu tragen.

@@ -11,6 +11,7 @@ export const EN = {
   "settings.chatEndpoints.label": "Chat endpoints",
   "settings.chatEndpoints.desc": "Per line: address · API key · model. Endpoints are tried in order, the first reachable one is used. Local servers (Ollama/MLX/LM Studio) need neither key nor model — leave empty to use the \"global model\". For hosted providers, fill in both.",
   "settings.endpointRow.ariaAdd": "{0}: add another endpoint",
+  "settings.endpointRow.ariaUrl": "{0}: URL",
   "settings.indexFolder.name": "Index folder",
   "settings.indexFolder.desc": "Where the vector index is stored. Syncs cross-device (incl. iPhone) only with Obsidian Sync's \"Sync all other types\" option. A path starting with \".\" is ignored by Obsidian Sync.",
   "settings.indexFolder.dotWarning": "Index folder starts with \".\" — it will not sync cross-device (not even to iPhone).",
@@ -247,6 +248,9 @@ export const EN = {
   "settings.button.hide": "Hide",
   "settings.button.regenerate": "Regenerate",
   "settings.button.show": "Show",
+  // Gleicher EN-Wert wie settings.mcpTestConnection.name (Setting-Name, "Verbindung testen"),
+  // aber ein anderes Render-Ziel: dieser Key ist der kurze Button-Text ("Testen") daneben. Kein
+  // versehentliches Duplikat.
   "settings.button.testConnection": "Test connection",
   "settings.caps.loaded": "loaded",
   "settings.caps.none": "no special capabilities detected",
@@ -297,6 +301,7 @@ export const DE = {
   "settings.chatEndpoints.label": "Chat-Endpunkte",
   "settings.chatEndpoints.desc": "Pro Zeile: Adresse · API-Schlüssel · Modell. Die Endpunkte werden der Reihe nach probiert, der erste erreichbare wird genutzt. Lokale Server (Ollama/MLX/LM Studio) brauchen weder Schlüssel noch Modell — leer lassen heißt „globales Modell\". Für gehostete Anbieter beides eintragen.",
   "settings.endpointRow.ariaAdd": "{0}: weiteren Endpunkt hinzufügen",
+  "settings.endpointRow.ariaUrl": "{0}: URL",
   "settings.indexFolder.name": "Index-Ordner",
   "settings.indexFolder.desc": "Wo der Vektor-Index gespeichert wird. Synct cross-device (inkl. iPhone) nur mit der Obsidian-Sync-Option „Sync all other types\". Ein Pfad mit „.\" am Anfang wird von Obsidian Sync ignoriert.",
   "settings.indexFolder.dotWarning": "Index-Ordner beginnt mit „.\" — synct dann nicht cross-device (auch nicht aufs iPhone).",
@@ -528,6 +533,8 @@ export const DE = {
   "settings.button.hide": "Verbergen",
   "settings.button.regenerate": "Neu generieren",
   "settings.button.show": "Anzeigen",
+  // Anderer DE-Text als settings.mcpTestConnection.name ("Verbindung testen") zeigt es hier
+  // schon selbst: kurzer Button-Text, kein Duplikat (siehe Kommentar im EN-Block).
   "settings.button.testConnection": "Testen",
   "settings.caps.loaded": "geladen",
   "settings.caps.none": "keine besonderen Fähigkeiten erkannt",

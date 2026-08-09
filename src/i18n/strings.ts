@@ -156,6 +156,24 @@ export const EN = {
   "panel.reformat.selected": "Selected: \"{0}\"",
   "panel.reformat.lineOne": "1 line",
   "panel.reformat.lineMany": "{0} lines",
+
+  // reformat_transforms.ts + picker
+  "transform.transpose": "Transpose table",
+  "transform.tableToList": "Table → list",
+  "transform.wrapCallout": "Wrap in callout",
+  "transform.toList": "→ List / bullets",
+  "transform.toProse": "→ Prose",
+  "transform.toTable": "→ Table",
+  "transform.toMermaid": "→ Mermaid diagram",
+  "transform.freetext": "Custom instruction…",
+  "picker.transform.placeholder": "Reformat as…",
+  "picker.instruction.title": "Custom instruction",
+  "picker.instruction.placeholder": "e.g. make a comparison table with pros/cons",
+  "picker.cancel": "Cancel",
+  "picker.reformat": "Reformat",
+  "picker.note.placeholder": "Add note to context…",
+  "picker.template.placeholder": "Choose template…",
+  "picker.template.suggestion": "(suggestion)",
 } as const;
 
 export const DE = {
@@ -308,6 +326,24 @@ export const DE = {
   "panel.reformat.selected": "Markiert: „{0}“",
   "panel.reformat.lineOne": "1 Zeile",
   "panel.reformat.lineMany": "{0} Zeilen",
+
+  // reformat_transforms.ts + picker
+  "transform.transpose": "Tabelle kippen",
+  "transform.tableToList": "Tabelle → Liste",
+  "transform.wrapCallout": "In Callout einpacken",
+  "transform.toList": "→ Liste / Stichpunkte",
+  "transform.toProse": "→ Fließtext",
+  "transform.toTable": "→ Tabelle",
+  "transform.toMermaid": "→ Mermaid-Diagramm",
+  "transform.freetext": "Eigene Anweisung…",
+  "picker.transform.placeholder": "Umformatieren als…",
+  "picker.instruction.title": "Eigene Anweisung",
+  "picker.instruction.placeholder": "z.B. mach eine Vergleichstabelle mit Pro/Contra",
+  "picker.cancel": "Abbrechen",
+  "picker.reformat": "Umformatieren",
+  "picker.note.placeholder": "Notiz zum Kontext hinzufügen…",
+  "picker.template.placeholder": "Vorlage wählen…",
+  "picker.template.suggestion": "(Vorschlag)",
 } satisfies Record<keyof typeof EN, string>;
 
 defineStrings({ en: EN, de: DE });

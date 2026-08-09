@@ -61,7 +61,7 @@ export class ReformatPanel implements HubPanel {
     if (!defs.length) return;
     container.createDiv({ cls: "vault-rag-reformat-group-title", text: title });
     for (const def of defs) {
-      const btn = container.createEl("button", { cls: "vault-rag-reformat-btn", text: def.label });
+      const btn = container.createEl("button", { cls: "vault-rag-reformat-btn", text: t(def.labelKey) });
       btn.addEventListener("click", () => this.deps.run(def));
       this.buttons.push(btn);
     }

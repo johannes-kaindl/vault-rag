@@ -1,10 +1,11 @@
 import { App, FuzzySuggestModal, TFile } from "obsidian";
+import { t } from "./vendor/kit/i18n";
 
 class NotePicker extends FuzzySuggestModal<TFile> {
   private settled = false;
   constructor(app: App, private done: (p: string | null) => void) {
     super(app);
-    this.setPlaceholder("Notiz zum Kontext hinzufügen…");
+    this.setPlaceholder(t("picker.note.placeholder"));
   }
   private settle(p: string | null): void { if (!this.settled) { this.settled = true; this.done(p); } }
   getItems(): TFile[] { return this.app.vault.getMarkdownFiles(); }

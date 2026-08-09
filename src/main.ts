@@ -809,7 +809,7 @@ export default class VaultRagPlugin extends Plugin {
 
     if (def.kind === "mechanical") {
       const result = def.run(core);
-      if (result == null) { new Notice(t("main.transformDoesNotFit", def.label)); return; }
+      if (result == null) { new Notice(t("main.transformDoesNotFit", t(def.labelKey))); return; }
       cap.editor.replaceRange(lead + result + trail, cap.from, cap.to);
       return;
     }

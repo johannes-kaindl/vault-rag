@@ -1,15 +1,16 @@
 import { App, FuzzySuggestModal, Modal, ButtonComponent } from "obsidian";
 import { TRANSFORMS, TransformDef } from "./reformat_transforms";
+import { t } from "./vendor/kit/i18n";
 
 class TransformPicker extends FuzzySuggestModal<TransformDef> {
   private settled = false;
   constructor(app: App, private done: (d: TransformDef | null) => void) {
     super(app);
-    this.setPlaceholder("Umformatieren als…");
+    this.setPlaceholder(t("picker.transform.placeholder"));
   }
   private settle(d: TransformDef | null): void { if (!this.settled) { this.settled = true; this.done(d); } }
   getItems(): TransformDef[] { return TRANSFORMS; }
-  getItemText(d: TransformDef): string { return d.label; }
+  getItemText(d: TransformDef): string { return t(d.labelKey); }
   onChooseItem(d: TransformDef): void { this.settle(d); }
   onClose(): void {
     super.onClose();
@@ -31,14 +32,14 @@ class InstructionModal extends Modal {
   private settle(v: string | null): void { if (!this.settled) { this.settled = true; this.done(v); } }
   onOpen(): void {
     const { contentEl } = this;
-    contentEl.createEl("h2", { text: "Eigene Anweisung" });
+    contentEl.createEl("h2", { text: t("picker.instruction.title") });
     const ta = contentEl.createEl("textarea", { cls: "vault-rag-reformat-instruction" });
     ta.setAttr("rows", "3");
-    ta.setAttr("placeholder", "z.B. mach eine Vergleichstabelle mit Pro/Contra");
+    ta.setAttr("placeholder", t("picker.instruction.placeholder"));
     ta.addEventListener("input", () => { this.value = ta.value; });
     const row = contentEl.createDiv({ cls: "modal-button-container" });
-    new ButtonComponent(row).setButtonText("Abbrechen").onClick(() => this.close());
-    new ButtonComponent(row).setButtonText("Umformatieren").setCta()
+    new ButtonComponent(row).setButtonText(t("picker.cancel")).onClick(() => this.close());
+    new ButtonComponent(row).setButtonText(t("picker.reformat")).setCta()
       .onClick(() => { const v = this.value.trim(); if (v) { this.settle(v); this.close(); } });
     window.setTimeout(() => ta.focus(), 0);
   }

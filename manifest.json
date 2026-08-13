@@ -1,7 +1,7 @@
 {
   "id": "vault-retrieval",
   "name": "Vault Retrieval",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "minAppVersion": "1.12.7",
   "description": "On-device retrieval over your vault — related notes, semantic search — plus grounded chat with the LLM endpoint you configure.",
   "author": "Johannes Kaindl",

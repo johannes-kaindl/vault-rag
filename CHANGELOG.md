@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-08-13
+
 ### Added
 - **Plugin-API für andere Obsidian-Plugins** (`app.plugins.plugins["vault-retrieval"]?.api`).
   Retrieval war bisher nur im Plugin selbst und über den MCP-Server erreichbar — Nachbar-Plugins

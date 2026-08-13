@@ -311,8 +311,9 @@ npm test                          # vitest run     (801 Tests, 58 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
 npx vitest run tests/<datei>      # eine Test-Datei
-npm run version-bump              # scripts/version-bump.mjs
-npm run release                   # scripts/release.mjs (Tag + Forge-Release)
+npm run version-bump              # ../tools/release/version-bump.mjs (zentral)
+npm run preflight <version>       # ../tools/release/preflight.mjs (Store-Checkliste)
+npm run release                   # ../tools/release/release.mjs (zentral: Gate, Tag, Forge-Release, Mirror)
 ```
 
 esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electron`, Output `main.js`

@@ -6,6 +6,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Plugin-API für andere Obsidian-Plugins** (`app.plugins.plugins["vault-retrieval"]?.api`).
+  Retrieval war bisher nur im Plugin selbst und über den MCP-Server erreichbar — Nachbar-Plugins
+  mussten sich einen eigenen Embedding-Index bauen, um dasselbe zu können. Die neue Fläche ist
+  bewusst schmal: `apiVersion` (1), `status()` (synchron und netzfrei — für die Frage „kann ich
+  Retrieval überhaupt anbieten?"), `search(query)` und `related(path)`. Notiz-Lesen und rohe
+  Embedding-Vektoren sind ausdrücklich **nicht** enthalten: ein Plugin liest das Vault über
+  Obsidians eigene API, und Vektoren würden Aufrufer an Index-Dimension, Modell und Quantisierung
+  binden — genau die Interna, die dieses Plugin frei ändern können muss.
+  Erwartbare Zustände sind **Werte statt Ausnahmen** (`{ok:true,hits}` bzw. `{ok:false,reason}`
+  mit `reason` aus `"no-index"`/`"offline"`/`"not-indexed"`), und `reason` ist ein
+  maschinenlesbarer Code ohne übersetzten Text — ein fremdes Plugin kann unsere TypeScript-Typen
+  nicht importieren und muss den Diskriminator zur Laufzeit anfassen können. Die Ausschluss-Liste
+  aus den Einstellungen ist nicht überschreibbar (Nutzergrenze, kein Tuning-Parameter); Scores
+  kommen ungerundet zurück, die Darstellung entscheidet der Aufrufer.
+  Kein Zustimmungs-Tor: ein Plugin, das diese API aufrufen kann, läuft ohnehin mit vollem
+  Vault-Zugriff — ein Tor schützte nichts Reales und kostete nur Klickwege.
+  Neues Modul `src/plugin_api.ts` (obsidian-frei, dünner Adapter über die geteilte
+  `RetrievalFacade`, exakt nach dem Muster von `mcp/tools.ts`), 17 Tests. Dokumentiert in beiden
+  READMEs und unter `docs/reference/`.
+
+### Notes
+- Der Vertrag ist versioniert, aber jung: **Version 1 gilt als experimentell**, bis ein zweiter
+  Konsument seine Form bestätigt hat (erster ist `koda-agent`). Das Versionsfeld existiert von
+  Anfang an, weil es sich nachträglich nicht bruchfrei einführen ließe — die Stabilitätszusage
+  ist die teure Hälfte und kann später folgen.
+- `npm run smoke:gui` hat sechs neue Prüfpunkte, die die API über CDP im Renderer aufrufen —
+  also auf demselben Weg wie ein fremdes Plugin, nicht über internen Code. Einer davon bewacht
+  gezielt die Grenze: taucht `readNote` oder `embedQuery` in der Fläche auf, ist der Vertrag
+  aufgeweicht worden.
+
 ## [0.22.0] — 2026-08-09
 
 ### Added

@@ -140,6 +140,45 @@ claude mcp add --transport http vault-retrieval http://127.0.0.1:8123/mcp \
 
 Die Konfiguration kommt aus den Plugin-Einstellungen — keine zweite Config-Datei. Der Server läuft nur, solange Obsidian offen ist, zieht Index-Änderungen live nach und **schreibt nie** ins Vault.
 
+## Plugin-API (für andere Obsidian-Plugins)
+
+Retrieval steht auch **innerhalb von Obsidian** bereit — ohne MCP-Server und ohne Netzwerkweg.
+Jedes Plugin kann dieses hier nach semantischen Treffern fragen, statt einen eigenen
+Embedding-Index aufzubauen:
+
+```js
+const api = app.plugins.plugins["vault-retrieval"]?.api;   // undefined, wenn nicht installiert/aktiv
+if (api?.apiVersion === 1 && api.status().indexed) {
+  const r = await api.search("was hatte ich zum Index-Format entschieden?");
+  if (r.ok) for (const hit of r.hits) console.log(hit.path, hit.score);
+  else console.log("nicht verfügbar:", r.reason);          // "no-index" | "offline"
+}
+```
+
+| Element | Signatur | Anmerkung |
+|---|---|---|
+| `apiVersion` | `number` | `1`. Vor jedem Verlass auf die Form darunter prüfen. |
+| `status()` | `{ apiVersion, indexed, noteCount }` | Synchron und **netzfrei** — gedacht für „kann ich Retrieval überhaupt anbieten?". Sagt nichts über die Erreichbarkeit des Endpunkts; das ginge nur mit einer Anfrage. |
+| `search(query, opts?)` | `Promise<Result>` | Text → semantisch ähnliche Notizen. Braucht einen erreichbaren Embedding-Endpunkt. |
+| `related(path, opts?)` | `Promise<Result>` | Notiz → verwandte Notizen. Direkt aus dem Index: kein Netz, offline und mobil nutzbar. |
+
+`Result` ist entweder `{ ok: true, hits: [{ path, score }] }` oder `{ ok: false, reason }` mit
+`reason` aus `"no-index"`, `"offline"` oder `"not-indexed"` (letzteres trägt den `path` mit).
+**Diese Aufrufe werfen nie** — erwartbare Zustände sind Werte, und `reason` ist ein
+maschinenlesbarer Code, nie übersetzter Fließtext: die Formulierung gehört dem Aufrufer.
+
+`opts` nimmt `k` (Trefferzahl) und `minSim` (Ähnlichkeits-Untergrenze), beide mit deinen
+Einstellungen als Vorgabe. Die **Ausschluss-Liste ist nicht überschreibbar** — sie ist eine
+Grenze, die du setzt, kein Tuning-Regler für ein fremdes Plugin. Scores kommen roh und
+ungerundet zurück; die Darstellung entscheidet der Aufrufer.
+
+Bewusst **nicht** enthalten sind Notiz-Lesen und rohe Embedding-Vektoren: ein Plugin liest das
+Vault über Obsidians eigene API, und Vektoren würden Aufrufer an Index-Dimension, Modell und
+Quantisierung binden — genau die Interna, die dieses Plugin frei ändern können muss.
+
+*Stand: der Vertrag ist versioniert, aber jung. Version 1 gilt als experimentell, bis ein
+zweiter Konsument ihre Form bestätigt hat.*
+
 ## Verwandt
 
 Bild-Transkription (Handschrift/Screenshots → Markdown) liegt im Schwester-Plugin **[image-to-markdown](https://git.jkaindl.de/jkaindl/image-to-markdown)**.

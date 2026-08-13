@@ -109,25 +109,58 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 Read access is limited to real vault Markdown files; deleted notes (`.trash/`) and paths outside
 the vault are refused. The server never writes.
 
+## Plugin API
+
+Exposed as `app.plugins.plugins["vault-retrieval"].api` for other Obsidian plugins. Read-only,
+no consent gate, no registration — a plugin that can call this already runs with full vault
+access.
+
+| Member | Signature |
+|---|---|
+| `apiVersion` | `1` |
+| `status()` | `{ apiVersion: number, indexed: boolean, noteCount: number }` — synchronous, no network |
+| `search(query, opts?)` | `Promise<Result>` — needs the embedding endpoint |
+| `related(path, opts?)` | `Promise<Result>` — served from the index, offline |
+
+`opts` is `{ k?: number, minSim?: number }`; both fall back to your settings. Exclude prefixes
+always come from settings and cannot be overridden by the caller.
+
+`Result` is `{ ok: true, hits: { path: string, score: number }[] }` or `{ ok: false, reason }`,
+where `reason` is `"no-index"`, `"offline"`, or `"not-indexed"` (plus the offending `path`).
+Calls never throw, return only JSON-serialisable values, and never carry translated text —
+`reason` is a code for the caller to phrase.
+
+Note reading and raw embedding vectors are deliberately absent: consumers read the vault
+through Obsidian, and vectors would couple them to the index dimension, model and quantisation.
+
 ## Index format
 
-`<vault>/<index folder>/` holds three files:
+`<vault>/<index folder>/` holds a single container file, `index.bin`:
 
-| File | Contents |
+| Segment | Contents |
 |---|---|
-| `notes.i8` | Int8 matrix, one row per note, `count × 256` bytes |
-| `paths.json` | Vault paths, same order as the matrix rows |
-| `manifest.json` | Metadata: model, dimensions, count, build time |
+| Magic | `"VRIX"` |
+| `headerLen` | `u32`, little-endian |
+| Header | JSON manifest — model, dimensions, count, note paths, `schema_version: 2` |
+| Matrix | Int8, one row per note, `count × 256` bytes |
+| CRC32 | Checksum over everything before it |
 
 Fixed properties: **256** dimensions (Matryoshka-truncated), int8 quantisation with scale
-**127**, one vector per note aggregated as the **mean** of its chunk vectors. `manifest.json` is
-written **last** — it is the reload trigger, and its presence means the other two files are
-complete.
+**127**, one vector per note aggregated as the **mean** of its chunk vectors.
 
-On load, `count` is checked against both the number of paths and the byte length of the matrix.
-A mismatch is treated as damage: the plugin refuses to write and says so, rather than
-overwriting good data. See
+One file rather than three, and that is the whole point: file sync services resolve conflicts
+**per file** and know nothing about groups, so a three-file index could end up as a mixture of
+two generations that no device ever wrote. A container can only ever arrive whole or broken, and
+a broken one is caught by the CRC on load — a mismatch is treated as damage, the plugin refuses
+to write and says so rather than overwriting good data, and it will try to heal itself from a
+device-local backup. See
 [Explanation → Why the index defends itself](../explanation/index.md#why-the-index-defends-itself).
+
+Indexes written before 0.18.0 (`notes.i8` + `paths.json` + `manifest.json`) are migrated into
+the container on first load, byte for byte — no re-embedding, no quality loss.
+
+`pending.json` stays a separate file: it is the queue of notes awaiting re-embedding, and
+losing it costs nothing but a re-scan.
 
 ## Files and locations
 

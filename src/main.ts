@@ -47,6 +47,7 @@ import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mc
 import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
 import { RetrievalFacade } from "./retrieval_facade";
+import { createVaultRetrievalApi, type VaultRetrievalApi } from "./plugin_api";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -64,6 +65,9 @@ export default class VaultRagPlugin extends Plugin {
   settings!: VaultRagSettings;
   private index: VaultIndex | null = null;
   private facade!: RetrievalFacade;
+  /** Oeffentlicher Vertrag fuer andere Obsidian-Plugins: `app.plugins.plugins["vault-retrieval"]?.api`.
+   *  Siehe `plugin_api.ts` — bewusst schmaler als die Facade (kein Dateizugriff, keine Vektoren). */
+  api!: VaultRetrievalApi;
   private guardedRead: (rel: string) => Promise<string> = (p) => this.app.vault.adapter.read(p);
   private lastMtime = 0;
   embedder!: EmbeddingClient;
@@ -212,6 +216,9 @@ export default class VaultRagPlugin extends Plugin {
       settings: () => ({ k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude }),
       readVault: (rel) => this.guardedRead(rel),
     });
+    // Sofort nach der Facade setzen: sobald das Plugin-Objekt in app.plugins.plugins auftaucht,
+    // soll `api` da sein — ein Konsument darf es nie halb initialisiert antreffen.
+    this.api = createVaultRetrievalApi(this.facade, () => this.index);
 
     this.addSettingTab(new VaultRagSettingTab(this.app, this));
 

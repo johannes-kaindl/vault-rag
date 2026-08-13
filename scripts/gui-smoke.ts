@@ -222,6 +222,18 @@ interface Row {
   buttonCount: number; buttonIcons: string[]; warnIconBelowState: boolean | null;
 }
 
+interface ApiProbe {
+  present: boolean;
+  apiVersion?: number;
+  keys?: string[];
+  status?: { apiVersion: number; indexed: boolean; noteCount: number };
+  statusIsSync?: boolean;
+  related?: { ok: boolean; reason?: string; hits?: { path: string; score: number }[] } | null;
+  relatedPath?: string | null;
+  search?: { ok: boolean; reason?: string; hits?: { path: string; score: number }[] };
+  serialisable?: boolean;
+}
+
 /** Muss im HAUPTfenster laufen — nur dort existiert `app`. */
 async function openSettings(main: Cdp): Promise<void> {
   await main.evaluate(`
@@ -260,6 +272,62 @@ async function main(): Promise<void> {
     );
     if (!active) throw new Error(`Plugin ${PLUGIN_ID} ist nicht aktiv — Obsidian neu laden (Cmd+R)?`);
 
+    // --- 0. Plugin-API für Fremdplugins ------------------------------------
+    // Der Aufruf läuft über CDP im Renderer, also exakt auf dem Weg, den ein anderes
+    // Obsidian-Plugin nimmt (`app.plugins.plugins[id].api`) — nicht über internen Code.
+    // Genau das können Unit-Tests strukturell nicht: dass der Vertrag am echten
+    // Plugin-Objekt hängt und über die Renderer-Grenze JSON-tauglich ankommt.
+    const probe = await main.evaluate<ApiProbe>(`
+      const api = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].api;
+      if (!api) return { present: false };
+      const status = api.status();
+      // Voraussetzung selbst herstellen statt sie zu hoffen (REGISTRY-Falle 11): eine
+      // Notiz suchen, die WIRKLICH im Index steht. Irgendeine zu raten macht den
+      // Prüfpunkt falsch-rot, sobald die erste Datei eine leere Ordner-Notiz ist.
+      let related = null, relatedPath = null;
+      for (const f of app.vault.getMarkdownFiles().slice(0, 200)) {
+        const r = await api.related(f.path);
+        if (r.ok || r.reason !== "not-indexed") { related = r; relatedPath = f.path; break; }
+      }
+      const search = await api.search("Notiz");
+      return {
+        present: true,
+        apiVersion: api.apiVersion,
+        keys: Object.keys(api).sort(),
+        status,
+        statusIsSync: !(status && typeof status.then === "function"),
+        related, relatedPath, search,
+        serialisable: JSON.stringify({ status, related, search }).length > 0,
+      };
+    `);
+
+    record("Plugin-API hängt am Plugin-Objekt und nennt ihre Version",
+      probe.present && probe.apiVersion === 1, `apiVersion ${String(probe.apiVersion)}`);
+    // Regressionsschutz gegen ein spaeteres `this.api = this.facade`: der externe Vertrag
+    // darf NICHT readNote/embedQuery/searchVector tragen (Dateizugriff und Vektor-Interna).
+    record("Fläche ist auf status/search/related begrenzt",
+      JSON.stringify(probe.keys) === JSON.stringify(["apiVersion", "related", "search", "status"]),
+      (probe.keys ?? []).join(", "));
+    record("status() ist synchron und meldet einen Index",
+      probe.statusIsSync === true && probe.status?.indexed === true && (probe.status?.noteCount ?? 0) > 0,
+      `indexed=${String(probe.status?.indexed)} · ${probe.status?.noteCount ?? 0} Notizen`);
+    record("related() liefert Treffer für eine indexierte Notiz",
+      probe.related?.ok === true && (probe.related.hits?.length ?? 0) > 0,
+      `${probe.relatedPath ?? "(keine Notiz geprüft)"} → ${probe.related?.ok ? `${probe.related.hits?.length ?? 0} Treffer` : `reason=${String(probe.related?.reason)}`}`);
+    record("Rückgaben überstehen die Renderer-Grenze (JSON-tauglich)",
+      probe.serialisable === true, "kein TypedArray, keine Klasseninstanz");
+    // Falle 16 der REGISTRY: ein Prüfpunkt, der nur den Fehlerfall anfasst, beweist nichts.
+    // search() braucht den Embedding-Endpunkt — ist er tot, ist "offline" die RICHTIGE
+    // Antwort und kein Befund. Dann übersprungen statt falsch-grün oder falsch-rot.
+    if (probe.search?.ok) {
+      record("search() liefert semantische Treffer", (probe.search.hits?.length ?? 0) > 0,
+        `${probe.search.hits?.length ?? 0} Treffer`);
+    } else if (probe.search?.reason === "offline") {
+      console.log("  – search(): übersprungen — Embedding-Endpunkt nicht erreichbar (korrekte Antwort, aber der Erfolgsfall bleibt ungeprüft)");
+    } else {
+      record("search() liefert semantische Treffer", false, `reason=${String(probe.search?.reason)}`);
+    }
+
     // --- 1./2. Einstellungen öffnen, Zeilen lesen ---------------------------
     // Öffnen über das Hauptfenster (dort lebt `app`), lesen im Einstellungs-Fenster
     // (dort lebt das DOM). Seit 1.13 sind das zwei getrennte Targets.
@@ -294,8 +362,8 @@ async function main(): Promise<void> {
     const lists = [...new Set(withState.map(r => r.listIndex))];
 
     // --- 3. Knopf-Verteilung (in der Liste mit den meisten Zeilen) -----------
-    // Die Chat-Liste ist die zweite gerenderte Gruppe. Sie traegt den Klick-Test, weil
-    // nur fuer sie die Reihenfolge gesichert und zurueckgeschrieben wird (savedChatOrder).
+    // Die Chat-Liste ist die zweite gerenderte Gruppe. Sie trägt den Klick-Test, weil
+    // nur für sie die Reihenfolge gesichert und zurückgeschrieben wird (savedChatOrder).
     const CHAT_LIST = 1;
     const chatRows = withState.filter(r => r.listIndex === CHAT_LIST);
     const testRows = chatRows.length >= 2

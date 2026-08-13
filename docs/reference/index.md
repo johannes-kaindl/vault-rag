@@ -109,6 +109,30 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 Read access is limited to real vault Markdown files; deleted notes (`.trash/`) and paths outside
 the vault are refused. The server never writes.
 
+## Plugin API
+
+Exposed as `app.plugins.plugins["vault-retrieval"].api` for other Obsidian plugins. Read-only,
+no consent gate, no registration — a plugin that can call this already runs with full vault
+access.
+
+| Member | Signature |
+|---|---|
+| `apiVersion` | `1` |
+| `status()` | `{ apiVersion: number, indexed: boolean, noteCount: number }` — synchronous, no network |
+| `search(query, opts?)` | `Promise<Result>` — needs the embedding endpoint |
+| `related(path, opts?)` | `Promise<Result>` — served from the index, offline |
+
+`opts` is `{ k?: number, minSim?: number }`; both fall back to your settings. Exclude prefixes
+always come from settings and cannot be overridden by the caller.
+
+`Result` is `{ ok: true, hits: { path: string, score: number }[] }` or `{ ok: false, reason }`,
+where `reason` is `"no-index"`, `"offline"`, or `"not-indexed"` (plus the offending `path`).
+Calls never throw, return only JSON-serialisable values, and never carry translated text —
+`reason` is a code for the caller to phrase.
+
+Note reading and raw embedding vectors are deliberately absent: consumers read the vault
+through Obsidian, and vectors would couple them to the index dimension, model and quantisation.
+
 ## Index format
 
 `<vault>/<index folder>/` holds three files:

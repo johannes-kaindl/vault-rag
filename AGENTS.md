@@ -196,6 +196,20 @@ hub_panel.ts      HubPanel-Interface + TabId ("related"|"search"|"chat"|"smart-a
 hub_view.ts       VaultRetrievalView (ItemView, VIEW_TYPE_HUB="vault-retrieval-hub") — EIN
                   Sidebar-View mit Tab-Leiste statt vier Views; hält alle Panels dauerhaft gemountet
                   (State-Persistenz), blendet nur per `display:none` um (kein render-from-scratch).
+plugin_api.ts     Öffentlicher Vertrag für ANDERE Obsidian-Plugins, hängt als `plugin.api` am
+                  Plugin-Objekt (`app.plugins.plugins["vault-retrieval"]?.api`). Dünner Adapter
+                  über die RetrievalFacade, exakt nach dem Muster von `mcp/tools.ts` — bewusst
+                  NICHT die Facade selbst: die trägt readNote/embedQuery/searchVector, also
+                  Dateizugriff und Vektor-Interna, und ist unser internes Refactoring-Objekt.
+                  Fläche: `apiVersion` (1) · `status()` (synchron, netzfrei) · `search(query)` ·
+                  `related(path)` — beide async, auch `related`, obwohl es intern synchron
+                  rechnet: ein synchroner Vertrag ließe sich nie wieder async machen.
+                  Rückgaben sind laufzeit-lesbare Diskriminatoren (`{ok:true,hits}` /
+                  `{ok:false,reason}`), keine Compile-Zeit-Unions — ein Fremdplugin kann unsere
+                  Typen nicht importieren. `reason` ist ein CODE, nie übersetzter Text (die
+                  Formulierung gehört dem Aufrufer; hält zugleich den i18n-Sink-Guard sauber).
+                  `exclude` ist NICHT überschreibbar (Nutzergrenze, kein Tuning-Parameter),
+                  Scores kommen ungerundet (Darstellung entscheidet der Konsument).
 settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings (embeddingEndpoints/
                   chatEndpoints als EndpointConfig[]) · DEFAULT_SETTINGS — die Endpunkt-Helfer
                   liegen in endpoint_config.ts und werden von dort importiert, nicht hier

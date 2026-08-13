@@ -150,6 +150,45 @@ vault. The server never writes to your vault.
 
 Note: `read_note` enforces exclude prefixes case-insensitively (safe on case-insensitive filesystems like APFS/NTFS), while `search`/`related` filter result paths case-sensitively — they expose only paths and scores, never content.
 
+## Plugin API (for other Obsidian plugins)
+
+Retrieval is also available **inside Obsidian**, without the MCP server and without a
+network round trip. Any plugin can ask this one for semantic hits instead of building its own
+embedding index:
+
+```js
+const api = app.plugins.plugins["vault-retrieval"]?.api;   // undefined if not installed/enabled
+if (api?.apiVersion === 1 && api.status().indexed) {
+  const r = await api.search("what did I decide about the index format?");
+  if (r.ok) for (const hit of r.hits) console.log(hit.path, hit.score);
+  else console.log("unavailable:", r.reason);              // "no-index" | "offline"
+}
+```
+
+| Member | Signature | Notes |
+|---|---|---|
+| `apiVersion` | `number` | `1`. Check it before relying on the shape of anything below. |
+| `status()` | `{ apiVersion, indexed, noteCount }` | Synchronous and **network-free** — meant for "can I offer retrieval at all?". Says nothing about endpoint reachability; that would need a request. |
+| `search(query, opts?)` | `Promise<Result>` | Text → semantically similar notes. Needs a reachable embedding endpoint. |
+| `related(path, opts?)` | `Promise<Result>` | Note → related notes. Straight from the index: no network, works offline and on mobile. |
+
+`Result` is either `{ ok: true, hits: [{ path, score }] }` or `{ ok: false, reason }` with
+`reason` one of `"no-index"`, `"offline"` or `"not-indexed"` (the latter carries the `path`).
+**These calls never throw** — expected states are values, and `reason` is a machine-readable
+code, never translated prose, so the caller phrases its own message.
+
+`opts` accepts `k` (number of hits) and `minSim` (similarity floor); both default to your
+settings. The **exclude list is not overridable** — it is a boundary you set, not a tuning knob
+for a third-party plugin. Scores are returned raw and unrounded; presentation is the caller's
+call.
+
+This deliberately does **not** expose note reading or raw embedding vectors: a plugin can read
+the vault through Obsidian's own API, and vectors would tie callers to the index dimension,
+model and quantisation — internals this plugin needs to stay free to change.
+
+*Status: the contract is versioned but young. Treat version 1 as experimental until a second
+consumer has confirmed its shape.*
+
 ## Related
 
 Image transcription (handwriting/screenshots → Markdown) lives in the sibling plugin **[image-to-markdown](https://git.jkaindl.de/jkaindl/image-to-markdown)**.

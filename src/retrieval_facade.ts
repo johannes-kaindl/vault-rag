@@ -25,16 +25,20 @@ export type RelatedResult = { kind: "hits"; hits: Hit[] } | { kind: "no-index" }
 export type ReadResult = { kind: "ok"; text: string } | { kind: "not-found"; path: string } | { kind: "invalid"; path: string; reason: string };
 
 /** Path-Guard für readNote: vault-relativ, kein Traversal, nur .md, exclude-Präfix (case-insensitiv).
- *  Gibt den normalisierten vault-relativen Pfad zurück. Reine String-Logik (kein node:path). */
+ *  Gibt den normalisierten vault-relativen Pfad zurück. Reine String-Logik (kein node:path).
+ *
+ *  Die Meldungen sind bewusst ENGLISCH und laufen NICHT durch `t()`: `readNote` hat genau einen
+ *  Konsumenten — `mcp/tools.ts`, den Loopback-JSON-RPC-Kanal. Das liest ein Agent, kein Mensch in
+ *  einer lokalisierten Oberfläche. Die Plugin-API (`plugin_api.ts`) trägt bewusst kein readNote. */
 export function resolveNotePath(rel: string, exclude: string[]): string {
-  if (rel.startsWith("/")) throw new Error(`Nur vault-relative Pfade erlaubt: "${rel}"`);
+  if (rel.startsWith("/")) throw new Error(`Only vault-relative paths are allowed: "${rel}"`);
   const parts = rel.split(/[\\/]/).filter(s => s !== "" && s !== ".");
-  if (parts.some(s => s === "..")) throw new Error(`Pfad verlässt den Vault: "${rel}"`);
+  if (parts.some(s => s === "..")) throw new Error(`Path escapes the vault: "${rel}"`);
   const norm = parts.join("/");
-  if (!norm.toLowerCase().endsWith(".md")) throw new Error(`Nur Markdown-Notizen (.md) lesbar: "${rel}"`);
+  if (!norm.toLowerCase().endsWith(".md")) throw new Error(`Only Markdown notes (.md) can be read: "${rel}"`);
   const normLower = norm.toLowerCase();
   const hit = exclude.find(e => e && normLower.startsWith(e.toLowerCase()));
-  if (hit) throw new Error(`Pfad liegt unter Ausschluss-Präfix "${hit}": "${rel}"`);
+  if (hit) throw new Error(`Path is under excluded prefix "${hit}": "${rel}"`);
   return norm;
 }
 

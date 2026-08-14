@@ -101,7 +101,7 @@ describe("startMcpServer ohne Desktop-Platform", () => {
     try {
       await expect(
         startMcpServer({ port: 0, token: "t", tools: new McpTools(deps), version: "0.0.0" }),
-      ).rejects.toThrow(/Desktop/);
+      ).rejects.toThrow(/desktop-only/);
     } finally {
       Platform.isDesktop = prev;
     }

@@ -26,10 +26,10 @@ describe("McpTools.search", () => {
     expect(r.hits[0]).toEqual({ path: "a.md", score: 1 });
   });
   it("wirft bei fehlendem Index", async () => {
-    await expect(tools({ getIndex: () => null }).search({ query: "x" })).rejects.toThrow(/Kein Index/);
+    await expect(tools({ getIndex: () => null }).search({ query: "x" })).rejects.toThrow(/No index loaded/);
   });
   it("wirft bei offline", async () => {
-    await expect(tools({ embedderReady: async () => false }).search({ query: "x" })).rejects.toThrow(/nicht erreichbar/);
+    await expect(tools({ embedderReady: async () => false }).search({ query: "x" })).rejects.toThrow(/not reachable/);
   });
 });
 
@@ -39,7 +39,7 @@ describe("McpTools.related", () => {
     expect(r.hits.map(h => h.path)).toEqual(["b.md", "c.md"]);
   });
   it("wirft bei nicht-indexierter Notiz", async () => {
-    await expect(tools().related({ path: "missing.md" })).rejects.toThrow(/nicht im Index/);
+    await expect(tools().related({ path: "missing.md" })).rejects.toThrow(/not in index/);
   });
 });
 
@@ -48,9 +48,9 @@ describe("McpTools.readNote", () => {
     expect(await tools().readNote({ path: "a/b.md" })).toEqual({ path: "a/b.md", content: "INHALT a/b.md" });
   });
   it("wirft mit Guard-Grund bei Traversal", async () => {
-    await expect(tools().readNote({ path: "../x.md" })).rejects.toThrow(/verlässt den Vault/);
+    await expect(tools().readNote({ path: "../x.md" })).rejects.toThrow(/escapes the vault/);
   });
   it("wirft bei exclude-Präfix", async () => {
-    await expect(tools().readNote({ path: "Templates/x.md" })).rejects.toThrow(/Ausschluss-Präfix/);
+    await expect(tools().readNote({ path: "Templates/x.md" })).rejects.toThrow(/excluded prefix/);
   });
 });

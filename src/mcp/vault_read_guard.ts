@@ -14,7 +14,7 @@ export function makeVaultReadGuard(
 ): (rel: string) => Promise<string> {
   return async (rel: string) => {
     if (!isKnownVaultFile(rel)) {
-      throw new Error(`Keine bekannte Vault-Datei: "${rel}"`);
+      throw new Error(`Not a known vault file: "${rel}"`);
     }
     return read(rel);
   };

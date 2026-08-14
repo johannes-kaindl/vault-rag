@@ -2,6 +2,7 @@
  *  Migration alter String-Listen und Listen-Bearbeitung. */
 
 import { t } from "./vendor/kit/i18n";
+import { validateEndpointInput } from "./vendor/kit/endpoint_diagnostics";
 import type { EndpointStatus, EndpointWarning } from "./vendor/kit/endpoint_diagnostics";
 
 export interface EndpointConfig {
@@ -170,6 +171,16 @@ export function endpointStatusText(status: EndpointStatus): string {
       ? t("endpointStatus.unknownWithRaw", status.raw)
       : t("endpointStatus.unknown");
   }
+}
+
+/** Eingabe-Hinweise zu einer Endpunkt-Adresse, fertig als Anzeigetext.
+ *
+ *  Die EINZIGE Stelle, die `validateEndpointInput` aufruft — bewusst gekapselt: dessen
+ *  `EndpointWarning` trägt neben der Regel auch eine fest deutsche `message`, und solange
+ *  ein Aufrufer das Rohobjekt in der Hand hält, kann er daran vorbeigreifen. Ein Wächter
+ *  könnte das nur raten; hier gibt es schlicht nichts zu greifen. */
+export function endpointInputWarnings(url: string): string[] {
+  return validateEndpointInput(url).map(endpointWarningText);
 }
 
 /** Anzeigetext für einen Eingabe-Hinweis des Kits — Gegenstück zu `endpointStatusText`.

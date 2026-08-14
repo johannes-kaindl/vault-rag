@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointWarningText, type EndpointConfig } from "../src/endpoint_config";
+import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointWarningText, endpointInputWarnings, type EndpointConfig } from "../src/endpoint_config";
 import "../src/i18n/strings"; // Register i18n strings
 
 describe("authHeaders", () => {
@@ -245,5 +245,21 @@ describe("endpointWarningText", () => {
     // Regel mitbringen. Dann ist deutscher Text das kleinere Übel gegenüber Schweigen.
     expect(endpointWarningText({ rule: "kit-neu-2027", message: "Neuer Kit-Befund" }))
       .toBe("Neuer Kit-Befund");
+  });
+});
+
+describe("endpointInputWarnings", () => {
+  it("liefert fertige Anzeigetexte — der Aufrufer sieht das Kit-Rohobjekt nie", () => {
+    expect(endpointInputWarnings("localhost:1234"))
+      .toEqual(["Address needs http:// or https://"]);
+    expect(endpointInputWarnings("http://localhost"))
+      .toEqual(["Local LLM servers almost always need a port (e.g. :1234)"]);
+    expect(endpointInputWarnings("http://0.0.0.0:1234"))
+      .toEqual(["Looks like an example/placeholder address"]);
+  });
+
+  it("schweigt bei einer unauffälligen Adresse", () => {
+    expect(endpointInputWarnings("http://localhost:1234")).toEqual([]);
+    expect(endpointInputWarnings("")).toEqual([]);
   });
 });

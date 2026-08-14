@@ -11,7 +11,7 @@ import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, type EndpointConfig } from "./endpoint_config";
+import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointWarningText, type EndpointConfig } from "./endpoint_config";
 import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
@@ -1065,7 +1065,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           statusIcon.toggleClass("is-error", !status.reachable);
           // Tooltip trägt nur noch die Erreichbarkeits-Diagnose; das frühere " · aktiv" entfällt,
           // weil die Rolle jetzt als Text in der Zeile steht (keine zweite Wahrheit im Hover).
-          setTooltip(statusIcon, status.klartext);
+          setTooltip(statusIcon, endpointStatusText(status));
           probed = status;
           applyRole();
         });
@@ -1074,7 +1074,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         if (warnings.length) {
           const warnIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-warn" });
           setIcon(warnIcon, "alert-triangle");
-          setTooltip(warnIcon, warnings.map(w => w.message).join(" · "));
+          setTooltip(warnIcon, warnings.map(endpointWarningText).join(" · "));
         }
         // Drittanbieter-Hinweis (Erst-Render): der Schlüssel ist der verlässliche Indikator, nicht
         // die URL (ein eigener Server im LAN braucht keinen — eine URL-Heuristik wäre unzuverlässig).

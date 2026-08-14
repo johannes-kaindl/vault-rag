@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, type EndpointConfig } from "../src/endpoint_config";
+import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointWarningText, type EndpointConfig } from "../src/endpoint_config";
 import "../src/i18n/strings"; // Register i18n strings
 
 describe("authHeaders", () => {
@@ -193,5 +193,57 @@ describe("describeEndpointRole i18n", () => {
     expect(describeEndpointRole({ kind: "unreachable" })).toBe("unreachable");
     expect(describeEndpointRole({ kind: "skipped-model" }))
       .toBe("skipped — model does not match the index");
+  });
+});
+
+// ── i18n Teil 3: Diagnose-Codes statt Kit-Prosa ──────────────────────────────
+// Das Kit liefert zu jedem Befund BEIDES — einen Code (`kind`/`rule`) und deutschen
+// Klartext (`klartext`/`message`). Nur der Code ist sprachneutral; die beiden Funktionen
+// hier sind die einzige Stelle, an der aus ihm Anzeigetext wird.
+
+describe("endpointStatusText", () => {
+  it("übersetzt jeden Erreichbarkeits-Code, statt den Kit-Klartext durchzureichen", () => {
+    expect(endpointStatusText({ reachable: true, kind: "ok", klartext: "Verbunden" }))
+      .toBe("Connected");
+    expect(endpointStatusText({ reachable: false, kind: "refused", klartext: "…" }))
+      .toBe("Connection refused — server not running or wrong port.");
+    expect(endpointStatusText({ reachable: false, kind: "unknown-host", klartext: "…" }))
+      .toBe("Unknown hostname — typo in the address?");
+    expect(endpointStatusText({ reachable: false, kind: "timeout", klartext: "…" }))
+      .toBe("Timeout — network unreachable (wrong network / VPN off?).");
+    expect(endpointStatusText({ reachable: false, kind: "not-an-llm-api", klartext: "…" }))
+      .toBe("Responds, but is not an OpenAI-compatible endpoint — wrong path/service?");
+    expect(endpointStatusText({ reachable: false, kind: "unauthorized", klartext: "…" }))
+      .toBe("Access denied — key missing or invalid.");
+  });
+
+  it("hängt bei `unknown` die rohe Fehlermeldung an — sie ist die einzige Spur, die es gibt", () => {
+    expect(endpointStatusText({ reachable: false, kind: "unknown", klartext: "…", raw: "ECONNRESET" }))
+      .toBe("Not reachable — ECONNRESET");
+  });
+
+  it("bleibt bei `unknown` ohne `raw` eine vollständige Aussage", () => {
+    expect(endpointStatusText({ reachable: false, kind: "unknown", klartext: "…" }))
+      .toBe("Not reachable");
+  });
+});
+
+describe("endpointWarningText", () => {
+  it("übersetzt die bekannten Eingabe-Regeln", () => {
+    expect(endpointWarningText({ rule: "scheme", message: "…" }))
+      .toBe("Address needs http:// or https://");
+    expect(endpointWarningText({ rule: "malformed", message: "…" }))
+      .toBe("Address is not a valid URL");
+    expect(endpointWarningText({ rule: "port", message: "…" }))
+      .toBe("Local LLM servers almost always need a port (e.g. :1234)");
+    expect(endpointWarningText({ rule: "placeholder-ip", message: "…" }))
+      .toBe("Looks like an example/placeholder address");
+  });
+
+  it("reicht eine unbekannte Regel als Kit-Text durch, statt den Befund zu verschlucken", () => {
+    // `rule` ist im Kit `string`, keine Union — ein Kit-Update kann jederzeit eine neue
+    // Regel mitbringen. Dann ist deutscher Text das kleinere Übel gegenüber Schweigen.
+    expect(endpointWarningText({ rule: "kit-neu-2027", message: "Neuer Kit-Befund" }))
+      .toBe("Neuer Kit-Befund");
   });
 });

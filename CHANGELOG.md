@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Diagnose-Meldungen folgen jetzt der Sprachwahl** (i18n Teil 3). Die Sprachschicht aus 0.21.0/
+  0.22.0 erfasste jeden Text, der *direkt* in eine Anzeige geschrieben wird. Entsteht ein Text
+  dagegen als **Rückgabewert** einer Funktion und wird erst später angezeigt, liegt dazwischen
+  keine Literalstelle mehr — für den automatischen Wächter unsichtbar. Betroffen war vor allem der
+  häufigste Fall überhaupt: wer die Oberfläche auf Englisch stellte, bekam bei **jedem** nicht
+  erreichbaren Endpunkt einen deutschen Tooltip. Dazu die Prüfliste unter einem Smart-Apply-Vorschlag
+  und die Meldung eines fehlgeschlagenen MCP-Server-Starts.
+- **Fehlermeldungen des MCP-Servers sind jetzt durchgängig englisch** — und bleiben es unabhängig
+  von der eingestellten Sprache. Sie werden von einem Agenten über den Loopback-Kanal gelesen, nicht
+  von einem Menschen in einer lokalisierten Oberfläche; sie an die UI-Sprache des Vaults zu koppeln
+  wäre falsch.
+
+### Fixed
+- Die Meldung eines fehlgeschlagenen MCP-Server-Starts nannte den Grund doppelt
+  (`(boom): boom`) — sie zeigt ihn jetzt einmal.
+
 ## [0.23.0] — 2026-08-13
 
 ### Added

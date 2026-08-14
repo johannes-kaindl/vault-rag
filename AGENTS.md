@@ -119,7 +119,16 @@ endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZI
                   describeEndpointRole (EndpointRole-Ableitung "active"|"standby"|"unreachable"|
                   "skipped-model" + ihr Zeilentext — reine Ableitung aus Zutaten, die die Settings-UI
                   bereits kennt, keine eigene Wahrheit über Aktivität; Prüfreihenfolge ist
-                  bedeutungstragend: aktiv schlägt alles, dann nicht-erreichbar vor Modell-Mismatch).
+                  bedeutungstragend: aktiv schlägt alles, dann nicht-erreichbar vor Modell-Mismatch) ·
+                  endpointStatusText/endpointWarningText/endpointInputWarnings (die Grenze zur
+                  vendorten Kit-Diagnose: sie liefert zu jedem Befund einen Code UND fest deutschen
+                  Klartext — hier wird ausschließlich der Code übersetzt, `klartext` nie gelesen.
+                  `endpointStatusText` switcht `EndpointStatusKind` erschöpfend, ein Kit-Update mit
+                  neuem Code bricht also den Compiler statt still deutschen Text durchzulassen;
+                  `rule` ist im Kit nur `string`, dort fällt eine unbekannte Regel bewusst auf den
+                  Kit-Text zurück. `endpointInputWarnings` kapselt `validateEndpointInput` und gibt
+                  fertige Strings — der einzige Aufruf im Repo, bewacht von
+                  `tests/i18n/diagnostic_codes.test.ts`).
                   Obsidian-frei. **Einzige öffentliche Fläche** — weder
                   settings.ts noch settings_core.ts reichen diese Helfer durch; Aufrufer
                   importieren direkt hier.
@@ -365,6 +374,20 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   obwohl beide roh im UI landen können (Smart-Apply-Fehlerbox, `chat_view.ts`s
   `createDiv({ text: m.error })`). Siehe die Doku-Lücke dazu im Docblock von
   `tests/i18n/sink_guard.ts`.
+- **Zweite Regel, aus derselben Wurzel (i18n Teil 3): Diagnose-Funktionen liefern Codes,
+  übersetzt wird an der Anzeigestelle.** Entsteht Text als *Rückgabewert*, liegt zwischen
+  Erzeugung und Senke keine Literalstelle mehr — der Sink-Guard kann ihn strukturell nicht
+  sehen. Ein Sprach-Scan über Rückgabewerte wäre die naheliegende Erweiterung und **ist die
+  falsche Bauart** (in 0.22.0 durchgefallen). Belastbar ist nur, den Text gar nicht erst
+  entstehen zu lassen: `blockedMessage(kind, …)` (`main.ts`), `describeEndpointRole`/
+  `endpointStatusText` (`endpoint_config.ts`), `describeStartError` (`mcp_diagnostics.ts`)
+  und der `reason`-Code der Plugin-API sind dieselbe Regel in fünf Ausprägungen. Wo der Typ
+  das erzwingen kann, ist er der Wächter (`StartErrorReason` ist kein String; `EndpointStatusKind`
+  wird erschöpfend geswitcht) — sonst greift `tests/i18n/diagnostic_codes.test.ts`.
+  **Vendored Kit-Module liefern beides** (`kind` + fest deutschen `klartext`): immer den Code
+  nehmen. Der Rohzugang zu `validateEndpointInput` ist deshalb in `endpointInputWarnings`
+  gekapselt — solange ein Aufrufer das rohe `EndpointWarning` hält, kann er an der deutschen
+  `message` vorbeigreifen, und ein Wächter kann das nur raten.
 - **`data.json`** ist die von Obsidian persistierte Plugin-Konfig (`saveData`) — maschinen-/vault-spezifisch,
   daher git-ignored (nicht committen).
 - **`_vaultrag/` ist bewusst kein Dot-Ordner:** Obsidian Sync ignoriert Dot-Ordner. Daher braucht

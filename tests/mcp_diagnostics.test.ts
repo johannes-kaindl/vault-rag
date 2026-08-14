@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { classifySelfCheck, mapStartError } from "../src/mcp/mcp_diagnostics";
+import { classifySelfCheck, mapStartError, describeStartError } from "../src/mcp/mcp_diagnostics";
+import "../src/i18n/strings"; // Register i18n strings
 
 describe("classifySelfCheck", () => {
   it("Netzwerkfehler → unreachable", () => {
@@ -25,13 +26,29 @@ describe("classifySelfCheck", () => {
 });
 
 describe("mapStartError", () => {
-  it("EADDRINUSE → 'Port belegt'", () => {
-    expect(mapStartError({ code: "EADDRINUSE", message: "listen EADDRINUSE" })).toBe("Port belegt");
+  it("erkennt den belegten Port als eigenen Grund", () => {
+    expect(mapStartError({ code: "EADDRINUSE", message: "listen EADDRINUSE" }))
+      .toEqual({ kind: "port-in-use" });
   });
-  it("sonst → Message durchreichen", () => {
-    expect(mapStartError({ message: "boom" })).toBe("boom");
+  it("reicht jeden anderen Grund als Rohmeldung weiter", () => {
+    expect(mapStartError({ message: "boom" })).toEqual({ kind: "other", raw: "boom" });
   });
-  it("ohne Message → Fallback-Text", () => {
-    expect(mapStartError({})).toBe("unbekannter Fehler");
+  it("bleibt ohne Message aussagefähig", () => {
+    expect(mapStartError({})).toEqual({ kind: "other", raw: null });
+  });
+});
+
+// Der Grund ist ein Code, der Text entsteht erst hier — sonst friert die Meldung die
+// Sprache zum Fehlerzeitpunkt ein und die zwei Anzeigestellen (Notice + Settings-
+// Statuszeile) müssten sie doppelt bauen.
+describe("describeStartError", () => {
+  it("benennt den belegten Port", () => {
+    expect(describeStartError({ kind: "port-in-use" })).toBe("port already in use");
+  });
+  it("zeigt die Rohmeldung, wenn es eine gibt", () => {
+    expect(describeStartError({ kind: "other", raw: "boom" })).toBe("boom");
+  });
+  it("fällt ohne Rohmeldung auf eine übersetzte Aussage zurück", () => {
+    expect(describeStartError({ kind: "other", raw: null })).toBe("unknown error");
   });
 });

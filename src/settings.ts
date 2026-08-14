@@ -15,7 +15,7 @@ import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, 
 import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
-import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
+import { describeStartError, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
 import { t } from "./vendor/kit/i18n";
 
 export { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT };
@@ -70,7 +70,7 @@ export interface VaultRagPluginHost extends Plugin {
   mcpServerAddress(): string | null;
   restartMcpServer(): Promise<void>;
   ensureMcpToken(): string;
-  mcpStartError(): string | null;
+  mcpStartError(): StartErrorReason | null;
   rotateMcpToken(): Promise<void>;
   mcpSelfCheck(): Promise<SelfCheckResult>;
 }
@@ -602,7 +602,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
           }, 800);
         }));
 
-    const detail = this.plugin.mcpStartError();
+    const startError = this.plugin.mcpStartError();
+    const detail = startError ? describeStartError(startError) : null;
     const status = this.plugin.mcpServerRunning()
       ? t("settings.mcp.running", this.plugin.mcpServerAddress() ?? "")
       : (this.plugin.settings.mcpEnabled ? t("settings.mcp.offWithDetail", detail ?? t("settings.mcp.startFailed")) : t("settings.mcp.off"));

@@ -15,6 +15,7 @@ import {
   Addition,
 } from "../src/note_restructurer";
 import { parseConfidence } from "../src/note_restructurer";
+import "../src/i18n/strings"; // Register i18n strings
 import type { TemplateSpec, TemplateSection } from "../src/template_matcher";
 import { parseTemplate } from "../src/template_matcher";
 
@@ -550,5 +551,29 @@ describe("parseConfidence", () => {
     expect(parseConfidence("banane")).toBe("niedrig");
     expect(parseConfidence(undefined)).toBe("niedrig");
     expect(parseConfidence(42)).toBe("niedrig");
+  });
+});
+
+// ── i18n Teil 3 ──────────────────────────────────────────────────────────────
+// `detail` aus permutationCheck und die assembleBody-Fehler werden in der
+// Smart-Apply-Guard-Liste (smart_apply_view.ts) angezeigt — also Nutzertext, der
+// durch t() gehört. Die IDs selbst bleiben roh: sie sind Daten, keine Prosa.
+
+describe("i18n: Prüf-Details sind übersetzt", () => {
+  const all = ["block_0", "block_1"];
+
+  it("benennt unbekannte IDs auf Englisch und behält die IDs bei", () => {
+    const a = asg({ sections: [{ heading: "H", blocks: ["block_0", "block_99"] }], unassigned: ["block_1"] });
+    expect(permutationCheck(all, a).detail).toBe("unknown IDs: block_99");
+  });
+
+  it("benennt doppelte IDs", () => {
+    const a = asg({ sections: [{ heading: "H", blocks: ["block_0", "block_0"] }], unassigned: ["block_1"] });
+    expect(permutationCheck(all, a).detail).toBe("duplicate IDs: block_0");
+  });
+
+  it("benennt fehlende IDs", () => {
+    const a = asg({ sections: [{ heading: "H", blocks: ["block_0"] }], unassigned: [] });
+    expect(permutationCheck(all, a).detail).toBe("missing IDs: block_1");
   });
 });

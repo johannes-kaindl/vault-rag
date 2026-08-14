@@ -31,6 +31,7 @@ import {
   ApplyMode,
 } from "./note_restructurer";
 import type { ChatClient } from "./chat_client";
+import { t } from "./vendor/kit/i18n";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -225,7 +226,7 @@ export class SmartApply {
     if (!assignment) {
       // Assignment parse failed → hardOk false, build minimal proposal
       const checks: CheckResult[] = [
-        { id: "assignment-parse", ok: false, detail: "LLM-Antwort enthält kein gültiges Assignment-JSON" },
+        { id: "assignment-parse", ok: false, detail: t("smartApply.check.assignmentParse") },
       ];
       const emptyAssignment: Assignment = { version: 1, sections: [], unassigned: [], frontmatter: {} };
       const assembly: AssemblyContext = { tpl, original: originalParsed, assignment: emptyAssignment, blocks, additions: [] };
@@ -309,7 +310,7 @@ export class SmartApply {
         id: "additions-target",
         ok: dropped.length === 0,
         ...(dropped.length > 0
-          ? { detail: `verworfene Ergänzungen (unbekannte Überschrift): ${dropped.map((d) => d.targetHeading).join(", ")}` }
+          ? { detail: t("smartApply.check.additionsDropped", dropped.map((d) => d.targetHeading).join(", ")) }
           : {}),
       };
     }
@@ -323,10 +324,15 @@ export class SmartApply {
       assertParseable(mergedFm);
       fmRoundtripCheck = { id: "fm-roundtrip", ok: true };
     } catch (err) {
+      // Der Selbst-Check kommt aus dem vendorten frontmatter.ts und wirft deutsche Prosa
+      // ohne Diskriminator; die Datei hängt in 11 Repos, ein Kit-Release dafür wäre
+      // unverhältnismäßig. Die Aussage ist deshalb übersetzt, die Originalmeldung
+      // läuft als erkennbar technischer Anhang mit — sie nennt den betroffenen Key und
+      // ist das einzige Material für einen Bug-Report.
       fmRoundtripCheck = {
         id: "fm-roundtrip",
         ok: false,
-        detail: err instanceof Error ? err.message : String(err),
+        detail: t("smartApply.check.fmRoundtripFailed", err instanceof Error ? err.message : String(err)),
       };
       const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck];
       if (additionsTargetCheck !== null) checks.push(additionsTargetCheck);
@@ -397,7 +403,7 @@ export class SmartApply {
 
     // Step 17: collect checks
     const assembleCheck: CheckResult | null = assembleError !== null
-      ? { id: "assemble", ok: false, detail: `assembleBody: ${assembleError}` }
+      ? { id: "assemble", ok: false, detail: t("smartApply.check.assembleFailed", assembleError) }
       : null;
     const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck];
     if (additionsTargetCheck !== null) {

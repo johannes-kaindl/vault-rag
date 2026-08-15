@@ -31,7 +31,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist } from "./index_guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal } from "./index_guard";
 import { loadIndexStore, verifyBackupCandidate } from "./index_store";
 import { CONTAINER_FILE, decodeContainer } from "./index_container";
 import { McpTools } from "./mcp/tools";
@@ -939,22 +939,29 @@ export default class VaultRagPlugin extends Plugin {
     // Versuch wieder freigeben: die Episode hat sich OHNE Heal erledigt — eine spätere echte
     // Korruption derselben Session muss wieder Auto-Heal bekommen (die Notice verspricht es).
     if (this.indexHealthy) { this.autoHealAttempted = false; return; }
-    if (!ready) {
-      // Versuch wieder freigeben: ein transient offline gestarteter Obsidian darf den einzigen
-      // Versuch der Episode nicht verbrauchen — der nächste corrupt-Load probiert es erneut.
-      this.autoHealAttempted = false;
-      new Notice(t("main.autoHealImpossibleEndpointUnreachable"), 10000);
-      return;
-    }
+    // Backup-Suche und Modell-Guard laufen VOR jeder Endpunkt-Bedingung — beide brauchen kein
+    // Netz. Bis 0.23.0 stand hier ein `if (!ready) return`, und das koppelte die Übernahme an
+    // den Reindex: wer offline war, blieb dauerhaft auf dem defekten Container sitzen, obwohl
+    // das CRC-bewiesene Backup danebenlag (so beobachtet 2026-08-14). Die Aufteilung, was
+    // Netz braucht und was nicht, macht `planAutoHeal` explizit.
     let candidate: VaultIndex | null = null;
     for (const b of await this.listBackups()) { // sortBackupsNewestFirst-Reihenfolge
       candidate = await verifyBackupCandidate(this.app.vault.adapter, `${this.backupsRoot()}/${b.name}`);
       if (candidate) break;
     }
-    if (!candidate) { // keine beweisbare Basis → Status quo, aber nicht stumm (Spec §Heal-Kaskade Schritt 3)
-      if (!this.indexHealthy) new Notice(t("main.autoHealImpossibleNoBackup"), 10000);
+    const plan = planAutoHeal({ hasBackup: candidate !== null, embedderReady: ready });
+    if (plan.kind === "no-backup") { // keine beweisbare Basis → Status quo, aber nicht stumm (Spec §Heal-Kaskade Schritt 3)
+      // Ohne Backup ist ein toter Endpunkt der eigentliche Grund, warum nichts geht — dann die
+      // Meldung, die zur Handlung führt (Endpunkt prüfen), statt der generischen.
+      // Versuch wieder freigeben: ein transient offline gestarteter Obsidian darf den einzigen
+      // Versuch der Episode nicht verbrauchen — der nächste corrupt-Load probiert es erneut.
+      if (!ready) this.autoHealAttempted = false;
+      if (!this.indexHealthy) {
+        new Notice(ready ? t("main.autoHealImpossibleNoBackup") : t("main.autoHealImpossibleEndpointUnreachable"), 10000);
+      }
       return;
     }
+    if (!candidate) return; // unerreichbar (plan != no-backup ⇒ candidate gesetzt); beruhigt den Compiler
     const base = candidate;
     // Sonderfall, den persist() strukturell NICHT sehen kann: Die Kaskade läuft genau dann, wenn
     // der Container auf Platte defekt ist — dort gibt es keine Disk-Wahrheit, gegen die der
@@ -978,15 +985,20 @@ export default class VaultRagPlugin extends Plugin {
         // gute Index zurück sein — dann nichts anfassen (auch kein markUnready).
         if (this.indexHealthy) { aborted = true; return; }
         li.init(base);
-        const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
-        const report = await li.healMissing(missing, (p) => this.app.vault.adapter.read(p));
-        if (!canPersistHealedIndex(report.failed.length)) {
-          li.markUnready(); // halb geheilten Index NICHT verteilen
-          return;
+        if (plan.kind === "restore-and-reindex") {
+          const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
+          const report = await li.healMissing(missing, (p) => this.app.vault.adapter.read(p));
+          if (!canPersistHealedIndex(report.failed.length)) {
+            li.markUnready(); // halb geheilten Index NICHT verteilen
+            return;
+          }
+          added = report.added;
         }
+        // Auch ohne Reindex persistieren: die Basis ist CRC-bewiesen und vollständig in sich,
+        // sie kann nur ÄLTER sein. Sie im Speicher zu lassen hieße, den defekten Container auf
+        // der Platte zu behalten — beim nächsten Start wäre der Nutzer wieder bei „kein Index".
         await li.persist("heal");
         healed = true;
-        added = report.added;
       });
     } catch (e) {
       // persist/read können werfen (Disk, mkdir, writeBinary). Unbehandelt bliebe der Nutzer
@@ -999,7 +1011,11 @@ export default class VaultRagPlugin extends Plugin {
     // guter Index steht wieder → stiller Abbruch, keine Notice; Versuch wieder freigeben (s. o.).
     if (aborted) { this.autoHealAttempted = false; return; }
     if (healed) {
-      new Notice(t("main.autoHealRestoredFromBackup", added), 8000);
+      // Ohne Reindex ehrlich bleiben: der Index steht wieder, ist aber auf dem Stand des
+      // Backups. Die Lücke schließt der reguläre Live-Betrieb, sobald ein Endpunkt antwortet.
+      new Notice(plan.kind === "restore-and-reindex"
+        ? t("main.autoHealRestoredFromBackup", added)
+        : t("main.autoHealRestoredWithoutReindex"), 8000);
       await this.loadIndex(); // lädt den frisch persistierten Container → gesunder Zustand
     } else {
       new Notice(t("main.autoHealIncomplete"), 10000);

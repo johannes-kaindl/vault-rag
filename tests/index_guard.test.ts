@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   classifyLoadResult, assertSafeToPersist, isSuspiciousShrink,
   diffIndexVsVault, PersistBlockedError, canPersistHealedIndex, embeddingModelMatchesIndex,
-  assertModelSafeToPersist,
+  assertModelSafeToPersist, planAutoHeal,
 } from "../src/index_guard";
 
 describe("classifyLoadResult", () => {
@@ -149,5 +149,31 @@ describe("assertModelSafeToPersist", () => {
     expect(assertModelSafeToPersist(undefined, "text-embedding-3-small", "live").allowed).toBe(true);
     expect(assertModelSafeToPersist("", "text-embedding-3-small", "live").allowed).toBe(true);
     expect(assertModelSafeToPersist("   ", "text-embedding-3-small", "heal").allowed).toBe(true);
+  });
+});
+
+// ── Auto-Heal-Reihenfolge (Vorfall 2026-08-14) ───────────────────────────────
+// Gemeldet aus einer Nachbar-Session: index.bin war 0 Bytes, ein CRC-beweisbares Backup
+// lag daneben — und die Kaskade übernahm es NICHT, weil der Embedding-Endpunkt tot war.
+// Sie prüfte `embedderReady()`, bevor sie überhaupt nach einem Backup sah. Das koppelt zwei
+// Dinge, von denen nur eines Netz braucht: ein Backup zu ÜBERNEHMEN geht offline, nur der
+// Delta-Reindex der fehlenden Notizen braucht einen Endpunkt.
+describe("planAutoHeal", () => {
+  it("ohne Backup ist nichts zu holen — mit oder ohne Endpunkt", () => {
+    expect(planAutoHeal({ hasBackup: false, embedderReady: true })).toEqual({ kind: "no-backup" });
+    expect(planAutoHeal({ hasBackup: false, embedderReady: false })).toEqual({ kind: "no-backup" });
+  });
+
+  it("mit Backup und Endpunkt: übernehmen und die Lücke schließen", () => {
+    expect(planAutoHeal({ hasBackup: true, embedderReady: true }))
+      .toEqual({ kind: "restore-and-reindex" });
+  });
+
+  it("mit Backup, ohne Endpunkt: trotzdem übernehmen — der Kern des Vorfalls", () => {
+    // Ein CRC-bewiesenes Backup ist unter allen verfügbaren Optionen die beste; der defekte
+    // Container hat keinerlei Wert. Höchstens fehlen ein paar Notizen — dauerhaft „kein Index"
+    // ist strikt schlechter als „Index von gestern".
+    expect(planAutoHeal({ hasBackup: true, embedderReady: false }))
+      .toEqual({ kind: "restore-only" });
   });
 });

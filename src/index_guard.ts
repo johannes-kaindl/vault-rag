@@ -125,3 +125,28 @@ export class PersistBlockedError extends Error {
     this.name = "PersistBlockedError";
   }
 }
+
+/** Was die Auto-Heal-Kaskade mit den vorhandenen Mitteln tun kann. */
+export type AutoHealPlan =
+  | { kind: "restore-and-reindex" }
+  | { kind: "restore-only" }
+  | { kind: "no-backup" };
+
+/**
+ * Entscheidet, wie weit die Kaskade kommt — die Reihenfolge IST die Regel.
+ *
+ * Ein Backup zu übernehmen braucht **kein Netz**; nur der Delta-Reindex der seither
+ * hinzugekommenen Notizen braucht einen erreichbaren Embedding-Endpunkt. Bis 0.23.0 hingen
+ * beide an einer einzigen `embedderReady()`-Prüfung, die VOR der Backup-Suche lief: wer
+ * offline war (oder einen toten Endpunkt konfiguriert hatte), blieb dauerhaft auf einem
+ * defekten Container sitzen, obwohl die CRC-bewiesene Rettung lokal danebenlag. Genau so
+ * beobachtet am 2026-08-14.
+ *
+ * `restore-only` ist deshalb kein Notbehelf, sondern das richtige Ergebnis: ein Index von
+ * gestern schlägt „kein Index" in jeder Hinsicht, und der defekte Container hat keinerlei
+ * Wert, den man schützen müsste.
+ */
+export function planAutoHeal(input: { hasBackup: boolean; embedderReady: boolean }): AutoHealPlan {
+  if (!input.hasBackup) return { kind: "no-backup" };
+  return input.embedderReady ? { kind: "restore-and-reindex" } : { kind: "restore-only" };
+}

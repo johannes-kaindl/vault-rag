@@ -338,6 +338,21 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 
 ## Gotchas
 
+**Der Endpunkt-Status-Tooltip ist hart deutsch, auch in englischer Oberfläche.**
+`settings.ts` reicht `status.klartext` aus dem Kit direkt an `setTooltip` — und das
+Kit-Feld `EndpointStatus.klartext` ist **hart deutscher Text**, unabhängig von der
+eingestellten Sprache. Dieses Repo hat eine eigene i18n-Schicht (`src/i18n/`), umgeht sie
+an dieser Stelle aber. Gemessen 2026-08-16 im Consumer-Sweep über alle Repos mit
+gevendortem `endpoint_diagnostics.ts`.
+
+**Fix-Muster:** eigene Statusschlüssel statt des Kit-Klartexts — `statusKindKey(kind)`
+bildet die Statusklasse auf einen i18n-Schlüssel ab, das Wörterbuch führt EN und DE
+(Referenz: `yijing-oracle` und `obsidian-transmute`). Dazu gehört ein
+Vollständigkeits-`Record<EndpointStatusKind, true>` im Test, sonst fehlt beim nächsten
+Kit-Update still eine Klasse (CORE-TEST-04). **Nebeneffekt, der den Aufwand rechtfertigt:**
+danach ist auch die Klasse `unauthorized` (401/403) übersetzbar, die es hier bisher
+gar nicht bis in die Oberfläche schafft.
+
 - **`setLang()` läuft in `onload`, Modul-Konstanten werden beim `import` ausgewertet — davor.**
   Ein `t()`, das an Modul-Ebene steht (z.B. `const X = t("foo")` oder in einem Objektliteral,
   das beim Modul-Laden gebaut wird), friert die Sprache also **still** auf den zu diesem

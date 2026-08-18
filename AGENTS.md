@@ -412,6 +412,22 @@ gar nicht bis in die Oberfläche schafft.
   Pending-Fallback — in allen drei Fällen setzt es `indexHealthy = false`. Geräte-lokale
   Index-Backups liegen unter `<plugin-dir>/index-backups/` (synct **nicht**, rotiert auf 3 —
   `index_backup.ts`), Snapshot bei jedem erfolgreichen Load + vor riskanten Operationen.
+- **`writeBinary` kürzt die Zieldatei auf 0, bevor es schreibt — und `rename` kann das NICHT heilen.**
+  Beides an Obsidian 1.13.7 gemessen (Implementierung aus dem laufenden Renderer gelesen, nicht aus
+  `obsidian.d.ts` geschlossen): `writeBinary` ist `this.queue(() => this.fsPromises.writeFile(...))`,
+  Node öffnet mit `O_TRUNC` — ein Abbruch dazwischen hinterlässt eine 0-Byte-Datei, der alte Inhalt
+  ist weg (so beobachtet 2026-08-14 an `index.bin`). Der naheliegende Ausweg „daneben schreiben,
+  per `rename` einhängen" **funktioniert hier aber nicht**: `adapter.rename` wirft
+  `Destination file already exists!`, weil Obsidian diese Prüfung selbst vor `fsPromises.rename`
+  setzt (POSIX `rename(2)` darunter könnte es); `copy` hat dieselbe Sperre. Ein `writeBinaryAtomic`
+  nach diesem Muster fällt deshalb bei **jedem** Aufruf in seinen Fallback zurück, schreibt also
+  weiter kürzend — und ein `catch`, der den `rename`-Fehler verwirft, macht genau das unsichtbar
+  (dieselbe Fehlerklasse wie bei den 1309 leeren Backup-Ordnern, s. `rmdir`-Gotcha).
+  **Diese Fassung stand vom 2026-08-15 bis 2026-08-18 als Fix im Repo und war ein No-op**, der
+  zusätzlich 1,4 MB Temp-Datei pro `persist` durch den gesyncten Ordner schob; sie ist
+  zurückgezogen. Wer es erneut angeht: TaskNote „Index-Datei atomar ersetzen — der zweite Anlauf"
+  (drei Wege, jeder mit Preis). **Bis dahin ist der 0-Byte-Fall offen — aufgefangen wird er von der
+  Auto-Heal-Kaskade** (Load ⇒ `corrupt` ⇒ Backup-Übernahme), nicht verhindert.
 - **Auto-Heal-Kaskade (höchstens einmal je Episode):** Liefert der Load einen CRC-defekten Container,
   sucht `main.ts` das neueste per `verifyBackupCandidate` CRC-bewiesene geräte-lokale Backup, übernimmt
   es und ergänzt fehlende Notizen per Delta-Reindex. **Die Reihenfolge ist bedeutungstragend:**

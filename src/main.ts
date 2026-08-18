@@ -927,9 +927,9 @@ export default class VaultRagPlugin extends Plugin {
    *
    *  **Ohne Endpunkt hängt es davon ab, WARUM keiner da ist** (`planAutoHeal`): auf dem Desktop
    *  ist das vorübergehend, dort wird übernommen UND geschrieben. Auf einem Gerät, das nie einen
-   *  hat (iPhone), wird nur in den Speicher übernommen — die Platte ist gesynct, ein älterer
-   *  Stand ginge sonst an alle Geräte zurück. Dort gilt weiter: das iPhone wartet auf die
-   *  Desktop-Heilung via Sync, hat aber sofort wieder Retrieval. */
+   *  hat (iPhone), wird gar nicht geheilt — die Platte ist gesynct, ein älterer Stand ginge sonst
+   *  an alle Geräte zurück. Dort gilt unverändert: das iPhone wartet auf die Desktop-Heilung
+   *  via Sync. */
   private async attemptAutoHeal(): Promise<void> {
     if (this.autoHealAttempted) return;
     // Synchron beanspruchen (vor dem ersten await): maybeReload läuft auf einem Intervall und
@@ -973,14 +973,32 @@ export default class VaultRagPlugin extends Plugin {
       }
       return;
     }
-    if (!candidate) return; // unerreichbar (plan != no-backup ⇒ candidate gesetzt); beruhigt den Compiler
+    if (plan.kind === "wait-for-sync") {
+      // Dieses Gerät kann den Index nie selbst vervollständigen, und der Index-Ordner ist
+      // gesynct: ein älterer Backup-Stand ginge von hier an ALLE Geräte zurück, wo
+      // `isSuspiciousShrink` ihn erst unter 50 % aufhielte. Schreibschutz + Notice bleiben,
+      // die Heilung kommt vom Desktop. Versuch wieder freigeben — ein späterer, anderer
+      // corrupt-Load derselben Sitzung darf erneut prüfen (analog zum no-backup-Zweig).
+      this.autoHealAttempted = false;
+      if (!this.indexHealthy) new Notice(t("main.autoHealWaitForSync"), 10000);
+      return;
+    }
+    if (!candidate) return; // unerreichbar (plan ∈ {restore-*} ⇒ candidate gesetzt); beruhigt den Compiler
     const base = candidate;
     // Sonderfall, den persist() strukturell NICHT sehen kann: Die Kaskade läuft genau dann, wenn
     // der Container auf Platte defekt ist — dort gibt es keine Disk-Wahrheit, gegen die der
     // Modell-Guard prüfen könnte. Die Basis hier ist aber ebenfalls disk-verifiziert
     // (verifyBackupCandidate, CRC-Beweis), also dieselbe Regel (assertModelSafeToPersist) auf
     // dieselbe Frage anwenden, bevor additiv fremde Vektoren einmischen.
-    if (!assertModelSafeToPersist(base.manifest.embedding_model, this.embeddingModelInUse, "heal").allowed) {
+    // NUR für den Zweig, der wirklich fremde Vektoren einmischt. `restore-only` schreibt
+    // ausschließlich Backup-Vektoren und stempelt sie mit dem Modell DES BACKUPS (s. u.) — dort
+    // können zwei Vektorräume gar nicht zusammenlaufen, und der Guard erzeugte nur eine
+    // Sackgasse: ein Gerät mit abweichend eingetragenem Modell bekäme „passenden Endpunkt
+    // eintragen oder neu indizieren" — beides genau das, was es nicht kann. Der Schutz vor
+    // einem bewussten Modellwechsel bleibt trotzdem lückenlos, weil der nächste Live-Persist
+    // das gestempelte Backup-Modell gegen das aktive hält.
+    if (plan.kind === "restore-and-reindex"
+        && !assertModelSafeToPersist(base.manifest.embedding_model, this.embeddingModelInUse, "heal").allowed) {
       new Notice(t("main.autoHealImpossibleModelMismatch"), 10000);
       return;
     }
@@ -990,7 +1008,6 @@ export default class VaultRagPlugin extends Plugin {
     const li = this.liveIndexer;
     let healed = false;
     let aborted = false;
-    let restoredInMemory = false;
     let added = 0;
     try {
       await this.runIndexOp(async () => {
@@ -1006,19 +1023,6 @@ export default class VaultRagPlugin extends Plugin {
             return;
           }
           added = report.added;
-        }
-        if (plan.kind === "restore-in-memory") {
-          // Kein Schreibvorgang: die Platte ist gesynct und dieses Gerät kann die Lücke nie
-          // schließen (s. planAutoHeal). Die Sitzung bekommt den Index trotzdem sofort.
-          this.index = base;
-          this.indexHealthy = true;
-          // Ohne mitgezogene mtime holte der 30-s-Poll den defekten Container umgehend zurück.
-          const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/${CONTAINER_FILE}`);
-          if (st) this.lastMtime = st.mtime;
-          this.refresh();
-          this.syncProgress();
-          restoredInMemory = true;
-          return;
         }
         // Auch ohne Reindex persistieren: die Basis ist CRC-bewiesen und vollständig in sich,
         // sie kann nur ÄLTER sein. Sie im Speicher zu lassen hieße, den defekten Container auf
@@ -1039,10 +1043,6 @@ export default class VaultRagPlugin extends Plugin {
     }
     // guter Index steht wieder → stiller Abbruch, keine Notice; Versuch wieder freigeben (s. o.).
     if (aborted) { this.autoHealAttempted = false; return; }
-    if (restoredInMemory) {
-      new Notice(t("main.autoHealRestoredInMemory"), 10000);
-      return; // kein loadIndex: auf der Platte liegt weiterhin der defekte Container
-    }
     if (healed) {
       if (plan.kind === "restore-only") {
         // Die Notice verspricht, dass die seither hinzugekommenen Notizen automatisch
@@ -1239,6 +1239,14 @@ export default class VaultRagPlugin extends Plugin {
         this.syncProgress();
         this.refresh();
       } catch {
+        // `drain()` hat die Liste schon geleert, und ein geblockter Persist (unreadable/
+        // shrink/model-mismatch) heißt, dass KEINE dieser Notizen auf der Platte gelandet
+        // ist — ohne Zurücklegen wären sie ersatzlos weg, und nichts trüge sie je wieder
+        // ein. Das trifft besonders den Auto-Heal-Restore, dessen Notice genau diese
+        // Nachbesserung zusagt: dort hängen dreistellig viele Pfade an einem einzigen Lauf.
+        // Erneutes Embedden der bereits im Speicher aktualisierten Notizen ist der Preis.
+        try { await this.pendingQueue.addMany(paths); }
+        catch (e) { console.warn("vault-rag: Pending-Liste nach geblocktem Persist nicht zurückgelegt", e); }
         this.syncProgress();
       } finally {
         this.embeddingProgress.isEmbedding = false;

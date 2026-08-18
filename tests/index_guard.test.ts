@@ -184,8 +184,15 @@ describe("planAutoHeal", () => {
   // in einen GESYNCTEN Ordner, und Sync trägt ihn an alle anderen Geräte zurück — der
   // Shrink-Guard greift erst unter 50 %, ein Rückfall um 200 Notizen liefe still durch.
   // Genau davor schützte das entfernte `if (!ready) return`, ohne dass es dafür gedacht war.
-  it("mit Backup, ohne Endpunkt, auf einem Gerät das nie embedden kann: übernehmen, aber nicht schreiben", () => {
+  // Dort wird deshalb GAR NICHT geheilt — Schreibschutz und Notice bleiben, die Heilung kommt
+  // per Sync vom Desktop. Ein Zwischenweg („nur in den Speicher übernehmen, Platte in Ruhe
+  // lassen") stand hier kurz und ist am 2026-08-18 wieder rausgeflogen: er verspricht eine
+  // Nicht-Schreib-Zusage, die im Code nirgends durchgesetzt war — der Indexer blieb mit den
+  // Backup-Vektoren scharf, und `resolveAndReconnectEmbedder` hätte ein `markUnready()` beim
+  // nächsten Endpunktwechsel ohnehin wieder aufgehoben. Eine Zusage, die nur zufällig hält,
+  // ist an einem Datenverlust-Pfad keine.
+  it("mit Backup, ohne Endpunkt, auf einem Gerät das nie embedden kann: gar nicht heilen", () => {
     expect(planAutoHeal({ hasBackup: true, embedderReady: false, canCompleteIndex: false }))
-      .toEqual({ kind: "restore-in-memory" });
+      .toEqual({ kind: "wait-for-sync" });
   });
 });

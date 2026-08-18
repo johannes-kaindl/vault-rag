@@ -13,11 +13,10 @@ All notable changes to this project are documented here. The format follows
   hatte), blieb dauerhaft bei „kein Index", obwohl die Sicherung lokal danebenlag und nur von Hand
   eingespielt werden musste. Ein Backup zu übernehmen braucht kein Netz; nur das Nachtragen der
   seither hinzugekommenen Notizen braucht es.
-- **Auf dem iPhone wird dabei nichts geschrieben.** Ein Gerät ohne eigenen Embedding-Endpunkt kann
-  die Lücke nie selbst schließen — und weil der Index-Ordner mitsynct, wäre der ältere Stand von dort
-  an alle Geräte zurückgewandert. Dort wird der Index deshalb nur für die laufende Sitzung
-  übernommen (Suche funktioniert sofort wieder), die Datei bleibt unangetastet, und die reparierte
-  Fassung kommt per Sync vom Desktop.
+- **Auf dem iPhone passiert dabei nichts.** Ein Gerät ohne eigenen Embedding-Endpunkt kann die
+  Lücke nie selbst schließen — und weil der Index-Ordner mitsynct, wäre der ältere Stand von dort an
+  alle Geräte zurückgewandert. Dort bleibt es deshalb beim Schreibschutz, und die Meldung sagt
+  jetzt, dass die Reparatur am Desktop passiert und per Sync ankommt.
 - **Die versprochene Nachbesserung findet jetzt wirklich statt.** Nach einer Wiederherstellung ohne
   Endpunkt meldete das Plugin, die seither hinzugekommenen Notizen würden automatisch ergänzt,
   sobald der Endpunkt antwortet — angestoßen wurde das aber nie. Diese Notizen landen jetzt in der

@@ -130,7 +130,7 @@ export class PersistBlockedError extends Error {
 export type AutoHealPlan =
   | { kind: "restore-and-reindex" }
   | { kind: "restore-only" }
-  | { kind: "restore-in-memory" }
+  | { kind: "wait-for-sync" }
   | { kind: "no-backup" };
 
 /**
@@ -153,15 +153,24 @@ export type AutoHealPlan =
  * Live-Betrieb, sobald Ollama wieder da ist. „Dieses Gerät hat strukturell keinen Endpunkt"
  * (iPhone) ist dagegen dauerhaft — und dort ist das Schreiben schädlich, weil der Index-Ordner
  * GESYNCT ist: ein älterer Stand ginge an alle Geräte zurück, und `isSuspiciousShrink` greift
- * erst unter 50 %, ein Rückfall um 200 Notizen liefe also still durch. Deshalb `restore-in-memory`:
- * die Sitzung bekommt sofort wieder Retrieval, die Platte bleibt unberührt, und die Heilung
- * kommt per Sync vom Desktop — genau die Arbeitsteilung, die `attemptAutoHeal` immer
- * beschrieben hat.
+ * erst unter 50 %, ein Rückfall um 200 Notizen liefe also still durch. Deshalb `wait-for-sync`:
+ * dort wird gar nicht geheilt, Schreibschutz und Notice bleiben, die Heilung kommt vom Desktop —
+ * genau die Arbeitsteilung, die `attemptAutoHeal` immer beschrieben hat.
+ *
+ * **Warum nicht wenigstens in den Speicher übernehmen?** Genau das stand hier am 2026-08-18 für
+ * ein paar Stunden und ist wieder rausgeflogen. Der Zweig hätte eine Zusage gegeben („die Platte
+ * bleibt unberührt"), die im Code nirgends durchgesetzt war: der Indexer blieb nach `init(base)`
+ * mit den Backup-Vektoren scharf, ein späterer Live-Persist hing allein an einem Nebeneffekt
+ * (`readDiskState() === null`) — der zudem schwächer prüft als der Ladepfad —, und ein
+ * `markUnready()` hätte `resolveAndReconnectEmbedder` beim nächsten Endpunktwechsel wieder
+ * aufgehoben. Sitzungs-Retrieval auf dem Telefon ist Komfort; ihn gegen eine nur zufällig
+ * haltende Nicht-Schreib-Zusage einzutauschen, ist an diesem Pfad kein guter Handel. Wenn, dann
+ * mit einem echten geräteweiten Schreib-Lock — eigener Slice.
  */
 export function planAutoHeal(
   input: { hasBackup: boolean; embedderReady: boolean; canCompleteIndex: boolean },
 ): AutoHealPlan {
   if (!input.hasBackup) return { kind: "no-backup" };
   if (input.embedderReady) return { kind: "restore-and-reindex" };
-  return input.canCompleteIndex ? { kind: "restore-only" } : { kind: "restore-in-memory" };
+  return input.canCompleteIndex ? { kind: "restore-only" } : { kind: "wait-for-sync" };
 }

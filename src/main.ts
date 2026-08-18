@@ -923,8 +923,13 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   /** Backup-Kaskade: neuestes CRC-beweisbares Backup übernehmen, Lücke per Delta-Heal schließen,
-   *  nur restlos sauberen Heal persistieren. Ohne Endpoint/Backup bleibt der Gefahrenzustand
-   *  (iPhone wartet auf die Desktop-Heilung via Sync). */
+   *  nur restlos sauberen Heal persistieren. Ohne Backup bleibt der Gefahrenzustand.
+   *
+   *  **Ohne Endpunkt hängt es davon ab, WARUM keiner da ist** (`planAutoHeal`): auf dem Desktop
+   *  ist das vorübergehend, dort wird übernommen UND geschrieben. Auf einem Gerät, das nie einen
+   *  hat (iPhone), wird nur in den Speicher übernommen — die Platte ist gesynct, ein älterer
+   *  Stand ginge sonst an alle Geräte zurück. Dort gilt weiter: das iPhone wartet auf die
+   *  Desktop-Heilung via Sync, hat aber sofort wieder Retrieval. */
   private async attemptAutoHeal(): Promise<void> {
     if (this.autoHealAttempted) return;
     // Synchron beanspruchen (vor dem ersten await): maybeReload läuft auf einem Intervall und
@@ -949,7 +954,14 @@ export default class VaultRagPlugin extends Plugin {
       candidate = await verifyBackupCandidate(this.app.vault.adapter, `${this.backupsRoot()}/${b.name}`);
       if (candidate) break;
     }
-    const plan = planAutoHeal({ hasBackup: candidate !== null, embedderReady: ready });
+    // `!Platform.isMobile` ist die ehrlichste verfügbare Antwort auf „kann dieses Gerät den
+    // Index je selbst vervollständigen?" — grob, aber in die sichere Richtung grob: auf dem
+    // Desktop ist ein toter Endpunkt vorübergehend, auf dem Telefon ist keiner vorgesehen.
+    const plan = planAutoHeal({
+      hasBackup: candidate !== null,
+      embedderReady: ready,
+      canCompleteIndex: !Platform.isMobile,
+    });
     if (plan.kind === "no-backup") { // keine beweisbare Basis → Status quo, aber nicht stumm (Spec §Heal-Kaskade Schritt 3)
       // Ohne Backup ist ein toter Endpunkt der eigentliche Grund, warum nichts geht — dann die
       // Meldung, die zur Handlung führt (Endpunkt prüfen), statt der generischen.
@@ -978,6 +990,7 @@ export default class VaultRagPlugin extends Plugin {
     const li = this.liveIndexer;
     let healed = false;
     let aborted = false;
+    let restoredInMemory = false;
     let added = 0;
     try {
       await this.runIndexOp(async () => {
@@ -994,10 +1007,26 @@ export default class VaultRagPlugin extends Plugin {
           }
           added = report.added;
         }
+        if (plan.kind === "restore-in-memory") {
+          // Kein Schreibvorgang: die Platte ist gesynct und dieses Gerät kann die Lücke nie
+          // schließen (s. planAutoHeal). Die Sitzung bekommt den Index trotzdem sofort.
+          this.index = base;
+          this.indexHealthy = true;
+          // Ohne mitgezogene mtime holte der 30-s-Poll den defekten Container umgehend zurück.
+          const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/${CONTAINER_FILE}`);
+          if (st) this.lastMtime = st.mtime;
+          this.refresh();
+          this.syncProgress();
+          restoredInMemory = true;
+          return;
+        }
         // Auch ohne Reindex persistieren: die Basis ist CRC-bewiesen und vollständig in sich,
         // sie kann nur ÄLTER sein. Sie im Speicher zu lassen hieße, den defekten Container auf
         // der Platte zu behalten — beim nächsten Start wäre der Nutzer wieder bei „kein Index".
-        await li.persist("heal");
+        // Der Stempel ist das Modell des Backups: von dort stammt JEDER Vektor, den wir schreiben.
+        // Mit dem aktiven Modell gestempelt, ließe der Guard beim nächsten Live-Persist zwei
+        // Modelle im selben Index zusammenlaufen (Fall: Backup ohne Modell im Manifest).
+        await li.persist("heal", plan.kind === "restore-only" ? base.manifest.embedding_model : undefined);
         healed = true;
       });
     } catch (e) {
@@ -1010,7 +1039,22 @@ export default class VaultRagPlugin extends Plugin {
     }
     // guter Index steht wieder → stiller Abbruch, keine Notice; Versuch wieder freigeben (s. o.).
     if (aborted) { this.autoHealAttempted = false; return; }
+    if (restoredInMemory) {
+      new Notice(t("main.autoHealRestoredInMemory"), 10000);
+      return; // kein loadIndex: auf der Platte liegt weiterhin der defekte Container
+    }
     if (healed) {
+      if (plan.kind === "restore-only") {
+        // Die Notice verspricht, dass die seither hinzugekommenen Notizen automatisch
+        // nachgezogen werden — also auch dafür sorgen. Ohne das blieb der Nutzer dauerhaft
+        // unvollständig: die Dirty-List füllen sonst nur `file:modify`/`rename`, und der
+        // Nachfrage-Dialog in `loadIndex` hängt an einem erreichbaren Endpunkt, den es in
+        // genau diesem Zweig per Definition nicht gibt. Der 60-s-Drain holt sie ab, sobald
+        // einer antwortet. Chunk-lose Notizen scheiden dabei von selbst aus (embedNote → null).
+        const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
+        await this.pendingQueue.addMany(missing);
+        this.syncProgress();
+      }
       // Ohne Reindex ehrlich bleiben: der Index steht wieder, ist aber auf dem Stand des
       // Backups. Die Lücke schließt der reguläre Live-Betrieb, sobald ein Endpunkt antwortet.
       new Notice(plan.kind === "restore-and-reindex"

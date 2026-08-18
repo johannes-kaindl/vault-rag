@@ -160,12 +160,12 @@ describe("assertModelSafeToPersist", () => {
 // Delta-Reindex der fehlenden Notizen braucht einen Endpunkt.
 describe("planAutoHeal", () => {
   it("ohne Backup ist nichts zu holen — mit oder ohne Endpunkt", () => {
-    expect(planAutoHeal({ hasBackup: false, embedderReady: true })).toEqual({ kind: "no-backup" });
-    expect(planAutoHeal({ hasBackup: false, embedderReady: false })).toEqual({ kind: "no-backup" });
+    expect(planAutoHeal({ hasBackup: false, embedderReady: true, canCompleteIndex: true })).toEqual({ kind: "no-backup" });
+    expect(planAutoHeal({ hasBackup: false, embedderReady: false, canCompleteIndex: true })).toEqual({ kind: "no-backup" });
   });
 
   it("mit Backup und Endpunkt: übernehmen und die Lücke schließen", () => {
-    expect(planAutoHeal({ hasBackup: true, embedderReady: true }))
+    expect(planAutoHeal({ hasBackup: true, embedderReady: true, canCompleteIndex: true }))
       .toEqual({ kind: "restore-and-reindex" });
   });
 
@@ -173,7 +173,19 @@ describe("planAutoHeal", () => {
     // Ein CRC-bewiesenes Backup ist unter allen verfügbaren Optionen die beste; der defekte
     // Container hat keinerlei Wert. Höchstens fehlen ein paar Notizen — dauerhaft „kein Index"
     // ist strikt schlechter als „Index von gestern".
-    expect(planAutoHeal({ hasBackup: true, embedderReady: false }))
+    expect(planAutoHeal({ hasBackup: true, embedderReady: false, canCompleteIndex: true }))
       .toEqual({ kind: "restore-only" });
+  });
+
+  // Die Gegenrichtung, an der die erste Fassung des Fixes vorbeilief: `embedderReady` trug
+  // ZWEI Bedeutungen, und nur eine davon durfte fallen. „Endpunkt gerade tot" ist auf dem
+  // Desktop vorübergehend — dort ist Übernehmen+Schreiben richtig. „Dieses Gerät hat nie
+  // einen Endpunkt" (iPhone) ist dauerhaft: dort schreibt das Übernehmen einen ÄLTEREN Stand
+  // in einen GESYNCTEN Ordner, und Sync trägt ihn an alle anderen Geräte zurück — der
+  // Shrink-Guard greift erst unter 50 %, ein Rückfall um 200 Notizen liefe still durch.
+  // Genau davor schützte das entfernte `if (!ready) return`, ohne dass es dafür gedacht war.
+  it("mit Backup, ohne Endpunkt, auf einem Gerät das nie embedden kann: übernehmen, aber nicht schreiben", () => {
+    expect(planAutoHeal({ hasBackup: true, embedderReady: false, canCompleteIndex: false }))
+      .toEqual({ kind: "restore-in-memory" });
   });
 });

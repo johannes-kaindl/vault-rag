@@ -24,6 +24,32 @@ describe("PendingQueue", () => {
     expect(q.size).toBe(0);
   });
 
+  // Der Auto-Heal-Restore trägt auf einen Schlag alle Notizen nach, die im Backup fehlen —
+  // bei einem grossen Vault dreistellig. Über `add()` wäre das ein Write von pending.json JE
+  // Pfad, und zwar in den GESYNCTEN Index-Ordner: dreihundert Schreibvorgänge und ebenso
+  // viele Sync-Ereignisse für eine Information, die in einen einzigen Write passt.
+  it("addMany schreibt pending.json genau einmal, egal wie viele Pfade", async () => {
+    const adapter = makeAdapter();
+    const q = new PendingQueue(adapter, "_vaultrag");
+    await q.load();
+
+    await q.addMany(["a.md", "b.md", "c.md"]);
+
+    expect(q.size).toBe(3);
+    expect(adapter.write).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(adapter.store.get("_vaultrag/pending.json")!)).toEqual(["a.md", "b.md", "c.md"]);
+  });
+
+  it("addMany ohne Pfade schreibt gar nicht", async () => {
+    const adapter = makeAdapter();
+    const q = new PendingQueue(adapter, "_vaultrag");
+    await q.load();
+
+    await q.addMany([]);
+
+    expect(adapter.write).not.toHaveBeenCalled();
+  });
+
   it("lädt bestehende pending.json", async () => {
     const adapter = makeAdapter({ "_vaultrag/pending.json": '["a.md","b.md"]' });
     const q = new PendingQueue(adapter, "_vaultrag");

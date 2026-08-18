@@ -137,7 +137,14 @@ export class LiveIndexer {
     return new VaultIndex(manifest, paths, f);
   }
 
-  async persist(reason: PersistReason = "live"): Promise<void> {
+  /**
+   * @param stampModel Modell, das ins Container-Manifest geschrieben wird, wenn es NICHT das
+   *   des Indexers ist. Genau ein Aufrufer braucht das: der `restore-only`-Zweig der
+   *   Auto-Heal-Kaskade, dessen Vektoren vollständig aus einem Backup stammen. Der Stempel
+   *   beschreibt die Herkunft der VEKTOREN; ihn auf den gerade konfigurierten Endpunkt zu
+   *   setzen, entwaffnete den Modell-Guard beim nächsten Live-Persist.
+   */
+  async persist(reason: PersistReason = "live", stampModel?: string): Promise<void> {
     const nextCount = this.noteVectors.size;
     if (!this.ready && reason === "live") {
       throw new PersistBlockedError("not-ready", "Persist verweigert: Index ist nicht initialisiert (Load-Fehler) — der gute Index auf Platte bleibt erhalten.");
@@ -183,7 +190,7 @@ export class LiveIndexer {
     const manifest = {
       schema_version: 1, // wird von encodeContainer auf CONTAINER_SCHEMA_VERSION gesetzt
       vault: (this.loadedManifest as { vault?: string } | null)?.vault ?? "10_Pallas",
-      embedding_model: this.embeddingModel,
+      embedding_model: stampModel ?? this.embeddingModel,
       source_dim: INDEX_DIM,
       index_dim: INDEX_DIM,
       granularity: "note",

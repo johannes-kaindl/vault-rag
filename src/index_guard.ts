@@ -130,6 +130,7 @@ export class PersistBlockedError extends Error {
 export type AutoHealPlan =
   | { kind: "restore-and-reindex" }
   | { kind: "restore-only" }
+  | { kind: "restore-in-memory" }
   | { kind: "no-backup" };
 
 /**
@@ -145,8 +146,22 @@ export type AutoHealPlan =
  * `restore-only` ist deshalb kein Notbehelf, sondern das richtige Ergebnis: ein Index von
  * gestern schlägt „kein Index" in jeder Hinsicht, und der defekte Container hat keinerlei
  * Wert, den man schützen müsste.
+ *
+ * **`canCompleteIndex` trennt zwei Bedeutungen, die vorher beide in `embedderReady` steckten**
+ * — und nur eine davon durfte fallen. „Der Endpunkt antwortet gerade nicht" ist auf dem
+ * Desktop vorübergehend: dort ist Übernehmen samt Schreiben richtig, die Lücke schließt der
+ * Live-Betrieb, sobald Ollama wieder da ist. „Dieses Gerät hat strukturell keinen Endpunkt"
+ * (iPhone) ist dagegen dauerhaft — und dort ist das Schreiben schädlich, weil der Index-Ordner
+ * GESYNCT ist: ein älterer Stand ginge an alle Geräte zurück, und `isSuspiciousShrink` greift
+ * erst unter 50 %, ein Rückfall um 200 Notizen liefe also still durch. Deshalb `restore-in-memory`:
+ * die Sitzung bekommt sofort wieder Retrieval, die Platte bleibt unberührt, und die Heilung
+ * kommt per Sync vom Desktop — genau die Arbeitsteilung, die `attemptAutoHeal` immer
+ * beschrieben hat.
  */
-export function planAutoHeal(input: { hasBackup: boolean; embedderReady: boolean }): AutoHealPlan {
+export function planAutoHeal(
+  input: { hasBackup: boolean; embedderReady: boolean; canCompleteIndex: boolean },
+): AutoHealPlan {
   if (!input.hasBackup) return { kind: "no-backup" };
-  return input.embedderReady ? { kind: "restore-and-reindex" } : { kind: "restore-only" };
+  if (input.embedderReady) return { kind: "restore-and-reindex" };
+  return input.canCompleteIndex ? { kind: "restore-only" } : { kind: "restore-in-memory" };
 }

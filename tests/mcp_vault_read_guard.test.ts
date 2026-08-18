@@ -21,12 +21,12 @@ describe("makeVaultReadGuard", () => {
 
   it("wirft fuer einen Pfad, den der Vault nicht kennt", async () => {
     const guard = makeVaultReadGuard(isKnownVaultFile, read);
-    await expect(guard("unbekannt.md")).rejects.toThrow(/Vault-Datei/);
+    await expect(guard("unbekannt.md")).rejects.toThrow(/known vault file/);
   });
 
   it("wirft fuer einen Path-Traversal-Versuch aus dem Vault heraus", async () => {
     const guard = makeVaultReadGuard(isKnownVaultFile, read);
-    await expect(guard("../outside/secret.md")).rejects.toThrow(/Vault-Datei/);
+    await expect(guard("../outside/secret.md")).rejects.toThrow(/known vault file/);
   });
 
   it("ruft read gar nicht erst auf, wenn der Pfad unbekannt ist", async () => {

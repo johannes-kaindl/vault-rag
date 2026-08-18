@@ -6,16 +6,16 @@ import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
-import { ENDPOINT_PRESETS, validateEndpointInput, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
+import { ENDPOINT_PRESETS, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, type EndpointConfig } from "./endpoint_config";
+import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointInputWarnings, type EndpointConfig } from "./endpoint_config";
 import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
-import type { SelfCheckResult } from "./mcp/mcp_diagnostics";
+import { describeStartError, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
 import { t } from "./vendor/kit/i18n";
 
 export { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT };
@@ -70,7 +70,7 @@ export interface VaultRagPluginHost extends Plugin {
   mcpServerAddress(): string | null;
   restartMcpServer(): Promise<void>;
   ensureMcpToken(): string;
-  mcpStartError(): string | null;
+  mcpStartError(): StartErrorReason | null;
   rotateMcpToken(): Promise<void>;
   mcpSelfCheck(): Promise<SelfCheckResult>;
 }
@@ -602,7 +602,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
           }, 800);
         }));
 
-    const detail = this.plugin.mcpStartError();
+    const startError = this.plugin.mcpStartError();
+    const detail = startError ? describeStartError(startError) : null;
     const status = this.plugin.mcpServerRunning()
       ? t("settings.mcp.running", this.plugin.mcpServerAddress() ?? "")
       : (this.plugin.settings.mcpEnabled ? t("settings.mcp.offWithDetail", detail ?? t("settings.mcp.startFailed")) : t("settings.mcp.off"));
@@ -1065,16 +1066,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
           statusIcon.toggleClass("is-error", !status.reachable);
           // Tooltip trägt nur noch die Erreichbarkeits-Diagnose; das frühere " · aktiv" entfällt,
           // weil die Rolle jetzt als Text in der Zeile steht (keine zweite Wahrheit im Hover).
-          setTooltip(statusIcon, status.klartext);
+          setTooltip(statusIcon, endpointStatusText(status));
           probed = status;
           applyRole();
         });
         // Eingabe-Prüfung: nicht-blockierendes Warn-Icon (WCAG-Form + Tooltip)
-        const warnings = validateEndpointInput(ep);
+        const warnings = endpointInputWarnings(ep);
         if (warnings.length) {
           const warnIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-warn" });
           setIcon(warnIcon, "alert-triangle");
-          setTooltip(warnIcon, warnings.map(w => w.message).join(" · "));
+          setTooltip(warnIcon, warnings.join(" · "));
         }
         // Drittanbieter-Hinweis (Erst-Render): der Schlüssel ist der verlässliche Indikator, nicht
         // die URL (ein eigener Server im LAN braucht keinen — eine URL-Heuristik wäre unzuverlässig).

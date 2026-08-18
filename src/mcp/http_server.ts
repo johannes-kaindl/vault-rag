@@ -88,7 +88,7 @@ function importNodeHttp(): Promise<typeof import("node:http")> {
 export async function startMcpServer(opts: { port: number; token: string; tools: McpTools; version: string }): Promise<McpServerHandle> {
   // Defense-in-Depth: der Aufrufer gated bereits (main.ts), aber node:http darf auf Mobile
   // unter keinen Umständen geladen werden.
-  if (!Platform.isDesktop) throw new Error("MCP-Server ist Desktop-only");
+  if (!Platform.isDesktop) throw new Error("MCP server is desktop-only");
   const http = await importNodeHttp();
   let boundPort = opts.port;
   const server = http.createServer((req: HttpRequest, res: HttpResponse) => {

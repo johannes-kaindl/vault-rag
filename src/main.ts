@@ -43,7 +43,7 @@ import { ReformatPreviewModal } from "./reformat_preview_modal";
 import { REFORMAT_MAX_TOKENS } from "./reformat_prompts";
 import { ReformatReadiness, readinessMessage, canRun, isRangeStale } from "./reformat_selection_state";
 import { ReformatPanel } from "./reformat_panel";
-import { mapStartError, classifySelfCheck, type SelfCheckResult } from "./mcp/mcp_diagnostics";
+import { mapStartError, describeStartError, classifySelfCheck, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
 import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
 import { RetrievalFacade } from "./retrieval_facade";
@@ -109,7 +109,7 @@ export default class VaultRagPlugin extends Plugin {
   private autoHealAttempted = false;
   private indexOpChain: Promise<void> = Promise.resolve();
   private mcpServer: McpServerHandle | null = null;
-  private mcpLastStartError: string | null = null;
+  private mcpLastStartError: StartErrorReason | null = null;
   private mcpOpChain: Promise<void> = Promise.resolve();
   private lastCapture: { editor: Editor; path: string; from: EditorPosition; to: EditorPosition; text: string } | null = null;
   private lastReadiness: ReformatReadiness = { kind: "no-editor" };
@@ -1495,7 +1495,7 @@ export default class VaultRagPlugin extends Plugin {
     return this.mcpServer ? `http://127.0.0.1:${this.mcpServer.port}/mcp` : null;
   }
 
-  mcpStartError(): string | null { return this.mcpLastStartError; }
+  mcpStartError(): StartErrorReason | null { return this.mcpLastStartError; }
 
   /** Neuen Token erzeugen, persistieren, Server neu starten. Alte Clients werden ungültig. */
   async rotateMcpToken(): Promise<void> {
@@ -1562,7 +1562,7 @@ export default class VaultRagPlugin extends Plugin {
     } catch (e) {
       this.mcpLastStartError = mapStartError(e as { code?: string; message?: string });
       console.warn("vault-rag: MCP-Server-Start fehlgeschlagen", e);
-      new Notice(t("main.mcpStartFailed", this.mcpLastStartError, String((e as Error).message ?? e)), 8000);
+      new Notice(t("main.mcpStartFailed", describeStartError(this.mcpLastStartError)), 8000);
       this.mcpServer = null;
     }
   }

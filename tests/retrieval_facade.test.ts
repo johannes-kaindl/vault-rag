@@ -103,11 +103,11 @@ describe("resolveNotePath", () => {
   });
   it("verbietet absolute Pfade, Traversal und nicht-.md", () => {
     expect(() => resolveNotePath("/etc/x.md", [])).toThrow(/vault-relative/);
-    expect(() => resolveNotePath("a/../../x.md", [])).toThrow(/verlässt den Vault/);
+    expect(() => resolveNotePath("a/../../x.md", [])).toThrow(/escapes the vault/);
     expect(() => resolveNotePath("a/x.txt", [])).toThrow(/Markdown/);
   });
   it("verbietet exclude-Präfix (case-insensitiv)", () => {
-    expect(() => resolveNotePath("templates/x.md", ["Templates/"])).toThrow(/Ausschluss-Präfix/);
+    expect(() => resolveNotePath("templates/x.md", ["Templates/"])).toThrow(/excluded prefix/);
   });
 });
 
@@ -124,7 +124,7 @@ describe("RetrievalFacade.readNote", () => {
     const f = new RetrievalFacade({ ...base, readVault: async () => "x" });
     const r = await f.readNote("../x.md");
     expect(r.kind).toBe("invalid");
-    if (r.kind === "invalid") expect(r.reason).toMatch(/verlässt den Vault/);
+    if (r.kind === "invalid") expect(r.reason).toMatch(/escapes the vault/);
   });
   it("invalid: exclude-Präfix", async () => {
     const f = new RetrievalFacade({ ...base, readVault: async () => "x" });

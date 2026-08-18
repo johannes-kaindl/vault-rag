@@ -1,6 +1,7 @@
 import type { FmAssignedValue, Confidence } from "./frontmatter";
 import type { ChatMessage } from "./chat_client";
 import type { TemplateSpec } from "./template_matcher";
+import { t } from "./vendor/kit/i18n";
 
 export type { Confidence } from "./frontmatter";
 export type ApplyMode = "deterministisch" | "additiv" | "transformativ";
@@ -75,15 +76,15 @@ export function permutationCheck(allIds: string[], a: Assignment): CheckResult {
     counts.set(id, (counts.get(id) ?? 0) + 1);
   }
   if (unknown.length > 0) {
-    return { id: "permutation", ok: false, detail: `unbekannte IDs: ${unknown.join(", ")}` };
+    return { id: "permutation", ok: false, detail: t("noteRestructurer.permutation.unknownIds", unknown.join(", ")) };
   }
   const duplicates = [...counts.entries()].filter(([, c]) => c > 1).map(([id]) => id);
   if (duplicates.length > 0) {
-    return { id: "permutation", ok: false, detail: `doppelte IDs: ${duplicates.join(", ")}` };
+    return { id: "permutation", ok: false, detail: t("noteRestructurer.permutation.duplicateIds", duplicates.join(", ")) };
   }
   const missing = allIds.filter(id => !counts.has(id));
   if (missing.length > 0) {
-    return { id: "permutation", ok: false, detail: `fehlende IDs: ${missing.join(", ")}` };
+    return { id: "permutation", ok: false, detail: t("noteRestructurer.permutation.missingIds", missing.join(", ")) };
   }
   return { id: "permutation", ok: true };
 }
@@ -131,7 +132,7 @@ export function assembleBody(
     const texts = ids.map(id => byId.get(id)).filter((t): t is string => typeof t === "string");
     if (texts.length !== ids.length) {
       const unknownIds = ids.filter(id => !byId.has(id));
-      throw new Error(`assembleBody: unbekannte Block-IDs: ${unknownIds.join(", ")}`);
+      throw new Error(t("noteRestructurer.assemble.unknownBlockIds", unknownIds.join(", ")));
     }
     const additionTexts = (additionsFor.get(sec.heading) ?? []).map(add =>
       auditTrail ? `${add.text} %%erschlossen: ${add.confidence}%%` : add.text,
@@ -144,7 +145,7 @@ export function assembleBody(
     const uebrigTexts: string[] = [];
     for (const id of a.unassigned) {
       const text = byId.get(id);
-      if (text === undefined) throw new Error(`assembleBody: unbekannte Block-ID in unassigned: ${id}`);
+      if (text === undefined) throw new Error(t("noteRestructurer.assemble.unknownUnassignedId", id));
       uebrigTexts.push(text);
     }
     parts.push(uebrigTexts.join("\n\n"));

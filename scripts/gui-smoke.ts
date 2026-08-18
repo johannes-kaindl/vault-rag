@@ -25,135 +25,29 @@
  *
  * ```bash
  * npm run smoke:gui
- * npm run smoke:gui -- --port 9222 --vault Pallas
+ * npm run smoke:gui -- --port 9222 --vault 10_Pallas
  * ```
+ *
+ * `--vault` matcht seit der zentralen CDP-Brücke exakt gegen `app.vault.getName()`
+ * (den Vault-**Ordnernamen**), nicht mehr als Teilstring des Fenstertitels — `Pallas`
+ * genügt also nicht mehr, es muss `10_Pallas` heißen.
  *
  * Der Klick-Prüfpunkt verändert die Endpunkt-Reihenfolge in den Einstellungen. Der Treiber
  * sichert sie vorher und schreibt sie im `finally` zurück — auch nach einem Abbruch mitten
  * im Lauf. Mit `--keep` bleibt die geänderte Reihenfolge stehen.
  *
- * Die CDP-Brücke ist verbatim aus `3d-codeblocks/scripts/gui-smoke.ts` übernommen
- * (REGISTRY: GUI-Smoke via CDP, dort erstes Exemplar) — bewusst vendored statt importiert,
- * solange die Abstraktionsgrenze nicht an einem dritten Repo bestätigt ist.
+ * Die CDP-Brücke liegt seit 2026-08-16 zentral im Dach (`tools/obsidian-cdp/`) und wird
+ * importiert, nicht vendored: sie ist plugin-neutral und lief zuvor byte-identisch/inline
+ * in mehreren Repos. Fehlt das Dach (fremder Checkout), bricht esbuild beim Auflösen ab —
+ * das ist die gewollte Meldung. Was ihr fehlt, wird DORT ergänzt, nicht hier nachgebaut.
  */
+
+import { Cdp, attachTo } from "../../tools/obsidian-cdp/cdp.js";
 
 const PLUGIN_ID = "vault-retrieval";
 /** Muss zu `setIcon(...)` in `buildEndpointList` passen. */
 const PRIORITY_ICON = "arrow-up-to-line";
 const FALLBACK_ICON = "chevrons-up";
-
-// --- CDP-Minimalbrücke ------------------------------------------------------
-// Node ≥21 bringt `WebSocket` global mit — keine Dependency nötig.
-
-interface CdpTarget {
-  type: string;
-  title: string;
-  url: string;
-  webSocketDebuggerUrl?: string;
-}
-
-interface CdpResponse {
-  id?: number;
-  result?: { result?: { value?: unknown }; exceptionDetails?: { text?: string } };
-  error?: { message?: string };
-}
-
-class Cdp {
-  private nextId = 1;
-  private readonly pending = new Map<number, { ok: (v: CdpResponse) => void; fail: (e: Error) => void }>();
-
-  private constructor(private readonly socket: WebSocket) {
-    socket.addEventListener("message", (event: MessageEvent) => {
-      const message = JSON.parse(String(event.data)) as CdpResponse;
-      if (message.id === undefined) return;   // Event, kein Antwort-Frame
-      const waiter = this.pending.get(message.id);
-      if (!waiter) return;
-      this.pending.delete(message.id);
-      if (message.error) waiter.fail(new Error(message.error.message ?? "CDP-Fehler"));
-      else waiter.ok(message);
-    });
-  }
-
-  static async listTargets(port: number): Promise<CdpTarget[]> {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/list`);
-      return (await response.json()) as CdpTarget[];
-    } catch {
-      throw new Error(
-        `Kein Debug-Port auf ${port}. Obsidian mit --remote-debugging-port=${port} neu starten ` +
-          `(siehe Kopfkommentar).`,
-      );
-    }
-  }
-
-  /** Verbindet sich mit dem ersten Target, auf das `pick` passt.
-   *
-   *  Es gibt hier ZWEI relevante Fenster, und sie können verschiedene Dinge:
-   *  - das **Hauptfenster** (`app://obsidian.md`) hat `app` und damit die Plugin-API,
-   *  - das **Einstellungs-Fenster** hat seit Obsidian 1.13 ein eigenes Target
-   *    (Titel „Einstellungen"/„Settings", URL `about:blank`) und trägt das Settings-DOM,
-   *    aber **kein** `app` (`ReferenceError`).
-   *  Wer nur auf `app://obsidian.md` filtert — wie die Referenz in 3d-codeblocks —, findet
-   *  die Einstellungen nie und hält das für einen Plugin-Defekt (gemessen 2026-08-05, 1.13.4). */
-  static async attach(port: number, pick: (t: CdpTarget) => boolean, label: string, vault?: string): Promise<Cdp> {
-    const targets = await Cdp.listTargets(port);
-    const pages = targets.filter(t => t.type === "page" && t.webSocketDebuggerUrl && pick(t));
-    if (pages.length === 0) {
-      const seen = targets.filter(t => t.type === "page").map(t => `${t.title} — ${t.url}`).join("\n  ") || "(keine)";
-      throw new Error(`Kein Target für ${label} gefunden. Offene Seiten:\n  ${seen}`);
-    }
-    // Mehrere offene Vaults sind der Normalfall. Blind das erste Fenster zu nehmen hieße,
-    // den Smoke im falschen Vault zu fahren — der Fehlschlag sähe aus wie ein Plugin-Defekt.
-    const matching = vault ? pages.filter(t => t.title.toLowerCase().includes(vault.toLowerCase())) : pages;
-    if (matching.length === 0) {
-      throw new Error(`Kein ${label} passt zu --vault ${vault}. Offen:\n  ${pages.map(t => t.title).join("\n  ")}`);
-    }
-    if (matching.length > 1) {
-      throw new Error(
-        `Mehrere ${label}-Fenster offen — mit --vault <name> eines wählen:\n  ` +
-          matching.map(t => t.title).join("\n  "),
-      );
-    }
-    const page = matching[0];
-    if (!page.webSocketDebuggerUrl) throw new Error(`Fenster ohne Debugger-URL: ${page.title}`);
-    console.log(`${label}: ${page.title}`);
-
-    const socket = new WebSocket(page.webSocketDebuggerUrl);
-    await new Promise<void>((resolve, reject) => {
-      socket.addEventListener("open", () => resolve(), { once: true });
-      socket.addEventListener("error", () => reject(new Error("WebSocket-Verbindung fehlgeschlagen")), { once: true });
-    });
-    return new Cdp(socket);
-  }
-
-  send(method: string, params: Record<string, unknown> = {}): Promise<CdpResponse> {
-    const id = this.nextId++;
-    this.socket.send(JSON.stringify({ id, method, params }));
-    return new Promise((ok, fail) => {
-      this.pending.set(id, { ok, fail });
-      setTimeout(() => {
-        if (!this.pending.delete(id)) return;
-        fail(new Error(`Zeitüberschreitung: ${method}`));
-      }, 30_000);
-    });
-  }
-
-  /** Ausdruck im Renderer auswerten. Wirft die Renderer-Ausnahme weiter, statt sie als
-   *  `undefined` zu verschlucken — sonst liest sich ein kaputter Ausdruck wie ein
-   *  fehlgeschlagener Prüfpunkt. */
-  async evaluate<T>(expression: string): Promise<T> {
-    const message = await this.send("Runtime.evaluate", {
-      expression: `(async () => { ${expression} })()`,
-      awaitPromise: true,
-      returnByValue: true,
-    });
-    const details = message.result?.exceptionDetails;
-    if (details) throw new Error(`Renderer: ${details.text ?? "Ausnahme"}`);
-    return message.result?.result?.value as T;
-  }
-
-  close(): void { this.socket.close(); }
-}
 
 // --- Prüfpunkte -------------------------------------------------------------
 
@@ -243,9 +137,6 @@ async function openSettings(main: Cdp): Promise<void> {
   `);
 }
 
-const isMainWindow = (t: CdpTarget): boolean => t.url.startsWith("app://obsidian.md");
-const isSettingsWindow = (t: CdpTarget): boolean => /Einstellungen|Settings/.test(t.title ?? "");
-
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const flag = (name: string): string | undefined => {
@@ -257,7 +148,16 @@ async function main(): Promise<void> {
   const keep = argv.includes("--keep");
 
   console.log(`GUI-Smoke Endpunkt-Priorität — Obsidian auf Port ${port}\n`);
-  const main = await Cdp.attach(port, isMainWindow, "Hauptfenster", vault);
+  // `attachTo` unterscheidet Haupt- und Einstellungen-Fenster an der Sache (nur das
+  // Hauptfenster trägt einen Workspace), nicht am lokalisierten Titel.
+  const main = await attachTo("workspace", port, vault);
+  if (!main) {
+    throw new Error(
+      `Kein Obsidian-Hauptfenster auf Port ${port}` +
+        (vault ? ` für Vault „${vault}“` : "") +
+        ". Läuft Obsidian mit --remote-debugging-port? (siehe Kopfkommentar)",
+    );
+  }
   // Außerhalb des try, damit das finally die Reihenfolge auch nach einem Abbruch
   // mitten im Lauf zurückschreiben kann.
   let savedChatOrder: string[] | null = null;
@@ -332,7 +232,8 @@ async function main(): Promise<void> {
     // Öffnen über das Hauptfenster (dort lebt `app`), lesen im Einstellungs-Fenster
     // (dort lebt das DOM). Seit 1.13 sind das zwei getrennte Targets.
     await openSettings(main);
-    settings = await Cdp.attach(port, isSettingsWindow, "Einstellungs-Fenster", vault);
+    settings = await attachTo("settings", port, vault);
+    if (!settings) throw new Error(`Kein Einstellungen-Fenster auf Port ${port} gefunden — hat sich die Seite geöffnet?`);
     await settings.send("Page.bringToFront");
     // Auf abgeschlossene Proben warten: ein toter Endpunkt läuft in einen 5-s-Timeout,
     // ein zu früher Blick liest „prüfe…" und meldet einen Fehler, der keiner ist.

@@ -91,7 +91,9 @@ index_delta.ts    Pure Delta-/Heal-Anzeige-Logik (keine Obsidian-Abhängigkeit):
 index_guard.ts    Pure-core Datenverlust-Entscheidungen: classifyLoadResult (no-index/loaded-ok/
                   load-failed-index-present) · assertSafeToPersist (Live-Persist darf Count nur
                   ±1 senken) · isSuspiciousShrink (Cross-Device-Clobber-Heuristik) ·
-                  diffIndexVsVault (missing/stale) · PersistBlockedError.
+                  diffIndexVsVault (missing/stale) · PersistBlockedError · planAutoHeal
+                  (restore-and-reindex/restore-only/wait-for-sync/no-backup — `canCompleteIndex`
+                  trennt „Endpunkt gerade tot" von „dieses Gerät hat nie einen").
 index_backup.ts   Pure-core Namens-/Rotationslogik für geräte-lokale Index-Backups:
                   BACKUP_SUBDIR ("index-backups") · backupDirName (ISO-Zeitstempel → FS-sicher) ·
                   selectBackupsToDelete (Rotation, N=3) · sortBackupsNewestFirst (Restore-Auswahl).
@@ -410,13 +412,55 @@ gar nicht bis in die Oberfläche schafft.
   Pending-Fallback — in allen drei Fällen setzt es `indexHealthy = false`. Geräte-lokale
   Index-Backups liegen unter `<plugin-dir>/index-backups/` (synct **nicht**, rotiert auf 3 —
   `index_backup.ts`), Snapshot bei jedem erfolgreichen Load + vor riskanten Operationen.
+- **`writeBinary` kürzt die Zieldatei auf 0, bevor es schreibt — und `rename` kann das NICHT heilen.**
+  Beides an Obsidian 1.13.7 gemessen (Implementierung aus dem laufenden Renderer gelesen, nicht aus
+  `obsidian.d.ts` geschlossen): `writeBinary` ist `this.queue(() => this.fsPromises.writeFile(...))`,
+  Node öffnet mit `O_TRUNC` — ein Abbruch dazwischen hinterlässt eine 0-Byte-Datei, der alte Inhalt
+  ist weg (so beobachtet 2026-08-14 an `index.bin`). Der naheliegende Ausweg „daneben schreiben,
+  per `rename` einhängen" **funktioniert hier aber nicht**: `adapter.rename` wirft
+  `Destination file already exists!`, weil Obsidian diese Prüfung selbst vor `fsPromises.rename`
+  setzt (POSIX `rename(2)` darunter könnte es); `copy` hat dieselbe Sperre. Ein `writeBinaryAtomic`
+  nach diesem Muster fällt deshalb bei **jedem** Aufruf in seinen Fallback zurück, schreibt also
+  weiter kürzend — und ein `catch`, der den `rename`-Fehler verwirft, macht genau das unsichtbar
+  (dieselbe Fehlerklasse wie bei den 1309 leeren Backup-Ordnern, s. `rmdir`-Gotcha).
+  **Diese Fassung stand vom 2026-08-15 bis 2026-08-18 als Fix im Repo und war ein No-op**, der
+  zusätzlich 1,4 MB Temp-Datei pro `persist` durch den gesyncten Ordner schob; sie ist
+  zurückgezogen. Wer es erneut angeht: TaskNote „Index-Datei atomar ersetzen — der zweite Anlauf"
+  (drei Wege, jeder mit Preis). **Bis dahin ist der 0-Byte-Fall offen — aufgefangen wird er von der
+  Auto-Heal-Kaskade** (Load ⇒ `corrupt` ⇒ Backup-Übernahme), nicht verhindert.
 - **Auto-Heal-Kaskade (höchstens einmal je Episode):** Liefert der Load einen CRC-defekten Container,
   sucht `main.ts` das neueste per `verifyBackupCandidate` CRC-bewiesene geräte-lokale Backup, übernimmt
-  es und ergänzt fehlende Notizen per Delta-Reindex — aber nur, wenn der Embedding-Endpoint erreichbar
-  ist; sonst greift wie zuvor Schreibschutz + Notice mit Handlungsanweisung. Persistiert wird der
-  geheilte Index **nur bei restlos sauberem Heal-Lauf** (`failed === 0`) — ein teilweiser Heal bleibt
-  im Speicher, ohne den Container auf der Disk zu überschreiben, und die Kaskade läuft pro
-  Plugin-Start/Episode nur einmal an statt in einer Schleife zu hämmern.
+  es und ergänzt fehlende Notizen per Delta-Reindex. **Die Reihenfolge ist bedeutungstragend:**
+  Backup-Suche und Modell-Guard laufen VOR jeder Endpunkt-Bedingung, weil beide kein Netz brauchen —
+  nur der Delta-Reindex braucht einen. Vorher stand ein `if (!ready) return` davor, und damit hing die
+  Übernahme am Reindex: wer offline war, blieb dauerhaft auf dem defekten Container sitzen, obwohl die
+  CRC-bewiesene Rettung lokal danebenlag (so gemeldet 2026-08-14, ein manuelles `restore-index-backup`
+  heilte es in Sekunden). `planAutoHeal` (`index_guard.ts`, pure) macht die Aufteilung explizit:
+  `restore-and-reindex` · `restore-only` · `wait-for-sync` · `no-backup`.
+  **`restore-only` persistiert ebenfalls** — die Basis ist CRC-bewiesen und in sich vollständig, sie
+  kann nur älter sein; sie nur im Speicher zu halten hieße, den defekten Container liegen zu lassen und
+  beim nächsten Start wieder bei „kein Index" zu stehen. Die Notice sagt dann ausdrücklich, dass neuere
+  Notizen noch fehlen — und die fehlenden Pfade wandern in die `PendingQueue` (`addMany`, EIN Write),
+  damit der 60-s-Drain sie holt, sobald ein Endpunkt antwortet; ohne das war die Zusage der Notice
+  unwahr. Gestempelt wird dabei das Modell **des Backups**, nicht das aktive: von dort stammt jeder
+  Vektor, und der Modell-Guard hält genau dieses Feld beim nächsten Live-Persist gegen das aktive
+  Modell.
+  **`wait-for-sync` heilt gar nicht** (seit 0.24.0): `embedderReady` trug zwei Bedeutungen, und nur
+  eine durfte fallen. Ein toter Endpunkt ist auf dem Desktop vorübergehend; ein Gerät, das
+  **strukturell** keinen hat (iPhone, `Platform.isMobile`), kann die Lücke dagegen nie schließen —
+  und der Index-Ordner ist **gesynct**, ein älterer Stand ginge von dort an alle Geräte zurück, wo
+  `isSuspiciousShrink` ihn erst unter 50 % aufhielte. Dort bleiben Schreibschutz und Notice, die
+  Heilung kommt vom Desktop. ⚠️ **Ein Zwischenweg stand hier für ein paar Stunden und ist wieder
+  raus:** „nur in den Speicher übernehmen, Platte unberührt lassen" gibt eine Nicht-Schreib-Zusage,
+  die nirgends durchgesetzt war — nach `init(base)` bleibt der Indexer mit den Backup-Vektoren
+  **scharf**, der einzige Schutz wäre ein Nebeneffekt (`persist`s `readDiskState() === null`, das
+  zudem schwächer prüft als `loadIndexStore`), und ein `markUnready()` hebt
+  `resolveAndReconnectEmbedder` beim nächsten Endpunktwechsel wieder auf (`if (this.index)
+  li.init(this.index)`). Wer Sitzungs-Retrieval auf dem Telefon will, braucht ein echtes
+  geräteweites Schreib-Lock — eigener Slice, nicht nebenbei.
+  Beim Reindex-Zweig wird **nur bei restlos sauberem Lauf** persistiert (`failed === 0`) — ein
+  teilweiser Heal bleibt im Speicher; die Kaskade läuft pro Plugin-Start/Episode nur einmal an statt
+  in einer Schleife zu hämmern.
 - **Ein Embedding-Index ist an sein Modell gebunden — der Modell-Guard schützt das doppelt
   (vorbeugend + durchsetzend), weil ein fremdes Modell strukturell unauffällige, aber falsche
   Vektoren erzeugt:** Notiz-Count, Dimension und CRC bleiben in Ordnung, nur die
@@ -430,7 +474,10 @@ gar nicht bis in die Oberfläche schafft.
   frisch vom Container auf der Platte (nie den In-Memory-Stand — ein zuvor geblockter Persist kann
   die Prüfung also nicht vergiften) und blockt bei Abweichung mit
   `PersistBlockedError("model-mismatch")` (`assertModelSafeToPersist`, `index_guard.ts`).
-  `healVault` fragt zusätzlich **vorab** per `LiveIndexer.checkModelAgainstDisk("heal")`, bevor es
+  Die Auto-Heal-Kaskade prüft ihn **nur noch vor `restore-and-reindex`** — dem einzigen Zweig, der
+  fremde Vektoren einmischt; `restore-only` schreibt ausschließlich Backup-Vektoren und stempelt sie
+  mit dem Modell des Backups, dort erzeugte der Guard nur eine Sackgasse auf genau dem Gerät, das er
+  retten sollte. `healVault` fragt zusätzlich **vorab** per `LiveIndexer.checkModelAgainstDisk("heal")`, bevor es
   überhaupt embedded — sonst bliebe additiv geschriebenes Fremdmodell-Material im In-Memory-Index
   hängen, obwohl der anschließende Persist geblockt worden wäre (das Residuum, das Fix-Runde 4
   schloss). Einziger Ausweg für einen bewussten Modellwechsel: **„Vault neu indizieren"**

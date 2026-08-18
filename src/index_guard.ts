@@ -125,3 +125,52 @@ export class PersistBlockedError extends Error {
     this.name = "PersistBlockedError";
   }
 }
+
+/** Was die Auto-Heal-Kaskade mit den vorhandenen Mitteln tun kann. */
+export type AutoHealPlan =
+  | { kind: "restore-and-reindex" }
+  | { kind: "restore-only" }
+  | { kind: "wait-for-sync" }
+  | { kind: "no-backup" };
+
+/**
+ * Entscheidet, wie weit die Kaskade kommt — die Reihenfolge IST die Regel.
+ *
+ * Ein Backup zu übernehmen braucht **kein Netz**; nur der Delta-Reindex der seither
+ * hinzugekommenen Notizen braucht einen erreichbaren Embedding-Endpunkt. Bis 0.23.0 hingen
+ * beide an einer einzigen `embedderReady()`-Prüfung, die VOR der Backup-Suche lief: wer
+ * offline war (oder einen toten Endpunkt konfiguriert hatte), blieb dauerhaft auf einem
+ * defekten Container sitzen, obwohl die CRC-bewiesene Rettung lokal danebenlag. Genau so
+ * beobachtet am 2026-08-14.
+ *
+ * `restore-only` ist deshalb kein Notbehelf, sondern das richtige Ergebnis: ein Index von
+ * gestern schlägt „kein Index" in jeder Hinsicht, und der defekte Container hat keinerlei
+ * Wert, den man schützen müsste.
+ *
+ * **`canCompleteIndex` trennt zwei Bedeutungen, die vorher beide in `embedderReady` steckten**
+ * — und nur eine davon durfte fallen. „Der Endpunkt antwortet gerade nicht" ist auf dem
+ * Desktop vorübergehend: dort ist Übernehmen samt Schreiben richtig, die Lücke schließt der
+ * Live-Betrieb, sobald Ollama wieder da ist. „Dieses Gerät hat strukturell keinen Endpunkt"
+ * (iPhone) ist dagegen dauerhaft — und dort ist das Schreiben schädlich, weil der Index-Ordner
+ * GESYNCT ist: ein älterer Stand ginge an alle Geräte zurück, und `isSuspiciousShrink` greift
+ * erst unter 50 %, ein Rückfall um 200 Notizen liefe also still durch. Deshalb `wait-for-sync`:
+ * dort wird gar nicht geheilt, Schreibschutz und Notice bleiben, die Heilung kommt vom Desktop —
+ * genau die Arbeitsteilung, die `attemptAutoHeal` immer beschrieben hat.
+ *
+ * **Warum nicht wenigstens in den Speicher übernehmen?** Genau das stand hier am 2026-08-18 für
+ * ein paar Stunden und ist wieder rausgeflogen. Der Zweig hätte eine Zusage gegeben („die Platte
+ * bleibt unberührt"), die im Code nirgends durchgesetzt war: der Indexer blieb nach `init(base)`
+ * mit den Backup-Vektoren scharf, ein späterer Live-Persist hing allein an einem Nebeneffekt
+ * (`readDiskState() === null`) — der zudem schwächer prüft als der Ladepfad —, und ein
+ * `markUnready()` hätte `resolveAndReconnectEmbedder` beim nächsten Endpunktwechsel wieder
+ * aufgehoben. Sitzungs-Retrieval auf dem Telefon ist Komfort; ihn gegen eine nur zufällig
+ * haltende Nicht-Schreib-Zusage einzutauschen, ist an diesem Pfad kein guter Handel. Wenn, dann
+ * mit einem echten geräteweiten Schreib-Lock — eigener Slice.
+ */
+export function planAutoHeal(
+  input: { hasBackup: boolean; embedderReady: boolean; canCompleteIndex: boolean },
+): AutoHealPlan {
+  if (!input.hasBackup) return { kind: "no-backup" };
+  if (input.embedderReady) return { kind: "restore-and-reindex" };
+  return input.canCompleteIndex ? { kind: "restore-only" } : { kind: "wait-for-sync" };
+}

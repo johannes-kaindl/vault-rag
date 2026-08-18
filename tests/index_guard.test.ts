@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   classifyLoadResult, assertSafeToPersist, isSuspiciousShrink,
   diffIndexVsVault, PersistBlockedError, canPersistHealedIndex, embeddingModelMatchesIndex,
-  assertModelSafeToPersist,
+  assertModelSafeToPersist, planAutoHeal,
 } from "../src/index_guard";
 
 describe("classifyLoadResult", () => {
@@ -149,5 +149,50 @@ describe("assertModelSafeToPersist", () => {
     expect(assertModelSafeToPersist(undefined, "text-embedding-3-small", "live").allowed).toBe(true);
     expect(assertModelSafeToPersist("", "text-embedding-3-small", "live").allowed).toBe(true);
     expect(assertModelSafeToPersist("   ", "text-embedding-3-small", "heal").allowed).toBe(true);
+  });
+});
+
+// ── Auto-Heal-Reihenfolge (Vorfall 2026-08-14) ───────────────────────────────
+// Gemeldet aus einer Nachbar-Session: index.bin war 0 Bytes, ein CRC-beweisbares Backup
+// lag daneben — und die Kaskade übernahm es NICHT, weil der Embedding-Endpunkt tot war.
+// Sie prüfte `embedderReady()`, bevor sie überhaupt nach einem Backup sah. Das koppelt zwei
+// Dinge, von denen nur eines Netz braucht: ein Backup zu ÜBERNEHMEN geht offline, nur der
+// Delta-Reindex der fehlenden Notizen braucht einen Endpunkt.
+describe("planAutoHeal", () => {
+  it("ohne Backup ist nichts zu holen — mit oder ohne Endpunkt", () => {
+    expect(planAutoHeal({ hasBackup: false, embedderReady: true, canCompleteIndex: true })).toEqual({ kind: "no-backup" });
+    expect(planAutoHeal({ hasBackup: false, embedderReady: false, canCompleteIndex: true })).toEqual({ kind: "no-backup" });
+  });
+
+  it("mit Backup und Endpunkt: übernehmen und die Lücke schließen", () => {
+    expect(planAutoHeal({ hasBackup: true, embedderReady: true, canCompleteIndex: true }))
+      .toEqual({ kind: "restore-and-reindex" });
+  });
+
+  it("mit Backup, ohne Endpunkt: trotzdem übernehmen — der Kern des Vorfalls", () => {
+    // Ein CRC-bewiesenes Backup ist unter allen verfügbaren Optionen die beste; der defekte
+    // Container hat keinerlei Wert. Höchstens fehlen ein paar Notizen — dauerhaft „kein Index"
+    // ist strikt schlechter als „Index von gestern".
+    expect(planAutoHeal({ hasBackup: true, embedderReady: false, canCompleteIndex: true }))
+      .toEqual({ kind: "restore-only" });
+  });
+
+  // Die Gegenrichtung, an der die erste Fassung des Fixes vorbeilief: `embedderReady` trug
+  // ZWEI Bedeutungen, und nur eine davon durfte fallen. „Endpunkt gerade tot" ist auf dem
+  // Desktop vorübergehend — dort ist Übernehmen+Schreiben richtig. „Dieses Gerät hat nie
+  // einen Endpunkt" (iPhone) ist dauerhaft: dort schreibt das Übernehmen einen ÄLTEREN Stand
+  // in einen GESYNCTEN Ordner, und Sync trägt ihn an alle anderen Geräte zurück — der
+  // Shrink-Guard greift erst unter 50 %, ein Rückfall um 200 Notizen liefe still durch.
+  // Genau davor schützte das entfernte `if (!ready) return`, ohne dass es dafür gedacht war.
+  // Dort wird deshalb GAR NICHT geheilt — Schreibschutz und Notice bleiben, die Heilung kommt
+  // per Sync vom Desktop. Ein Zwischenweg („nur in den Speicher übernehmen, Platte in Ruhe
+  // lassen") stand hier kurz und ist am 2026-08-18 wieder rausgeflogen: er verspricht eine
+  // Nicht-Schreib-Zusage, die im Code nirgends durchgesetzt war — der Indexer blieb mit den
+  // Backup-Vektoren scharf, und `resolveAndReconnectEmbedder` hätte ein `markUnready()` beim
+  // nächsten Endpunktwechsel ohnehin wieder aufgehoben. Eine Zusage, die nur zufällig hält,
+  // ist an einem Datenverlust-Pfad keine.
+  it("mit Backup, ohne Endpunkt, auf einem Gerät das nie embedden kann: gar nicht heilen", () => {
+    expect(planAutoHeal({ hasBackup: true, embedderReady: false, canCompleteIndex: false }))
+      .toEqual({ kind: "wait-for-sync" });
   });
 });

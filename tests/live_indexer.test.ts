@@ -604,6 +604,48 @@ describe("LiveIndexer.checkModelAgainstDisk (Vorabprüfung vor additiven Läufen
     expect(indexer.buildIndex().manifest.embedding_model).toBe("text-embedding-3-small");
   });
 
+  // Auto-Heal `restore-only`: die Vektoren stammen SAMT UND SONDERS aus dem Backup, kein
+  // einziger wurde vom aktiven Modell erzeugt. Stempelte der Container trotzdem das aktive,
+  // behauptete er eine Herkunft, die nicht stimmt — und der Modell-Guard, der beim nächsten
+  // Live-Persist genau dieses Feld gegen das aktive Modell hält, winkte das Mischen zweier
+  // Modelle durch. Der Stempel ist hier die Wahrheit über die Vektoren, nicht über den Endpunkt.
+  it("persist stempelt auf Wunsch ein fremdes Modell — die Herkunft der Vektoren, nicht den aktiven Endpunkt", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+    indexer.init(oneNoteIndex("a.md")); // Backup-Manifest sagt qwen3-embedding:8b
+
+    await indexer.persist("heal", "qwen3-embedding:8b");
+
+    const geschrieben = a.written.get(`_vaultrag/${CONTAINER_FILE}`)!;
+    expect(decodeContainer(geschrieben).manifest.embedding_model).toBe("qwen3-embedding:8b");
+  });
+
+  it("persist ohne Stempel-Angabe bleibt beim Modell des Indexers", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+    indexer.init(oneNoteIndex("a.md"));
+
+    await indexer.persist("reindex");
+
+    const geschrieben = a.written.get(`_vaultrag/${CONTAINER_FILE}`)!;
+    expect(decodeContainer(geschrieben).manifest.embedding_model).toBe("text-embedding-3-small");
+  });
+
+  // `vault` ist ein rein informatives Manifest-Feld, das niemand ausliest — aber sein Default
+  // war der Vault-NAME des Maintainers, und der landete so im Index jedes fremden Nutzers
+  // (AGENTS.md §Memory: „Nie im Repo: Vault-Pfade"). Der Indexer ist obsidian-frei und kennt
+  // den echten Namen nicht; leer ist ehrlicher als fremd.
+  it("persist erfindet keinen Vault-Namen, wenn das geladene Manifest keinen trägt", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.init(oneNoteIndex("a.md"));
+
+    await indexer.persist("reindex");
+
+    const manifest = decodeContainer(a.written.get(`_vaultrag/${CONTAINER_FILE}`)!).manifest as { vault?: string };
+    expect(manifest.vault).toBe("");
+  });
+
   it("reindex fragt gar nicht erst — Voll-Ersatz bleibt der Ausweg", async () => {
     const a = makeAdapter();
     a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(1, "qwen3-embedding:8b"));

@@ -18,6 +18,14 @@ export class PendingQueue {
     await this.save();
   }
 
+  /** Mehrere Pfade in EINEM Write. `pending.json` liegt im gesyncten Index-Ordner —
+   *  ein `add()` je Pfad wäre dort ein Sync-Ereignis je Pfad. */
+  async addMany(paths: string[]): Promise<void> {
+    if (paths.length === 0) return;
+    for (const p of paths) this.pending.add(p);
+    await this.save();
+  }
+
   drain(): string[] {
     const paths = [...this.pending];
     this.pending.clear();

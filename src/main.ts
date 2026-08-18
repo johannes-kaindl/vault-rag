@@ -31,7 +31,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist } from "./index_guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal } from "./index_guard";
 import { loadIndexStore, verifyBackupCandidate } from "./index_store";
 import { CONTAINER_FILE, decodeContainer } from "./index_container";
 import { McpTools } from "./mcp/tools";
@@ -923,8 +923,13 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   /** Backup-Kaskade: neuestes CRC-beweisbares Backup übernehmen, Lücke per Delta-Heal schließen,
-   *  nur restlos sauberen Heal persistieren. Ohne Endpoint/Backup bleibt der Gefahrenzustand
-   *  (iPhone wartet auf die Desktop-Heilung via Sync). */
+   *  nur restlos sauberen Heal persistieren. Ohne Backup bleibt der Gefahrenzustand.
+   *
+   *  **Ohne Endpunkt hängt es davon ab, WARUM keiner da ist** (`planAutoHeal`): auf dem Desktop
+   *  ist das vorübergehend, dort wird übernommen UND geschrieben. Auf einem Gerät, das nie einen
+   *  hat (iPhone), wird gar nicht geheilt — die Platte ist gesynct, ein älterer Stand ginge sonst
+   *  an alle Geräte zurück. Dort gilt unverändert: das iPhone wartet auf die Desktop-Heilung
+   *  via Sync. */
   private async attemptAutoHeal(): Promise<void> {
     if (this.autoHealAttempted) return;
     // Synchron beanspruchen (vor dem ersten await): maybeReload läuft auf einem Intervall und
@@ -939,29 +944,61 @@ export default class VaultRagPlugin extends Plugin {
     // Versuch wieder freigeben: die Episode hat sich OHNE Heal erledigt — eine spätere echte
     // Korruption derselben Session muss wieder Auto-Heal bekommen (die Notice verspricht es).
     if (this.indexHealthy) { this.autoHealAttempted = false; return; }
-    if (!ready) {
-      // Versuch wieder freigeben: ein transient offline gestarteter Obsidian darf den einzigen
-      // Versuch der Episode nicht verbrauchen — der nächste corrupt-Load probiert es erneut.
-      this.autoHealAttempted = false;
-      new Notice(t("main.autoHealImpossibleEndpointUnreachable"), 10000);
-      return;
-    }
+    // Backup-Suche und Modell-Guard laufen VOR jeder Endpunkt-Bedingung — beide brauchen kein
+    // Netz. Bis 0.23.0 stand hier ein `if (!ready) return`, und das koppelte die Übernahme an
+    // den Reindex: wer offline war, blieb dauerhaft auf dem defekten Container sitzen, obwohl
+    // das CRC-bewiesene Backup danebenlag (so beobachtet 2026-08-14). Die Aufteilung, was
+    // Netz braucht und was nicht, macht `planAutoHeal` explizit.
     let candidate: VaultIndex | null = null;
     for (const b of await this.listBackups()) { // sortBackupsNewestFirst-Reihenfolge
       candidate = await verifyBackupCandidate(this.app.vault.adapter, `${this.backupsRoot()}/${b.name}`);
       if (candidate) break;
     }
-    if (!candidate) { // keine beweisbare Basis → Status quo, aber nicht stumm (Spec §Heal-Kaskade Schritt 3)
-      if (!this.indexHealthy) new Notice(t("main.autoHealImpossibleNoBackup"), 10000);
+    // `!Platform.isMobile` ist die ehrlichste verfügbare Antwort auf „kann dieses Gerät den
+    // Index je selbst vervollständigen?" — grob, aber in die sichere Richtung grob: auf dem
+    // Desktop ist ein toter Endpunkt vorübergehend, auf dem Telefon ist keiner vorgesehen.
+    const plan = planAutoHeal({
+      hasBackup: candidate !== null,
+      embedderReady: ready,
+      canCompleteIndex: !Platform.isMobile,
+    });
+    if (plan.kind === "no-backup") { // keine beweisbare Basis → Status quo, aber nicht stumm (Spec §Heal-Kaskade Schritt 3)
+      // Ohne Backup ist ein toter Endpunkt der eigentliche Grund, warum nichts geht — dann die
+      // Meldung, die zur Handlung führt (Endpunkt prüfen), statt der generischen.
+      // Versuch wieder freigeben: ein transient offline gestarteter Obsidian darf den einzigen
+      // Versuch der Episode nicht verbrauchen — der nächste corrupt-Load probiert es erneut.
+      if (!ready) this.autoHealAttempted = false;
+      if (!this.indexHealthy) {
+        new Notice(ready ? t("main.autoHealImpossibleNoBackup") : t("main.autoHealImpossibleEndpointUnreachable"), 10000);
+      }
       return;
     }
+    if (plan.kind === "wait-for-sync") {
+      // Dieses Gerät kann den Index nie selbst vervollständigen, und der Index-Ordner ist
+      // gesynct: ein älterer Backup-Stand ginge von hier an ALLE Geräte zurück, wo
+      // `isSuspiciousShrink` ihn erst unter 50 % aufhielte. Schreibschutz + Notice bleiben,
+      // die Heilung kommt vom Desktop. Versuch wieder freigeben — ein späterer, anderer
+      // corrupt-Load derselben Sitzung darf erneut prüfen (analog zum no-backup-Zweig).
+      this.autoHealAttempted = false;
+      if (!this.indexHealthy) new Notice(t("main.autoHealWaitForSync"), 10000);
+      return;
+    }
+    if (!candidate) return; // unerreichbar (plan ∈ {restore-*} ⇒ candidate gesetzt); beruhigt den Compiler
     const base = candidate;
     // Sonderfall, den persist() strukturell NICHT sehen kann: Die Kaskade läuft genau dann, wenn
     // der Container auf Platte defekt ist — dort gibt es keine Disk-Wahrheit, gegen die der
     // Modell-Guard prüfen könnte. Die Basis hier ist aber ebenfalls disk-verifiziert
     // (verifyBackupCandidate, CRC-Beweis), also dieselbe Regel (assertModelSafeToPersist) auf
     // dieselbe Frage anwenden, bevor additiv fremde Vektoren einmischen.
-    if (!assertModelSafeToPersist(base.manifest.embedding_model, this.embeddingModelInUse, "heal").allowed) {
+    // NUR für den Zweig, der wirklich fremde Vektoren einmischt. `restore-only` schreibt
+    // ausschließlich Backup-Vektoren und stempelt sie mit dem Modell DES BACKUPS (s. u.) — dort
+    // können zwei Vektorräume gar nicht zusammenlaufen, und der Guard erzeugte nur eine
+    // Sackgasse: ein Gerät mit abweichend eingetragenem Modell bekäme „passenden Endpunkt
+    // eintragen oder neu indizieren" — beides genau das, was es nicht kann. Der Schutz vor
+    // einem bewussten Modellwechsel bleibt trotzdem lückenlos, weil der nächste Live-Persist
+    // das gestempelte Backup-Modell gegen das aktive hält.
+    if (plan.kind === "restore-and-reindex"
+        && !assertModelSafeToPersist(base.manifest.embedding_model, this.embeddingModelInUse, "heal").allowed) {
       new Notice(t("main.autoHealImpossibleModelMismatch"), 10000);
       return;
     }
@@ -978,15 +1015,23 @@ export default class VaultRagPlugin extends Plugin {
         // gute Index zurück sein — dann nichts anfassen (auch kein markUnready).
         if (this.indexHealthy) { aborted = true; return; }
         li.init(base);
-        const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
-        const report = await li.healMissing(missing, (p) => this.app.vault.adapter.read(p));
-        if (!canPersistHealedIndex(report.failed.length)) {
-          li.markUnready(); // halb geheilten Index NICHT verteilen
-          return;
+        if (plan.kind === "restore-and-reindex") {
+          const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
+          const report = await li.healMissing(missing, (p) => this.app.vault.adapter.read(p));
+          if (!canPersistHealedIndex(report.failed.length)) {
+            li.markUnready(); // halb geheilten Index NICHT verteilen
+            return;
+          }
+          added = report.added;
         }
-        await li.persist("heal");
+        // Auch ohne Reindex persistieren: die Basis ist CRC-bewiesen und vollständig in sich,
+        // sie kann nur ÄLTER sein. Sie im Speicher zu lassen hieße, den defekten Container auf
+        // der Platte zu behalten — beim nächsten Start wäre der Nutzer wieder bei „kein Index".
+        // Der Stempel ist das Modell des Backups: von dort stammt JEDER Vektor, den wir schreiben.
+        // Mit dem aktiven Modell gestempelt, ließe der Guard beim nächsten Live-Persist zwei
+        // Modelle im selben Index zusammenlaufen (Fall: Backup ohne Modell im Manifest).
+        await li.persist("heal", plan.kind === "restore-only" ? base.manifest.embedding_model : undefined);
         healed = true;
-        added = report.added;
       });
     } catch (e) {
       // persist/read können werfen (Disk, mkdir, writeBinary). Unbehandelt bliebe der Nutzer
@@ -999,7 +1044,22 @@ export default class VaultRagPlugin extends Plugin {
     // guter Index steht wieder → stiller Abbruch, keine Notice; Versuch wieder freigeben (s. o.).
     if (aborted) { this.autoHealAttempted = false; return; }
     if (healed) {
-      new Notice(t("main.autoHealRestoredFromBackup", added), 8000);
+      if (plan.kind === "restore-only") {
+        // Die Notice verspricht, dass die seither hinzugekommenen Notizen automatisch
+        // nachgezogen werden — also auch dafür sorgen. Ohne das blieb der Nutzer dauerhaft
+        // unvollständig: die Dirty-List füllen sonst nur `file:modify`/`rename`, und der
+        // Nachfrage-Dialog in `loadIndex` hängt an einem erreichbaren Endpunkt, den es in
+        // genau diesem Zweig per Definition nicht gibt. Der 60-s-Drain holt sie ab, sobald
+        // einer antwortet. Chunk-lose Notizen scheiden dabei von selbst aus (embedNote → null).
+        const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
+        await this.pendingQueue.addMany(missing);
+        this.syncProgress();
+      }
+      // Ohne Reindex ehrlich bleiben: der Index steht wieder, ist aber auf dem Stand des
+      // Backups. Die Lücke schließt der reguläre Live-Betrieb, sobald ein Endpunkt antwortet.
+      new Notice(plan.kind === "restore-and-reindex"
+        ? t("main.autoHealRestoredFromBackup", added)
+        : t("main.autoHealRestoredWithoutReindex"), 8000);
       await this.loadIndex(); // lädt den frisch persistierten Container → gesunder Zustand
     } else {
       new Notice(t("main.autoHealIncomplete"), 10000);
@@ -1179,6 +1239,14 @@ export default class VaultRagPlugin extends Plugin {
         this.syncProgress();
         this.refresh();
       } catch {
+        // `drain()` hat die Liste schon geleert, und ein geblockter Persist (unreadable/
+        // shrink/model-mismatch) heißt, dass KEINE dieser Notizen auf der Platte gelandet
+        // ist — ohne Zurücklegen wären sie ersatzlos weg, und nichts trüge sie je wieder
+        // ein. Das trifft besonders den Auto-Heal-Restore, dessen Notice genau diese
+        // Nachbesserung zusagt: dort hängen dreistellig viele Pfade an einem einzigen Lauf.
+        // Erneutes Embedden der bereits im Speicher aktualisierten Notizen ist der Preis.
+        try { await this.pendingQueue.addMany(paths); }
+        catch (e) { console.warn("vault-rag: Pending-Liste nach geblocktem Persist nicht zurückgelegt", e); }
         this.syncProgress();
       } finally {
         this.embeddingProgress.isEmbedding = false;

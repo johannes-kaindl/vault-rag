@@ -12,6 +12,7 @@
     "offline",
     "local-first"
   ],
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "build": "node esbuild.config.mjs production",

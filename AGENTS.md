@@ -91,7 +91,9 @@ index_delta.ts    Pure Delta-/Heal-Anzeige-Logik (keine Obsidian-Abhängigkeit):
 index_guard.ts    Pure-core Datenverlust-Entscheidungen: classifyLoadResult (no-index/loaded-ok/
                   load-failed-index-present) · assertSafeToPersist (Live-Persist darf Count nur
                   ±1 senken) · isSuspiciousShrink (Cross-Device-Clobber-Heuristik) ·
-                  diffIndexVsVault (missing/stale) · PersistBlockedError.
+                  diffIndexVsVault (missing/stale) · PersistBlockedError · planAutoHeal
+                  (restore-and-reindex/restore-only/restore-in-memory/no-backup — `canCompleteIndex`
+                  trennt „Endpunkt gerade tot" von „dieses Gerät hat nie einen").
 index_backup.ts   Pure-core Namens-/Rotationslogik für geräte-lokale Index-Backups:
                   BACKUP_SUBDIR ("index-backups") · backupDirName (ISO-Zeitstempel → FS-sicher) ·
                   selectBackupsToDelete (Rotation, N=3) · sortBackupsNewestFirst (Restore-Auswahl).
@@ -412,11 +414,32 @@ gar nicht bis in die Oberfläche schafft.
   `index_backup.ts`), Snapshot bei jedem erfolgreichen Load + vor riskanten Operationen.
 - **Auto-Heal-Kaskade (höchstens einmal je Episode):** Liefert der Load einen CRC-defekten Container,
   sucht `main.ts` das neueste per `verifyBackupCandidate` CRC-bewiesene geräte-lokale Backup, übernimmt
-  es und ergänzt fehlende Notizen per Delta-Reindex — aber nur, wenn der Embedding-Endpoint erreichbar
-  ist; sonst greift wie zuvor Schreibschutz + Notice mit Handlungsanweisung. Persistiert wird der
-  geheilte Index **nur bei restlos sauberem Heal-Lauf** (`failed === 0`) — ein teilweiser Heal bleibt
-  im Speicher, ohne den Container auf der Disk zu überschreiben, und die Kaskade läuft pro
-  Plugin-Start/Episode nur einmal an statt in einer Schleife zu hämmern.
+  es und ergänzt fehlende Notizen per Delta-Reindex. **Die Reihenfolge ist bedeutungstragend:**
+  Backup-Suche und Modell-Guard laufen VOR jeder Endpunkt-Bedingung, weil beide kein Netz brauchen —
+  nur der Delta-Reindex braucht einen. Vorher stand ein `if (!ready) return` davor, und damit hing die
+  Übernahme am Reindex: wer offline war, blieb dauerhaft auf dem defekten Container sitzen, obwohl die
+  CRC-bewiesene Rettung lokal danebenlag (so gemeldet 2026-08-14, ein manuelles `restore-index-backup`
+  heilte es in Sekunden). `planAutoHeal` (`index_guard.ts`, pure) macht die Aufteilung explizit:
+  `restore-and-reindex` · `restore-only` · `restore-in-memory` · `no-backup`.
+  **`restore-only` persistiert ebenfalls** — die Basis ist CRC-bewiesen und in sich vollständig, sie
+  kann nur älter sein; sie nur im Speicher zu halten hieße, den defekten Container liegen zu lassen und
+  beim nächsten Start wieder bei „kein Index" zu stehen. Die Notice sagt dann ausdrücklich, dass neuere
+  Notizen noch fehlen — und die fehlenden Pfade wandern in die `PendingQueue` (`addMany`, EIN Write),
+  damit der 60-s-Drain sie holt, sobald ein Endpunkt antwortet; ohne das war die Zusage der Notice
+  unwahr. Gestempelt wird dabei das Modell **des Backups**, nicht das aktive: von dort stammt jeder
+  Vektor, und der Modell-Guard hält genau dieses Feld beim nächsten Live-Persist gegen das aktive
+  Modell.
+  **`restore-in-memory` ist die Ausnahme, die nicht schreibt** (seit 0.24.0): `embedderReady` trug
+  zwei Bedeutungen, und nur eine durfte fallen. Ein toter Endpunkt ist auf dem Desktop vorübergehend;
+  ein Gerät, das **strukturell** keinen hat (iPhone, `Platform.isMobile`), kann die Lücke dagegen nie
+  schließen — und der Index-Ordner ist **gesynct**, ein älterer Stand ginge von dort an alle Geräte
+  zurück, wo `isSuspiciousShrink` ihn erst unter 50 % aufhielte. Dort wird deshalb nur in den Speicher
+  übernommen (sofort wieder Retrieval), die Platte bleibt unberührt, die Heilung kommt per Sync vom
+  Desktop. Die `mtime` wird dabei mitgezogen, sonst holte der 30-s-Poll den defekten Container sofort
+  zurück.
+  Beim Reindex-Zweig wird **nur bei restlos sauberem Lauf** persistiert (`failed === 0`) — ein
+  teilweiser Heal bleibt im Speicher; die Kaskade läuft pro Plugin-Start/Episode nur einmal an statt
+  in einer Schleife zu hämmern.
 - **Ein Embedding-Index ist an sein Modell gebunden — der Modell-Guard schützt das doppelt
   (vorbeugend + durchsetzend), weil ein fremdes Modell strukturell unauffällige, aber falsche
   Vektoren erzeugt:** Notiz-Count, Dimension und CRC bleiben in Ordnung, nur die

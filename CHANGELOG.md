@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Der Index wird jetzt auch dann automatisch aus einem Backup wiederhergestellt, wenn der
+  Embedding-Endpunkt nicht erreichbar ist.** Bisher prüfte die Selbstheilung zuerst den Endpunkt und
+  sah erst danach nach einem Backup — wer offline war (oder einen falsch eingetragenen Endpunkt
+  hatte), blieb dauerhaft bei „kein Index", obwohl die Sicherung lokal danebenlag und nur von Hand
+  eingespielt werden musste. Ein Backup zu übernehmen braucht kein Netz; nur das Nachtragen der
+  seither hinzugekommenen Notizen braucht es.
+- **Auf dem iPhone wird dabei nichts geschrieben.** Ein Gerät ohne eigenen Embedding-Endpunkt kann
+  die Lücke nie selbst schließen — und weil der Index-Ordner mitsynct, wäre der ältere Stand von dort
+  an alle Geräte zurückgewandert. Dort wird der Index deshalb nur für die laufende Sitzung
+  übernommen (Suche funktioniert sofort wieder), die Datei bleibt unangetastet, und die reparierte
+  Fassung kommt per Sync vom Desktop.
+- **Die versprochene Nachbesserung findet jetzt wirklich statt.** Nach einer Wiederherstellung ohne
+  Endpunkt meldete das Plugin, die seither hinzugekommenen Notizen würden automatisch ergänzt,
+  sobald der Endpunkt antwortet — angestoßen wurde das aber nie. Diese Notizen landen jetzt in der
+  Warteschlange, die das Plugin ohnehin im Minutentakt abarbeitet.
+- **Ein wiederhergestellter Index trägt wieder den Namen des Modells, mit dem er gebaut wurde**,
+  statt den des gerade eingetragenen Endpunkts. Andernfalls konnte der Schutz, der das Vermischen
+  zweier Embedding-Modelle in einem Index verhindert, ihn beim nächsten Speichern nicht mehr
+  erkennen.
+
 ## [0.23.0] — 2026-08-13
 
 ### Added

@@ -189,7 +189,10 @@ export class LiveIndexer {
     await this.adapter.mkdir(this.indexDir);
     const manifest = {
       schema_version: 1, // wird von encodeContainer auf CONTAINER_SCHEMA_VERSION gesetzt
-      vault: (this.loadedManifest as { vault?: string } | null)?.vault ?? "10_Pallas",
+      // Rein informativ, wird nirgends ausgewertet. Der Default war der Vault-Name des
+      // Maintainers und landete so im Index jedes fremden Nutzers; der Indexer ist
+      // obsidian-frei und kennt den echten Namen nicht — leer ist ehrlicher als fremd.
+      vault: (this.loadedManifest as { vault?: string } | null)?.vault ?? "",
       embedding_model: stampModel ?? this.embeddingModel,
       source_dim: INDEX_DIM,
       index_dim: INDEX_DIM,

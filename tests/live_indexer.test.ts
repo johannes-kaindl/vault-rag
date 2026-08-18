@@ -631,6 +631,21 @@ describe("LiveIndexer.checkModelAgainstDisk (Vorabprüfung vor additiven Läufen
     expect(decodeContainer(geschrieben).manifest.embedding_model).toBe("text-embedding-3-small");
   });
 
+  // `vault` ist ein rein informatives Manifest-Feld, das niemand ausliest — aber sein Default
+  // war der Vault-NAME des Maintainers, und der landete so im Index jedes fremden Nutzers
+  // (AGENTS.md §Memory: „Nie im Repo: Vault-Pfade"). Der Indexer ist obsidian-frei und kennt
+  // den echten Namen nicht; leer ist ehrlicher als fremd.
+  it("persist erfindet keinen Vault-Namen, wenn das geladene Manifest keinen trägt", async () => {
+    const a = makeAdapter();
+    const indexer = new LiveIndexer(a, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.init(oneNoteIndex("a.md"));
+
+    await indexer.persist("reindex");
+
+    const manifest = decodeContainer(a.written.get(`_vaultrag/${CONTAINER_FILE}`)!).manifest as { vault?: string };
+    expect(manifest.vault).toBe("");
+  });
+
   it("reindex fragt gar nicht erst — Voll-Ersatz bleibt der Ausweg", async () => {
     const a = makeAdapter();
     a.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(1, "qwen3-embedding:8b"));

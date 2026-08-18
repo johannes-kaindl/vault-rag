@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-08-18
+
 ### Changed
 - **Diagnose-Meldungen folgen jetzt der Sprachwahl** (i18n Teil 3). Die Sprachschicht aus 0.21.0/
   0.22.0 erfasste jeden Text, der *direkt* in eine Anzeige geschrieben wird. Entsteht ein Text

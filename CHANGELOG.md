@@ -7,6 +7,14 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Eine Vorlage, deren Überschriften Smart Apply nicht sieht, wird als solche gemeldet — statt
+  als leeres Ergebnis.** Stehen die `##`-Überschriften einer Vorlage nicht je auf einer eigenen
+  Zeile, erkennt das Plugin keine einzige. Bisher lief der komplette Weg trotzdem durch: das
+  Modell wurde gefragt, und weil es keine Ziel-Überschrift gab, landete anschließend *jeder*
+  Block unter „übrig". Das Ergebnis las sich als „0 von 8 zugeordnet" und war von einem
+  Modell-Versagen nicht zu unterscheiden — es hat genau diese Fehldiagnose auch ausgelöst. Smart
+  Apply bricht jetzt vor der Anfrage ab, nennt die Vorlage als Ursache und den nötigen Handgriff,
+  und behauptet keine Zuordnung, die nie versucht wurde.
 - **Der Chat antwortet in der Sprache der Oberfläche, nicht mehr grundsätzlich auf Deutsch.**
   Der ausgelieferte System-Prompt verlangte wörtlich „Antworte knapp und auf Deutsch." — wer
   Obsidian auf Englisch fährt, stellte eine englische Frage und bekam eine deutsche Antwort. Der

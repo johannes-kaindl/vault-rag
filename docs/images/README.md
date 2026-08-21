@@ -15,8 +15,8 @@ eine Datei ohne Eintrag und eine Einbettung ohne Vertragszeile sind je ein Befun
 
 ## Status
 
-**Stand 2026-08-21: sieben von acht Bildern stehen.** Offen ist `smart-apply.png`, und zwar
-aus einem Grund am Prüfling — siehe unten. `npm run shots:check` ist die Wahrheit über den
+**Stand 2026-08-22: sieben von acht Bildern stehen.** Offen ist `smart-apply.png` — der
+Grund am Prüfling ist gefunden und behoben, es fehlt nur noch der Aufnahme-Lauf (siehe unten). `npm run shots:check` ist die Wahrheit über den
 Bestand: was hier in Prosa steht, kann veralten, die Prüfung nicht.
 
 ## Die Bilder
@@ -34,31 +34,30 @@ Bestand: was hier in Prosa steht, kann veralten, die Prüfung nicht.
 
 ### Offen: `smart-apply.png`
 
-**Zugesagt, nicht aufgenommen — und der Grund ist ein Befund am Prüfling, kein Aufnahmefehler.**
-Das Bild soll das Diff-Gate zeigen: welcher Block unter welche Überschrift wandert. Gemessen am
-2026-08-21 ordnet Smart Apply auf `Team sync 2026-03-12.md` gegen `Templates/Meeting note.md`
-aber **0 von 8 Blöcken** zu — „Ready to apply · 0/8 blocks assigned · 8 remaining · 0 fields
-set", alle acht landen unter *unassigned*. Die Vorlage wird dabei korrekt erkannt
-(`Template: meeting · detected automatically`) und die Relevanz-Rangliste stimmt
-(Meeting note 100 % · Project note 85 % · Literature note 69 %); es scheitert erst an der
-Zuordnung.
+**Aufnehmbar, aber noch nicht aufgenommen.** Bis zum 2026-08-22 stand hier ein Befund am
+Prüfling: Smart Apply ordnete auf `Team sync 2026-03-12.md` gegen `Templates/Meeting note.md`
+**0 von 8 Blöcken** zu, mit zwei Modellen reproduziert, und ein Bild davon hätte die
+README-Zusage widerlegt statt sie zu zeigen.
 
-Reproduziert mit **zwei** Modellen (`qwen/qwen3.6-27b`, `qwen/qwen3.8-27b`), Modus
-*Deterministic* — es ist also kein Modell-Zufall. Ein Bild davon würde die Zusage der README
-(„routing your *original* blocks under the right headings") widerlegen statt sie zu zeigen.
+**Die Ursache lag im Fixture — nicht am Modell und nicht an der Prompt-Sprache.** Die drei
+Vorlagen unter `Templates/` waren einzeilig angelegt: sämtliche `##`-Überschriften und
+`%%`-Anleitungen standen auf **einer** Zeile. `parseTemplate` erkennt Überschriften zeilenweise
+(`^(#{1,6})\s+…`), fand also keine einzige, und `reconcileAssignment` verwarf mangels
+Ziel-Überschriften jede Zuordnung des Modells — auch eine fehlerfreie.
 
-Unbestätigte Spur, die zuerst geprüft gehört: der Smart-Apply-Prompt ist **hart deutsch**
-(`note_restructurer.ts:320/337/353` — `## Vorlagen-Struktur (Überschriften + Anleitung)`,
-`Die \`Anleitung:\`-Zeilen …`), während Notiz und Vorlage englisch sind. Das ist dieselbe
-Wurzel wie beim Chat-System-Prompt, der am selben Tag behoben wurde (`effectiveSystemPrompt`,
-`settings_core.ts`) — nur ungleich größer, weil der Prompt-Bau daran hängt.
+Gemessen am 2026-08-22 gegen dieselben zwei Modelle, vorher gegen nachher:
 
-`npm run shots:check` meldet dieses Bild bei jedem Lauf als fehlend. Das ist Absicht: die
-Lücke soll sichtbar bleiben, bis sie geschlossen ist.
+| Vorlage | `tpl.sections` | zugeordnet |
+| --- | --- | --- |
+| einzeilig (Stand `92ad5ed`) | 0 | **0/8** |
+| repariert | 6 | **8/8** |
 
-Klassen und Grenzen kommen aus dem zentralen Bild-Standard
-(`_docs/readme/readme-spec.json`, Block `images`) und werden hier **nicht** wiederholt —
-ändert sich dort etwas, gilt es hier beim nächsten Lauf.
+Die Vorlagen sind repariert. Zusätzlich bricht Smart Apply eine Vorlage ohne erkennbare
+Überschriften jetzt **vor** dem Modell ab und nennt den Grund (`template-no-sections`), statt
+eine Null zu zeigen, die von einem Modell-Versagen nicht zu unterscheiden ist — genau diese
+Anzeige hatte die Fehldiagnose ausgelöst.
+
+Es fehlt nur der Aufnahme-Lauf gegen ein laufendes Obsidian.
 
 ## Was der Lauf voraussetzt
 

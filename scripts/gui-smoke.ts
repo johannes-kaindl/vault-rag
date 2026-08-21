@@ -475,17 +475,32 @@ async function main(): Promise<void> {
         const saved = JSON.parse(JSON.stringify(p.settings.embeddingEndpoints));
         // Notices MITSCHREIBEN statt am Ende nachsehen: sie blenden nach 10 s aus, die Kaskade
         // darf aber bis zu 90 s brauchen. Ein Blick danach misst nur, wer zufaellig noch steht.
+        //
+        // ACHTUNG: beobachtet wird activeDocument, NICHT document — an Obsidian 1.13.7 gemessen:
+        // eine Notice landet im aktiven Fenster, und sobald ein Treiber app.setting.open()
+        // gemacht hat, ist das Obsidians Einstellungs-FENSTER (eigenes Dokument im selben
+        // Renderer). n.noticeEl.getRootNode() === document ist dann false und
+        // document.querySelectorAll(".notice") bleibt leer — auch nach Page.bringToFront.
+        // Wer hier document nimmt, misst "keine Notice", obwohl eine da war.
+        // (Kein Backtick in diesem Block: der Renderer-Code steht selbst in einem Template-Literal.)
+        // Beide Dokumente zu beobachten ist billiger als zu raten, welches gerade gilt.
         window.__vaultRagSmokeNotices = [];
-        window.__vaultRagSmokeObserver = new MutationObserver((records) => {
+        const collect = (records) => {
           for (const rec of records) {
             for (const node of rec.addedNodes) {
-              if (node.nodeType === 1 && node.classList.contains("notice")) {
-                window.__vaultRagSmokeNotices.push(node.textContent.trim());
-              }
+              if (node.nodeType !== 1) continue;
+              const hit = node.classList.contains("notice") ? node : node.querySelector?.(".notice");
+              if (hit) window.__vaultRagSmokeNotices.push(hit.textContent.trim());
             }
           }
-        });
-        window.__vaultRagSmokeObserver.observe(document.body, { childList: true, subtree: true });
+        };
+        window.__vaultRagSmokeObservers = [];
+        const docs = new Set([document, typeof activeDocument !== "undefined" ? activeDocument : document]);
+        for (const doc of docs) {
+          const obs = new MutationObserver(collect);
+          obs.observe(doc.body, { childList: true, subtree: true });
+          window.__vaultRagSmokeObservers.push(obs);
+        }
         // Endpunkt tot stellen — über die Einstellungen, nicht über das Netz: ein Port, auf dem
         // nichts lauscht, ist der einzige Weg, "kein Embedder" reproduzierbar herzustellen.
         p.settings.embeddingEndpoints = [{ url: "http://127.0.0.1:9" }];
@@ -513,8 +528,8 @@ async function main(): Promise<void> {
       `, 90_000, 2000);
       const healNotices = await main.evaluate<string[]>(`
         const seen = window.__vaultRagSmokeNotices || [];
-        window.__vaultRagSmokeObserver?.disconnect();
-        delete window.__vaultRagSmokeObserver;
+        for (const obs of window.__vaultRagSmokeObservers || []) obs.disconnect();
+        delete window.__vaultRagSmokeObservers;
         delete window.__vaultRagSmokeNotices;
         return seen;
       `);

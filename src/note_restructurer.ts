@@ -28,8 +28,11 @@ export interface Assignment {
 }
 
 /** `output-truncated` ist ein reiner BEGLEIT-Befund: er erklaert einen anderen Fehlschlag
- *  (die Antwort lief ins Token-Budget), blockt aber selbst nie — `hardOk` kennt ihn nicht. */
-export type CheckId = "assignment-parse" | "permutation" | "fm-roundtrip" | "fm-source" | "assemble" | "additions-target" | "output-truncated";
+ *  (die Antwort lief ins Token-Budget), blockt aber selbst nie — `hardOk` kennt ihn nicht.
+ *  `template-no-sections` ist das Gegenteil: ein VORAB-Abbruch, bevor ueberhaupt ein Modell
+ *  gefragt wird. Ohne Ziel-Ueberschriften verwirft `reconcileAssignment` jede Zuordnung, das
+ *  Ergebnis waere zwangslaeufig leer — und saehe wie ein Modell-Versagen aus. */
+export type CheckId = "assignment-parse" | "permutation" | "fm-roundtrip" | "fm-source" | "assemble" | "additions-target" | "output-truncated" | "template-no-sections";
 export interface CheckResult { id: CheckId; ok: boolean; detail?: string }
 
 // ── splitBlocks ──────────────────────────────────────────────────────────────

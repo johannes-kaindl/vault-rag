@@ -553,6 +553,23 @@ describe("SmartApplyPanel — Cockpit", () => {
     expect(hasClass(first(container, "vault-rag-sa-guard"), "is-error")).toBe(true);
   });
 
+  it("Vorlage ohne Überschriften → der Grund steht sichtbar im Scan-Kopf", async () => {
+    // Der Guard bricht VOR dem Modell ab (smart_apply.ts, Step 5b). Wenn seine Begründung
+    // hier nicht ankommt, sieht der Nutzer wieder nur eine Null ohne Ursache — genau der
+    // Zustand, der 2026-08-22 als Modell-Versagen fehlgedeutet wurde.
+    const detail = "Die Vorlage enthält keine erkennbaren Überschriften";
+    const { container } = mkPanel({ build: vi.fn(async () => mkProposal({
+      hardOk: false, sectionDiff: [], unassigned: [],
+      checks: [{ id: "template-no-sections", ok: false, detail }],
+    })) });
+    first(container, "vault-rag-sa-run").click();
+    await flush();
+
+    const fails = all(container, "vault-rag-sa-guard-fail");
+    expect(fails.length).toBe(1);
+    expect(fails[0].textContent).toContain(detail);
+  });
+
   // Source-cleanliness
   it("Quelltext nutzt kein innerHTML", async () => {
     const fs = await import("node:fs");

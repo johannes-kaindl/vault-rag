@@ -9,6 +9,7 @@ import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupMo
 import { chatRequestModel, effectiveModel, migrateEndpointList, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
+import { effectiveSystemPrompt, migrateSystemPrompt } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
 import { withTimeout } from "./vendor/kit/timeout";
 import { EmbeddingClient } from "./embedder";
@@ -189,6 +190,10 @@ export default class VaultRagPlugin extends Plugin {
       embeddingEndpoints?: (string | EndpointConfig)[]; chatEndpoints?: (string | EndpointConfig)[];
     }) | null;
     this.settings = mergeSettings(DEFAULT_SETTINGS, loaded as Partial<VaultRagSettings> | null);
+    // Migration: der Prä-0.26-Chat-System-Prompt war hart deutsch und wurde beim ersten
+    // Speichern in jede data.json kopiert. Wer ihn nie angefasst hat, bekommt jetzt den
+    // sprachabhängigen Default (leeres Feld) statt eines deutschen Satzes in englischer UI.
+    this.settings.chatSystemPrompt = migrateSystemPrompt(this.settings.chatSystemPrompt);
     // Migration: alte Einzel-Endpoint-Settings und Prä-0.19-String-Listen → EndpointConfig-Listen.
     this.settings.embeddingEndpoints = migrateEndpointList(loaded?.embeddingEndpoint, loaded?.embeddingEndpoints);
     this.settings.chatEndpoints = migrateEndpointList(loaded?.chatEndpoint, loaded?.chatEndpoints);
@@ -408,7 +413,7 @@ export default class VaultRagPlugin extends Plugin {
             read: (p) => this.app.vault.adapter.read(p),
             budget: this.settings.contextCharBudget,
           }),
-          systemPreamble: () => this.settings.chatSystemPrompt,
+          systemPreamble: () => effectiveSystemPrompt(this.settings.chatSystemPrompt),
           params: () => ({ model: this.chatModelInUse, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
         }),
         openPath: this.openPath,

@@ -39,7 +39,11 @@ describe("settings", () => {
   it("hat Chat-Modell-UX-Defaults", () => {
     expect(DEFAULT_SETTINGS.chatTemperature).toBe(0.7);
     expect(DEFAULT_SETTINGS.chatInputPosition).toBe("bottom");
-    expect(DEFAULT_SETTINGS.chatSystemPrompt).toContain("gegroundet");
+    // Der Default ist LEER, nicht ein fertiger Satz: ein Satz hier wird auf Modul-Ebene
+    // ausgewertet — vor setLang() — und friert die Antwortsprache des Modells ein. Der
+    // wirksame Prompt entsteht zur Anfragezeit in effectiveSystemPrompt (eigene Tests in
+    // tests/system_prompt.test.ts).
+    expect(DEFAULT_SETTINGS.chatSystemPrompt).toBe("");
   });
 
   it("hat UX-Politur-Defaults", () => {

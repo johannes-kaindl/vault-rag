@@ -10,7 +10,7 @@ import { ENDPOINT_PRESETS, type EndpointStatus } from "./vendor/kit/endpoint_dia
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
-import { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
+import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointInputWarnings, type EndpointConfig } from "./endpoint_config";
 import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
@@ -18,7 +18,7 @@ import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./
 import { describeStartError, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
 import { t } from "./vendor/kit/i18n";
 
-export { DEFAULT_SETTINGS, DEFAULT_SYSTEM_PROMPT };
+export { DEFAULT_SETTINGS };
 export type { VaultRagSettings };
 // Endpunkt-Helfer werden hier NICHT durchgereicht: sie kommen direkt aus `endpoint_config.ts`
 // (eine öffentliche Fläche pro Wahrheit).

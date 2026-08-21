@@ -322,13 +322,18 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (906 Tests, 64 Files)
+npm test                          # vitest run     (916 Tests, 65 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
 npx vitest run tests/<datei>      # eine Test-Datei
 npm run version-bump              # ../tools/release/version-bump.mjs (zentral)
 npm run preflight <version>       # ../tools/release/preflight.mjs (Store-Checkliste)
 npm run release                   # ../tools/release/release.mjs (zentral: Gate, Tag, Forge-Release, Mirror)
+npm run shots -- --setup          # Aufnahme-Vault aus docs/images/fixture/ bauen
+npm run shots -- --prepare        # Chat-Modell setzen + Index bauen (einmalig je Vault)
+npm run shots -- --deploy         # gebautes Plugin in den Aufnahme-Vault + Reload
+npm run shots -- --only hero.png  # ein README-Bild aufnehmen (Vertrag: docs/images/README.md)
+npm run shots:check               # Bild-Standard pruefen (readme_lint, maintainer-lokal)
 ```
 
 esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electron`, Output `main.js`
@@ -406,7 +411,23 @@ gar nicht bis in die Oberfläche schafft.
   das erzwingen kann, ist er der Wächter (`StartErrorReason` ist kein String; `EndpointStatusKind`
   wird erschöpfend geswitcht) — sonst greift `tests/i18n/diagnostic_codes.test.ts`.
   **Vendored Kit-Module liefern beides** (`kind` + fest deutschen `klartext`): immer den Code
-  nehmen. Der Rohzugang zu `validateEndpointInput` ist deshalb in `endpointInputWarnings`
+  nehmen.
+- **Dritte Ausprägung derselben Wurzel (seit 2026-08-21): ein Text, der nicht in die Oberfläche
+  geht, sondern ins MODELL.** Der Chat-System-Prompt lag als fertiger deutscher Satz in
+  `DEFAULT_SETTINGS` (`"… Antworte knapp und auf Deutsch."`) — auf englischer Oberfläche kam
+  damit auf eine englische Frage eine deutsche Antwort. **Beide Guards waren dagegen blind, und
+  zwar zu Recht:** `sink_guard.ts` erkennt Text-*Senken* (UI-Elemente), und ein Prompt ist keine;
+  der Modul-Ebenen-Check sucht `t()`-Aufrufe, und hier stand gar keiner. Die Regel ist trotzdem
+  dieselbe: *jede Übersetzung erst zur Verwendungszeit auflösen.* Umgesetzt als
+  `effectiveSystemPrompt(stored)` (`settings_core.ts`) — Default ist **leer**, der wirksame Text
+  entsteht bei der Anfrage.
+  **Wer so etwas repariert, braucht zwingend die zweite Hälfte:** `migrateSystemPrompt` räumt den
+  alten Satz beim Laden aus `data.json`. Ohne sie zeigt das Einstellungs-Feld weiter den deutschen
+  Text (es zeigt den *gespeicherten* Wert), während die Antworten englisch kommen — ein sichtbarer
+  Widerspruch, den niemand sich erklären kann. Aufgefallen ist das **beim Ansehen eines
+  Screenshots**, nicht durch einen Test.
+  Offen und gleicher Bauart: der **Smart-Apply-Prompt** ist ebenfalls hart deutsch
+  (`note_restructurer.ts:320/337/353`). Der Rohzugang zu `validateEndpointInput` ist deshalb in `endpointInputWarnings`
   gekapselt — solange ein Aufrufer das rohe `EndpointWarning` hält, kann er an der deutschen
   `message` vorbeigreifen, und ein Wächter kann das nur raten.
 - **`data.json`** ist die von Obsidian persistierte Plugin-Konfig (`saveData`) — maschinen-/vault-spezifisch,
@@ -605,10 +626,13 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
 
 - **CORE-META-02** — Badge-Zeile **partiell**: Lizenz/Docs/Obsidian gesetzt; Release/CI-Badges fehlen.
   *Grund:* Release-Badge mit v0.2.0 nachziehbar; CI-Badges erst mit CI.
-- **CORE-META-03** — kein Hero-Bild/Feature-Screenshots in `docs/images/`. **Einzige offene Goldstandard-Lücke**
-  (Stand 2026-07-28, sonst `readme_lint` 0 Befunde). *Grund:* Screenshots brauchen eine laufende GUI und sind
-  agentenseitig nicht erzeugbar. Beim Nachrüsten: `raw.githubusercontent.com`-URLs verwenden (PROF-OBS-14),
-  sinnvollerweise nach dem i18n-Slice, damit die Bilder eine englische UI zeigen.
+- **CORE-META-03** — ✅ erledigt (2026-08-21): sieben Bilder in `docs/images/`, eingebettet in beide READMEs
+  über `raw.githubusercontent.com` (PROF-OBS-14). Die frühere Begründung („Screenshots brauchen eine laufende
+  GUI und sind agentenseitig nicht erzeugbar") ist mit `npm run shots` gegenstandslos — der Treiber fährt den
+  Vertrag aus `docs/images/README.md` gegen ein laufendes Obsidian. **`smart-apply.png` bleibt offen**, mit
+  Begründung im Vertrag: Smart Apply ordnet auf der Fixture-Notiz 0 von 8 Blöcken zu (zwei Modelle geprüft) —
+  ein Bild davon widerlegte die README-Zusage, statt sie zu zeigen. `shots:check` meldet die Lücke bei jedem
+  Lauf, und zwar absichtlich.
 - **CORE-META-04** — ✅ erledigt (2026-07-28): Diátaxis-Manual unter `docs/` (`tutorial.md` · `how-to/index.md` ·
   `reference/index.md` · `explanation/index.md`), aus der README verlinkt. **Links absolut** (`…/blob/main/…`) —
   der Community-Directory-Renderer löst relative Pfade nicht auf (PROF-OBS-14).

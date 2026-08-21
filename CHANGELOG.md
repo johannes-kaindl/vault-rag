@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Der Chat antwortet in der Sprache der Oberfläche, nicht mehr grundsätzlich auf Deutsch.**
+  Der ausgelieferte System-Prompt verlangte wörtlich „Antworte knapp und auf Deutsch." — wer
+  Obsidian auf Englisch fährt, stellte eine englische Frage und bekam eine deutsche Antwort. Der
+  Prompt wird jetzt erst bei der Anfrage aufgelöst und folgt der eingestellten Sprache. Ein selbst
+  geschriebener System-Prompt bleibt unangetastet; wer den alten Vorgabetext nie verändert hat,
+  findet das Feld künftig leer vor — leer heißt „die eingebaute Vorgabe gilt", und die
+  Feldbeschreibung sagt das jetzt auch.
+
+### Added
+- **Die README ist bebildert** (sieben Screenshots: Verwandte Notizen, Suche, Chat, sichtbares
+  Denken, Umformatieren-Vorschau, Endpunkt-Rollen, Einstellungen). Aufgenommen werden sie
+  reproduzierbar per `npm run shots` gegen ein laufendes Obsidian; der Aufnahme-Vertrag steht in
+  `docs/images/README.md`.
+
 ## [0.25.0] — 2026-08-21
 
 ### Fixed

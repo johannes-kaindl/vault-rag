@@ -27,7 +27,9 @@ export interface Assignment {
   frontmatter: Record<string, FmAssignedValue>;
 }
 
-export type CheckId = "assignment-parse" | "permutation" | "fm-roundtrip" | "fm-source" | "assemble" | "additions-target";
+/** `output-truncated` ist ein reiner BEGLEIT-Befund: er erklaert einen anderen Fehlschlag
+ *  (die Antwort lief ins Token-Budget), blockt aber selbst nie — `hardOk` kennt ihn nicht. */
+export type CheckId = "assignment-parse" | "permutation" | "fm-roundtrip" | "fm-source" | "assemble" | "additions-target" | "output-truncated";
 export interface CheckResult { id: CheckId; ok: boolean; detail?: string }
 
 // ── splitBlocks ──────────────────────────────────────────────────────────────

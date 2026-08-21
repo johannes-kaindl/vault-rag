@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { waitingMessage, COLD_START_HINT_AFTER_MS } from "../src/reformat_progress";
+import { waitingMessage, COLD_START_HINT_AFTER_MS, truncationKey } from "../src/reformat_progress";
 
 describe("waitingMessage", () => {
   it("zeigt von Anfang an, dass gewartet wird — mit Sekundenzahl", () => {
@@ -36,5 +36,20 @@ describe("waitingMessage", () => {
     const spaet = waitingMessage(60_000);
     expect(spaet).not.toMatch(/Modell wird geladen/);
     expect(spaet).toMatch(/ggf\./);
+  });
+});
+
+describe("truncationKey", () => {
+  it("meldet den Token-Limit-Abbruch als Schluessel, nicht als fertigen Text", () => {
+    // i18n-Doktrin: die Diagnose liefert einen Code, uebersetzt wird an der Anzeigestelle.
+    expect(truncationKey("length")).toBe("reformatPreview.truncated");
+  });
+
+  it("ein regulaeres Stream-Ende ist kein Befund", () => {
+    expect(truncationKey("stop")).toBeNull();
+  });
+
+  it("ein Server ohne finish_reason erzeugt keinen Befund", () => {
+    expect(truncationKey(undefined)).toBeNull();
   });
 });

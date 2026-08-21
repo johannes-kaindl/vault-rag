@@ -19,3 +19,20 @@ export function waitingMessage(elapsedMs: number): string {
   const head = `Warte auf Antwort … ${secs} s`;
   return elapsedMs >= COLD_START_HINT_AFTER_MS ? `${head}\n${COLD_START_HINT}` : head;
 }
+
+/**
+ * Uebersetzt das `finish_reason` des Servers in einen Anzeige-Schluessel — oder null,
+ * wenn es nichts zu melden gibt.
+ *
+ * Nur `"length"` ist ein Befund: die Antwort lief ins Token-Budget und bricht mitten im
+ * Text ab. Sie bleibt trotzdem anwendbar (abgeschnitten ist nicht automatisch kaputt) —
+ * der Hinweis erklaert nur, warum das Ergebnis kuerzer ist als erwartet, statt den Nutzer
+ * die Ursache beim Modell suchen zu lassen.
+ *
+ * Rueckgabe ist bewusst ein Schluessel und kein Text: entstuende der Text hier, laege
+ * zwischen Erzeugung und Anzeige keine Literalstelle mehr, die der i18n-Sink-Guard sehen
+ * koennte (AGENTS.md, „i18n Teil 3").
+ */
+export function truncationKey(finishReason?: string): string | null {
+  return finishReason === "length" ? "reformatPreview.truncated" : null;
+}

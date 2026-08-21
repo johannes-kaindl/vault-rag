@@ -212,13 +212,22 @@ export class SmartApply {
 
     // Step 7: stream — exactly ONE stream call
     const p = this.params();
-    const { content, reasoning } = await this.client().stream(
+    const { content, reasoning, finishReason } = await this.client().stream(
       messages,
       onToken,
       onReasoning,
       this.controller.signal,
       { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens },
     );
+
+    // Ins Token-Budget gelaufen: das erklaert einen anschliessenden Fehlschlag und nennt die
+    // Stellschraube. Bewusst NUR als Begleit-Befund zu einem echten Fehlschlag — eine
+    // abgeschnittene Antwort, die sich vollstaendig verwerten laesst, ist kein Fehler
+    // (Uebernahme aus vault-crews 0.9.3). Er geht daher nie in `hardOk` ein.
+    const truncationCheck = (): CheckResult[] =>
+      finishReason === "length"
+        ? [{ id: "output-truncated", ok: false, detail: t("smartApply.check.outputTruncated", String(p.maxTokens)) }]
+        : [];
 
     // Step 8: parse assignment
     const assignment = parseAssignment(content);
@@ -227,6 +236,7 @@ export class SmartApply {
       // Assignment parse failed → hardOk false, build minimal proposal
       const checks: CheckResult[] = [
         { id: "assignment-parse", ok: false, detail: t("smartApply.check.assignmentParse") },
+        ...truncationCheck(),
       ];
       const emptyAssignment: Assignment = { version: 1, sections: [], unassigned: [], frontmatter: {} };
       const assembly: AssemblyContext = { tpl, original: originalParsed, assignment: emptyAssignment, blocks, additions: [] };
@@ -334,7 +344,7 @@ export class SmartApply {
         ok: false,
         detail: t("smartApply.check.fmRoundtripFailed", err instanceof Error ? err.message : String(err)),
       };
-      const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck];
+      const checks: CheckResult[] = [parseCheck, permCheck, fmRoundtripCheck, fmSourceCheck, ...truncationCheck()];
       if (additionsTargetCheck !== null) checks.push(additionsTargetCheck);
       const assembly: AssemblyContext = { tpl, original: originalParsed, assignment: cleanedAssignment, blocks, additions };
       return {
@@ -416,6 +426,7 @@ export class SmartApply {
     // Step 18: hardOk — true iff assignment-parse + permutation + fm-roundtrip + assemble all
     // ok. "additions-target" is SOFT and never enters this formula (it does not block).
     const hardOk = parseCheck.ok && permCheck.ok && fmRoundtripCheck.ok && (assembleCheck === null || assembleCheck.ok);
+    if (!hardOk) checks.push(...truncationCheck());
 
     // Step 19: build the AssemblyContext (Task 7 seam) + its default granular selection,
     // and re-derive proposedText from it — this is now the SOLE source of truth for the

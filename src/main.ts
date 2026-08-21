@@ -838,7 +838,7 @@ export default class VaultRagPlugin extends Plugin {
           suppressThinking: true,
           maxTokens: REFORMAT_MAX_TOKENS,
         })
-        .then(r => r.content),
+        .then(r => ({ text: r.content, finishReason: r.finishReason })),
       onApply: (result) => {
         // Erneut prüfen: zwischen Öffnen des Modals und „Anwenden" kann editiert worden sein.
         if (!this.captureIsLive(cap) || isRangeStale(cap.editor.getRange(cap.from, cap.to), cap.text)) {

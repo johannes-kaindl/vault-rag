@@ -899,3 +899,65 @@ Ein Punkt.
     expect(text).not.toContain("Erschlossen.");
   });
 });
+
+// ── Vorlage ohne erkennbare Überschriften ────────────────────────────────────
+// Gemessen 2026-08-22: eine Vorlage, deren `##`-Überschriften nicht am Zeilenanfang
+// stehen (alles auf EINER Zeile), liefert `tpl.sections === []`. Ohne Guard lief der
+// komplette Weg trotzdem durch: Prompt mit leerer Vorlagen-Struktur → Modell antwortet →
+// `reconcileAssignment` verwirft mangels Ziel-Überschriften JEDE Zuordnung. Ergebnis war
+// „0/8 zugeordnet · 8 übrig" — nicht von einem Modell-Versagen zu unterscheiden, und genau
+// als solches fehldiagnostiziert (zwei Modelle durchprobiert, Sprach-Hypothese gebildet).
+describe("SmartApply — Vorlage ohne erkennbare Überschriften", () => {
+  const flatTemplate = `---
+type: Meeting
+---
+%% Anleitung %% ## Agenda %% Was besprochen werden soll %% ## Ergebnisse %% Was dabei herauskam %%
+`;
+
+  function makeFlatDeps() {
+    return makeDeps({
+      read: async (p: string) => (p === TEMPLATE_PATH ? flatTemplate : testNoteText),
+    });
+  }
+
+  it("Vorbedingung: parseTemplate findet keine Section", () => {
+    expect(parseTemplate(flatTemplate).sections).toHaveLength(0);
+  });
+
+  it("fragt das Modell gar nicht erst", async () => {
+    const stream = vi.fn();
+    const sa = new SmartApply(makeFlatDeps(), () => ({ stream }) as unknown as ChatClient, () => ({
+      model: "m", temperature: 0, suppressThinking: false, maxTokens: 2048,
+    }));
+    await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
+
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("meldet den Grund als eigenen Check statt als Zuordnungs-Fehlschlag", async () => {
+    const sa = new SmartApply(makeFlatDeps(), makeClient(validAssignmentJSON()), () => ({
+      model: "m", temperature: 0, suppressThinking: false, maxTokens: 2048,
+    }));
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
+
+    expect(proposal.hardOk).toBe(false);
+    const check = proposal.checks.find(c => c.id === "template-no-sections");
+    expect(check?.ok).toBe(false);
+    expect(check?.detail).toBeTruthy();
+    // Kein Zuordnungs-Befund — es wurde nie eine Zuordnung versucht.
+    expect(proposal.checks.some(c => c.id === "assignment-parse")).toBe(false);
+  });
+
+  it("behauptet keine Zuordnung, die nie stattgefunden hat", async () => {
+    const sa = new SmartApply(makeFlatDeps(), makeClient(validAssignmentJSON()), () => ({
+      model: "m", temperature: 0, suppressThinking: false, maxTokens: 2048,
+    }));
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
+
+    // Die Summenzeile rechnet aus sectionDiff + unassigned. Beide leer ⇒ sie kann kein
+    // „0 von N" behaupten, das nach einem Modell-Versagen aussieht.
+    expect(proposal.sectionDiff).toEqual([]);
+    expect(proposal.unassigned).toEqual([]);
+    expect(proposal.proposedText).toBe(proposal.originalText);
+  });
+});

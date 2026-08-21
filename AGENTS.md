@@ -594,6 +594,20 @@ gar nicht bis in die Oberfläche schafft.
   reiner Begleit-Befund — er steht nicht in `CheckId`s hardOk-Formel und erscheint nur, wenn
   ohnehin ein Check fehlgeschlagen ist; eine verwertbare abgeschnittene Antwort bleibt
   fehlerfrei, und die Reformat-Vorschau bleibt anwendbar.
+- **Eine Vorlage ohne erkennbare Überschriften ist ein Daten-Defekt, der wie ein Modell-Defekt
+  aussieht.** `parseTemplate` erkennt Überschriften **zeilenweise** (`^(#{1,6})\s+(.+?)\s*$`). Eine
+  Vorlage, deren `##`-Zeilen nicht je am Zeilenanfang stehen — etwa weil `%%`-Anleitungen und
+  Überschriften auf **einer** Zeile liegen —, liefert `tpl.sections === []`. Der Prompt nennt dann
+  keine einzige Ziel-Überschrift, und `reconcileAssignment` verwirft anschließend **jede** Zuordnung
+  des Modells, auch eine fehlerfreie. Sichtbar wurde davon nur „0 von N zugeordnet · N übrig" — nicht
+  von einem Modell-Versagen zu unterscheiden. Gemessen 2026-08-22 an den README-Fixture-Vorlagen (alle
+  drei einzeilig angelegt): dieselben zwei Modelle liefern **0/8** gegen die kaputte und **8/8** gegen
+  die reparierte Vorlage. Die Fehldiagnose kostete zwei Modell-Durchläufe und eine Sprach-Hypothese,
+  bevor jemand `tpl.sections.length` ansah.
+  **Die Lehre ist nicht der Fixture-Fix, sondern der Guard:** ein Zustand, in dem ein Ergebnis
+  strukturell leer sein MUSS, darf nicht als leeres Ergebnis angezeigt werden. `smart_apply.ts`
+  (Step 5b) bricht deshalb vor dem Modell ab und meldet `template-no-sections`; `sectionDiff` und
+  `unassigned` bleiben leer, damit die Summenzeile keine Zuordnung behauptet, die nie versucht wurde.
 - **Escapte Pipes müssen beim Rendern re-escaped werden.** `\|` in einer Markdown-Tabellenzelle wird
   beim Parsen zu `|`; schreibt man es un-escaped zurück, zerfällt eine Zelle in zwei, Header- und
   Delimiter-Spaltenzahl divergieren und der Inhalt ist beim nächsten Edit dauerhaft zerrissen.
@@ -629,10 +643,10 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
 - **CORE-META-03** — ✅ erledigt (2026-08-21): sieben Bilder in `docs/images/`, eingebettet in beide READMEs
   über `raw.githubusercontent.com` (PROF-OBS-14). Die frühere Begründung („Screenshots brauchen eine laufende
   GUI und sind agentenseitig nicht erzeugbar") ist mit `npm run shots` gegenstandslos — der Treiber fährt den
-  Vertrag aus `docs/images/README.md` gegen ein laufendes Obsidian. **`smart-apply.png` bleibt offen**, mit
-  Begründung im Vertrag: Smart Apply ordnet auf der Fixture-Notiz 0 von 8 Blöcken zu (zwei Modelle geprüft) —
-  ein Bild davon widerlegte die README-Zusage, statt sie zu zeigen. `shots:check` meldet die Lücke bei jedem
-  Lauf, und zwar absichtlich.
+  Vertrag aus `docs/images/README.md` gegen ein laufendes Obsidian. **`smart-apply.png` bleibt offen** — aber
+  nur noch als fehlende Aufnahme: der Befund dahinter („0 von 8 Blöcken zugeordnet, zwei Modelle geprüft") war
+  ein **Fixture-Defekt**, keine Modell- und keine Sprachfrage (2026-08-22, s. Gotcha „Eine Vorlage ohne
+  Überschriften…"). `shots:check` meldet die Lücke bei jedem Lauf, und zwar absichtlich.
 - **CORE-META-04** — ✅ erledigt (2026-07-28): Diátaxis-Manual unter `docs/` (`tutorial.md` · `how-to/index.md` ·
   `reference/index.md` · `explanation/index.md`), aus der README verlinkt. **Links absolut** (`…/blob/main/…`) —
   der Community-Directory-Renderer löst relative Pfade nicht auf (PROF-OBS-14).

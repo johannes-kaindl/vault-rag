@@ -207,6 +207,36 @@ export class SmartApply {
     // Step 5: split blocks
     const blocks = splitBlocks(originalParsed.body);
 
+    // Step 5b: Vorlage ohne erkennbare Ueberschriften → hier ist Schluss, und zwar VOR dem
+    // Modell. `reconcileAssignment` prueft die Ueberschrift jeder Section gegen `tpl.sections`;
+    // ist die Menge leer, wandert JEDE Zuordnung nach `unassigned` — auch eine fehlerfreie.
+    // Das Modell zu fragen kostet dann nur Zeit und Tokens fuer ein Ergebnis, das strukturell
+    // leer sein MUSS. Entscheidend ist die zweite Haelfte: `sectionDiff`/`unassigned` bleiben
+    // leer, damit die Summenzeile kein „0 von N zugeordnet" behauptet — genau diese Anzeige
+    // war von einem Modell-Versagen nicht zu unterscheiden und wurde als solches fehlgedeutet.
+    if (tpl.sections.length === 0) {
+      const emptyAssignment: Assignment = { version: 1, sections: [], unassigned: [], frontmatter: {} };
+      const assembly: AssemblyContext = { tpl, original: originalParsed, assignment: emptyAssignment, blocks, additions: [] };
+      return {
+        notePath,
+        templatePath,
+        type: tpl.type,
+        originalText,
+        proposedText: originalText,
+        fmRows: [],
+        sectionDiff: [],
+        unassigned: [],
+        detection: { source: detection.source, confidence: detection.confidence },
+        checks: [{ id: "template-no-sections", ok: false, detail: t("smartApply.check.templateNoSections") }],
+        hardOk: false,
+        reasoning: "",
+        mode,
+        additions: [],
+        assembly,
+        selection: defaultSelection(assembly),
+      };
+    }
+
     // Step 6: build prompt
     const messages = buildRestructurePrompt(tpl, blocks, mode);
 

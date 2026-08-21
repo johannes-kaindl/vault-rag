@@ -7,3 +7,4 @@ data.json
 .superpowers/
 index-backups/
 .gui-smoke.mjs
+.shots.mjs

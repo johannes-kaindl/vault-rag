@@ -36,13 +36,20 @@
  * sichert sie vorher und schreibt sie im `finally` zurück — auch nach einem Abbruch mitten
  * im Lauf. Mit `--keep` bleibt die geänderte Reihenfolge stehen.
  *
+ * ⚠️ **Der letzte Prüfpunkt (Auto-Heal-Kaskade) beschädigt `index.bin` absichtlich** und stellt
+ * die Embedding-Endpunkte kurzzeitig tot — anders ist die Verdrahtung nicht zu messen, und
+ * genau dort lag der Bug (nicht in der unit-getesteten Entscheidung `planAutoHeal`). Er läuft
+ * nur, wenn ein geräte-lokales Backup existiert, parkt die Original-Bytes im Renderer und
+ * schreibt sie im `finally` zurück. Bleibt selbst das aus, holt die Auto-Heal-Kaskade den
+ * Index beim nächsten Start aus demselben Backup — das ist die zweite Absicherung.
+ *
  * Die CDP-Brücke liegt seit 2026-08-16 zentral im Dach (`tools/obsidian-cdp/`) und wird
  * importiert, nicht vendored: sie ist plugin-neutral und lief zuvor byte-identisch/inline
  * in mehreren Repos. Fehlt das Dach (fremder Checkout), bricht esbuild beim Auflösen ab —
  * das ist die gewollte Meldung. Was ihr fehlt, wird DORT ergänzt, nicht hier nachgebaut.
  */
 
-import { Cdp, attachTo } from "../../tools/obsidian-cdp/cdp.js";
+import { Cdp, attachTo, pollUntil } from "../../tools/obsidian-cdp/cdp.js";
 
 const PLUGIN_ID = "vault-retrieval";
 /** Muss zu `setIcon(...)` in `buildEndpointList` passen. */
@@ -147,7 +154,7 @@ async function main(): Promise<void> {
   const vault = flag("vault");
   const keep = argv.includes("--keep");
 
-  console.log(`GUI-Smoke Endpunkt-Priorität — Obsidian auf Port ${port}\n`);
+  console.log(`GUI-Smoke vault-retrieval — Obsidian auf Port ${port}\n`);
   // `attachTo` unterscheidet Haupt- und Einstellungen-Fenster an der Sache (nur das
   // Hauptfenster trägt einen Workspace), nicht am lokalisierten Titel.
   const main = await attachTo("workspace", port, vault);
@@ -162,6 +169,9 @@ async function main(): Promise<void> {
   // mitten im Lauf zurückschreiben kann.
   let savedChatOrder: string[] | null = null;
   let settings: Cdp | null = null;
+  // Der Heal-Prüfpunkt zerstört absichtlich den Container und stellt die Endpunkt-Liste tot.
+  // Beides wird im finally zurückgeschrieben — auch nach einem Abbruch mitten im Lauf.
+  let healRestore: { indexPath: string; savedEndpoints: unknown } | null = null;
 
   try {
     // Chromium drosselt nicht-fokussierte Fenster — ohne bringToFront misst man Phantome.
@@ -430,7 +440,115 @@ async function main(): Promise<void> {
     } else {
       console.log("  – Rolle folgt dem Modell-Override: übersprungen (kein Embedding-Endpunkt mit Override konfiguriert)");
     }
+
+    // --- 8. Auto-Heal-Kaskade: defekter Container ohne Endpunkt ------------
+    // Der einzige Prüfpunkt, der die VERDRAHTUNG misst statt der Entscheidung. `planAutoHeal`
+    // ist unit-getestet — der Bug von 2026-08-14 lag aber in `attemptAutoHeal`: die
+    // Backup-Übernahme hing hinter einem `if (!ready) return`, wer offline war blieb dauerhaft
+    // auf dem defekten Container sitzen. Genau diese Kombination wird hier hergestellt:
+    // Container kaputt UND kein erreichbarer Embedding-Endpunkt. Vor dem Fix bliebe der Index
+    // dauerhaft weg — das ist die Gegenprobe, die den Punkt aussagekräftig macht.
+    //
+    // Der Prüfpunkt fasst echte Nutzerdaten an (`index.bin` liegt im gesyncten Vault). Er
+    // sichert die Original-Bytes im Renderer, bevor er sie kippt, und das `finally` schreibt
+    // sie zurück; die Auto-Heal-Kaskade selbst ist die zweite Absicherung.
+    const healPre = await main.evaluate<{ ok: boolean; reason?: string; noteCount?: number; indexPath?: string; backups?: number }>(`
+      const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+      const before = p.api.status();
+      if (!before.indexed || !before.noteCount) return { ok: false, reason: "kein geladener Index" };
+      const backups = await p.listBackups();
+      if (!backups.length) return { ok: false, reason: "kein geräte-lokales Backup vorhanden" };
+      const indexPath = p.settings.indexDir + "/index.bin";
+      // Original-Bytes im Renderer parken statt 1,4 MB über die CDP-Grenze zu schieben.
+      window.__vaultRagSmokeIndex = await app.vault.adapter.readBinary(indexPath);
+      return { ok: true, noteCount: before.noteCount, indexPath, backups: backups.length };
+    `);
+
+    if (!healPre.ok) {
+      console.log(`  – Auto-Heal-Kaskade: übersprungen — ${healPre.reason ?? "Voraussetzung fehlt"}`);
+    } else {
+      const indexPath = healPre.indexPath as string;
+      // Ab hier ist Aufräumen Pflicht — Marke setzen, BEVOR irgendetwas verändert wird.
+      healRestore = { indexPath, savedEndpoints: null };
+      const saved = await main.evaluate<unknown>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const saved = JSON.parse(JSON.stringify(p.settings.embeddingEndpoints));
+        // Notices MITSCHREIBEN statt am Ende nachsehen: sie blenden nach 10 s aus, die Kaskade
+        // darf aber bis zu 90 s brauchen. Ein Blick danach misst nur, wer zufaellig noch steht.
+        window.__vaultRagSmokeNotices = [];
+        window.__vaultRagSmokeObserver = new MutationObserver((records) => {
+          for (const rec of records) {
+            for (const node of rec.addedNodes) {
+              if (node.nodeType === 1 && node.classList.contains("notice")) {
+                window.__vaultRagSmokeNotices.push(node.textContent.trim());
+              }
+            }
+          }
+        });
+        window.__vaultRagSmokeObserver.observe(document.body, { childList: true, subtree: true });
+        // Endpunkt tot stellen — über die Einstellungen, nicht über das Netz: ein Port, auf dem
+        // nichts lauscht, ist der einzige Weg, "kein Embedder" reproduzierbar herzustellen.
+        p.settings.embeddingEndpoints = [{ url: "http://127.0.0.1:9" }];
+        await p.saveSettings();
+        // Container kippen: EIN Byte hinter dem Header genügt, die CRC32 des Payloads schlägt an.
+        // Truncaten wäre der falsche Reiz — das ergibt "no-index", einen anderen Pfad.
+        const bytes = new Uint8Array(window.__vaultRagSmokeIndex.slice(0));
+        const at = Math.floor(bytes.length / 2);
+        bytes[at] = bytes[at] ^ 0xff;
+        await app.vault.adapter.writeBinary(${JSON.stringify("__PATH__")}, bytes.buffer);
+        // Neu laden: der Reload ist der einzige Weg in loadIndex() → corrupt → attemptAutoHeal.
+        await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+        await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+        return saved;
+      `.replace("__PATH__", indexPath));
+      healRestore.savedEndpoints = saved;
+
+      // Warten auf der NODE-Seite: die Kaskade läuft detacht (Backup lesen, CRC prüfen,
+      // persistieren) und braucht bei 1,4 MB spürbar länger als ein Renderer-Tick.
+      const healed = await pollUntil<{ indexed: boolean; noteCount: number }>(main, `
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        if (!p || !p.api) return null;
+        const s = p.api.status();
+        return s.indexed ? s : null;
+      `, 90_000, 2000);
+      const healNotices = await main.evaluate<string[]>(`
+        const seen = window.__vaultRagSmokeNotices || [];
+        window.__vaultRagSmokeObserver?.disconnect();
+        delete window.__vaultRagSmokeObserver;
+        delete window.__vaultRagSmokeNotices;
+        return seen;
+      `);
+
+      record("Defekter Container heilt sich ohne Endpunkt aus dem Backup",
+        healed !== null && healed.noteCount > 0,
+        healed
+          ? `${healed.noteCount} Notizen wieder da (vorher ${healPre.noteCount ?? 0})`
+          : "Index blieb weg — vor dem Fix von 0.24.0 war genau das das Verhalten");
+      // Die Notice ist Teil der Zusage: das Backup kann älter sein, und der Nutzer muss das
+      // erfahren, statt einen stillschweigend unvollständigen Index zu benutzen.
+      record("Die Heilung meldet sich, statt still einen aelteren Stand zu benutzen",
+        healNotices.length > 0,
+        healNotices.length ? `„${healNotices.join(" | ").slice(0, 160)}“` : "keine Notice waehrend des Laufs");
+    }
+
   } finally {
+    if (healRestore) {
+      // Reihenfolge zaehlt: erst die Original-Bytes zurueck, dann die Endpunkte, dann EIN
+      // Reload — sonst laeuft die Kaskade auf dem Rueckweg noch einmal an.
+      await main.evaluate(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        if (window.__vaultRagSmokeIndex) {
+          await app.vault.adapter.writeBinary(${JSON.stringify("__PATH__")}, window.__vaultRagSmokeIndex);
+          delete window.__vaultRagSmokeIndex;
+        }
+        const saved = __ENDPOINTS__;
+        if (saved) { p.settings.embeddingEndpoints = saved; await p.saveSettings(); }
+        await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+        await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+      `.replace("__PATH__", healRestore.indexPath).replace("__ENDPOINTS__", JSON.stringify(healRestore.savedEndpoints)))
+        .catch(() => { console.log("  ! Index/Endpunkte konnten nicht zurückgeschrieben werden — Auto-Heal-Kaskade oder „Index-Backup wiederherstellen“ holt den Index zurück"); });
+      console.log("\n  Index-Datei und Embedding-Endpunkte wiederhergestellt.");
+    }
     if (savedChatOrder && !keep) {
       // Reihenfolge zurückschreiben: der Smoke soll die Konfiguration des Nutzers nicht
       // verändern. Über die Plugin-API statt über die UI, damit auch ein Abbruch mitten

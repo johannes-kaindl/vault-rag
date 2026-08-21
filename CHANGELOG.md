@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.25.0] — 2026-08-21
+
 ### Fixed
 - **Eine ins Token-Limit gelaufene Antwort wird nicht mehr als inhaltlicher Fehler gemeldet.**
   Wer mit Smart Apply in das selbst eingestellte Budget lief, las „LLM-Antwort enthält kein gültiges
@@ -22,6 +24,10 @@ All notable changes to this project are documented here. The format follows
 - Der vendorte SSE-Parser steht wieder auf dem Kit-Stand mit `finish_reason` (obsidian-kit 0.3.0).
   Ohne das Feld ist ein Abbruch am Token-Limit von einer inhaltlich unbrauchbaren Antwort nicht zu
   unterscheiden — beides sieht am Empfänger identisch aus.
+- **Die Selbstheilung des Index hat erstmals einen Prüfpunkt, der ihre Wirkung misst.** Getestet war
+  bisher nur die Entscheidung, ob geheilt wird — der Fehler von August lag aber daneben, in der
+  Ausführung. Der neue GUI-Prüfpunkt stellt den Schadensfall gegen ein laufendes Obsidian wirklich
+  her und belegt, dass der Index ohne erreichbaren Endpunkt aus dem Backup zurückkommt.
 
 ## [0.24.0] — 2026-08-18
 

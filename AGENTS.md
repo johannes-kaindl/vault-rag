@@ -248,6 +248,10 @@ reformat_selection_state.ts  Pure Bereitschafts-/Anzeige-Logik (Slice C.2): `Ref
                   `isRangeStale` · `groupTransforms` (teilt die Registry in die zwei Panel-Gruppen).
 reformat_progress.ts    Pure `waitingMessage(elapsedMs)` für die Vorschau, solange kein Token da
                   ist. Bewusst ohne Diagnose — der Endpoint sagt nicht, ob geladen oder gedacht wird.
+                  Dazu `truncationKey(finishReason)` → i18n-**Schlüssel** oder null: nur `"length"`
+                  ist ein Befund, und der Text entsteht erst an der Anzeigestelle (i18n Teil 3 —
+                  entstünde er hier, läge zwischen Erzeugung und Senke keine Literalstelle mehr,
+                  die der Sink-Guard sehen könnte).
 reformat_picker.ts      `pickTransform` (FuzzySuggestModal über die Registry) + `promptInstruction`
                   (Freitext-Modal). obsidian-gekoppelt, nach `note_picker.ts`-Muster.
 reformat_preview_modal.ts  `ReformatPreviewModal` — Ur-Text vs. gestreamtes Ergebnis, Anwenden/
@@ -318,7 +322,7 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (801 Tests, 58 Files)
+npm test                          # vitest run     (906 Tests, 64 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
 npx vitest run tests/<datei>      # eine Test-Datei
@@ -558,6 +562,17 @@ gar nicht bis in die Oberfläche schafft.
   nicht auf die Editor-Identität verlassen: bei zufällig passendem Text (Template-Notizen,
   Boilerplate-Header) landet die Ersetzung sonst in der **falschen Notiz**. `captureIsLive`
   (`main.ts`) prüft daher Editor-Identität **und** `getMode() === "source"` **und** `file.path`.
+- **`finish_reason` ist die EINZIGE Stelle, an der ein Token-Limit-Abbruch von einer schlechten
+  Antwort zu unterscheiden ist** — und die Unterscheidung darf nicht zum Blocker werden.
+  `parseSSE` (`src/vendor/kit/sse.ts`, obsidian-kit#0.3.0) liest es, `streamSSE` und
+  `ChatClient.stream` reichen es durch. Wer es unterwegs fallen lässt, macht aus einem
+  „dein Budget war zu klein" wieder ein „das Modell hat Unsinn geliefert" — genau die
+  Fehldiagnose, die bis 2026-08-21 im Repo stand (Vendor-Pin hing auf 0.2.0, das
+  `finish_reason` still verwarf). **Die zweite Hälfte der Regel:** abgeschnitten ist nicht
+  automatisch kaputt (Entscheidung aus vault-crews 0.9.3). `output-truncated` ist deshalb ein
+  reiner Begleit-Befund — er steht nicht in `CheckId`s hardOk-Formel und erscheint nur, wenn
+  ohnehin ein Check fehlgeschlagen ist; eine verwertbare abgeschnittene Antwort bleibt
+  fehlerfrei, und die Reformat-Vorschau bleibt anwendbar.
 - **Escapte Pipes müssen beim Rendern re-escaped werden.** `\|` in einer Markdown-Tabellenzelle wird
   beim Parsen zu `|`; schreibt man es un-escaped zurück, zerfällt eine Zelle in zwei, Header- und
   Delimiter-Spaltenzahl divergieren und der Inhalt ist beim nächsten Edit dauerhaft zerrissen.

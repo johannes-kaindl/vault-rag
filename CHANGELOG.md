@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Eine ins Token-Limit gelaufene Antwort wird nicht mehr als inhaltlicher Fehler gemeldet.**
+  Wer mit Smart Apply in das selbst eingestellte Budget lief, las „LLM-Antwort enthält kein gültiges
+  Assignment-JSON" und suchte den Fehler beim Modell — während die Ursache
+  „Smart-Apply-Max-Tokens" heißt und eine Einstellung weiter oben in derselben Oberfläche steht.
+  Die Prüfliste nennt den Abbruch jetzt beim Namen und beziffert das erreichte Limit. Der Befund
+  begleitet nur einen echten Fehlschlag: eine abgeschnittene Antwort, die sich vollständig
+  verwerten lässt, bleibt fehlerfrei.
+- **Die Umformatieren-Vorschau weist auf ein abgeschnittenes Ergebnis hin**, statt es kommentarlos
+  kürzer anzuzeigen. Das Ergebnis bleibt anwendbar — der Hinweis erklärt nur, warum es endet, wo es
+  endet (das Token-Budget der Umformatierung ist fest verdrahtet und nicht einstellbar).
+
+### Changed
+- Der vendorte SSE-Parser steht wieder auf dem Kit-Stand mit `finish_reason` (obsidian-kit 0.3.0).
+  Ohne das Feld ist ein Abbruch am Token-Limit von einer inhaltlich unbrauchbaren Antwort nicht zu
+  unterscheiden — beides sieht am Empfänger identisch aus.
+
 ## [0.24.0] — 2026-08-18
 
 ### Changed

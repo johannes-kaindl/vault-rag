@@ -5,6 +5,7 @@ import { parseFrontmatter } from "../src/frontmatter";
 import { splitBlocks } from "../src/note_restructurer";
 import type { Assignment, Addition } from "../src/note_restructurer";
 import { parseTemplate } from "../src/template_matcher";
+import "../src/i18n/strings"; // Register i18n strings
 
 // ── Test data ────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,7 @@ function validAssignmentJSON(): string {
 
 // ── Fake helpers ─────────────────────────────────────────────────────────────
 
-function makeClient(returnContent: string, returnReasoning = "") {
+function makeClient(returnContent: string, returnReasoning = "", finishReason?: string) {
   return () =>
     ({
       stream: async (
@@ -69,7 +70,7 @@ function makeClient(returnContent: string, returnReasoning = "") {
       ) => {
         onToken(returnContent);
         if (returnReasoning) onReasoning(returnReasoning);
-        return { content: returnContent, reasoning: returnReasoning };
+        return { content: returnContent, reasoning: returnReasoning, finishReason };
       },
     }) as unknown as ChatClient;
 }
@@ -186,6 +187,30 @@ describe("SmartApply", () => {
     expect(proposal.hardOk).toBe(false);
     const parseCheck = proposal.checks.find((c) => c.id === "assignment-parse");
     expect(parseCheck?.ok).toBe(false);
+  });
+
+  it("ins Token-Limit gelaufen + Parse gescheitert → nennt das Limit statt nur die Zuordnung zu beklagen", async () => {
+    const deps = makeDeps({
+      read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),
+    });
+    const sa = new SmartApply(deps, makeClient('{"version":1,"sections":[{"head', "", "length"), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
+
+    expect(proposal.hardOk).toBe(false);
+    const truncated = proposal.checks.find((c) => c.id === "output-truncated");
+    expect(truncated?.ok).toBe(false);
+    expect(truncated?.detail).toContain("2048");
+  });
+
+  it("Token-Limit erreicht, Antwort aber vollständig verwertbar → kein Truncation-Befund (abgeschnitten ≠ kaputt)", async () => {
+    const deps = makeDeps({
+      read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),
+    });
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON(), "", "length"), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 2048 }));
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
+
+    expect(proposal.hardOk).toBe(true);
+    expect(proposal.checks.find((c) => c.id === "output-truncated")).toBeUndefined();
   });
 
   it("abort propagiert", async () => {

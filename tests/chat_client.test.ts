@@ -19,6 +19,14 @@ describe("ChatClient", () => {
     expect(await p).toEqual({ content: "Hallo", reasoning: "" });
     expect(content).toEqual(["Hal", "lo"]);
   });
+  it("stream reicht finishReason durch — der Aufrufer muss eine Truncation von einem Inhaltsfehler trennen koennen", async () => {
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
+      [{ role: "user", content: "hi" }], () => {}, () => {});
+    xhr.feed(['data: {"choices":[{"delta":{"content":"halb"},"finish_reason":"length"}]}\n\n' + DONE]);
+    expect(await p).toEqual({ content: "halb", reasoning: "", finishReason: "length" });
+  });
+
   it("stream routet reasoning_content an onReasoning", async () => {
     const xhr = installFakeXHR();
     const reasoning: string[] = []; const content: string[] = [];

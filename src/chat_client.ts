@@ -72,7 +72,7 @@ export class ChatClient {
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
     opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number },
-  ): Promise<{ content: string; reasoning: string }> {
+  ): Promise<{ content: string; reasoning: string; finishReason?: string }> {
     const body = JSON.stringify({
       model: opts?.model ?? this.model,
       messages,
@@ -81,11 +81,11 @@ export class ChatClient {
       ...(opts?.maxTokens != null ? { max_tokens: opts.maxTokens } : {}),
       ...suppressParams(opts?.suppressThinking ?? false),
     });
-    const { content, reasoning } = await streamSSE(
+    const { content, reasoning, finishReason } = await streamSSE(
       `${this.endpoint}/v1/chat/completions`,
       { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(this.apiKey) }, body },
       onContent, onReasoning, signal,
     );
-    return { content, reasoning };
+    return { content, reasoning, finishReason };
   }
 }

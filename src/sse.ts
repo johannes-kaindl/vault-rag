@@ -6,24 +6,29 @@ import { t } from "./vendor/kit/i18n";
 /** Streamt einen OpenAI-kompatiblen SSE-Stream über `XMLHttpRequest` (nicht `fetch`: Obsidian
  *  empfiehlt `requestUrl`, das aber NICHT streamen kann — XHR ist der erlaubte Streaming-Primitive).
  *  Ruft onContent/onReasoning pro Delta; trennt inline <think> via ThinkSplitter; drained am Ende
- *  den Splitter-Rest. Gibt das Akkumulat + das erste Chunk-model zurück. Bricht bei `signal` ab. */
+ *  den Splitter-Rest. Gibt das Akkumulat + das erste Chunk-model zurück. Bricht bei `signal` ab.
+ *  `finishReason` reicht das erste non-empty `finish_reason` des Servers durch — nur daran ist
+ *  eine Token-Limit-Truncation (`"length"`) zu erkennen; ohne sie liest der Aufrufer die
+ *  abgeschnittene Antwort als inhaltlichen Fehler. */
 export function streamSSE(
   url: string,
   init: { method: string; headers: Record<string, string>; body: string },
   onContent: (t: string) => void,
   onReasoning: (t: string) => void,
   signal?: AbortSignal,
-): Promise<{ content: string; reasoning: string; model: string }> {
+): Promise<{ content: string; reasoning: string; model: string; finishReason?: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const splitter = new ThinkSplitter();
     let content = "", reasoning = "", model = "", buffer = "", seen = 0;
+    let finishReason: string | undefined;
     const emit = (c: string, r: string): void => {
       if (c) { content += c; onContent(c); }
       if (r) { reasoning += r; onReasoning(r); }
     };
-    const drain = (p: { content: string[]; reasoning: string[]; model?: string }): void => {
+    const drain = (p: { content: string[]; reasoning: string[]; model?: string; finishReason?: string }): void => {
       if (!model && p.model) model = p.model;
+      if (finishReason === undefined && p.finishReason) finishReason = p.finishReason;
       for (const r of p.reasoning) emit("", r);
       for (const c of p.content) { const s = splitter.push(c); emit(s.content, s.reasoning); }
     };
@@ -52,7 +57,7 @@ export function streamSSE(
       // in der Antwort ("Not authenticated", "model … not found"). Wer hier nur
       // `Chat HTTP 401` wirft, zwingt die Anzeige-Schicht zum Raten.
       if (xhr.status < 200 || xhr.status >= 300) reject(new ChatHttpError(xhr.status, xhr.responseText));
-      else resolve({ content, reasoning, model });
+      else resolve({ content, reasoning, model, finishReason });
     };
     if (signal) signal.addEventListener("abort", () => xhr.abort());
     xhr.send(init.body);

@@ -249,6 +249,15 @@
   font-weight: var(--font-semibold);
   margin-bottom: var(--size-2-1);
 }
+/* Abschneide-Hinweis unter dem Ergebnis. Leer, solange es nichts zu melden gibt —
+   :empty haelt dann auch den Abstand aus dem Layout. */
+.vault-rag-reformat-notice {
+  margin-top: var(--size-2-2);
+  color: var(--text-warning);
+  font-size: var(--font-ui-smaller);
+}
+.vault-rag-reformat-notice:empty { display: none; }
+
 .vault-rag-reformat-instruction {
   width: 100%;
 }

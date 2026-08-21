@@ -399,6 +399,7 @@ export const EN = {
   "noteRestructurer.assemble.unknownBlockIds": "unknown block IDs: {0}",
   "noteRestructurer.assemble.unknownUnassignedId": "unknown block ID in unassigned: {0}",
   "smartApply.check.assignmentParse": "LLM response contains no valid assignment JSON",
+  "smartApply.check.outputTruncated": "the answer ran into the token limit ({0}) and was cut off — raise \"Smart Apply max tokens\" in the settings",
   "smartApply.check.additionsDropped": "dropped additions (unknown heading): {0}",
   "smartApply.check.assembleFailed": "assembling the body failed: {0}",
   "smartApply.check.fmRoundtripFailed": "frontmatter self-check failed: {0}",
@@ -431,6 +432,7 @@ export const EN = {
   "reformatPreview.discard": "Discard",
   "reformatPreview.regenerate": "Regenerate",
   "reformatPreview.apply": "Apply",
+  "reformatPreview.truncated": "The answer ran into the token limit and was cut off — the result may be incomplete.",
   "reformatPreview.error": "Error: {0}",
 } as const;
 
@@ -826,6 +828,7 @@ export const DE = {
   "noteRestructurer.assemble.unknownBlockIds": "unbekannte Block-IDs: {0}",
   "noteRestructurer.assemble.unknownUnassignedId": "unbekannte Block-ID in unassigned: {0}",
   "smartApply.check.assignmentParse": "LLM-Antwort enthält kein gültiges Assignment-JSON",
+  "smartApply.check.outputTruncated": "Die Antwort lief ins Token-Limit ({0}) und wurde abgeschnitten — „Smart-Apply-Max-Tokens“ in den Einstellungen erhöhen",
   "smartApply.check.additionsDropped": "verworfene Ergänzungen (unbekannte Überschrift): {0}",
   "smartApply.check.assembleFailed": "Zusammensetzen des Textkörpers fehlgeschlagen: {0}",
   "smartApply.check.fmRoundtripFailed": "Frontmatter-Selbstprüfung fehlgeschlagen: {0}",
@@ -858,6 +861,7 @@ export const DE = {
   "reformatPreview.discard": "Verwerfen",
   "reformatPreview.regenerate": "Neu generieren",
   "reformatPreview.apply": "Anwenden",
+  "reformatPreview.truncated": "Die Antwort lief ins Token-Limit und wurde abgeschnitten — das Ergebnis ist womöglich unvollständig.",
   "reformatPreview.error": "Fehler: {0}",
 } satisfies Record<keyof typeof EN, string>;
 

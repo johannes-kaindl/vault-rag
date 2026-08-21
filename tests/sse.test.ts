@@ -42,6 +42,13 @@ describe("parseSSE", () => {
   it("model ist undefined ohne model-Feld", () => {
     expect(parseSSE('data: {"choices":[{"delta":{"content":"a"}}]}\n').model).toBeUndefined();
   });
+  it("liest finish_reason aus dem letzten Chunk", () => {
+    const r = parseSSE('data: {"choices":[{"delta":{"content":"a"},"finish_reason":null}]}\ndata: {"choices":[{"delta":{},"finish_reason":"length"}]}\n');
+    expect(r.finishReason).toBe("length");
+  });
+  it("finishReason ist undefined, solange nur null-Werte kamen", () => {
+    expect(parseSSE('data: {"choices":[{"delta":{"content":"a"},"finish_reason":null}]}\n').finishReason).toBeUndefined();
+  });
 });
 
 describe("streamSSE (XHR)", () => {
@@ -96,6 +103,20 @@ describe("streamSSE (XHR)", () => {
     const p = streamSSE("u", init, () => {}, () => {});
     xhr.feed(['data: {"model":"qwen2-vl","choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']);
     expect((await p).model).toBe("qwen2-vl");
+  });
+
+  it("reicht finishReason durch — sonst ist eine Token-Limit-Truncation am Empfaenger unsichtbar", async () => {
+    const xhr = installFakeXHR();
+    const p = streamSSE("u", init, () => {}, () => {});
+    xhr.feed(['data: {"choices":[{"delta":{"content":"x"},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n']);
+    expect((await p).finishReason).toBe("length");
+  });
+
+  it("finishReason bleibt undefined, wenn der Server keinen sendet", async () => {
+    const xhr = installFakeXHR();
+    const p = streamSSE("u", init, () => {}, () => {});
+    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']);
+    expect((await p).finishReason).toBeUndefined();
   });
 
   it("wirft bei HTTP-Fehlerstatus", async () => {

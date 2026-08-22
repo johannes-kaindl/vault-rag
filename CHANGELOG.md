@@ -24,10 +24,10 @@ All notable changes to this project are documented here. The format follows
   Feldbeschreibung sagt das jetzt auch.
 
 ### Added
-- **Die README ist bebildert** (sieben Screenshots: Verwandte Notizen, Suche, Chat, sichtbares
-  Denken, Umformatieren-Vorschau, Endpunkt-Rollen, Einstellungen). Aufgenommen werden sie
-  reproduzierbar per `npm run shots` gegen ein laufendes Obsidian; der Aufnahme-Vertrag steht in
-  `docs/images/README.md`.
+- **Die README ist bebildert** (acht Screenshots: Verwandte Notizen, Suche, Chat, sichtbares
+  Denken, Umformatieren-Vorschau, Endpunkt-Rollen, Einstellungen und das Smart-Apply-Diff-Gate).
+  Aufgenommen werden sie reproduzierbar per `npm run shots` gegen ein laufendes Obsidian; der
+  Aufnahme-Vertrag steht in `docs/images/README.md`.
 
 ## [0.25.0] — 2026-08-21
 

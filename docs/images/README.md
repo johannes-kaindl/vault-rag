@@ -15,8 +15,7 @@ eine Datei ohne Eintrag und eine Einbettung ohne Vertragszeile sind je ein Befun
 
 ## Status
 
-**Stand 2026-08-22: sieben von acht Bildern stehen.** Offen ist `smart-apply.png` — der
-Grund am Prüfling ist gefunden und behoben, es fehlt nur noch der Aufnahme-Lauf (siehe unten). `npm run shots:check` ist die Wahrheit über den
+**Stand 2026-08-22: alle acht Bilder stehen.** `npm run shots:check` ist die Wahrheit über den
 Bestand: was hier in Prosa steht, kann veralten, die Prüfung nicht.
 
 ## Die Bilder
@@ -29,12 +28,12 @@ Bestand: was hier in Prosa steht, kann veralten, die Prüfung nicht.
 | `thinking.png` | feature | README § Features | Den aufgeklappten `💭 Thoughts`-Block **von oben** — Label sichtbar, Gedanken lesbar — **und** den Thinking-Schalter der Kopfzeile. Aussage: das Denken ist sichtbar, und es ist abschaltbar. Bewusst **ohne** die Antwort: beides zusammen passt nicht unter `max_ratio`, und `chat.png` trägt Antwort und Quellen bereits. Zwei Bilder, zwei Aussagen. |
 | `reformat.png` | feature | README § Features | Die Reformat-Vorschau: oben der Ur-Text, darunter das gestreamte Ergebnis, dazu die Knöpfe zum Anwenden/Neu/Verwerfen. Das Bild trägt die Kernzusage „ansehen, bevor es ersetzt wird". |
 | `endpoints.png` | feature | README § Configuration | Die Endpunkt-Liste mit **mindestens zwei Zeilen unterschiedlicher Rolle** — eine *in use*, eine andere *reachable, but position 2* oder *unreachable*. Ein Bild mit nur einer Zeile zeigt die Aussage nicht: dass Erreichbarkeit und Verwendung zwei verschiedene Dinge sind. |
-| `smart-apply.png` | feature | README § Features | **OFFEN — siehe unten.** Soll das Diff-Gate vor dem Anwenden zeigen: die relevanz-sortierte Vorlagenliste und die Gegenüberstellung, welcher Block unter welche Überschrift wandert. Es muss erkennbar sein, dass hier **verschoben** und nicht neu geschrieben wird. |
+| `smart-apply.png` | feature | README § Features | Das Diff-Gate **vor** dem Anwenden: die relevanz-sortierte Vorlagenliste (die beste Vorlage vorgewählt, die anderen mit ihrem Wert daneben) und darunter die Gegenüberstellung, welcher Block unter welche Überschrift wandert. Es muss erkennbar sein, dass hier **verschoben** und nicht neu geschrieben wird — die Zeile „N/N blocks assigned · 0 remaining" und die Original-Textzeile unter jeder Überschrift tragen genau diese Aussage. |
 | `settings.png` | detail | README § Configuration | Den Einstellungs-Tab **ganz**, als klickbare 380-px-Vorschau auf die Vollauflösung. Zweck ist der Umfangs-Eindruck, nicht die Lesbarkeit einzelner Zeilen. |
 
-### Offen: `smart-apply.png`
+### Warum `smart-apply.png` als letztes entstand
 
-**Aufnehmbar, aber noch nicht aufgenommen.** Bis zum 2026-08-22 stand hier ein Befund am
+**Aufgenommen am 2026-08-22.** Bis dahin stand hier ein Befund am
 Prüfling: Smart Apply ordnete auf `Team sync 2026-03-12.md` gegen `Templates/Meeting note.md`
 **0 von 8 Blöcken** zu, mit zwei Modellen reproduziert, und ein Bild davon hätte die
 README-Zusage widerlegt statt sie zu zeigen.
@@ -57,7 +56,22 @@ Die Vorlagen sind repariert. Zusätzlich bricht Smart Apply eine Vorlage ohne er
 eine Null zu zeigen, die von einem Modell-Versagen nicht zu unterscheiden ist — genau diese
 Anzeige hatte die Fehldiagnose ausgelöst.
 
-Es fehlt nur der Aufnahme-Lauf gegen ein laufendes Obsidian.
+**Der Aufnahme-Lauf brachte danach zwei Befunde — beide im Rezept, beide mit derselben
+Signatur wie der Fixture-Defekt darüber: der Lauf meldet nichts, und das Nichts liest sich
+als Modell-Versagen.**
+
+1. **Die Frist war zu kurz.** Sie stand auf 300 s; `qwen/qwen3.6-27b` mit Thinking braucht
+   für das Zuordnungs-JSON gemessen **560–590 s**. Der Abbruch sah aus wie ein Fehlschlag
+   (»kein Diff-Gate«, leerer Stream, keine Fehlerbox), während der Lauf noch dachte und
+   Minuten später sauber mit 8/8 endete. Die Frist steht jetzt auf 900 s.
+2. **Der Klick kam zu früh — das war der eigentliche Fehlschlag.** Der Knopf ist bereits
+   bedienbar, während die Vorlagen-Erkennung noch läuft. `runSmartApply` wirft dann
+   `vorlage-waehlen`, und die View stellt daraufhin **still** auf `idle` zurück
+   (`smart_apply_view.ts:789` — kein Fehler, keine Notice, nur ein Hinweistext). Der
+   Treiber wartete danach die volle Frist auf ein Diff-Gate, das in der ersten Sekunde
+   unmöglich geworden war. Das Rezept wartet jetzt **vor** dem Klick positiv auf die
+   vorgewählte Vorlage (das gefüllte Radio der Rangliste) und bricht den Diff-Poll ab,
+   sobald es den stillen Rückfall erkennt — mit dem Hinweistext des Panels im Klartext.
 
 ## Was der Lauf voraussetzt
 
@@ -83,6 +97,11 @@ auch für den Nutzer gilt: **dieses Plugin rechnet nichts vor, es ruft ab.**
 3. **Ein denkendes Modell** für `thinking.png` und ein zügiges für den Rest. Das Modell ist
    deshalb ein Argument des Rezepts (`--modell`), keine Konstante: nicht jede Maschine lädt
    jedes.
+
+4. **Geduld für `smart-apply.png`.** Smart Apply schickt Notiz *und* Vorlage an das Modell
+   und wartet auf **ein** vollständiges Zuordnungs-JSON — mit einem denkenden 27B sind das
+   rund zehn Minuten, in denen das Panel nichts anzeigt. Das ist kein Hänger. Wer hier zu
+   früh abbricht, hält die Rechenzeit für einen Fehlschlag (siehe oben).
 
 Fehlt eine dieser Voraussetzungen, bricht das betroffene Rezept **mit Klartext** ab, statt
 ein leeres Panel aufzunehmen.

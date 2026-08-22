@@ -535,6 +535,21 @@ const SHOTS: Shot[] = [
       }
       await sidebarBreit(cdp);
       await statusleisteAus(cdp);
+      // VOR dem Klick warten, bis eine Vorlage tatsaechlich VORGEWAEHLT ist (das gefuellte
+      // Radio in der Rangliste). Der Knopf ist naemlich schon klickbar, waehrend die
+      // Erkennung noch laeuft — und `runSmartApply` wirft dann `vorlage-waehlen`, was die
+      // View STILL auf `idle` zurueckstellt (smart_apply_view.ts:789: kein Fehler, keine
+      // Notice, nur ein Hinweistext). Gemessen 2026-08-22: der Lauf sah danach exakt wie
+      // ein zu langsames Modell aus — leerer Stream, leerer Status, keine Fehlerbox — und
+      // der Treiber wartete die volle Frist auf ein Diff-Gate, das nie kommen konnte.
+      const vorlageSteht = await pollUntil<boolean>(cdp, `
+        return [...document.querySelectorAll(".vault-rag-sa-rank-radio")]
+          .some((e) => e.textContent.trim() === "\\u25C9");
+      `, 60_000, 500);
+      if (!vorlageSteht) {
+        console.log("      · keine Vorlage vorgewaehlt — Index geladen? Vorlagen-Ordner gesetzt?");
+        return null;
+      }
       // Gesperrt ist der Knopf ueber eine CSS-KLASSE, nicht ueber das disabled-Attribut
       // (smart_apply_view.ts: toggleClass("is-disabled", running)). Ein Test auf
       // `!btn.disabled` ist deshalb immer wahr, der Klick geht auf einen gesperrten Knopf
@@ -554,11 +569,31 @@ const SHOTS: Shot[] = [
       }
       // POSITIV auf das Diff-Gate warten: erst wenn Oberflaechen da sind, hat ein Lauf
       // stattgefunden. Eine reine Ruhe-Messung kann das nicht leisten — siehe `signatur`.
+      //
+      // Die Frist ist mit Absicht sehr lang. Smart Apply schickt die ganze Notiz UND die
+      // Vorlage an ein denkendes Modell und wartet auf EIN vollstaendiges JSON — bei
+      // `qwen/qwen3.6-27b` mit Thinking dauerte das gemessen 590 s (2026-08-22), fast das
+      // Doppelte der vorigen 300-s-Frist. Der Abbruch sah dabei aus wie ein Fehlschlag
+      // ("kein Diff-Gate", leerer Stream, keine Fehlerbox), obwohl der Lauf noch dachte
+      // und Minuten spaeter sauber mit 8/8 endete. Wer hier kuerzt, misst die Maschine,
+      // nicht das Plugin.
+      //
+      // Der Poll bricht ausserdem ab, sobald die View still auf `idle` zurueckgefallen ist
+      // (Hinweistext da, Knopf wieder frei) — sonst laeuft ein Lauf, der in der ERSTEN
+      // Sekunde gescheitert ist, die volle Viertelstunde als "denkt noch" weiter.
       const diff = await pollUntil<number>(cdp, `
-        return document.querySelectorAll(".vault-rag-sa-surface").length;
-      `, 300_000, 2000);
-      if (!diff) {
-        console.log(`      · kein Diff-Gate — ${await lage(cdp)}`);
+        const n = document.querySelectorAll(".vault-rag-sa-surface").length;
+        if (n) return n;
+        const zurueckgefallen = !!document.querySelector(".vault-rag-sa-template-hint")
+          && ![...document.querySelectorAll(".vault-rag-sa-run")]
+                .some((e) => e.classList.contains("is-disabled"));
+        return zurueckgefallen ? -1 : 0;
+      `, 900_000, 2000);
+      if (!diff || diff < 0) {
+        const hinweis = await cdp.evaluate<string>(`
+          return (document.querySelector(".vault-rag-sa-template-hint")?.textContent || "").trim();
+        `);
+        console.log(`      · kein Diff-Gate${hinweis ? ` — Panel sagt: ${hinweis}` : ""} — ${await lage(cdp)}`);
         return null;
       }
       if (!(await ruht(cdp, signatur(".vault-rag-sa-surfaces", ".vault-rag-sa-stream")))) {

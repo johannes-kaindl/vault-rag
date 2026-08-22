@@ -640,13 +640,15 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
 
 - **CORE-META-02** — Badge-Zeile **partiell**: Lizenz/Docs/Obsidian gesetzt; Release/CI-Badges fehlen.
   *Grund:* Release-Badge mit v0.2.0 nachziehbar; CI-Badges erst mit CI.
-- **CORE-META-03** — ✅ erledigt (2026-08-21): sieben Bilder in `docs/images/`, eingebettet in beide READMEs
-  über `raw.githubusercontent.com` (PROF-OBS-14). Die frühere Begründung („Screenshots brauchen eine laufende
-  GUI und sind agentenseitig nicht erzeugbar") ist mit `npm run shots` gegenstandslos — der Treiber fährt den
-  Vertrag aus `docs/images/README.md` gegen ein laufendes Obsidian. **`smart-apply.png` bleibt offen** — aber
-  nur noch als fehlende Aufnahme: der Befund dahinter („0 von 8 Blöcken zugeordnet, zwei Modelle geprüft") war
-  ein **Fixture-Defekt**, keine Modell- und keine Sprachfrage (2026-08-22, s. Gotcha „Eine Vorlage ohne
-  Überschriften…"). `shots:check` meldet die Lücke bei jedem Lauf, und zwar absichtlich.
+- **CORE-META-03** — ✅ erledigt (2026-08-22): **alle acht** Bilder in `docs/images/`, eingebettet in beide
+  READMEs über `raw.githubusercontent.com` (PROF-OBS-14), `shots:check` ohne Befund. Die frühere Begründung
+  („Screenshots brauchen eine laufende GUI und sind agentenseitig nicht erzeugbar") ist mit `npm run shots`
+  gegenstandslos — der Treiber fährt den Vertrag aus `docs/images/README.md` gegen ein laufendes Obsidian.
+  Das letzte Bild (`smart-apply.png`) hat drei Anläufe gekostet, und **jeder Fehlschlag sah gleich aus**:
+  leeres Panel, kein Fehler. Ursachen waren der Reihe nach ein Fixture-Defekt (s. Gotcha „Eine Vorlage ohne
+  erkennbare Überschriften…"), eine zu kurze Wartefrist (der Lauf braucht 560–590 s, gewartet wurden 300)
+  und ein zu früher Klick, den die View **still** auf `idle` zurückstellt. Die Rezept-Hälfte davon steht in
+  `scripts/shots.ts`, die Erzählung in `docs/images/README.md`.
 - **CORE-META-04** — ✅ erledigt (2026-07-28): Diátaxis-Manual unter `docs/` (`tutorial.md` · `how-to/index.md` ·
   `reference/index.md` · `explanation/index.md`), aus der README verlinkt. **Links absolut** (`…/blob/main/…`) —
   der Community-Directory-Renderer löst relative Pfade nicht auf (PROF-OBS-14).

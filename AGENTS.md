@@ -325,6 +325,9 @@ npm run build                     # baut main.js
 npm test                          # vitest run     (916 Tests, 65 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
+OBSIDIAN_PLUGIN_DIR=… npm run deploy   # build + main.js/manifest.json/styles.css ins Vault-Plugin-Verzeichnis
+                                  # (NICHT noetig fuer den Arbeits-Vault 10_Pallas — dessen
+                                  #  Plugin-Ordner ist ein Symlink auf dieses Repo, dort reicht Reload)
 npx vitest run tests/<datei>      # eine Test-Datei
 npm run version-bump              # ../tools/release/version-bump.mjs (zentral)
 npm run preflight <version>       # ../tools/release/preflight.mjs (Store-Checkliste)
@@ -337,7 +340,7 @@ npm run shots:check               # Bild-Standard pruefen (readme_lint, maintain
 ```
 
 esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electron`, Output `main.js`
-(gitignored). `lint`/`typecheck` sind verdrahtet; nur ein `deploy`-Script fehlt (siehe Abweichungen).
+(gitignored). `lint`/`typecheck`/`deploy` sind verdrahtet.
 
 ## Conventions
 
@@ -670,14 +673,30 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
 - **PROF-TS-01** — ✅ erledigt: `npm run lint` (ESLint flat-config: `typescript-eslint` recommended-type-checked
   + `eslint-plugin-obsidianmd`) und `npm run typecheck` (`tsc --noEmit`) verdrahtet; ESLint ist sauber
   (die `sentence-case`-Regel ist für die deutsche UI bewusst aus).
-- **PROF-TS-04** — kein `tsconfig.build.json`-Split. *Grund:* klein genug; ein `tsconfig.json` (IDE + Tests)
-  + `vitest.config.ts` (obsidian-Mock-Alias) reicht aktuell.
+- **PROF-TS-04** — kein `tsconfig.build.json`-Split. *Grund:* **der Zweck des Splits ist hier schon auf
+  anderem Weg erfüllt.** Er existiert laut Overlay PROF-OBS-08, damit der von ESLint aufgelöste
+  `tsconfig.json` **keinen** obsidian-Mock-`paths`-Alias enthält — sonst entsteht die
+  `no-unsafe-*`-Kaskade und im Store-Review ein „Caution". Genau das ist gegeben: der Mock kommt aus
+  `vitest.config.ts`, nicht aus tsconfig-`paths`, und gebaut wird mit esbuild ohne `tsc`-Emit. Ein
+  `tsconfig.build.json` würde also nichts ausschließen, was schadet — es wäre Form ohne Wirkung.
+  (Für `scripts/` existiert bereits ein eigener `tsconfig.scripts.json`; wo ein Split etwas trennt,
+  steht er.) *Frühere Begründung „klein genug" war zu schwach — nachgemessen beim Doku-Audit 2026-08-22.*
 - **PROF-OBS-01** — ✅ erfüllt: manifest-`id` = `vault-retrieval` (fachlich, ≠ Repo-Slug `vault-rag`).
   Umbenannt 2026-06-22, weil `vault-rag` in der Community-Directory bereits belegt ist (fremdes Plugin von
   vasallo94). Interne Bezeichner (`vault-rag-*`-CSS, `vault-rag-chat`-ViewTypes, `_vaultrag`-Index) bleiben
   bewusst unverändert — unsichtbar, ein Umbenennen wäre nur Risiko.
-- **PROF-OBS-02** — kein `deploy`-Script. *Grund:* aktuell manueller Plugin-Deploy; env-gesteuertes
-  `npm run deploy` (`cp main.js manifest.json styles.css "$OBSIDIAN_PLUGIN_DIR"/`) nachzuziehen.
+- **PROF-OBS-02** — ✅ erledigt (2026-08-22): `npm run deploy` in der kanonischen, workspace-weit
+  identischen Form (16 Nachbar-Repos fahren sie wortgleich). **Deploy-Target ist pro Vault verschieden,
+  und das ist der Grund, warum die Lücke so lange unauffällig blieb:** der Arbeits-Vault `10_Pallas`
+  hat sein Plugin-Verzeichnis als **Symlink auf dieses Repo** — dort genügt ein Plugin-Reload, ein
+  Deploy wäre wirkungslos. *Jeder andere Vault trägt dagegen eine Kopie und altert still.* Gemessen am
+  2026-08-22, als das Script entstand: vier weitere Vaults standen auf 0.24.0, 0.17.3, 0.13.0 und
+  **0.7.1** — letzterer achtzehn Versionen zurück, also vor Container-Index (0.18.0),
+  Backup-Rotations-Fix (0.15.2) und Index-Robustheit (0.12.0). Wer hier nichts kopiert, lässt genau
+  die Releases liegen, die Datenverlust verhindern.
+  ```bash
+  OBSIDIAN_PLUGIN_DIR="<vault>/.obsidian/plugins/vault-retrieval" npm run deploy
+  ```
 - **UI-STANDARD §1 (Ein-Frontend)** — ✅ erfüllt: Sidebar-Hub-Konsolidierung (2026-07) ersetzt die
   vier Einzel-Views (`RelatedNotesView`/`SearchView`/`ChatView`/`SmartApplyView`) durch **einen**
   `VaultRetrievalView` (`VIEW_TYPE_HUB="vault-retrieval-hub"`) mit Tab-Leiste; die vier Panels

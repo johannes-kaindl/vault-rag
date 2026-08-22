@@ -638,8 +638,13 @@ Stand: siehe `CHANGELOG.md` / `manifest.json` (dort steht die maßgebliche Versi
 keine, damit dieser Block nicht durch Zeitablauf falsch wird). Öffentlich released, Forgejo
 kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain):
 
-- **CORE-META-02** — Badge-Zeile **partiell**: Lizenz/Docs/Obsidian gesetzt; Release/CI-Badges fehlen.
-  *Grund:* Release-Badge mit v0.2.0 nachziehbar; CI-Badges erst mit CI.
+- **CORE-META-02** — Badge-Zeile **partiell**: Lizenz · Docs · **Release** (Forgejo/gitea-Badge) · Plattform
+  sind gesetzt, der **CI-Badge fehlt**. *Grund:* es gibt keine CI, auf die er zeigen könnte — der einzige
+  Workflow (`.github/workflows/release.yml`) läuft **tag-getriggert** und fährt `npm run gate` als Teil des
+  Releases, nicht als Dauerprüfung auf `main`. Ein Badge dafür würde den Zustand des letzten *Releases*
+  melden und wie ein grüner Build auf `main` aussehen. Fällt mit einer echten push-CI weg.
+  *(Diese Zeile behauptete bis 2026-08-22, auch der Release-Badge fehle — er steht seit v0.2.0 in beiden
+  READMEs. Nachgemessen beim Doku-Audit.)*
 - **CORE-META-03** — ✅ erledigt (2026-08-22): **alle acht** Bilder in `docs/images/`, eingebettet in beide
   READMEs über `raw.githubusercontent.com` (PROF-OBS-14), `shots:check` ohne Befund. Die frühere Begründung
   („Screenshots brauchen eine laufende GUI und sind agentenseitig nicht erzeugbar") ist mit `npm run shots`

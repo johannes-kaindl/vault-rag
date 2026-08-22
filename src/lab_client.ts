@@ -29,7 +29,7 @@ export interface LabApi {
 export function readLabApi(app: unknown): LabApi | null {
   const reg = (app as { plugins?: { plugins?: Record<string, unknown> } } | null | undefined)
     ?.plugins?.plugins;
-  if (reg === null || typeof reg !== "object" || reg === undefined) return null;
+  if (reg === null || typeof reg !== "object") return null;
 
   const api = (reg[PLUGIN_ID] as { api?: unknown } | undefined)?.api as LabApi | undefined;
   if (!api || api.apiVersion !== SUPPORTED_API_VERSION) return null;

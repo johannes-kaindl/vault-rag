@@ -8,6 +8,9 @@ export interface ChatSessionDeps {
   assemble: (paths: string[]) => Promise<ContextResult>;
   systemPreamble: () => string;
   params: () => { model: string; temperature: number; suppressThinking: boolean };
+  /** `app`-Referenz nur für das llm-lab-Tracing (`readLabApi`) — obsidian-frei gehalten,
+   *  deshalb `unknown` statt eines `App`-Imports (siehe `lab_client.ts`). */
+  app: () => unknown;
 }
 
 export class ChatSession {
@@ -49,7 +52,7 @@ export class ChatSession {
         c => { assistant.content += c; onToken(c); },
         r => { assistant.reasoning = (assistant.reasoning ?? "") + r; onToken(r); },
         this.controller.signal,
-        { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking },
+        { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, trace: { feature: "chat", app: this.deps.app() } },
       );
       assistant.content = result.content;
       assistant.reasoning = result.reasoning || undefined;

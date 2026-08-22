@@ -5,6 +5,7 @@ import { suppressParams } from "./vendor/kit/reasoning";
 import { httpJson, probeEndpoint } from "./http";
 import { authHeaders } from "./endpoint_config";
 import { EndpointStatus, extractModelIds } from "./vendor/kit/endpoint_diagnostics";
+import { readLabApi } from "./lab_client";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
 
@@ -71,7 +72,7 @@ export class ChatClient {
     onContent: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
-    opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number },
+    opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number; trace?: { feature: string; app: unknown } },
   ): Promise<{ content: string; reasoning: string; finishReason?: string }> {
     const body = JSON.stringify({
       model: opts?.model ?? this.model,
@@ -81,11 +82,49 @@ export class ChatClient {
       ...(opts?.maxTokens != null ? { max_tokens: opts.maxTokens } : {}),
       ...suppressParams(opts?.suppressThinking ?? false),
     });
-    const { content, reasoning, finishReason } = await streamSSE(
-      `${this.endpoint}/v1/chat/completions`,
-      { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(this.apiKey) }, body },
-      onContent, onReasoning, signal,
-    );
-    return { content, reasoning, finishReason };
+    const started = Date.now();
+    let firstToken: number | undefined;
+    const timedContent = (tk: string): void => {
+      firstToken ??= Date.now();
+      onContent(tk);
+    };
+    try {
+      const { content, reasoning, finishReason } = await streamSSE(
+        `${this.endpoint}/v1/chat/completions`,
+        { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(this.apiKey) }, body },
+        timedContent, onReasoning, signal,
+      );
+      this.reportToLab(opts, messages, { content, reasoning, finishReason }, started, firstToken);
+      return { content, reasoning, finishReason };
+    } catch (e) {
+      // Auch der gescheiterte Lauf wird gemeldet — er ist der interessante Debug-Fall.
+      this.reportToLab(opts, messages, { content: "", error: String(e) }, started, firstToken);
+      throw e;
+    }
+  }
+
+  /** Meldet einen Aufruf ans LLM Lab, falls es installiert ist. Fire-and-forget:
+   *  `log()` ist synchron und darf nie werfen — ein `try` steht trotzdem hier, weil ein
+   *  fremdes Plugin nicht unser Vertrauen verdient, nur weil es unsere Signatur erfuellt. */
+  private reportToLab(
+    opts: { model?: string; trace?: { feature: string; app: unknown } } | undefined,
+    messages: ChatMessage[],
+    result: { content: string; reasoning?: string; finishReason?: string; error?: string },
+    started: number,
+    firstToken?: number,
+  ): void {
+    if (!opts?.trace) return;
+    try {
+      readLabApi(opts.trace.app)?.log({
+        plugin: "vault-retrieval",
+        feature: opts.trace.feature,
+        model: opts.model ?? this.model,
+        endpointUrl: this.endpoint,
+        messages,
+        latencyMs: Date.now() - started,
+        ...(firstToken ? { ttftMs: firstToken - started } : {}),
+        ...result,
+      });
+    } catch { /* Telemetrie darf einen Chat nie mitreissen. */ }
   }
 }

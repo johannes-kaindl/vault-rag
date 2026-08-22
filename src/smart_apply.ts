@@ -49,6 +49,9 @@ export interface SmartApplyDeps {
   embed: (text: string) => Promise<Float32Array>;
   search: (vec: Float32Array, opts: { k: number; minSim: number; exclude: string[] }) => { path: string; score: number }[];
   typeOf: (path: string) => Promise<string | null>;
+  /** `app`-Referenz nur für das llm-lab-Tracing (`readLabApi`) — obsidian-frei gehalten,
+   *  deshalb `unknown` statt eines `App`-Imports (siehe `lab_client.ts`). */
+  app: () => unknown;
 }
 
 export interface SectionDiff {
@@ -247,7 +250,7 @@ export class SmartApply {
       onToken,
       onReasoning,
       this.controller.signal,
-      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens },
+      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens, trace: { feature: "smart-apply", app: this.deps.app() } },
     );
 
     // Ins Token-Budget gelaufen: das erklaert einen anschliessenden Fehlschlag und nennt die

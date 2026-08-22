@@ -800,7 +800,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     try {
       const res = await this.plugin.chatClient.stream(
         [{ role: "user", content: t("settings.thinkingTest.prompt") }],
-        () => {}, () => {}, undefined, { model, suppressThinking: true });
+        () => {}, () => {}, undefined,
+        { model, suppressThinking: true, trace: { feature: "settings-probe", app: this.app } });
       const happened = reasoningHappened(res.content, res.reasoning);
       new Notice(happened ? t("settings.thinkingDespiteOff") : t("settings.thinkingSuppressed"));
       if (happened) {

@@ -32,4 +32,4 @@ workspace conventions documented in [`AGENTS.md`](AGENTS.md); the short version:
 ## License of contributions
 By contributing you agree that your **code** is licensed under **AGPL-3.0-or-later** and your
 **documentation/text** under **CC BY-SA 4.0** (see [`LICENSE`](LICENSE) / [`LICENSE-DOCS`](LICENSE-DOCS)).
-A commercial dual-license is available on request.
+A commercial dual-license is available on request — see [`LICENSING.md`](LICENSING.md), which also states plainly what a merged third-party contribution would mean for that offer.

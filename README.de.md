@@ -208,7 +208,7 @@ Issues und Pull Requests gerne auf [Forgejo](https://git.jkaindl.de/jkaindl/vaul
 
 ## Lizenz
 
-- **Code:** GNU Affero General Public License v3.0 oder später ([`LICENSE`](LICENSE)). Eine kommerzielle Dual-Lizenz gibt es auf Anfrage, falls die AGPL-Copyleft nicht passt.
+- **Code:** GNU Affero General Public License v3.0 oder später ([`LICENSE`](LICENSE)). Eine kommerzielle Dual-Lizenz gibt es auf Anfrage, falls die AGPL-Copyleft nicht passt — siehe [`LICENSING.md`](LICENSING.md).
 - **Dokumentation & Texte:** Creative Commons Attribution-ShareAlike 4.0 ([`LICENSE-DOCS`](LICENSE-DOCS)).
 
 Copyright © 2026 Johannes Kaindl.

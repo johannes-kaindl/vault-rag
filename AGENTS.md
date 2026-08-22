@@ -661,8 +661,15 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
   `reference/index.md` · `explanation/index.md`), aus der README verlinkt. **Links absolut** (`…/blob/main/…`) —
   der Community-Directory-Renderer löst relative Pfade nicht auf (PROF-OBS-14).
 - **CORE-META-06** — ✅ erledigt: `CHANGELOG.md`, `CONTRIBUTING.md` und `SECURITY.md` vorhanden.
-- **CORE-META-07** — `LICENSE` (AGPL-3.0) vorhanden; Dual-License-Option (`LICENSING.md`/`CLA.md`)
-  noch nicht. *Grund:* erst bei Bedarf/Release.
+- **CORE-META-07** — ✅ **`LICENSING.md` seit 2026-08-22**, `CLA.md` **bewusst nicht**. *Anlass:* README und
+  `CONTRIBUTING.md` sagten beide „a commercial dual-license is available on request" — die Zusage stand also
+  längst im Repo, nur ohne die Datei, die sie einlöst. *Warum kein CLA:* eine Rechteübertragung zu
+  unterschreiben ist eine echte Hürde für einen Drive-by-Fix, und der ist hier mehr wert als eine
+  Lizenzoption, nach der noch nie jemand gefragt hat. Inbound bleibt AGPL-3.0-or-later.
+  **Die Konsequenz ist in `LICENSING.md` benannt statt verschwiegen:** die Option trägt nur, solange
+  *eine* Partei alle Rechte hält (Stand 2026-08-22: alle 681 Commits von Johannes Kaindl). Mit dem ersten
+  gemergten Fremdbeitrag ist sie für das Ganze nicht mehr erteilbar — dann heißt es fragen, nachbauen oder
+  das Angebot zurückziehen, und die Datei sagt, welches davon.
 - **CORE-META-09** — ✅ erledigt (2026-07-28): `README.de.md` + Sprach-Toggle-Zeile in beiden Fassungen.
   EN bleibt kanonisch; `docs/` ist bewusst nur englisch (Umfang).
   ⚠️ **Beide Fassungen zusammen pflegen** — eine veraltete Übersetzung ist schlechter als keine.

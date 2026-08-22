@@ -218,7 +218,7 @@ Issues and pull requests are welcome on [Forgejo](https://git.jkaindl.de/jkaindl
 
 ## License
 
-- **Code:** GNU Affero General Public License v3.0 or later ([`LICENSE`](LICENSE)). A commercial dual-license is available on request if the AGPL's copyleft doesn't fit your use case.
+- **Code:** GNU Affero General Public License v3.0 or later ([`LICENSE`](LICENSE)). A commercial dual-license is available on request if the AGPL's copyleft doesn't fit your use case — see [`LICENSING.md`](LICENSING.md).
 - **Documentation & text:** Creative Commons Attribution-ShareAlike 4.0 ([`LICENSE-DOCS`](LICENSE-DOCS)).
 
 Copyright © 2026 Johannes Kaindl.

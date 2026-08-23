@@ -123,7 +123,12 @@ function moduleLevelTCalls(src: string): { line: number; text: string }[] {
         // deshalb nie im Stack auf — der Rumpf läuft trotzdem erst beim Aufruf. Ohne diesen
         // Zweig meldete der Wächter `const f = (): string => t("k")` fälschlich, und ein
         // Arrow-Klassenfeld wäre nach der class-Verschärfung neu falsch geworden.
-        const deferredByArrow = codeOnly.slice(0, ci).includes("=>");
+        // VERANKERT, genau wie `braceKind` es fuer Block-Arrows tut: der Pfeil muss unmittelbar
+        // vor dem Aufruf stehen. Eine blosse Suche in der Zeile gaebe einem eifrigen Aufruf einen
+        // Freibrief, sobald irgendwo davor ein FREMDER Pfeil steht —
+        // `const H = { onClick: () => run(), title: t("k") }` ist genau der Fall, den der
+        // Waechter fangen soll.
+        const deferredByArrow = /=>\s*$/.test(codeOnly.slice(0, ci));
         if (wordBoundary && !stack.includes("fn") && !deferredByArrow) {
           offenders.push({ line: i + 1, text: rawLine.trim() });
         }
@@ -167,6 +172,12 @@ describe("moduleLevelTCalls (Waechter-Selbsttest)", () => {
   });
   it("meldet t() NICHT in einer freien Funktion mit Objektliteral-Rueckgabetyp", () => {
     expect(offends('function f(): { a: string } {\n  return { a: t("a.b") };\n}')).toBe(false);
+  });
+  it("meldet ein eifriges t() auch dann, wenn frueher in der Zeile ein fremder Pfeil steht", () => {
+    // Der Pfeil gehoert zu `onClick`, nicht zu `title` — `title` wird beim Modul-Load ausgewertet.
+    // Eine ungeankerte Pfeil-Suche gaebe hier einen Freibrief fuer genau den Fall, den der
+    // Waechter fangen soll.
+    expect(offends('const H = { onClick: () => run(), title: t("a.b") };')).toBe(true);
   });
   it("meldet eine Top-Level-Arrow-Konstante NICHT", () => {
     expect(offends('const f = (): string => t("a.b");')).toBe(false);

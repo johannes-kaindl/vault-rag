@@ -7,6 +7,7 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-DOCS)
 [![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fgit.jkaindl.de&label=release)](https://git.jkaindl.de/jkaindl/vault-rag/releases)
+[![CI](https://github.com/johannes-kaindl/vault-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/johannes-kaindl/vault-rag/actions/workflows/ci.yml)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.12.7%2B%20·%20desktop%20%26%20mobile-7c3aed)
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/hero.png" width="820" alt="Obsidian with a note open on the left and the Vault Retrieval sidebar on the right, listing the most similar notes with their similarity scores">

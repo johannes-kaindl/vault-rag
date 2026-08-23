@@ -669,11 +669,14 @@ Stand: siehe `CHANGELOG.md` / `manifest.json` (dort steht die maßgebliche Versi
 keine, damit dieser Block nicht durch Zeitablauf falsch wird). Öffentlich released, Forgejo
 kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain):
 
-- **CORE-META-02** — Badge-Zeile **partiell**: Lizenz · Docs · **Release** (Forgejo/gitea-Badge) · Plattform
-  sind gesetzt, der **CI-Badge fehlt**. *Grund:* es gibt keine CI, auf die er zeigen könnte — der einzige
-  Workflow (`.github/workflows/release.yml`) läuft **tag-getriggert** und fährt `npm run gate` als Teil des
-  Releases, nicht als Dauerprüfung auf `main`. Ein Badge dafür würde den Zustand des letzten *Releases*
-  melden und wie ein grüner Build auf `main` aussehen. Fällt mit einer echten push-CI weg.
+- **CORE-META-02** — ✅ erledigt (2026-08-23): Badge-Zeile vollständig — Lizenz · Docs · Release
+  (Forgejo/gitea) · **CI** · Plattform, in beiden READMEs. Der CI-Badge zeigt auf
+  `.github/workflows/ci.yml`, das bei jedem Push auf `main` und jedem PR `npm run gate` fährt.
+  *Vorgeschichte, weil sie die Reihenfolge begründet:* bis dahin fehlte der Badge zu Recht — der
+  einzige Workflow war tag-getriggert, ein Badge darauf hätte den Zustand des letzten *Releases*
+  gemeldet und wie ein grüner Build auf `main` ausgesehen. Erst kam die CI, dann der erste grüne
+  Lauf (`32664167655`), dann der Badge — ein Badge, der auf einen nie gelaufenen Workflow zeigt,
+  ist schlechter als keiner.
   *(Diese Zeile behauptete bis 2026-08-22, auch der Release-Badge fehle — er steht seit v0.2.0 in beiden
   READMEs. Nachgemessen beim Doku-Audit.)*
 - **CORE-META-03** — ✅ erledigt (2026-08-22): **alle acht** Bilder in `docs/images/`, eingebettet in beide

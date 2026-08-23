@@ -741,7 +741,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
     s.setName(t("settings.contextBudget.name", this.plugin.settings.contextCharBudget.toLocaleString()))
       .setDesc(t("settings.contextBudget.desc"))
       .addSlider(sl => {
+        // Obsidians `setValue` loest `onChange` aus (am Aufruf-Stack gemessen, 2026-08-04).
+        // Ohne diesen Schalter wird jedes programmatische Nachziehen der Obergrenze zu einem
+        // Schreibvorgang: Tab oeffnen genuegte, um `data.json` zu schreiben, ohne dass jemand
+        // etwas geaendert hatte. Das zementiert einen fehlerhaften Speicherzustand sofort und
+        // macht "data.json wurde geschrieben" als Diagnose-Signal wertlos.
+        let programmatic = false;
         sl.setLimits(2000, 32000, 1000).setValue(this.plugin.settings.contextCharBudget)          .onChange(async (v: number) => {
+            if (programmatic) return;
             this.plugin.settings.contextCharBudget = v;
             s.setName(t("settings.contextBudget.name", v.toLocaleString()));
             await this.plugin.saveSettings();
@@ -751,10 +758,13 @@ export class VaultRagSettingTab extends PluginSettingTab {
           const max = Math.max(8000, Math.round(maxChars / 1000) * 1000);
           sl.setLimits(2000, max, 1000);
           const val = Math.min(this.plugin.settings.contextCharBudget, max);
-          sl.setValue(val);
+          programmatic = true;
+          try { sl.setValue(val); } finally { programmatic = false; }
           s.setName(t("settings.contextBudget.nameWithMax", val.toLocaleString(), max.toLocaleString()));
           if (val !== this.plugin.settings.contextCharBudget) {
-            this.plugin.settings.contextCharBudget = val;   // nur bei echter Klemmung schreiben
+            // Eine echte Klemmung IST eine Aenderung und wird geschrieben — hier bewusst
+            // ausserhalb des Schalters, damit der Wert nicht bei jedem Oeffnen zurueckspringt.
+            this.plugin.settings.contextCharBudget = val;
             void this.plugin.saveSettings();
           }
         };

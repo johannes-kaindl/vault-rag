@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.26.0] — 2026-08-23
+
 ### Fixed
 - **Eine Vorlage, deren Überschriften Smart Apply nicht sieht, wird als solche gemeldet — statt
   als leeres Ergebnis.** Stehen die `##`-Überschriften einer Vorlage nicht je auf einer eigenen

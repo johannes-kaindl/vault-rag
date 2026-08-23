@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Gemma-Modelle werden nicht mehr fälschlich als „keine Vision" angezeigt.** Die Erkennung
+  kannte nur die Ollama-Schreibweise (`gemma3:4b`). LM Studio liefert dasselbe Modell als
+  `google/gemma-3-4b-it`, und die gesamte Gemma-4-Reihe fiel ebenfalls durch — beide wurden als
+  vision-los geführt, obwohl sie Bilder verstehen. Die kleinen Text-Modelle (`3-1b`, `3-270m`)
+  bleiben korrekt als vision-los erkannt, jetzt aus dem richtigen Grund statt zufällig.
+- **„Auf aktive Notiz anwenden" ist gesperrt, solange keine Vorlage feststeht.** Wer klickte,
+  während die Vorlagen-Erkennung noch lief, startete einen Lauf ohne Vorlage; das Panel fiel
+  daraufhin still in den Ausgangszustand zurück. Von außen war das nicht davon zu unterscheiden,
+  dass Smart Apply noch rechnet — was legitim zehn Minuten dauern kann. Wer eine Sekunde später
+  geklickt hätte, hätte ein korrektes Ergebnis bekommen.
+- **Das Öffnen der Einstellungen schreibt die Konfiguration nicht mehr.** Beim Zeichnen zog das
+  Plugin die Obergrenze des Kontext-Budgets ans Modell nach und löste damit einen vollständigen
+  Speichervorgang aus, ohne dass jemand etwas geändert hatte. Das zementierte einen fehlerhaften
+  Zustand sofort auf die Platte und machte „die Konfigurationsdatei wurde geschrieben" als
+  Hinweis bei der Fehlersuche wertlos. Eine echte Anpassung des Werts wird weiterhin gespeichert.
+- **Ein abgebrochener Chat zeichnet den bis dahin erhaltenen Text auf** (nur mit installiertem
+  „LLM Lab"). Bisher wurde ein per „Stopp" beendeter Lauf mit leerem Inhalt gemeldet — also
+  ohne genau das, wofür man ihn nachsieht.
+
+### Changed
+- **Das Prüfgatter läuft jetzt bei jeder Änderung an `main`, nicht mehr nur beim Release.**
+  Dazu prüft es neu, dass die Obsidian-Abhängigkeit auf die dafür vorgesehenen Dateien beschränkt
+  bleibt — die Architekturregel dahinter stand bisher nur in der Dokumentation.
+
 ## [0.26.0] — 2026-08-23
 
 ### Fixed

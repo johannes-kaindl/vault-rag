@@ -30,6 +30,11 @@ All notable changes to this project are documented here. The format follows
 - **Das Prüfgatter läuft jetzt bei jeder Änderung an `main`, nicht mehr nur beim Release.**
   Dazu prüft es neu, dass die Obsidian-Abhängigkeit auf die dafür vorgesehenen Dateien beschränkt
   bleibt — die Architekturregel dahinter stand bisher nur in der Dokumentation.
+- **Die Anbindung an „LLM Lab" verlangt jetzt dessen apiVersion 2** (Endpunkt-Schlüssel zur
+  exakten Maskierung, Kontext-Pfade für einen Ordner-Filter). Ist „LLM Lab" noch auf dem
+  alten Vertrag (apiVersion 1, vor dessen Release 0.3.0), meldet vault-rag ab diesem Release
+  **gar nichts mehr** ans Lab — genau wie ohne installiertes Lab, nur still, bis „LLM Lab" auf
+  0.3.0 aktualisiert ist.
 
 ## [0.26.0] — 2026-08-23
 

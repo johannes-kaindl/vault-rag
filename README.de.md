@@ -202,6 +202,8 @@ zweiter Konsument ihre Form bestätigt hat.*
 
 Bild-Transkription (Handschrift/Screenshots → Markdown) liegt im Schwester-Plugin **[image-to-markdown](https://git.jkaindl.de/jkaindl/image-to-markdown)**.
 
+Ist das Plugin **LLM Lab** installiert, meldet Vault Retrieval seine LLM-Aufrufe dorthin — Chat, Umformatieren und Smart Apply —, damit du nachlesen kannst, was rausging und was zurückkam. Fehlt das Plugin, wird nichts gemeldet; der Endpunkt-Testknopf ist bewusst ausgenommen.
+
 ## Mitwirken
 
 Issues und Pull Requests gerne auf [Forgejo](https://git.jkaindl.de/jkaindl/vault-rag) (kanonisch; GitHub ist ein Mirror). Das Projekt ist testgetrieben — jede Änderung kommt mit Tests (`npm test`), größere Features laufen über brainstorming → Spec → Plan → TDD. Konventionen in [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md).

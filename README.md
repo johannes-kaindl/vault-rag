@@ -212,6 +212,8 @@ consumer has confirmed its shape.*
 
 Image transcription (handwriting/screenshots → Markdown) lives in the sibling plugin **[image-to-markdown](https://git.jkaindl.de/jkaindl/image-to-markdown)**.
 
+If the **LLM Lab** plugin is installed, Vault Retrieval reports its LLM calls to it — chat, reformatting and Smart Apply — so you can review what was sent and what came back. Nothing is reported when that plugin is absent, and the endpoint test button is excluded by design.
+
 ## Contributing
 
 Issues and pull requests are welcome on [Forgejo](https://git.jkaindl.de/jkaindl/vault-rag) (canonical; GitHub is a mirror). The project is test-driven — every change ships with tests (`npm test`), and larger features go through a brainstorm → spec → plan → TDD flow ([`docs/superpowers/`](https://github.com/johannes-kaindl/vault-rag/tree/main/docs/superpowers)). See [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md) for architecture and conventions.

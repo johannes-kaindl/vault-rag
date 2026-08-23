@@ -15,7 +15,9 @@ workspace conventions documented in [`AGENTS.md`](AGENTS.md); the short version:
 - **Stage only the files you touched — never `git add -A`.**
 
 ## Quality gate (before every commit)
-- `npm test` green (vitest), `npx tsc --noEmit` clean, `npm run build` succeeds.
+- **`npm run gate`** — one command, and the same one CI runs on every push to `main`.
+  It chains typecheck, tests, lint, `check:pure` and the build; listing the steps
+  separately here is how a contributor ends up green locally and red in CI.
 - **TDD is the default**, and larger features go through brainstorm → spec → plan → TDD
   ([`docs/superpowers/`](docs/superpowers/)).
 - Tests verify real behaviour, not mocks; no `.only`/`.skip` in commits.

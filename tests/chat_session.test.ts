@@ -116,7 +116,7 @@ describe("ChatSession", () => {
     const stream = async (_m: any, _c: any, _r: any, _sig: any, o: any) => { opts = o; return { content: "ok", reasoning: "" }; };
     const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", params: () => ({ model: "mx", temperature: 0.9, suppressThinking: false }), app: () => ({}) });
     await s.send("frage", [], () => {});
-    expect(opts).toEqual({ model: "mx", temperature: 0.9, suppressThinking: false, trace: { feature: "chat", app: {} } });
+    expect(opts).toEqual({ model: "mx", temperature: 0.9, suppressThinking: false, trace: { feature: "chat", app: {}, contextPaths: [] } });
   });
   it("reicht suppressThinking aus params an client.stream durch", async () => {
     let seenOpts: any = null;

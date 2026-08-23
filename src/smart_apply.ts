@@ -250,7 +250,7 @@ export class SmartApply {
       onToken,
       onReasoning,
       this.controller.signal,
-      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens, trace: { feature: "smart-apply", app: this.deps.app() } },
+      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens, trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath] } },
     );
 
     // Ins Token-Budget gelaufen: das erklaert einen anschliessenden Fehlschlag und nennt die

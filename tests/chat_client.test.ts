@@ -120,6 +120,62 @@ describe("ChatClient", () => {
     const body = JSON.parse(xhr.body) as Record<string, unknown>;
     expect("max_tokens" in body).toBe(false);
   });
+  describe("llm-lab trace", () => {
+    function fakeLabApp(log: (input: any) => unknown): unknown {
+      return { plugins: { plugins: { "llm-lab": { api: { apiVersion: 1, status: () => ({ apiVersion: 1, recording: true }), log } } } } };
+    }
+
+    it("ein werfendes log() darf den aufgeloesten Wert nicht veraendern", async () => {
+      const xhr = installFakeXHR();
+      const app = fakeLabApp(() => { throw new Error("lab kaputt"); });
+      const content: string[] = [];
+      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
+        [{ role: "user", content: "hi" }], t => content.push(t), () => {}, undefined,
+        { trace: { feature: "chat", app } });
+      xhr.feed([
+        'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n' + DONE,
+      ]);
+      await expect(p).resolves.toEqual({ content: "Hallo", reasoning: "" });
+      expect(content).toEqual(["Hal", "lo"]);
+    });
+
+    it("HTTP-500 rejected wie zuvor UND meldet dem Lab error + leeren content", async () => {
+      const xhr = installFakeXHR();
+      let seen: any;
+      const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
+      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
+        [{ role: "user", content: "x" }], () => {}, () => {}, undefined,
+        { trace: { feature: "chat", app } });
+      xhr.feed([], 500);
+      await expect(p).rejects.toThrow("500");
+      expect(seen.content).toBe("");
+      expect(typeof seen.error).toBe("string");
+      expect(seen.error).toContain("500");
+      expect(seen.plugin).toBe("vault-retrieval");
+      expect(seen.feature).toBe("chat");
+    });
+
+    it("ttftMs <= latencyMs, Token-Reihenfolge unveraendert wenn trace gesetzt ist", async () => {
+      const xhr = installFakeXHR();
+      let seen: any;
+      const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
+      const content: string[] = [];
+      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
+        [{ role: "user", content: "hi" }], t => content.push(t), () => {}, undefined,
+        { trace: { feature: "chat", app } });
+      xhr.feed([
+        'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n' + DONE,
+      ]);
+      await p;
+      expect(content).toEqual(["Hal", "lo"]);
+      expect(seen.ttftMs).toBeGreaterThanOrEqual(0);
+      expect(seen.latencyMs).toBeGreaterThanOrEqual(0);
+      expect(seen.ttftMs).toBeLessThanOrEqual(seen.latencyMs);
+    });
+  });
+
   describe("ping", () => {
     it("true bei 200 mit gültiger Modell-Liste", async () => {
       vi.mocked(requestUrl).mockResolvedValue({ status: 200, json: { data: [] } } as any);

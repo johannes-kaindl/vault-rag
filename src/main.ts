@@ -277,6 +277,7 @@ export default class VaultRagPlugin extends Plugin {
             const r = this.facade.searchVector(vec, opts);
             return r.kind === "hits" ? r.hits : [];
           },
+          app: () => this.app,
         },
         () => this.chatClient,
         () => ({
@@ -415,6 +416,7 @@ export default class VaultRagPlugin extends Plugin {
           }),
           systemPreamble: () => effectiveSystemPrompt(this.settings.chatSystemPrompt),
           params: () => ({ model: this.chatModelInUse, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
+          app: () => this.app,
         }),
         openPath: this.openPath,
         copyText: (text: string) => { void navigator.clipboard.writeText(text); new Notice(t("main.copied")); },
@@ -842,6 +844,7 @@ export default class VaultRagPlugin extends Plugin {
           temperature: 0.2,
           suppressThinking: true,
           maxTokens: REFORMAT_MAX_TOKENS,
+          trace: { feature: `reformat:${def.id}`, app: this.app },
         })
         .then(r => ({ text: r.content, finishReason: r.finishReason })),
       onApply: (result) => {

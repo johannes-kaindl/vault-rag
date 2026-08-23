@@ -83,6 +83,7 @@ function makeDeps(overrides: Partial<SmartApplyDeps> = {}): SmartApplyDeps {
     embed: async () => new Float32Array(3).fill(0.1),
     search: () => [],
     typeOf: async () => null,
+    app: () => ({}),
     ...overrides,
   };
 }

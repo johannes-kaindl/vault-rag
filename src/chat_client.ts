@@ -5,6 +5,7 @@ import { suppressParams } from "./vendor/kit/reasoning";
 import { httpJson, probeEndpoint } from "./http";
 import { authHeaders } from "./endpoint_config";
 import { EndpointStatus, extractModelIds } from "./vendor/kit/endpoint_diagnostics";
+import { readLabApi } from "./lab_client";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
 
@@ -15,6 +16,15 @@ export interface ModelInfo {
   quantization?: string;
   arch?: string;
   state?: string;
+}
+
+/** Fehler → einzeiliger String fuers Lab-Log. `String(e)` allein wäre bei einem Nicht-Error
+ *  (kein `message`, kein sinnvolles `toString`) nur „[object Object]" — und lint (no-base-to-string)
+ *  verbietet es ohnehin auf `unknown`. Wirft nie: der Aufrufer steht selbst im Telemetrie-`try`. */
+function describeError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  try { return JSON.stringify(e); } catch { return "unknown error"; }
 }
 
 export class ChatClient {
@@ -71,7 +81,7 @@ export class ChatClient {
     onContent: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
-    opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number },
+    opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number; trace?: { feature: string; app: unknown } },
   ): Promise<{ content: string; reasoning: string; finishReason?: string }> {
     const body = JSON.stringify({
       model: opts?.model ?? this.model,
@@ -81,11 +91,64 @@ export class ChatClient {
       ...(opts?.maxTokens != null ? { max_tokens: opts.maxTokens } : {}),
       ...suppressParams(opts?.suppressThinking ?? false),
     });
-    const { content, reasoning, finishReason } = await streamSSE(
-      `${this.endpoint}/v1/chat/completions`,
-      { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(this.apiKey) }, body },
-      onContent, onReasoning, signal,
-    );
-    return { content, reasoning, finishReason };
+    const started = Date.now();
+    // ttftMs misst den ersten CONTENT-Token, nicht den ersten Token ueberhaupt: bei einem
+    // denkenden Modell, das zuerst reasoning streamt, liegt der Wert entsprechend spaeter als
+    // das erste Byte auf der Leitung. Bewusst so — es ist der nutzersichtbare erste Token —,
+    // aber llm-lab dokumentiert das Feld als „time to first token"; die Abweichung gehoert
+    // hierher geschrieben statt spaeter entdeckt zu werden.
+    let firstToken: number | undefined;
+    const timedContent = (tk: string): void => {
+      firstToken ??= Date.now();
+      onContent(tk);
+    };
+    try {
+      const { content, reasoning, finishReason } = await streamSSE(
+        `${this.endpoint}/v1/chat/completions`,
+        { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(this.apiKey) }, body },
+        timedContent, onReasoning, signal,
+      );
+      this.reportToLab(opts, messages, { content, reasoning, finishReason }, started, firstToken);
+      return { content, reasoning, finishReason };
+    } catch (e) {
+      // Auch der gescheiterte Lauf wird gemeldet — er ist der interessante Debug-Fall. Der rohe
+      // Fehler bleibt bis in den guarded Block unangetastet: ein String(e) mit werfendem
+      // toString darf den echten Fehler nicht durch einen TypeError ersetzen — und ohne
+      // konfigurierten `trace` laeuft String(e) hier gar nicht erst (Guard lebt im Callee).
+      this.reportToLab(opts, messages, { content: "", errorRaw: e }, started, firstToken);
+      throw e;
+    }
+  }
+
+  /** Meldet einen Aufruf ans LLM Lab, falls es installiert ist. Fire-and-forget:
+   *  `log()` ist synchron und darf nie werfen — ein `try` steht trotzdem hier, weil ein
+   *  fremdes Plugin nicht unser Vertrauen verdient, nur weil es unsere Signatur erfuellt. */
+  private reportToLab(
+    opts: { model?: string; trace?: { feature: string; app: unknown } } | undefined,
+    messages: ChatMessage[],
+    result: { content: string; reasoning?: string; finishReason?: string; errorRaw?: unknown },
+    started: number,
+    firstToken?: number,
+  ): void {
+    if (!opts?.trace) return;
+    try {
+      const { errorRaw, ...rest } = result;
+      const ret: unknown = readLabApi(opts.trace.app)?.log({
+        plugin: "vault-retrieval",
+        feature: opts.trace.feature,
+        model: opts.model ?? this.model,
+        endpointUrl: this.endpoint,
+        messages,
+        latencyMs: Date.now() - started,
+        ...(firstToken ? { ttftMs: firstToken - started } : {}),
+        ...rest,
+        ...(errorRaw !== undefined ? { error: describeError(errorRaw) } : {}),
+      });
+      // Der Vertrag sagt: synchron zurueckgegebene id. Ein fremdes Plugin verdient trotzdem
+      // keinen blinden Vorschuss — `Promise.resolve` ist fuer eine normale id ein No-op
+      // (bereits aufgeloest), faengt aber eine etwaige rejectende Promise ab, bevor sie als
+      // unhandled rejection den Chat mitreissen koennte.
+      void Promise.resolve(ret).catch(() => {});
+    } catch { /* Telemetrie darf einen Chat nie mitreissen. */ }
   }
 }

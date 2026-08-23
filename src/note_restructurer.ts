@@ -275,18 +275,26 @@ export function reconcileAssignment(tpl: TemplateSpec, a: Assignment): Assignmen
 
 // ── buildRestructurePrompt ───────────────────────────────────────────────────
 
-export const ANTI_FABRICATION = [
-  "Du darfst KEINEN Text erfinden, umschreiben oder zusammenfassen.",
-  "Du ordnest ausschließlich die nummerierten Block-IDs den Template-Überschriften zu.",
-  "Jede Block-ID muss genau einmal vorkommen: entweder in einer Sektion oder in `unassigned`.",
-  "Du gibst AUSSCHLIESSLICH ein einzelnes JSON-Objekt zurück, keinen Fließtext, keine Erklärung.",
-].join(" ");
+/** Anti-Fabrikations-Klausel — zur BAUZEIT des Prompts aufgelöst, nie als Modul-Konstante:
+ *  `setLang()` läuft im onload, Modul-Konstanten werden beim import ausgewertet, also davor
+ *  (AGENTS.md § i18n-Gotchas). Als Konstante fror sie die Sprache still auf `en` ein. */
+export function antiFabrication(): string {
+  return t("noteRestructurer.antiFabrication");
+}
 
-export const ADDITIV_INSTRUCTION = [
-  "Du darfst Original-Blöcke nicht umschreiben, kürzen oder zusammenfassen — sie werden byte-genau übernommen; du ordnest sie nur zu (wie im deterministischen Modus).",
-  "Zusätzlich DARFST du: (a) neue Ergänzungsblöcke unter eine bestehende Template-Überschrift setzen (Feld `additions`), z.B. eine kurze Zusammenfassung oder eine erschlossene Kontextangabe; (b) Frontmatter-Werte erschließen, auch wenn sie nicht wörtlich im Text stehen (`source: \"inferred\"`).",
-  "Jede Ergänzung und jeder erschlossene Wert MUSS eine ehrliche Selbst-Konfidenz tragen: \"hoch\", \"mittel\" oder \"niedrig\". Ergänze nur, was fundiert ableitbar ist; im Zweifel \"niedrig\" oder weglassen. Erfinde keine Fakten.",
-].join(" ");
+/** Zusatz-Erlaubnis des additiven Modus. Die Konfidenz-Stufen kommen interpoliert aus
+ *  `confidenceValues()` — der Prompt darf keine Wörter verlangen, die `parseConfidence`
+ *  nicht kennt, sonst fällt jede Ergänzung still auf "niedrig". */
+export function additiveInstruction(): string {
+  return t("noteRestructurer.additiveInstruction", confidenceValues());
+}
+
+/** Die drei Konfidenz-Wörter, wie der Prompt sie verlangt — PROTOKOLL, nicht Prosa:
+ *  `CONF_MAP` (oben) kennt beide Sprachfassungen, deshalb darf der englische Prompt
+ *  "high"|"medium"|"low" verlangen. Wer hier ein Wort ändert, muss CONF_MAP mitziehen. */
+function confidenceValues(): string {
+  return t("noteRestructurer.confidenceValues");
+}
 
 /** Vorlagen-Beispielwert als String (Selbst-Dokumentation, nie Inhalt). Leer → "". */
 function fmExample(v: unknown): string {
@@ -304,8 +312,14 @@ export function buildRestructurePrompt(
   const numbered = blocks.map(b => `${b.id}:\n${b.text}`).join("\n\n");
   const headings = tpl.sections.map(s => s.heading).join(", ");
 
+  // Ein Label, zwei Verwendungen: die erzeugte Zeile UND der Satz, der sie erklärt.
+  // Getrennt übersetzt liefen beide auseinander — das Modell bekäme eine Erklärung für
+  // eine Zeile, die so nicht im Prompt steht.
+  const guidanceLabel = t("noteRestructurer.label.guidance");
+  const exampleLabel = t("noteRestructurer.label.example");
+
   const sectionLines = tpl.sections
-    .map(s => (s.guidance ? `- ${s.heading} — Anleitung: ${s.guidance}` : `- ${s.heading}`))
+    .map(s => (s.guidance ? `- ${s.heading} — ${guidanceLabel}: ${s.guidance}` : `- ${s.heading}`))
     .join("\n");
   const fmG = tpl.fmGuidance ?? {};
   const keyLines = tpl.keys
@@ -313,36 +327,42 @@ export function buildRestructurePrompt(
       const ex = fmExample(tpl.fmDefaults[k]);
       const hint = (fmG[k] ?? "").trim();
       const parts: string[] = [];
-      if (ex) parts.push(`Beispiel: ${ex}`);
-      if (hint) parts.push(`Hinweis: ${hint}`);
+      if (ex) parts.push(`${exampleLabel}: ${ex}`);
+      if (hint) parts.push(`${t("noteRestructurer.label.hint")}: ${hint}`);
       return parts.length ? `- ${k} (${parts.join("; ")})` : `- ${k}`;
     })
     .join("\n");
 
   const userCommon = [
-    "## Vorlagen-Struktur (Überschriften + Anleitung)",
+    t("noteRestructurer.heading.templateStructure"),
     sectionLines,
     "",
-    "## Frontmatter-Keys",
+    t("noteRestructurer.heading.frontmatterKeys"),
     keyLines,
     "",
-    `Geordnete Überschriften: ${headings}`,
+    t("noteRestructurer.orderedHeadings", headings),
     "",
-    "## Original-Body in nummerierten Blöcken",
+    t("noteRestructurer.heading.body"),
     numbered,
     "",
   ];
 
+  // JSON-Feldnamen und source-Werte sind Protokoll und bleiben in jeder Sprache wörtlich;
+  // übersetzt wird nur, was in spitzen Klammern als Platzhalter steht.
+  const guidanceIsSpec = t("noteRestructurer.guidanceIsSpec", guidanceLabel, exampleLabel);
+  const phKey = t("noteRestructurer.ph.key");
+  const phValue = t("noteRestructurer.ph.value");
+
   if (mode === "additiv") {
     const system = [
-      "Du bist ein strukturierender Assistent für Obsidian-Notizen.",
-      ADDITIV_INSTRUCTION,
-      "Die `Anleitung:`-Zeilen und `(Beispiel: …)`-Angaben der Vorlage sind VORGABEN — sie sagen dir, welche Original-Blöcke unter welche Überschrift gehören und was in ein Frontmatter-Feld passt. Sie sind KEIN zuzuordnender Inhalt; übernimm ihren Text niemals in den Output.",
-      'Schema (additiv): { "version": 2, "sections": [...], "unassigned": [...], "additions": [{ "id": "add_0", "targetHeading": "<bestehende Überschrift>", "text": "<neuer Text>", "confidence": "hoch"|"mittel"|"niedrig" }], "frontmatter": { "<key>": { "source": "content"|"inferred"|"empty", "value": "<wert>", "confidence": "hoch"|"mittel"|"niedrig" } } }',
-      'Frontmatter mit source="content" muss wörtlich aus den Blöcken stammen; source="inferred" ist nach bestem Wissen erschlossen, mit Konfidenz; sonst source="empty".',
+      t("noteRestructurer.role"),
+      additiveInstruction(),
+      guidanceIsSpec,
+      `${t("noteRestructurer.schemaLabelAdditive")}: { "version": 2, "sections": [...], "unassigned": [...], "additions": [{ "id": "add_0", "targetHeading": "<${t("noteRestructurer.ph.existingHeading")}>", "text": "<${t("noteRestructurer.ph.newText")}>", "confidence": ${confidenceValues()} }], "frontmatter": { "<${phKey}>": { "source": "content"|"inferred"|"empty", "value": "<${phValue}>", "confidence": ${confidenceValues()} } } }`,
+      t("noteRestructurer.frontmatterRuleAdditive"),
     ].join("\n");
 
-    const user = [...userCommon, ADDITIV_INSTRUCTION, "Antworte AUSSCHLIESSLICH mit dem JSON-Objekt."].join("\n");
+    const user = [...userCommon, additiveInstruction(), t("noteRestructurer.jsonOnly")].join("\n");
 
     return [
       { role: "system", content: system },
@@ -351,15 +371,15 @@ export function buildRestructurePrompt(
   }
 
   const system = [
-    "Du bist ein strukturierender Assistent für Obsidian-Notizen.",
-    ANTI_FABRICATION,
-    "Die `Anleitung:`-Zeilen und `(Beispiel: …)`-Angaben der Vorlage sind VORGABEN — sie sagen dir, welche Original-Blöcke unter welche Überschrift gehören und was in ein Frontmatter-Feld passt. Sie sind KEIN zuzuordnender Inhalt; übernimm ihren Text niemals in den Output.",
-    'Schema: { "version": 1, "sections": [{ "heading": "<Überschrift>", "blocks": ["block_3"] }],',
-    '"unassigned": ["block_7"], "frontmatter": { "<key>": { "source": "content"|"empty", "value": "<wert>" } } }',
-    'Frontmatter mit source="content" muss wörtlich aus den Blöcken stammen; sonst source="empty".',
+    t("noteRestructurer.role"),
+    antiFabrication(),
+    guidanceIsSpec,
+    `${t("noteRestructurer.schemaLabel")}: { "version": 1, "sections": [{ "heading": "<${t("noteRestructurer.ph.heading")}>", "blocks": ["block_3"] }],`,
+    `"unassigned": ["block_7"], "frontmatter": { "<${phKey}>": { "source": "content"|"empty", "value": "<${phValue}>" } } }`,
+    t("noteRestructurer.frontmatterRule"),
   ].join("\n");
 
-  const user = [...userCommon, ANTI_FABRICATION, "Antworte AUSSCHLIESSLICH mit dem JSON-Objekt."].join("\n");
+  const user = [...userCommon, antiFabrication(), t("noteRestructurer.jsonOnly")].join("\n");
 
   return [
     { role: "system", content: system },

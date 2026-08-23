@@ -9,13 +9,15 @@ import {
   reconcileAdditions,
   EMPTY_SECTION_SENTINEL,
   UEBRIG_HEADING,
-  ANTI_FABRICATION,
+  antiFabrication,
+  additiveInstruction,
   SourceBlock,
   Assignment,
   Addition,
 } from "../src/note_restructurer";
 import { parseConfidence } from "../src/note_restructurer";
 import "../src/i18n/strings"; // Register i18n strings
+import { t, setLang } from "../src/vendor/kit/i18n";
 import type { TemplateSpec, TemplateSection } from "../src/template_matcher";
 import { parseTemplate } from "../src/template_matcher";
 
@@ -371,7 +373,7 @@ describe("buildRestructurePrompt", () => {
   it("enthält die strukturierte Vorlagen-Struktur mit Überschriften als Liste", () => {
     const msgs = buildRestructurePrompt(tpl, blocks);
     const all = msgs.map(m => m.content).join("\n");
-    expect(all).toContain("## Vorlagen-Struktur");
+    expect(all).toContain(t("noteRestructurer.heading.templateStructure"));
     expect(all).toContain("- Setup");
     expect(all).toContain("- Ablauf");
   });
@@ -387,9 +389,9 @@ describe("buildRestructurePrompt", () => {
   it("wiederholt die Anti-Fabrikations-Klausel (nur Zuordnung, keine Prosa, nur JSON)", () => {
     const sys = buildRestructurePrompt(tpl, blocks)[0].content;
     const user = buildRestructurePrompt(tpl, blocks)[1].content;
-    // in der system-Nachricht UND in der user-Nachricht: exakter ANTI_FABRICATION-String
-    expect(sys).toContain(ANTI_FABRICATION);
-    expect(user).toContain(ANTI_FABRICATION);
+    // in der system-Nachricht UND in der user-Nachricht: exakt dieselbe Klausel
+    expect(sys).toContain(antiFabrication());
+    expect(user).toContain(antiFabrication());
   });
 });
 
@@ -399,11 +401,19 @@ describe("buildRestructurePrompt mode", () => {
   it("deterministisch ist byte-identisch zu ohne mode", () => {
     expect(buildRestructurePrompt(tpl, blocks, "deterministisch")).toEqual(buildRestructurePrompt(tpl, blocks));
   });
+  // Der WORTLAUT wird bewusst in einer Sprache geprüft (DE) — dass der Prompt überhaupt
+  // der eingestellten Sprache folgt, ist Gegenstand von note_restructurer_prompt_i18n.test.ts.
+  // Beides in einem Test zu vermengen hiesse, die Zusage an das Modell hinter einer
+  // Übersetzungsprüfung zu verstecken.
   it("deterministisch enthält weiterhin das strikte Anti-Fabrikations-Gebot", () => {
+    setLang("de");
     const sys = buildRestructurePrompt(tpl, blocks)[0].content;
     expect(sys).toContain("KEINEN Text erfinden");
+    expect(sys).not.toContain(additiveInstruction());
+    setLang("en");
   });
   it("additiv erlaubt additions + inferred + verlangt Konfidenz", () => {
+    setLang("de");
     const msgs = buildRestructurePrompt(tpl, blocks, "additiv");
     const sys = msgs[0].content;
     expect(sys).toContain("additions");
@@ -411,6 +421,7 @@ describe("buildRestructurePrompt mode", () => {
     expect(sys).toMatch(/[Kk]onfidenz/);
     // Original-Blöcke bleiben unantastbar:
     expect(sys).toMatch(/Original-Blöcke.*(nicht|niemals).*(umschreiben|verändern)/s);
+    setLang("en");
   });
 });
 
@@ -431,19 +442,19 @@ describe("buildRestructurePrompt %%-guidance", () => {
 
   it("rendert Anleitung pro Überschrift, Beispiel pro Key und die kein-Inhalt-Instruktion", () => {
     const [system, userMsg] = buildRestructurePrompt(tplWith("Stichpunkte zur Agenda hierher"), blocks);
-    expect(userMsg.content).toContain("Tagesordnung — Anleitung: Stichpunkte zur Agenda hierher");
+    expect(userMsg.content).toContain(`Tagesordnung — ${t("noteRestructurer.label.guidance")}: Stichpunkte zur Agenda hierher`);
     expect(userMsg.content).toContain("- Notizen");
-    expect(userMsg.content).not.toContain("Notizen — Anleitung:");
-    expect(userMsg.content).toContain("status (Beispiel: offen)");
-    expect(userMsg.content).toContain("Geordnete Überschriften: Tagesordnung, Notizen");
-    expect(system.content).toContain("KEIN zuzuordnender Inhalt");
+    expect(userMsg.content).not.toContain(`Notizen — ${t("noteRestructurer.label.guidance")}:`);
+    expect(userMsg.content).toContain(`status (${t("noteRestructurer.label.example")}: offen)`);
+    expect(userMsg.content).toContain(t("noteRestructurer.orderedHeadings", "Tagesordnung, Notizen"));
+    expect(system.content).toContain(t("noteRestructurer.guidanceIsSpec", t("noteRestructurer.label.guidance"), t("noteRestructurer.label.example")));
   });
 
   it("Vorlage ohne %% bleibt rückwärtskompatibel (Überschriften + Keys, keine Anleitung-Zeile)", () => {
     const [, userMsg] = buildRestructurePrompt(tplWith(""), blocks);
-    expect(userMsg.content).not.toContain("Anleitung:");
+    expect(userMsg.content).not.toContain(`${t("noteRestructurer.label.guidance")}:`);
     expect(userMsg.content).toContain("- Tagesordnung");
-    expect(userMsg.content).toContain("## Original-Body in nummerierten Blöcken");
+    expect(userMsg.content).toContain(t("noteRestructurer.heading.body"));
   });
 
   it("Guidance-Text landet nie im assembleBody-Output", () => {
@@ -472,16 +483,16 @@ describe("buildRestructurePrompt FM-#-guidance", () => {
 
   it("rendert Hinweis pro FM-Key mit Kommentar", () => {
     const [, userMsg] = buildRestructurePrompt(tplWith({ art: "Meeting | Telefonat" }), blocks);
-    expect(userMsg.content).toContain("art (Hinweis: Meeting | Telefonat)");
+    expect(userMsg.content).toContain(`art (${t("noteRestructurer.label.hint")}: Meeting | Telefonat)`);
   });
   it("kombiniert Beispiel + Hinweis bei Key mit Default und Kommentar", () => {
     const [, userMsg] = buildRestructurePrompt(tplWith({ type: "Gesprächstyp mit Emoji" }), blocks);
-    expect(userMsg.content).toContain("type (Beispiel: 🗣️ Gespräch; Hinweis: Gesprächstyp mit Emoji)");
+    expect(userMsg.content).toContain(`type (${t("noteRestructurer.label.example")}: 🗣️ Gespräch; ${t("noteRestructurer.label.hint")}: Gesprächstyp mit Emoji)`);
   });
   it("ohne fmGuidance bleibt rückwärtskompatibel (nackter Key, kein Hinweis)", () => {
     const [, userMsg] = buildRestructurePrompt(tplWith({}), blocks);
     expect(userMsg.content).toContain("- art");
-    expect(userMsg.content).not.toContain("Hinweis:");
+    expect(userMsg.content).not.toContain(`${t("noteRestructurer.label.hint")}:`);
   });
 });
 

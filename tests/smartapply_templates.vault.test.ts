@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { parseTemplate, resolveTemplateForType } from "../src/template_matcher";
 import type { TemplateSpec } from "../src/template_matcher";
 import { buildRestructurePrompt, splitBlocks } from "../src/note_restructurer";
+import "../src/i18n/strings"; // registriert die Wörterbücher: der Prompt wird über t() gebaut
+import { t } from "../src/vendor/kit/i18n";
 
 // SSOT = die echten Vault-Vorlagen. Gated auf den Vault-Ordner: lokal grün, in CI (kein Vault) sauber übersprungen.
 const TPL_DIR =
@@ -81,11 +83,11 @@ describe.skipIf(!HAS_VAULT)("Smart-Apply Capture-Vorlagen (Vault)", () => {
         const user = msgs.find(m => m.role === "user")?.content ?? "";
         expect(user).not.toContain("undefined");
         for (const k of s.guidedKeys) {
-          expect(user, `Hinweis-Zeile für ${k} fehlt`).toMatch(new RegExp(`- ${k} \\(.*Hinweis:`));
+          expect(user, `Hinweis-Zeile für ${k} fehlt`).toMatch(new RegExp(`- ${k} \\(.*${t("noteRestructurer.label.hint")}:`));
         }
-        expect(user, "type-Beispielzeile fehlt im Prompt").toMatch(/- type \(.*Beispiel:/);
+        expect(user, "type-Beispielzeile fehlt im Prompt").toMatch(new RegExp(`- type \\(.*${t("noteRestructurer.label.example")}:`));
         for (const sec of tpl.sections) {
-          expect(user).toContain(`${sec.heading} — Anleitung:`);
+          expect(user).toContain(`${sec.heading} — ${t("noteRestructurer.label.guidance")}:`);
         }
       });
     });

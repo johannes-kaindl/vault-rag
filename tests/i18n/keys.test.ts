@@ -69,22 +69,30 @@ function stripLineComment(codeOnlyLine: string): string {
 }
 
 /**
- * Entscheidet, ob eine öffnende `{` einen Funktions-/Methoden-/Klassenkörper beginnt (Inhalt
- * wird erst bei *Aufruf* ausgewertet, also sicher) oder etwas anderes (Objekt-/Array-Literal,
- * Block, Kontrollfluss — Inhalt wird sofort beim Modul-Load ausgewertet, also unsicher).
+ * Klassifiziert eine öffnende `{`: "fn" (Funktions-/Methoden-/Arrow-Körper — Inhalt wird erst bei
+ * *Aufruf* ausgewertet, also sicher), "class" (Klassenrumpf — Feldinitialisierer darin laufen
+ * eifrig) oder "other" (Objekt-/Array-Literal, Block, Kontrollfluss — Inhalt wird sofort beim
+ * Modul-Load ausgewertet, also unsicher).
  * `prefix` ist der (bereits string-/kommentarbereinigte) Zeilentext vor der `{`.
  * Heuristik, kein Parser — bekannte Lücke: `if/for/while/switch/catch (…) {` wird korrekt als
  * "nicht Funktion" erkannt, ein mehrzeiliger Funktionskopf (Parameterliste über mehrere Zeilen)
  * wird dagegen als "nicht Funktion" fehlklassifiziert, weil die schließende `)` nicht auf
  * derselben Zeile wie die `{` steht.
  */
-function isFunctionOpener(prefix: string): boolean {
+function braceKind(prefix: string): "fn" | "class" | "other" {
   const p = prefix.trimEnd();
-  if (/=>$/.test(p)) return true; // Arrow-Function-Körper
-  if (/\b(if|for|while|switch|catch)\s*\([^{]*\)$/.test(p)) return false; // Kontrollfluss
-  if (/\)\s*(:\s*[^{]+)?$/.test(p)) return true; // function/Methode/Konstruktor, ggf. mit Rückgabetyp
-  if (/\bclass\b/.test(p)) return true; // Klassenkörper
-  return false; // Objekt-/Array-Literal, nackter Block, …
+  if (/=>$/.test(p)) return "fn"; // Arrow-Function-Körper
+  if (/\b(if|for|while|switch|catch)\s*\([^{]*\)$/.test(p)) return "other"; // Kontrollfluss
+  // Rückgabetyp bewusst als `.+` statt `[^{]+`: ein Typ darf selbst geschweifte Klammern tragen
+  // (`): Promise<{ a: string }>`), und mit `[^{]+` wurde der Body-Öffner dann als Objektliteral
+  // eingestuft — der ganze Methodenrumpf galt als Modul-Ebene. Die Typ-internen `{` bekommen
+  // dabei ebenfalls "fn"; das ist harmlos, weil ihre `}` sie sauber wieder abräumen.
+  if (/\)\s*(:\s*.+)?$/.test(p)) return "fn"; // function/Methode/Konstruktor, ggf. mit Rückgabetyp
+  // Klassenrumpf ist NICHT "fn": ein blankes Feld (`label = t("x")`) wird bei der Instanziierung
+  // ausgewertet, also potenziell vor setLang(). Nur die Methoden-/Getter-Rümpfe DARIN sind
+  // verzögert — die bekommen beim Öffnen ihrer eigenen `{` selbst ein "fn".
+  if (/\bclass\b/.test(p)) return "class";
+  return "other"; // Objekt-/Array-Literal, nackter Block, …
 }
 
 /**
@@ -99,19 +107,24 @@ function isFunctionOpener(prefix: string): boolean {
  */
 function moduleLevelTCalls(src: string): { line: number; text: string }[] {
   const offenders: { line: number; text: string }[] = [];
-  const stack: boolean[] = []; // true = Eintrag ist ein Funktions-/Klassenkörper
+  const stack: ("fn" | "class" | "other")[] = [];
   src.split("\n").forEach((rawLine, i) => {
     const codeOnly = stripLineComment(stripStringContents(rawLine));
     for (let ci = 0; ci < codeOnly.length; ci++) {
       const ch = codeOnly[ci];
       if (ch === "{") {
-        stack.push(isFunctionOpener(codeOnly.slice(0, ci)));
+        stack.push(braceKind(codeOnly.slice(0, ci)));
       } else if (ch === "}") {
         stack.pop();
       } else if (ch === "t" && /^t\(\s*["'`]/.test(codeOnly.slice(ci))) {
         const prevChar = ci === 0 ? "" : codeOnly[ci - 1];
         const wordBoundary = !/[A-Za-z0-9_$]/.test(prevChar);
-        if (wordBoundary && !stack.some(Boolean)) {
+        // Ausdrucks-Arrow ohne eigenen Block (`x = () => t("k")`) öffnet keine `{` und taucht
+        // deshalb nie im Stack auf — der Rumpf läuft trotzdem erst beim Aufruf. Ohne diesen
+        // Zweig meldete der Wächter `const f = (): string => t("k")` fälschlich, und ein
+        // Arrow-Klassenfeld wäre nach der class-Verschärfung neu falsch geworden.
+        const deferredByArrow = codeOnly.slice(0, ci).includes("=>");
+        if (wordBoundary && !stack.includes("fn") && !deferredByArrow) {
           offenders.push({ line: i + 1, text: rawLine.trim() });
         }
       }
@@ -119,6 +132,46 @@ function moduleLevelTCalls(src: string): { line: number; text: string }[] {
   });
   return offenders;
 }
+
+// Selbsttest des Waechters. Ohne ihn ist jede Aenderung an moduleLevelTCalls ein Blindflug:
+// die Funktion laeuft sonst nur gegen `src/`, und dort ist "keine Fundstelle" sowohl das
+// Ergebnis eines gesunden Repos als auch das eines kaputten Waechters.
+describe("moduleLevelTCalls (Waechter-Selbsttest)", () => {
+  const offends = (src: string): boolean => moduleLevelTCalls(src).length > 0;
+
+  it("meldet t() in einer Top-Level-Konstante", () => {
+    expect(offends('const X = t("a.b");')).toBe(true);
+  });
+  it("meldet t() in einem mehrzeiligen Top-Level-Objektliteral", () => {
+    expect(offends('const M = {\n  a: t("a.b"),\n};')).toBe(true);
+  });
+  it("meldet t() NICHT im Funktionsrumpf", () => {
+    expect(offends('function f(): string {\n  return t("a.b");\n}')).toBe(false);
+  });
+  it("meldet t() NICHT im Getter einer Klasse — das korrekte verzoegerte Idiom", () => {
+    expect(offends('class A {\n  get label(): string { return t("a.b"); }\n}')).toBe(false);
+  });
+  it("meldet ein blankes Klassenfeld mit t() — es wird bei der Instanziierung ausgewertet", () => {
+    expect(offends('class A {\n  label = t("a.b");\n}')).toBe(true);
+  });
+  it("meldet ein Klassenfeld mit t() auch hinter Modifikatoren", () => {
+    expect(offends('class A {\n  private readonly label = t("a.b");\n}')).toBe(true);
+  });
+  it("meldet ein Arrow-Klassenfeld NICHT — der Rumpf laeuft erst beim Aufruf", () => {
+    expect(offends('class A {\n  getLabel = (): string => t("a.b");\n}')).toBe(false);
+  });
+  it("meldet t() NICHT im Rumpf einer Methode mit geschweiften Klammern im Rueckgabetyp", () => {
+    // `Promise<{ a: string }>` bringt zwei Klammern in den Signaturkopf; wird der Body-Oeffner
+    // deswegen als Objektliteral klassifiziert, gilt der ganze Methodenrumpf als Modul-Ebene.
+    expect(offends('class A {\n  async send(): Promise<{ a: string }> {\n    return { a: t("a.b") };\n  }\n}')).toBe(false);
+  });
+  it("meldet t() NICHT in einer freien Funktion mit Objektliteral-Rueckgabetyp", () => {
+    expect(offends('function f(): { a: string } {\n  return { a: t("a.b") };\n}')).toBe(false);
+  });
+  it("meldet eine Top-Level-Arrow-Konstante NICHT", () => {
+    expect(offends('const f = (): string => t("a.b");')).toBe(false);
+  });
+});
 
 describe("i18n key guard", () => {
   const files = tsFiles(SRC).filter(p => !p.includes("/vendor/") && !p.endsWith("/i18n/strings.ts"));

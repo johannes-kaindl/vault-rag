@@ -15,6 +15,16 @@ All notable changes to this project are documented here. The format follows
   Modell-Versagen nicht zu unterscheiden — es hat genau diese Fehldiagnose auch ausgelöst. Smart
   Apply bricht jetzt vor der Anfrage ab, nennt die Vorlage als Ursache und den nötigen Handgriff,
   und behauptet keine Zuordnung, die nie versucht wurde.
+- **Smart Apply weist das Modell in der Sprache der Oberfläche an.** Der Prompt, der die
+  Vorlage und die Notiz-Blöcke beschreibt, war fest deutsch gebaut — bis hinunter zu den
+  Platzhaltern im Antwortschema. Wer Obsidian auf Englisch fährt, ließ damit eine englische
+  Notiz nach einer deutschen Arbeitsanweisung aufräumen. Es ist dieselbe Stelle wie beim
+  Chat-Prompt: ein Text, der nicht in die Oberfläche geht, sondern ins Modell. Die
+  Konfidenz-Wörter, die das Modell zurückliefern soll, sind dabei bewusst Teil der
+  Übersetzung geblieben — sie werden ausgewertet, und ein englischer Prompt, der deutsche
+  Wörter verlangt, hätte jede Ergänzung still auf „niedrig" fallen lassen. Was in der Notiz
+  landet (die Auffang-Überschrift, die Provenienz-Marker), bleibt unverändert: es steht
+  bereits in bestehenden Notizen.
 - **Der Chat antwortet in der Sprache der Oberfläche, nicht mehr grundsätzlich auf Deutsch.**
   Der ausgelieferte System-Prompt verlangte wörtlich „Antworte knapp und auf Deutsch." — wer
   Obsidian auf Englisch fährt, stellte eine englische Frage und bekam eine deutsche Antwort. Der

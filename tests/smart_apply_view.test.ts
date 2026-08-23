@@ -32,6 +32,14 @@ async function flush(n = 20): Promise<void> {
   for (let i = 0; i < n; i++) await Promise.resolve();
 }
 
+/** Klickt "Auf aktive Notiz anwenden" so, wie ein Nutzer es kann: erst wenn die Rangliste
+ *  settled ist. Der Knopf ist bis dahin gesperrt (`selectedTemplate === ""`) — ein Klick davor
+ *  liesse `build()` mit leerem Vorlagenpfad laufen und still auf idle zurueckfallen. */
+async function clickRun(container: any): Promise<void> {
+  await flush();
+  first(container, "vault-rag-sa-run").click();
+}
+
 /** Minimaler, aber gültiger AssemblyContext — reicht für defaultSelection()/assembleProposedText()
  *  ohne echtes Template/Blocks. Tests, die konkrete inferred-Werte/additions prüfen wollen,
  *  überschreiben `assignment`/`additions` gezielt via `over`. */
@@ -120,6 +128,29 @@ describe("SmartApplyPanel — Cockpit", () => {
     expect(panel.icon).toBe("wand-2");
     expect(panel.label).toBe("Smart Apply");
     expect(VIEW_TYPE_SMART_APPLY).toBe("vault-rag-smart-apply");
+  });
+
+  // Regression: der Run-Knopf war nur waehrend eines laufenden Baus gesperrt, nicht solange
+  // die Vorlagen-Erkennung noch lief. Ein Klick in dieser Luecke warf `vorlage-waehlen`, die
+  // View fiel STILL auf idle zurueck — von "rechnet noch" (legitim 560-590 s) nicht zu
+  // unterscheiden. Ein strukturell unmoegliches Ergebnis darf nicht wie ein ausbleibendes aussehen.
+  it("Run ist gesperrt, solange keine Vorlage feststeht", async () => {
+    const { container } = mkPanel({ rankTemplates: vi.fn(async () => []) });
+    await flush();
+    expect(hasClass(first(container, "vault-rag-sa-run"), "is-disabled")).toBe(true);
+  });
+
+  it("Run-Klick ohne feststehende Vorlage startet keinen Bau", async () => {
+    const { container, deps } = mkPanel({ rankTemplates: vi.fn(async () => []) });
+    await clickRun(container);
+    await flush();
+    expect(deps.build).not.toHaveBeenCalled();
+  });
+
+  it("Run ist bedienbar, sobald die Rangliste eine Vorlage geliefert hat", async () => {
+    const { container } = mkPanel();
+    await flush();
+    expect(hasClass(first(container, "vault-rag-sa-run"), "is-disabled")).toBe(false);
   });
 
   // Step 1 — Header immer sichtbar
@@ -211,7 +242,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   // Step 3 — start() null path
   it("start() ohne aktive Notiz zeigt Notice und bleibt idle", async () => {
     const { container, deps } = mkPanel({ activeNotePath: vi.fn(() => null) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(deps.build).not.toHaveBeenCalled();
     expect(first(container, "vault-rag-sa-idle")).toBeTruthy();
@@ -222,7 +253,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     let resolveBuild: (p: ApplyProposal) => void = () => {};
     const build = vi.fn((_path: string, _templatePath: string) => new Promise<ApplyProposal>((res) => { resolveBuild = res; }));
     const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush(2);
     expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(String), expect.any(String), expect.any(Function), expect.any(Function));
     expect(first(container, "vault-rag-sa-running")).toBeTruthy();
@@ -238,7 +269,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     const build = vi.fn((_path: string, _templatePath: string, _mode: string, onToken: (t: string) => void, onReasoning: (t: string) => void) =>
       new Promise<ApplyProposal>(() => { tok = onToken; rsn = onReasoning; }));
     const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush(2);
     tok("## Inhalt\n"); tok("alt");
     rsn("denke nach…");
@@ -249,7 +280,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   // Step 6 — build resolve → diff
   it("build()-Resolve geht in den Diff-Zustand mit dem Proposal", async () => {
     const { container } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(first(container, "vault-rag-sa-diff")).toBeTruthy();
     expect(first(container, "vault-rag-sa-apply")).toBeTruthy();
@@ -260,7 +291,7 @@ describe("SmartApplyPanel — Cockpit", () => {
 
   it("Diff zeigt grünes Guard-Banner wenn hardOk", async () => {
     const { container } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     const banner = first(container, "vault-rag-sa-guard");
     expect(hasClass(banner, "is-ok")).toBe(true);
@@ -277,7 +308,7 @@ describe("SmartApplyPanel — Cockpit", () => {
         ],
       })),
     });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     const btn = first(container, "vault-rag-sa-apply");
     expect(hasClass(btn, "is-disabled")).toBe(true);
@@ -291,7 +322,7 @@ describe("SmartApplyPanel — Cockpit", () => {
 
   it("Diff: Anwenden ruft accept genau einmal wenn hardOk", async () => {
     const { container, deps } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     const btn = first(container, "vault-rag-sa-apply");
     expect(hasClass(btn, "is-disabled")).toBe(false);
@@ -304,7 +335,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   it("accept{written:true} geht in applied mit Rückgängig-Button", async () => {
     const undo = vi.fn(async () => {});
     const { container } = mkPanel({ accept: vi.fn(async () => ({ written: true, undo })) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     first(container, "vault-rag-sa-apply").click();
     await flush();
@@ -322,7 +353,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     const undo = vi.fn(async () => {});
     const redo = vi.fn(async () => {});
     const { container } = mkPanel({ accept: vi.fn(async () => ({ written: true, undo, redo })) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     first(container, "vault-rag-sa-apply").click();
     await flush();
@@ -350,7 +381,7 @@ describe("SmartApplyPanel — Cockpit", () => {
 
   it("applied zeigt den Pfad der Notiz", async () => {
     const { container } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     first(container, "vault-rag-sa-apply").click();
     await flush();
@@ -360,7 +391,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   // Step 9 — accept written:false stale → stale state
   it("accept{written:false,reason:'stale'} geht in stale mit Rebuild-Button", async () => {
     const { container } = mkPanel({ accept: vi.fn(async () => ({ written: false, reason: "stale" as const })) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     first(container, "vault-rag-sa-apply").click();
     await flush();
@@ -377,7 +408,7 @@ describe("SmartApplyPanel — Cockpit", () => {
       .mockResolvedValueOnce({ written: false, reason: "stale" as const })
       .mockResolvedValueOnce({ written: true, undo: vi.fn(async () => {}) });
     const { container, deps } = mkPanel({ accept: accept as unknown as SmartApplyViewDeps["accept"] });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     first(container, "vault-rag-sa-apply").click();
     await flush();
@@ -394,7 +425,7 @@ describe("SmartApplyPanel — Cockpit", () => {
 
   it("accept-Fehler: kein hängendes running-Flag, Anwenden bleibt klickbar (2. Klick erreicht accept)", async () => {
     const { container, deps } = mkPanel({ accept: vi.fn(async () => { throw new Error("Schreibfehler"); }) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     first(container, "vault-rag-sa-apply").click();
     await flush();
@@ -408,7 +439,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   // Step 10 — Verwerfen → idle
   it("Verwerfen geht zurück nach idle (kein Write)", async () => {
     const { container, deps } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     first(container, "vault-rag-sa-discard").click();
     await flush();
@@ -420,7 +451,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   // Step 11 — Reroll → new proposal, diff
   it("'Neu generieren' ruft reroll und rendert wieder Diff", async () => {
     const { container, deps } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     first(container, "vault-rag-sa-reroll").click();
     await flush();
@@ -438,7 +469,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   // Error path
   it("build wirft 'abgebrochen' → error-Zustand mit 'Verworfen', kein Throw", async () => {
     const { container } = mkPanel({ build: vi.fn(async () => { throw new Error("abgebrochen"); }) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(first(container, "vault-rag-sa-error")).toBeTruthy();
     expect(first(container, "vault-rag-sa-error").textContent).toContain("Discarded");
@@ -446,7 +477,7 @@ describe("SmartApplyPanel — Cockpit", () => {
 
   it("build wirft anderen Fehler → error-Zustand zeigt die Meldung, kein Throw", async () => {
     const { container } = mkPanel({ build: vi.fn(async () => { throw new Error("Netzwerk-Timeout"); }) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(first(container, "vault-rag-sa-error")).toBeTruthy();
     expect(first(container, "vault-rag-sa-error").textContent).toContain("Netzwerk-Timeout");
@@ -455,7 +486,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   it('build() wirft vorlage-waehlen → Zustand idle + Hinweis, kein Fehler-Panel, accept nicht aufgerufen', async () => {
     const build = vi.fn(async () => { throw new Error('vorlage-waehlen'); });
     const { container, deps } = mkPanel({ build: build as unknown as SmartApplyViewDeps['build'] });
-    first(container, 'vault-rag-sa-run').click();
+    await clickRun(container);
     await flush();
     expect(first(container, 'vault-rag-sa-idle')).toBeTruthy();
     expect(first(container, 'vault-rag-sa-error')).toBeFalsy();
@@ -466,7 +497,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   // Reasoning details in diff
   it("Diff rendert einklappbaren Reasoning-Block aus proposal.reasoning", async () => {
     const { container } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     const body = first(container, "vault-rag-sa-reasoning-body");
     expect(body.textContent).toContain("weil X");
@@ -484,7 +515,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     expect(ranklistAfterOpen).toBeTruthy();
 
     // Trigger state transition: idle → running → diff
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush(8);
 
     // After diff state: model select and ranklist must still be present
@@ -503,7 +534,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     expect((panel as any).selectedTemplate).toBe("Templates/Buch.md");
 
     // Trigger state transition: idle → running → diff
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush(8);
 
     // After diff state: template selection must still be preserved (userOverride active)
@@ -513,7 +544,7 @@ describe("SmartApplyPanel — Cockpit", () => {
   // Task 1 — Body-Reflow
   it("Reflow: pro sectionDiff Heading, Block-Zahl und Provenance; leere Sektion gedimmt", async () => {
     const { container } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     const reflow = first(container, "vault-rag-sa-reflow");
     expect(reflow.textContent).toContain("Inhalt");
@@ -525,7 +556,7 @@ describe("SmartApplyPanel — Cockpit", () => {
 
   it("Übrig nicht leer → Warn-Form (alert-triangle) + gelistete Block-Texte", async () => {
     const { container } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     const icon = first(container, "vault-rag-sa-leftover-icon").getAttribute("data-icon");
     expect(icon).toBe("alert-triangle");
@@ -534,7 +565,7 @@ describe("SmartApplyPanel — Cockpit", () => {
 
   it("Übrig leer → Success-Form (circle-check) ohne Liste", async () => {
     const { container } = mkPanel({ build: vi.fn(async () => mkProposal({ unassigned: [] })) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(first(container, "vault-rag-sa-leftover-icon").getAttribute("data-icon")).toBe("circle-check");
     expect(all(container, "vault-rag-sa-leftover-item").length).toBe(0);
@@ -545,7 +576,7 @@ describe("SmartApplyPanel — Cockpit", () => {
       hardOk: false, sectionDiff: [], unassigned: [],
       checks: [{ id: "assignment-parse", ok: false, detail: "kein gültiges JSON" }],
     })) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(all(container, "vault-rag-sa-reflow").length).toBe(0);
     expect(all(container, "vault-rag-sa-leftover").length).toBe(0);
@@ -562,7 +593,7 @@ describe("SmartApplyPanel — Cockpit", () => {
       hardOk: false, sectionDiff: [], unassigned: [],
       checks: [{ id: "template-no-sections", ok: false, detail }],
     })) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
 
     const fails = all(container, "vault-rag-sa-guard-fail");
@@ -587,7 +618,7 @@ describe("SmartApplyPanel — Cockpit", () => {
       (n.children ?? []).forEach(walk);
     };
     walk(container);
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(offenders).toEqual([]);
   });
@@ -700,7 +731,7 @@ describe("SmartApplyPanel Rangliste", () => {
 describe("SmartApplyPanel Scan-Kopf", () => {
   it("Scan-Kopf: Status mit Form (circle-check) + Text, Vorlage+Detection, Stat-Chips", async () => {
     const { container } = mkPanel();   // mkProposal: hardOk, type=📖 Buch, detection=likely, 1 zugeordnet, 1 übrig
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(first(container, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-check");
     const scan = first(container, "vault-rag-sa-guard");
@@ -718,7 +749,7 @@ describe("SmartApplyPanel Scan-Kopf", () => {
       hardOk: false,
       checks: [{ id: "permutation", ok: false, detail: "block_9 unbekannt" }],
     })) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(first(container, "vault-rag-sa-scan-status-icon").getAttribute("data-icon")).toBe("circle-x");
     const scan = first(container, "vault-rag-sa-guard");
@@ -730,7 +761,7 @@ describe("SmartApplyPanel Scan-Kopf", () => {
 describe("SmartApplyPanel Task 4 — Rohtext on-demand & Diff-Reihenfolge", () => {
   it("Rohtext liegt in einem ausklappbaren <details>, FM steht vor Reflow vor Rohtext", async () => {
     const { container } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     const raw = first(container, "vault-rag-sa-raw");
     expect(raw.tagName.toLowerCase()).toBe("details");
@@ -749,7 +780,7 @@ describe("SmartApplyPanel Task 4 — Rohtext on-demand & Diff-Reihenfolge", () =
 describe("SmartApplyPanel Frontmatter-Entrauschung", () => {
   it("Frontmatter: gesetzte/geänderte/entfernte Felder prominent, leere+unveränderte im Detail", async () => {
     const { container } = mkPanel();   // mkProposal: type=neu(gefüllt), up=unveraendert, tags=entfernt
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     const prominent = first(container, "vault-rag-sa-fm-set");
     expect(prominent.textContent).toContain("type");      // neu + Wert
@@ -766,7 +797,7 @@ describe("SmartApplyPanel Frontmatter-Entrauschung", () => {
         { key: "datum", original: undefined, proposed: "", change: "neu" },
       ],
     })) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(first(container, "vault-rag-sa-fm-set").textContent).toContain("type");
     expect(first(container, "vault-rag-sa-fm-set").textContent).not.toContain("datum");
@@ -777,14 +808,14 @@ describe("SmartApplyPanel Frontmatter-Entrauschung", () => {
     const { container } = mkPanel({ build: vi.fn(async () => mkProposal({
       fmRows: [{ key: "up", original: "[[A]]", proposed: "[[A]]", change: "unveraendert" }],
     })) });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     expect(all(container, "vault-rag-sa-fm-set").length).toBe(0);
   });
 
   it("Spalten-Header Original/Vorschlag über den gesetzten Feldern", async () => {
     const { container } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     const head = first(container, "vault-rag-sa-fm-head");
     expect(head.textContent).toContain("Original");
@@ -811,7 +842,7 @@ describe("SmartApplyPanel Frontmatter-Entrauschung", () => {
         }),
       })),
     });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
 
     expect(all(container, "vault-rag-sa-conf").length).toBe(0);
@@ -855,7 +886,7 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
         additions: [{ id: "add_0", targetHeading: "## Notizen", text: "Ergänzter Text zur Einordnung", confidence: "mittel" }],
       })),
     });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
 
     // Konfidenz-Badges: eine für das inferred-FM-Feld, eine für die addition.
@@ -896,7 +927,7 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
         }),
       })),
     });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     const checkbox = first(container, "vault-rag-sa-conf-check");
     expect(checkbox.checked).toBe(false);
@@ -923,7 +954,7 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
       proposedText: assembleProposedText(assembly, defaultSel, false),
     }));
     const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
 
     const before = first(container, "vault-rag-sa-prop").textContent;
@@ -943,7 +974,7 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
 
   it("Modus-Wechsel nach einem Build löst KEINEN erneuten Build aus (kein Re-Stream)", async () => {
     const { container, deps } = mkPanel();
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
     (deps.build as unknown as ReturnType<typeof vi.fn>).mockClear();
 
@@ -981,7 +1012,7 @@ describe("SmartApplyPanel Task 10 — Non-deterministic Smart Apply UI", () => {
     // User turns "Provenienz behalten" ON BEFORE triggering the build.
     (panel as any).auditTrail = true;
 
-    first(container, "vault-rag-sa-run").click();
+    await clickRun(container);
     await flush();
 
     const prop = (panel as any).proposal as ApplyProposal;

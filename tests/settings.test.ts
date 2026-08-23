@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, VaultRagSettings, applyDestructive, VaultRagSettingTab } from "../src/settings";
-import { makeFakeEl } from "./__mocks__/obsidian";
+import { makeFakeEl, Setting } from "./__mocks__/obsidian";
 import { findUntranslatedSinks } from "./i18n/sink_guard";
 import "../src/i18n/strings"; // Register i18n strings
 
@@ -187,6 +187,38 @@ describe("getControlValue/setControlValue", () => {
     expect(host.setStatusBarVisible).toHaveBeenCalledWith(true);
     await tab.setControlValue("hideIndexFolder", false);
     expect(host.refreshIndexFolderHiding).toHaveBeenCalled();
+  });
+});
+
+describe("Kontext-Budget: Rendern ist kein Schreibvorgang", () => {
+  // Gefunden 2026-08-04 per Instrumentierung: Tab oeffnen -> updateBudgetMax -> setValue ->
+  // onChange -> saveSettings. Ein Render-Nebeneffekt wurde zum Schreibvorgang. Das ist mehr als
+  // kosmetisch: es zementiert jeden fehlerhaften Speicherzustand sofort auf die Platte und macht
+  // "data.json wurde geschrieben" als Diagnose-Signal wertlos.
+  function renderBudget(host: any) {
+    const { tab } = makeTab(host);
+    const setting = new Setting(makeFakeEl());
+    (tab as any).renderBudget(setting);
+    return tab as any;
+  }
+
+  it("das blosse Nachziehen der Obergrenze speichert nicht", () => {
+    const host = makeFakeHost();
+    const tab = renderBudget(host);
+    host.saveSettings.mockClear();
+    tab.updateBudgetMax(400_000);   // grosszuegiges Fenster — der Wert passt, nichts zu klemmen
+    expect(host.saveSettings).not.toHaveBeenCalled();
+    expect(host.settings.contextCharBudget).toBe(DEFAULT_SETTINGS.contextCharBudget);
+  });
+
+  it("eine echte Klemmung wird weiterhin gespeichert", () => {
+    const host = makeFakeHost();
+    host.settings.contextCharBudget = 30_000;
+    const tab = renderBudget(host);
+    host.saveSettings.mockClear();
+    tab.updateBudgetMax(12_000);    // Fenster kleiner als der Wert -> klemmen und schreiben
+    expect(host.settings.contextCharBudget).toBeLessThan(30_000);
+    expect(host.saveSettings).toHaveBeenCalled();
   });
 });
 

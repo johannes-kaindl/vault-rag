@@ -42,7 +42,9 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
 Interface an, nie direkt die Obsidian-API → in Node testbar ohne DOM-Mock (PROF-OBS-03/04).
 **Dieses Interface nicht ohne Not ändern** — Tests und `LiveIndexer` hängen daran.
 
-`obsidian` wird nur an der Kante importiert: `main.ts`, `hub_view.ts`, `settings.ts`, `http.ts`
+`obsidian` wird nur an der Kante importiert — **seit 2026-08-23 von `npm run check:pure` erzwungen**
+(Allowlist `EDGE` in `scripts/check-pure.mjs`, Teil von `npm run gate`; wer die Kante verschiebt,
+ändert beide Stellen): `main.ts`, `hub_view.ts`, `settings.ts`, `http.ts`
 sowie die dünnen Modal-/Picker-Wrapper (`note_picker.ts`, `template_picker.ts`,
 `reformat_picker.ts`, `reformat_preview_modal.ts`) und das `reformat_panel.ts`. Diese Wrapper
 sind **bewusst nicht unit-getestet** — das Test-Gewicht trägt der pure Kern; neue obsidian-Views
@@ -325,6 +327,7 @@ npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
 npm test                          # vitest run     (932 Tests, 66 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
+npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit
 OBSIDIAN_PLUGIN_DIR=… npm run deploy   # build + main.js/manifest.json/styles.css ins Vault-Plugin-Verzeichnis
                                   # (NICHT noetig fuer den Arbeits-Vault 10_Pallas — dessen

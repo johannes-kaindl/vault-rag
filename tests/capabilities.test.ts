@@ -17,6 +17,19 @@ describe("guessFromName", () => {
     expect(guessFromName("gemma3:4b").vision).toBe("likely");
     expect(guessFromName("gemma3:1b").vision).toBe("no");
   });
+  it("erkennt Gemma-Vision auch in der LM-Studio-Schreibweise", () => {
+    // LM Studio liefert `google/gemma-3-4b-it`, Ollama `gemma3:4b` — dasselbe Modell.
+    expect(guessFromName("google/gemma-3-4b-it").vision).toBe("likely");
+    expect(guessFromName("gemma-3-27b").vision).toBe("likely");
+  });
+  it("erkennt die Gemma-4-Reihe als Vision", () => {
+    expect(guessFromName("gemma4:12b").vision).toBe("likely");
+    expect(guessFromName("google/gemma-4-31b-qat").vision).toBe("likely");
+  });
+  it("gemma 3-1b/3-270m bleiben text-only, auch mit Bindestrich", () => {
+    expect(guessFromName("gemma-3-1b-it").vision).toBe("no");
+    expect(guessFromName("google/gemma-3-270m").vision).toBe("no");
+  });
   it("glm-4 ohne v ist keine Vision, glm-4v schon", () => {
     expect(guessFromName("glm-4").vision).toBe("no");
     expect(guessFromName("glm-4v").vision).toBe("likely");

@@ -41,11 +41,19 @@ export function makeFakeEl(): any {
 export class Plugin { app: any; manifest: any; constructor(app: any, m: any) { this.app = app; this.manifest = m; } async loadData() { return {}; } async saveData(_: any) {} addCommand(_: any) {} registerView(_: string, __: any) {} registerEvent(_: any) {} addSettingTab(_: any) {} addRibbonIcon(_: string, __: string, ___: any) { return makeFakeEl(); } }
 export class ItemView { app: any; contentEl: any; constructor(public leaf: any) { this.app = leaf?.app || {}; this.contentEl = makeFakeEl(); } getViewType() { return "unknown"; } getDisplayText() { return ""; } async onOpen() {} async onClose() {} registerEvent(_: any) {} }
 export class PluginSettingTab { app: any; plugin: any; containerEl: any; constructor(app: any, plugin: any) { this.app = app; this.plugin = plugin; this.containerEl = makeFakeEl(); } display() {} update() {} hide() {} }
+// Bildet das reale SliderComponent-Verhalten ab: `setValue()` loest den `onChange`-Handler aus.
+// Belegt am Aufruf-Stack aus echtem Obsidian (2026-08-04):
+//   VaultRagSettingTab.updateBudgetMax -> t.setValue (app.js) -> saveSettings
+// Als No-op-Mock (der frueheren Fassung) kann ein Test einen Render-Nebeneffekt, der zum
+// Schreibvorgang wird, strukturell nicht sehen — er waere gruen, weil der Mock nichts tut.
 class FakeSlider {
-  setLimits() { return this; }
-  setValue() { return this; }
+  value = 0;
+  limits: [number, number, number] | null = null;
+  private cb: ((v: number) => void) | null = null;
+  setLimits(min: number, max: number, step: number) { this.limits = [min, max, step]; return this; }
+  setValue(v: number) { this.value = v; this.cb?.(v); return this; }
   setDynamicTooltip() { return this; }
-  onChange(_cb: (v: number) => void) { return this; }
+  onChange(cb: (v: number) => void) { this.cb = cb; return this; }
 }
 class FakeToggle {
   setValue() { return this; }
@@ -102,7 +110,8 @@ export class Setting {
   setClass() { return this; }
   addText(cb: (c: FakeText) => void) { cb(new FakeText()); return this; }
   addTextArea(cb: (c: FakeText) => void) { cb(new FakeText()); return this; }
-  addSlider(cb: (c: FakeSlider) => void) { cb(new FakeSlider()); return this; }
+  lastSlider: FakeSlider | null = null;
+  addSlider(cb: (c: FakeSlider) => void) { const c = new FakeSlider(); this.lastSlider = c; cb(c); return this; }
   addToggle(cb: (c: FakeToggle) => void) { cb(new FakeToggle()); return this; }
   addDropdown(cb: (c: FakeDropdown) => void) { cb(new FakeDropdown()); return this; }
   addButton(cb: (c: ButtonComponent) => void) { cb(new ButtonComponent()); return this; }

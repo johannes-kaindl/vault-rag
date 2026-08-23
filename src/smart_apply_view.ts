@@ -207,9 +207,14 @@ export class SmartApplyPanel implements HubPanel {
     const row2 = header.createDiv({ cls: "vault-rag-sa-header-row" });
 
     const running = this.state === "running";
+    // Auch ohne feststehende Vorlage sperren: `start()` reicht `selectedTemplate` an `build()`
+    // durch, und ein leerer Pfad laesst den Lauf mit `vorlage-waehlen` still auf idle zurueckfallen
+    // (s. catch in runBuild). Fuer den Nutzer sieht das aus wie "rechnet noch" — Smart Apply
+    // braucht legitim Minuten. Den Fehlgriff verhindern statt ihn hinterher zu erklaeren.
+    const canRun = !running && this.selectedTemplate !== "";
     const runBtn = row2.createEl("button", { cls: "vault-rag-sa-run mod-cta", text: t("smartApply.runLabel") });
-    runBtn.toggleClass("is-disabled", running);
-    runBtn.addEventListener("click", () => { if (!running) void this.start(); });
+    runBtn.toggleClass("is-disabled", !canRun);
+    runBtn.addEventListener("click", () => { if (canRun) void this.start(); });
 
     const stopBtn = row2.createEl("button", { cls: "vault-rag-sa-stop", text: t("smartApply.stop") });
     stopBtn.toggleClass("is-disabled", !running);

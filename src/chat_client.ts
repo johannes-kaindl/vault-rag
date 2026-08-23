@@ -98,15 +98,26 @@ export class ChatClient {
     // aber llm-lab dokumentiert das Feld als „time to first token"; die Abweichung gehoert
     // hierher geschrieben statt spaeter entdeckt zu werden.
     let firstToken: number | undefined;
+    // Mitgeschrieben fuer den FEHLERPFAD: `streamSSE` wirft bei Abbruch/Netzfehler und verwirft
+    // dabei sein Akkumulat. Genau dieser Teiltext ist der Debug-Wert ("das Modell hat bis zum
+    // Abbruch Quelltext produziert statt zu antworten") — ohne Puffer meldete der catch-Zweig
+    // content:"" und die Zusage darunter war nur halb eingeloest.
+    let seenContent = "";
+    let seenReasoning = "";
     const timedContent = (tk: string): void => {
       firstToken ??= Date.now();
+      seenContent += tk;
       onContent(tk);
+    };
+    const seenOnReasoning = (tk: string): void => {
+      seenReasoning += tk;
+      onReasoning(tk);
     };
     try {
       const { content, reasoning, finishReason } = await streamSSE(
         `${this.endpoint}/v1/chat/completions`,
         { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(this.apiKey) }, body },
-        timedContent, onReasoning, signal,
+        timedContent, seenOnReasoning, signal,
       );
       this.reportToLab(opts, messages, { content, reasoning, finishReason }, started, firstToken);
       return { content, reasoning, finishReason };
@@ -115,7 +126,7 @@ export class ChatClient {
       // Fehler bleibt bis in den guarded Block unangetastet: ein String(e) mit werfendem
       // toString darf den echten Fehler nicht durch einen TypeError ersetzen — und ohne
       // konfigurierten `trace` laeuft String(e) hier gar nicht erst (Guard lebt im Callee).
-      this.reportToLab(opts, messages, { content: "", errorRaw: e }, started, firstToken);
+      this.reportToLab(opts, messages, { content: seenContent, reasoning: seenReasoning, errorRaw: e }, started, firstToken);
       throw e;
     }
   }

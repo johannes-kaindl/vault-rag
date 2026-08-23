@@ -1,0 +1,45 @@
+name: CI
+
+# Prueft jeden Push auf main und jeden Pull Request. Bis 2026-08-23 lief das Gate NUR
+# tag-getriggert im Release-Workflow — ein roter Test auf main waere bis zum naechsten
+# Release niemandem aufgefallen, und der Release war dann der Ort, an dem er auffiel.
+#
+# Tags sind bewusst NICHT hier: die deckt release.yml ab, das ohnehin dasselbe Gate faehrt.
+# Sonst liefe bei jedem Release beides doppelt.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Ein neuer Push auf denselben Ref macht den laufenden Check gegenstandslos.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Gate
+        # Ruft bewusst NUR `npm run gate` — dieselbe Regel wie in release.yml. Die
+        # Nachbar-Repos mit eigener CI listen ihre Schritte hier einzeln auf und haben
+        # damit genau das erzeugt, wovor der Kommentar dort warnt: "lokal gruen, CI rot",
+        # weil die zweite Definition auseinanderlief (json_viewer via biome,
+        # image-to-markdown 0.6.0). Die Reihenfolge gehoert in package.json.
+        #
+        # `typecheck:scripts` ueberspringt sich hier von selbst: der GUI-Smoke importiert
+        # die zentrale CDP-Bruecke aus dem Dach-Checkout, den ein CI-Runner nicht hat.
+        run: npm run gate

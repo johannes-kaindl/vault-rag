@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointWarningText, endpointInputWarnings, type EndpointConfig } from "../src/endpoint_config";
 import "../src/i18n/strings"; // Register i18n strings
 
@@ -261,5 +263,68 @@ describe("endpointInputWarnings", () => {
   it("schweigt bei einer unauffälligen Adresse", () => {
     expect(endpointInputWarnings("http://localhost:1234")).toEqual([]);
     expect(endpointInputWarnings("")).toEqual([]);
+  });
+});
+
+// Aus der TaskNote "Modell-Override ging einmal verloren — nicht reproduzierbar": der Verlust
+// war nie reproduzierbar, die einzelnen Operationen sind je fuer sich geprueft. Was fehlte, war
+// die Aussage UEBER ALLE: eine Operation, die einen Eintrag nicht bewusst entfernt oder gerade
+// dieses Feld bearbeitet, muss `apiKey` und `model` erhalten. Genau so ein Verlust erklaert sich
+// hinterher nicht mehr — er faellt erst auf, wenn ein Endpunkt stillschweigend das falsche
+// Modell benutzt.
+describe("Listenoperationen — Invariante: kein stiller Feldverlust", () => {
+  const full = (): EndpointConfig[] => ([
+    { url: "http://a", apiKey: "ka", model: "ma" },
+    { url: "http://b", apiKey: "kb", model: "mb" },
+    { url: "http://c" },                                  // bewusst ohne Zusatzfelder
+  ]);
+
+  /** Jeder Eintrag, der die Operation ueberlebt, traegt seine Felder unveraendert —
+   *  ausser er war das Ziel einer Bearbeitung GENAU dieses Feldes. */
+  function assertFieldsKept(before: EndpointConfig[], after: EndpointConfig[], exempt?: { url: string; field: "apiKey" | "model" }): void {
+    for (const b of before) {
+      const a = after.find(x => x.url === b.url);
+      if (!a) continue;                                    // bewusst entfernt — nicht Gegenstand
+      for (const field of ["apiKey", "model"] as const) {
+        if (exempt && exempt.url === b.url && exempt.field === field) continue;
+        expect(a[field], `${b.url}.${field} ging verloren`).toBe(b[field]);
+      }
+    }
+  }
+
+  it("moveEndpointToFront erhaelt alle Felder, aus jeder Position", () => {
+    for (let i = -1; i <= 3; i++) assertFieldsKept(full(), moveEndpointToFront(full(), i));
+  });
+
+  it("migrateEndpointList erhaelt alle Felder", () => {
+    assertFieldsKept(full(), migrateEndpointList(undefined, full()));
+  });
+
+  it("applyEndpointEdit erhaelt die jeweils NICHT bearbeiteten Felder", () => {
+    for (let i = 0; i < 3; i++) {
+      assertFieldsKept(full(), applyEndpointEdit(full(), i, "url", "http://neu", false));
+      const urls = full()[i]!.url;
+      assertFieldsKept(full(), applyEndpointEdit(full(), i, "apiKey", "neu", false), { url: urls, field: "apiKey" });
+      assertFieldsKept(full(), applyEndpointEdit(full(), i, "model", "neu", false), { url: urls, field: "model" });
+      // Feld leeren entfernt NUR dieses Feld — das andere muss stehen bleiben.
+      assertFieldsKept(full(), applyEndpointEdit(full(), i, "apiKey", "", false), { url: urls, field: "apiKey" });
+      assertFieldsKept(full(), applyEndpointEdit(full(), i, "model", "", false), { url: urls, field: "model" });
+    }
+  });
+
+  it("applyEndpointEdit im Adder-Modus laesst die bestehende Liste unberuehrt", () => {
+    assertFieldsKept(full(), applyEndpointEdit(full(), 3, "url", "http://d", true));
+  });
+
+  // Vollstaendigkeits-Guard: die Invariante ist nur so viel wert wie die Liste der geprueften
+  // Operationen. Eine neu hinzugefuegte Listenoperation soll diesen Test rot faerben, statt
+  // ungeprueft danebenzustehen (CORE-TEST-04).
+  it("kennt jede Operation, die eine Endpunkt-Liste zurueckgibt", () => {
+    const src = readFileSync(join(__dirname, "..", "src", "endpoint_config.ts"), "utf8");
+    // Am RUECKGABETYP erkannt, nicht am Parameter: eine Listenoperation ist definiert durch das,
+    // was sie liefert. `[^{]*?` haelt den Treffer in der Signatur, damit nicht zwei Funktionen
+    // ueber ihre Rumpfgrenze hinweg zu einem Match verschmelzen.
+    const listOps = [...src.matchAll(/export function (\w+)\([^{]*?\): EndpointConfig\[\]/g)].map(m => m[1]);
+    expect(listOps.sort()).toEqual(["applyEndpointEdit", "migrateEndpointList", "moveEndpointToFront"]);
   });
 });

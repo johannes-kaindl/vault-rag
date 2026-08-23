@@ -34,6 +34,11 @@ All notable changes to this project are documented here. The format follows
   Feldbeschreibung sagt das jetzt auch.
 
 ### Added
+- **Die LLM-Aufrufe des Plugins können mitgeschrieben werden — wenn du das Plugin „LLM Lab"
+  installierst.** Vault Retrieval meldet Chat, Umformatieren und Smart Apply an dessen API, sobald
+  sie da ist; ohne das Nachbarplugin passiert nichts, und der Endpunkt-Testknopf ist ab Werk
+  ausgenommen. Ein einziger Einhängepunkt (`ChatClient.stream`) erfasst alle drei Wege, jeder
+  Aufruf trägt seine Feature-Kennung.
 - **Die README ist bebildert** (acht Screenshots: Verwandte Notizen, Suche, Chat, sichtbares
   Denken, Umformatieren-Vorschau, Endpunkt-Rollen, Einstellungen und das Smart-Apply-Diff-Gate).
   Aufgenommen werden sie reproduzierbar per `npm run shots` gegen ein laufendes Obsidian; der

@@ -1,8 +1,10 @@
 import { vi } from "vitest";
 
 /** Stubt XMLHttpRequest und gibt Treiber-Helfer zurück:
- *  feed() spielt onprogress-Chunks + onload ein, error() simuliert onerror, body liest den Request-Body. */
-export function installFakeXHR(): { readonly body: string; readonly headers: Record<string, string>; feed(chunks: string[], status?: number): void; error(): void } {
+ *  feed() spielt onprogress-Chunks + onload ein, progress() nur die Chunks (Stream bleibt offen —
+ *  noetig, um einen Abbruch MITTEN im Stream zu inszenieren), error() simuliert onerror,
+ *  body liest den Request-Body. */
+export function installFakeXHR(): { readonly body: string; readonly headers: Record<string, string>; feed(chunks: string[], status?: number): void; progress(chunks: string[], status?: number): void; error(): void } {
   const state: { inst: any } = { inst: null };
   vi.stubGlobal("XMLHttpRequest", class {
     status = 200;
@@ -26,6 +28,10 @@ export function installFakeXHR(): { readonly body: string; readonly headers: Rec
       state.inst.status = status;
       for (const c of chunks) { state.inst.responseText += c; state.inst.onprogress?.(); }
       state.inst.onload?.();
+    },
+    progress(chunks: string[], status = 200): void {
+      state.inst.status = status;
+      for (const c of chunks) { state.inst.responseText += c; state.inst.onprogress?.(); }
     },
     error(): void { state.inst.onerror?.(); },
   };

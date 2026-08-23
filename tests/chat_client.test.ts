@@ -156,6 +156,41 @@ describe("ChatClient", () => {
       expect(seen.feature).toBe("chat");
     });
 
+    // Der Kommentar im catch-Zweig nennt den gescheiterten Lauf "den interessanten Debug-Fall".
+    // Mit content:"" war die Zusage nur halb eingeloest: dass ein Modell bis zum Abbruch
+    // Quelltext produziert hat statt zu antworten, stand danach in keiner Aufzeichnung.
+    it("ein abgebrochener Stream meldet dem Lab den bis dahin gestreamten Teiltext", async () => {
+      const xhr = installFakeXHR();
+      let seen: any;
+      const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
+      const ac = new AbortController();
+      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
+        [{ role: "user", content: "hi" }], () => {}, () => {}, ac.signal,
+        { trace: { feature: "chat", app } });
+      xhr.progress([
+        'data: {"choices":[{"delta":{"content":"Teil"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"text"}}]}\n\n',
+      ]);
+      ac.abort();
+      await expect(p).rejects.toThrow();
+      expect(seen.content).toBe("Teiltext");
+      expect(typeof seen.error).toBe("string");
+    });
+
+    it("ein abgebrochener Stream meldet auch das bis dahin gestreamte reasoning", async () => {
+      const xhr = installFakeXHR();
+      let seen: any;
+      const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
+      const ac = new AbortController();
+      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
+        [{ role: "user", content: "hi" }], () => {}, () => {}, ac.signal,
+        { trace: { feature: "chat", app } });
+      xhr.progress(['data: {"choices":[{"delta":{"reasoning_content":"denke"}}]}\n\n']);
+      ac.abort();
+      await expect(p).rejects.toThrow();
+      expect(seen.reasoning).toBe("denke");
+    });
+
     it("ttftMs <= latencyMs, Token-Reihenfolge unveraendert wenn trace gesetzt ist", async () => {
       const xhr = installFakeXHR();
       let seen: any;

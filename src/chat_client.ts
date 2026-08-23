@@ -153,7 +153,7 @@ export class ChatClient {
         latencyMs: Date.now() - started,
         ...(firstToken ? { ttftMs: firstToken - started } : {}),
         ...(this.apiKey ? { secrets: [this.apiKey] } : {}),
-        ...(opts.trace.contextPaths ? { contextPaths: opts.trace.contextPaths } : {}),
+        ...(opts.trace.contextPaths?.length ? { contextPaths: opts.trace.contextPaths } : {}),
         ...rest,
         ...(errorRaw !== undefined ? { error: describeError(errorRaw) } : {}),
       });

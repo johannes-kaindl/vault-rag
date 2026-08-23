@@ -209,6 +209,31 @@ describe("ChatClient", () => {
       expect(seen.latencyMs).toBeGreaterThanOrEqual(0);
       expect(seen.ttftMs).toBeLessThanOrEqual(seen.latencyMs);
     });
+
+    // Regression Fix-Runde 1: ein leeres Array ist in JS truthy — `contextPaths: []` (kein
+    // Retrieval-Treffer) darf trotzdem nicht als Feld ans Lab durchgereicht werden, sonst
+    // behauptet der Record faelschlich "gemeldet, aber leer" statt "nicht gemeldet".
+    it("leere contextPaths werden NICHT ans Lab gemeldet — nur ein nicht-leeres Array", async () => {
+      const xhr = installFakeXHR();
+      let seenEmpty: any;
+      const appEmpty = fakeLabApp((input: any) => { seenEmpty = input; return "rec-id"; });
+      const p1 = new ChatClient("http://localhost:8080", "qwen3").stream(
+        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
+        { trace: { feature: "chat", app: appEmpty, contextPaths: [] } });
+      xhr.feed(['data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n' + DONE]);
+      await p1;
+      expect(seenEmpty.contextPaths).toBeUndefined();
+
+      const xhr2 = installFakeXHR();
+      let seenFull: any;
+      const appFull = fakeLabApp((input: any) => { seenFull = input; return "rec-id"; });
+      const p2 = new ChatClient("http://localhost:8080", "qwen3").stream(
+        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
+        { trace: { feature: "chat", app: appFull, contextPaths: ["a.md"] } });
+      xhr2.feed(['data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n' + DONE]);
+      await p2;
+      expect(seenFull.contextPaths).toEqual(["a.md"]);
+    });
   });
 
   describe("ping", () => {

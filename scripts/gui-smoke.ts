@@ -172,6 +172,9 @@ async function main(): Promise<void> {
   // Der Heal-Prüfpunkt zerstört absichtlich den Container und stellt die Endpunkt-Liste tot.
   // Beides wird im finally zurückgeschrieben — auch nach einem Abbruch mitten im Lauf.
   let healRestore: { indexPath: string; savedEndpoints: unknown } | null = null;
+  // Das Lab-Stub haengt im Renderer und muss auch nach einem Abbruch mitten im Lauf weg —
+  // sonst glaubt ein spaeter installiertes echtes Lab, es sei bereits registriert.
+  let labStubbed = false;
 
   try {
     // Chromium drosselt nicht-fokussierte Fenster — ohne bringToFront misst man Phantome.
@@ -441,6 +444,191 @@ async function main(): Promise<void> {
       console.log("  – Rolle folgt dem Modell-Override: übersprungen (kein Embedding-Endpunkt mit Override konfiguriert)");
     }
 
+    // --- 7b. llm-lab-Meldestrecke (KONSUMENTEN-Seite) -----------------------
+    // Spiegelbild zu `llm-lab/scripts/gui-smoke.ts`: dort spielt der Treiber den Konsumenten,
+    // um den Anbieter zu pruefen. Hier haengt er ein Lab-Stub ein und prueft, was vault-rag
+    // tatsaechlich sendet — genau die Haelfte, die uns gehoert. Ob das echte Lab die Zeile
+    // dann speichert, filtert oder verwirft, ist dessen Zusage und dessen Smoke.
+    //
+    // Warum ein Stub und kein installiertes Lab: die Zusage lautet "wir rufen readLabApi(app)
+    // ?.log(...) mit diesen Feldern". Ein installiertes Lab wuerde diese Zusage nicht schaerfer
+    // pruefen, aber den Lauf an eine fremde Installation binden — und CORE-TEST-02 (b) verlangt
+    // die Verdrahtung getrackt im Repo, das sie besitzt.
+    //
+    // Ist ein ECHTES Lab installiert, wird nichts eingehaengt: der Smoke darf dessen
+    // Aufzeichnung nicht mit Testzeilen verunreinigen.
+    const labReal = await main.evaluate<boolean>(`return !!app.plugins.plugins["llm-lab"];`);
+    if (labReal) {
+      console.log("  – llm-lab-Meldestrecke: übersprungen (echtes llm-lab installiert — der Smoke hängt kein Stub ein, um dessen Aufzeichnung nicht zu verfälschen)");
+    } else {
+      labStubbed = true;   // fuers finally
+      await main.evaluate(`
+        window.__vaultRagLabSeen = [];
+        app.plugins.plugins["llm-lab"] = {
+          api: {
+            apiVersion: 1,
+            status: () => ({ apiVersion: 1, recording: true }),
+            log: (input) => { window.__vaultRagLabSeen.push(input); return "smoke-" + window.__vaultRagLabSeen.length; },
+          },
+        };
+      `);
+
+      // (1) Chat ueber die OBERFLAECHE — nicht ueber Plugin-Interna: der Punkt ist, dass der
+      // trace-Parameter den ganzen Weg Panel → ChatSession → ChatClient uebersteht.
+      await main.evaluate(`
+        await app.commands.executeCommandById("vault-retrieval:open-vault-chat");
+        await new Promise(r => setTimeout(r, 800));
+        const ta = document.querySelector(".vault-rag-chat-input");
+        ta.value = "Antworte mit genau einem Wort: Hallo.";
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        document.querySelector(".vault-rag-chat-send").click();
+      `);
+      // Auf das ERGEBNIS warten, nie auf den Sende-Knopf: der durchlaeuft im selben Turn
+      // mehrere Uebergaenge (Senden→Stop→Senden) und meldet zu frueh "fertig"
+      // (_docs/LESSONS.md 2026-08-23, n=2). Die Ergebniszeile stellt nur ein fertiger Lauf her.
+      const chatDone = await pollUntil(main,
+        `const w = document.querySelector(".vault-rag-chat-working"); return !!w && /✓/.test(w.textContent || "");`,
+        180_000, 1_000).catch(() => false);
+      const chatTrace = await main.evaluate<{ n: number; last: Record<string, unknown> | null }>(`
+        const seen = window.__vaultRagLabSeen;
+        return { n: seen.length, last: seen.length ? seen[seen.length - 1] : null };
+      `);
+      const ct = chatTrace.last as { plugin?: string; feature?: string; ttftMs?: number; model?: string; latencyMs?: number } | null;
+      record("Ein Chat über die Oberfläche meldet sich beim Lab",
+        chatDone === true && ct?.plugin === "vault-retrieval" && ct?.feature === "chat",
+        chatDone ? `plugin=${String(ct?.plugin)} · feature=${String(ct?.feature)} · model=${String(ct?.model)}` : "Antwort blieb aus (Chat-Endpunkt erreichbar?)");
+      // ttftMs trennt "Modell dachte lange" von "Verbindung stand nicht" — ohne den Wert ist
+      // eine langsame Antwort in der Aufzeichnung nicht diagnostizierbar.
+      record("Die Chat-Zeile trägt ttftMs und latencyMs",
+        typeof ct?.ttftMs === "number" && typeof ct?.latencyMs === "number" && (ct.ttftMs ?? 0) <= (ct.latencyMs ?? 0),
+        `ttftMs=${String(ct?.ttftMs)} · latencyMs=${String(ct?.latencyMs)}`);
+
+      // (2) Endpunkt-Probe: sie meldet sich unter EIGENEM feature. Nicht geprueft wird, ob das
+      // Lab sie ausschliesst — die Ausschlussliste ist llm-labs Zusage. Unsere ist, dass die
+      // Probe unterscheidbar ankommt; ohne das kann sie dort niemand ausschliessen.
+      const probeBefore = await main.evaluate<number>(`return window.__vaultRagLabSeen.length;`);
+      await main.evaluate(`
+        app.setting.open();
+        app.setting.openTabById(${JSON.stringify(PLUGIN_ID)});
+        await new Promise(r => setTimeout(r, 1200));
+        // Ueber die DEFINITION statt ueber einen Knopf im DOM: genau diese action ruft das
+        // Framework beim Klick auf, und sie ist unabhaengig von der gerenderten Oberflaeche
+        // (1.13 deklarativ vs. renderImperative auf 1.12).
+        const tab = app.setting.pluginTabs.find(t => t.id === ${JSON.stringify(PLUGIN_ID)});
+        const walk = (items) => items.flatMap(i => i.type === "group" ? walk(i.items || []) : [i]);
+        const withAction = walk(tab.getSettingDefinitions()).filter(i => typeof i.action === "function");
+        window.__vaultRagProbeCount = withAction.length;
+        for (const item of withAction) {
+          if (String(item.name || "").length) { /* nur zur Sicht */ }
+        }
+        const probe = withAction.find(i => /denk|think/i.test(String(i.name || "") + String(i.desc || "")));
+        window.__vaultRagProbeFound = !!probe;
+        if (probe) probe.action();
+      `);
+      const probeFound = await main.evaluate<boolean>(`return !!window.__vaultRagProbeFound;`);
+      if (!probeFound) {
+        console.log("  – Endpunkt-Probe meldet sich unter eigenem feature: übersprungen (Testknopf in den Einstellungen nicht gefunden)");
+      } else {
+        await pollUntil(main, `return window.__vaultRagLabSeen.length > ${probeBefore};`, 180_000, 1_000).catch(() => false);
+        const probeTrace = await main.evaluate<{ features: string[] }>(`
+          return { features: window.__vaultRagLabSeen.slice(${probeBefore}).map(x => x.feature) };
+        `);
+        record("Die Endpunkt-Probe meldet sich unter eigenem feature (damit das Lab sie ausschließen kann)",
+          probeTrace.features.length > 0 && probeTrace.features.every(f => f === "settings-probe"),
+          probeTrace.features.length ? probeTrace.features.join(", ") : "keine Zeile — Probe lief nicht");
+      }
+      await main.evaluate(`app.setting.close();`);
+
+      // (3) Reformat: das feature traegt die Transform-ID. Ohne sie stehen alle Umformatierungen
+      // als ein Topf in der Aufzeichnung, und "welcher Transform frisst mein Budget" ist nicht
+      // beantwortbar. Ueber den echten Panel-Knopf, damit die Registry-Verdrahtung mitgeprueft ist.
+      const rfBefore = await main.evaluate<number>(`return window.__vaultRagLabSeen.length;`);
+      const rfStarted = await main.evaluate<boolean>(`
+        const file = app.vault.getMarkdownFiles().find(f => f.stat.size > 400 && f.stat.size < 20000);
+        if (!file) return false;
+        const leaf = app.workspace.getLeaf(false);
+        await leaf.openFile(file, { state: { mode: "source" } });
+        await new Promise(r => setTimeout(r, 600));
+        // KEIN require("obsidian") — im CDP-Renderer-Kontext existiert der Modul-Loader nicht
+        // (Cannot find module 'obsidian'), und getActiveViewOfType braucht die Klasse. Der
+        // Workspace haelt den Editor ohnehin direkt.
+        const ed = app.workspace.activeEditor?.editor;
+        if (!ed) return false;
+        // Eine Auswahl herstellen, die der Nutzer auch treffen wuerde: die erste nichtleere Zeile.
+        let line = 0;
+        while (line < ed.lineCount() && ed.getLine(line).trim().length < 20) line++;
+        if (line >= ed.lineCount()) return false;
+        ed.setSelection({ line, ch: 0 }, { line, ch: ed.getLine(line).length });
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        p.captureSelection();
+        await app.commands.executeCommandById("vault-retrieval:open-reformat");
+        await new Promise(r => setTimeout(r, 800));
+        // Gezielt die ZWEITE Gruppe (LLM mit Vorschau). Nicht "der letzte Knopf": das ist der
+        // Freitext-Knopf, und der tut ohne Anweisung im Textfeld bewusst nichts (er kehrt bei
+        // leerer Anweisung sofort zurueck) — der Pruefpunkt lief damit ins Leere und meldete
+        // "Transform lief nicht", was wie ein Verdrahtungsfehler aussah. KEINE Backticks in
+        // diesem Kommentar: der ganze Block ist selbst ein Template-String, ein Backtick
+        // beendet ihn mitten im Code. Und nicht "der erste": die erste
+        // Gruppe ist mechanisch, die ersetzt sofort ohne Modell und ohne Lab-Zeile.
+        const nodes = [...document.querySelectorAll(".vault-rag-reformat-group-title, .vault-rag-reformat-btn")];
+        let titles = 0;
+        const llm = [];
+        for (const n of nodes) {
+          if (n.classList.contains("vault-rag-reformat-group-title")) { titles++; continue; }
+          if (titles === 2 && !n.closest(".vault-rag-reformat-freetext")) llm.push(n);
+        }
+        window.__vaultRagRfButtons = llm.length;
+        const usable = llm.filter(b => !b.classList.contains("is-disabled"));
+        if (!usable.length) return false;
+        usable[0].click();
+        return true;
+      `);
+      if (!rfStarted) {
+        console.log("  – Reformat meldet sich mit Transform-ID: übersprungen (keine geeignete Notiz/Auswahl herstellbar)");
+      } else {
+        await pollUntil(main, `return window.__vaultRagLabSeen.length > ${rfBefore};`, 180_000, 1_000).catch(() => false);
+        const rfTrace = await main.evaluate<{ features: string[] }>(`
+          return { features: window.__vaultRagLabSeen.slice(${rfBefore}).map(x => x.feature) };
+        `);
+        const rf = rfTrace.features[rfTrace.features.length - 1] ?? "";
+        record("Reformat meldet sich mit der Transform-ID im feature",
+          /^reformat:.+/.test(rf), rf ? `feature=${rf}` : "keine Zeile — Transform lief nicht");
+        // Modal schliessen, ohne anzuwenden: der Smoke veraendert keine Notiz.
+        await main.evaluate(`
+          const btns = [...document.querySelectorAll(".modal-container button")];
+          const discard = btns.find(b => /verwerf|discard|abbrech|cancel/i.test(b.textContent || ""));
+          if (discard) discard.click();
+          else document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        `).catch(() => {});
+      }
+
+      // (4) Lab weg → der Chat laeuft VOLLSTAENDIG durch und meldet nichts. Die Reihenfolge ist
+      // bedeutungstragend: erst das Ende des Streams belegen, dann die Abwesenheit pruefen.
+      // Andersherum ist der Punkt trivial gruen, weil der Aufruf noch laeuft — genau so war er
+      // beim ersten Anlauf falsch gruen (_docs/LESSONS.md, "Ein Pruefpunkt, der Abwesenheit misst").
+      await main.evaluate(`
+        delete app.plugins.plugins["llm-lab"];
+        window.__vaultRagLabBaseline = window.__vaultRagLabSeen.length;
+        await app.commands.executeCommandById("vault-retrieval:open-vault-chat");
+        await new Promise(r => setTimeout(r, 800));
+        document.querySelector(".vault-rag-chat-new").click();
+        await new Promise(r => setTimeout(r, 400));
+        const ta = document.querySelector(".vault-rag-chat-input");
+        ta.value = "Antworte mit genau einem Wort: Tschuess.";
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        document.querySelector(".vault-rag-chat-send").click();
+      `);
+      const offDone = await pollUntil(main,
+        `const w = document.querySelector(".vault-rag-chat-working"); return !!w && /✓/.test(w.textContent || "");`,
+        180_000, 1_000).catch(() => false);
+      const offTrace = await main.evaluate<{ added: number }>(`
+        return { added: window.__vaultRagLabSeen.length - window.__vaultRagLabBaseline };
+      `);
+      record("Ohne Lab läuft der Chat vollständig durch und meldet nichts",
+        offDone === true && offTrace.added === 0,
+        offDone ? `Antwort kam, ${offTrace.added} neue Zeilen` : "Antwort blieb aus — Abwesenheit der Zeile beweist hier NICHTS");
+    }
+
     // --- 8. Auto-Heal-Kaskade: defekter Container ohne Endpunkt ------------
     // Der einzige Prüfpunkt, der die VERDRAHTUNG misst statt der Entscheidung. `planAutoHeal`
     // ist unit-getestet — der Bug von 2026-08-14 lag aber in `attemptAutoHeal`: die
@@ -547,6 +735,13 @@ async function main(): Promise<void> {
     }
 
   } finally {
+    if (labStubbed) {
+      await main.evaluate(`
+        delete app.plugins.plugins["llm-lab"];
+        delete window.__vaultRagLabSeen;
+        delete window.__vaultRagLabBaseline;
+      `).catch(() => { console.log("  ! llm-lab-Stub konnte nicht entfernt werden — Obsidian neu laden (Cmd+R)"); });
+    }
     if (healRestore) {
       // Reihenfolge zaehlt: erst die Original-Bytes zurueck, dann die Endpunkte, dann EIN
       // Reload — sonst laeuft die Kaskade auf dem Rueckweg noch einmal an.

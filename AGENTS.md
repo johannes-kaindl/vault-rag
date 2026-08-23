@@ -235,7 +235,8 @@ reformat_mechanical.ts  Pure Markdown-Struktur-Transforms (Slice C.1): `transpos
                   Rendern re-escaped** — sonst zerreißt eine `\|`-Zelle die Tabelle (s. Gotchas).
 reformat_prompts.ts     Pure Prompt-Builder je LLM-Zielformat (`buildTransformMessages`) +
                   `REFORMAT_MAX_TOKENS`. Anti-Fabrication im System-Prompt; NICHT verwandt mit
-                  `note_restructurer.ANTI_FABRICATION` (das ist SmartApplys JSON-Protokoll).
+                  `note_restructurer.antiFabrication()` (das ist SmartApplys JSON-Protokoll; dort eine
+                  Funktion, weil sie erst zur Prompt-Bauzeit übersetzt werden darf).
 reformat_transforms.ts  `TRANSFORMS`-Registry — **einzige Wahrheit** für Picker UND Sidebar-Panel.
                   Diskriminierte Union über `kind`; jeder Eintrag trägt `labelKey` (nicht das
                   fertige Label) — die Registry ist eine Modul-Konstante, ihre Labels müssen
@@ -322,7 +323,7 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (916 Tests, 65 Files)
+npm test                          # vitest run     (932 Tests, 66 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run typecheck                 # tsc --noEmit
 OBSIDIAN_PLUGIN_DIR=… npm run deploy   # build + main.js/manifest.json/styles.css ins Vault-Plugin-Verzeichnis
@@ -429,8 +430,32 @@ gar nicht bis in die Oberfläche schafft.
   Text (es zeigt den *gespeicherten* Wert), während die Antworten englisch kommen — ein sichtbarer
   Widerspruch, den niemand sich erklären kann. Aufgefallen ist das **beim Ansehen eines
   Screenshots**, nicht durch einen Test.
-  Offen und gleicher Bauart: der **Smart-Apply-Prompt** ist ebenfalls hart deutsch
-  (`note_restructurer.ts:320/337/353`). Der Rohzugang zu `validateEndpointInput` ist deshalb in `endpointInputWarnings`
+  **Vierte Ausprägung, erledigt 2026-08-23: der Smart-Apply-Prompt** (`note_restructurer.ts`).
+  `ANTI_FABRICATION`/`ADDITIV_INSTRUCTION` waren Modul-Konstanten und damit vor `setLang()`
+  eingefroren; sie sind jetzt `antiFabrication()`/`additiveInstruction()` und lösen zur
+  **Bauzeit des Prompts** auf. Zwei Kopplungen, die ein solcher Umbau leicht zerreißt und die
+  jeder Nachahmer prüfen muss:
+  - **Wörter, die zurückgelesen werden, sind Protokoll — nicht Prosa.** Der Prompt verlangt die
+    Konfidenz-Stufen wörtlich, `parseConfidence` liest sie zurück. Sie zu übersetzen ist nur
+    erlaubt, weil `CONF_MAP` beide Sprachfassungen kennt; ein Wort ändern heißt, `CONF_MAP`
+    mitzuziehen. Der Test führt die drei im Prompt genannten Wörter durch den Parser und
+    besteht nur, wenn drei verschiedene Stufen herauskommen — sonst fiele jede Ergänzung still
+    auf „niedrig".
+  - **Ein Label, das erklärt wird, und seine Erklärung sind ein Paar.** `— Anleitung:` steht in
+    der erzeugten Zeile UND in dem Satz, der sie erklärt; getrennt übersetzt bekäme das Modell
+    eine Erklärung für eine Zeile, die es nicht gibt. Beide kommen aus einem Schlüssel, ein
+    Drift-Guard prüft die Kopplung in beiden Sprachen.
+
+  **Wo die Grenze bewusst verläuft:** Was in die **Notiz** geschrieben wird, bleibt unübersetzt —
+  `UEBRIG_HEADING` („## Übrig"), `EMPTY_SECTION_SENTINEL` („(noch leer)"), der Provenienz-Marker
+  `%%erschlossen: …%%` und der Frontmatter-Key `smartapply_erschlossen`. Sie sind im Vault des
+  Nutzers persistiert; eine Übersetzung ließe alte und neue Notizen verschiedene Marker tragen,
+  und keine Migration kann das in fremden Vaults nachziehen. Ebenso bewusst: der Prompt folgt der
+  **Oberflächen**sprache, nicht der Notizsprache — wer Obsidian auf Deutsch fährt und eine
+  englische Notiz aufräumt, hat den Mismatch weiterhin (eine Notizsprach-Erkennung wäre eine
+  Heuristik über Inhalt und damit eine eigene Entscheidung).
+
+  Der Rohzugang zu `validateEndpointInput` ist deshalb in `endpointInputWarnings`
   gekapselt — solange ein Aufrufer das rohe `EndpointWarning` hält, kann er an der deutschen
   `message` vorbeigreifen, und ein Wächter kann das nur raten.
 - **`data.json`** ist die von Obsidian persistierte Plugin-Konfig (`saveData`) — maschinen-/vault-spezifisch,

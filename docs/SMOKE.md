@@ -36,7 +36,7 @@ Budget-Slider kommen darin nicht vor). Der Lauf beantwortet also „nichts kaput
 „die Fixes wirken" — die Fixes selbst tragen Unit-Tests.
 
 **Zwei Punkte bleiben danach ausdrücklich offen**, weil nur ein Mensch am laufenden Obsidian sie
-beantworten kann: ob das Öffnen und Schließen der Einstellungen  unberührt lässt
+beantworten kann: ob das Öffnen und Schließen der Einstellungen `data.json` unberührt lässt
 (Zeitstempel-Vergleich), und ob der gesperrte „Auf aktive Notiz anwenden"-Knopf sich in der
 Oberfläche auch als gesperrt liest.
 

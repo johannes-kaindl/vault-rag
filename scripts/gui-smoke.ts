@@ -462,12 +462,18 @@ async function main(): Promise<void> {
       console.log("  – llm-lab-Meldestrecke: übersprungen (echtes llm-lab installiert — der Smoke hängt kein Stub ein, um dessen Aufzeichnung nicht zu verfälschen)");
     } else {
       labStubbed = true;   // fuers finally
+      // Die apiVersion hier ist eine VERTRAGSKOPIE — genau wie `lab_client.ts`s eigene
+      // SUPPORTED_API_VERSION traegt sie den Stand von llm-labs LLM_LAB_API_VERSION
+      // (src/plugin_api.ts) manuell nach und muss bei jedem Bump dort mitziehen. Aktueller
+      // Stand: 2 (seit 431c23c, "feat(api)!: apiVersion 2 — secrets und contextPaths auf
+      // LabLogInput"). Ein veralteter Wert hier faellt `readLabApi()`s strikten Vergleich
+      // durch und laesst den Stub aussehen, als waere kein llm-lab installiert.
       await main.evaluate(`
         window.__vaultRagLabSeen = [];
         app.plugins.plugins["llm-lab"] = {
           api: {
-            apiVersion: 1,
-            status: () => ({ apiVersion: 1, recording: true }),
+            apiVersion: 2,
+            status: () => ({ apiVersion: 2, recording: true }),
             log: (input) => { window.__vaultRagLabSeen.push(input); return "smoke-" + window.__vaultRagLabSeen.length; },
           },
         };

@@ -250,7 +250,11 @@ export class SmartApply {
       onToken,
       onReasoning,
       this.controller.signal,
-      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens, trace: { feature: "smart-apply", app: this.deps.app() } },
+      // contextPaths traegt auch templatePath: Ueberschriften, guidance und fmDefaults-
+      // Beispiele im Prompt (Step 6, buildRestructurePrompt) stammen aus der Vorlage, nicht
+      // nur aus der Notiz — wer seinen Vorlagen-Ordner ausschliesst, soll dessen Inhalt nicht
+      // trotzdem aufgezeichnet bekommen.
+      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens, trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath] } },
     );
 
     // Ins Token-Budget gelaufen: das erklaert einen anschliessenden Fehlschlag und nennt die

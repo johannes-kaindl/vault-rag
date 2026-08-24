@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readLabApi } from "../src/lab_client";
 
-const good = { apiVersion: 1, status: () => ({}), log: () => "id" };
+const good = { apiVersion: 2, status: () => ({}), log: () => "id" };
 
 describe("readLabApi", () => {
   it("liefert null, wenn das Lab nicht installiert ist", () => {
@@ -9,12 +9,12 @@ describe("readLabApi", () => {
   });
 
   it("liefert null bei fremder Vertragsversion statt zu raten", () => {
-    const app = { plugins: { plugins: { "llm-lab": { api: { ...good, apiVersion: 2 } } } } };
+    const app = { plugins: { plugins: { "llm-lab": { api: { ...good, apiVersion: 1 } } } } };
     expect(readLabApi(app)).toBeNull();
   });
 
   it("liefert null, wenn log fehlt — ein halb initialisiertes Objekt darf nicht durchrutschen", () => {
-    const app = { plugins: { plugins: { "llm-lab": { api: { apiVersion: 1 } } } } };
+    const app = { plugins: { plugins: { "llm-lab": { api: { apiVersion: 2 } } } } };
     expect(readLabApi(app)).toBeNull();
   });
 

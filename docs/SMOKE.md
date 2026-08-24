@@ -24,10 +24,28 @@ genügt. Jeder andere Vault trägt eine Kopie und braucht `npm run deploy`.
 
 | Datum | Version / Commit | Obsidian | Ergebnis | Gegenprobe |
 |---|---|---|---|---|
+| 2026-08-24 | `f3c7f71` (Lab-Stub auf `apiVersion 2`), Staging-Vault `vault-rag` | 1.13.7 | **20/22** — alle fuenf Lab-Pruefpunkte gruen; die zwei roten sind Deckungsluecken der Umgebung (nur je EIN Endpunkt konfiguriert), keine Defekte | — Treiber unveraendert seit `f3c7f71`; der Fix selbst ist die Gegenprobe: mit `apiVersion 1` waeren genau diese fuenf Punkte rot, drei davon erst nach je 180 s Timeout |
 | 2026-08-23 | llm-lab-Pruefpunkte (5 neue) | 1.13.7 | **25/25** | **ja** — `trace` aus `chat_session.ts` entfernt, gebaut, Plugin neu geladen: genau die zwei Chat-Punkte fielen rot, die uebrigen blieben gruen |
 | 2026-08-23 | `a4d0130` (Branch `fix/backlog-kleinfixes`, vor Merge) | 1.13.7 | **20/20** (derselbe Punkt übersprungen) | Parität zum Lauf davor — der Treiber ist unverändert, geändert hat sich nur der Prüfling |
 | 2026-08-23 | `0d49ab0` (vor Merge 0.26.0) | 1.13.7 | **20/20** (1 Punkt übersprungen: kein Embedding-Endpunkt mit Modell-Override konfiguriert) | keine — Treiber unverändert seit dem Lauf, der ihn eingeführt hat |
 | 2026-08-18 | Migration auf die zentrale CDP-Brücke | 1.13.7 | 18/18 | — |
+
+### 2026-08-24 — der `apiVersion`-2-Bump, erstmals gegen ein laufendes Obsidian
+
+Der Fix `f3c7f71` (Lab-Stub von `apiVersion: 1` auf `2`) war bis dahin **nie gefahren** — die
+Umgebung dafuer fehlte. Jetzt hergestellt: Staging-Vault `~/StagingVaults/vault-rag`, dort ist
+`vault-retrieval` deployt und **kein echtes llm-lab installiert**, also greift genau der
+Stub-Pfad, den der Bump anfasst. Ergebnis: alle fuenf Lab-Punkte gruen (`chat` mit
+`ttftMs`/`latencyMs`, `settings-probe` unter eigenem `feature`, `reformat:to-list`, und der
+Fall ohne Lab).
+
+**Zwei Punkte blieben rot und sind es zu Recht:** „Zeile 2 traegt den Prioritaets-Knopf" und
+„Klick setzt die Zeile an die Spitze" melden selbst, dass sie **nicht pruefbar** sind — der
+Staging-Vault hat je nur einen Embedding- und einen Chat-Endpunkt. Der Versuch, einen zweiten
+per `data.json` nachzulegen, scheitert erwartbar: Obsidian haelt die Datei im Speicher und
+schreibt sie beim naechsten `saveData` zurueck: **eine Plugin-Einstellung an einem laufenden
+Obsidian aendert man ueber die Oberflaeche oder gar nicht.** Beide Punkte sind eine
+Deckungsluecke der Umgebung, kein Defekt und nicht Gegenstand des Bumps.
 
 ### 2026-08-23 — llm-lab-Meldestrecke (fünf Prüfpunkte)
 

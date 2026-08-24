@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-08-24
+
 ### Fixed
 - **Gemma-Modelle werden nicht mehr fälschlich als „keine Vision" angezeigt.** Die Erkennung
   kannte nur die Ollama-Schreibweise (`gemma3:4b`). LM Studio liefert dasselbe Modell als

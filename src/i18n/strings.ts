@@ -32,6 +32,7 @@ export const EN = {
   "settings.mcpClientSetup.name": "Client setup",
   "settings.mcpClientSetup.desc": "Config for your MCP client — pick a client, then copy.",
   "settings.mcpConfigCopied": "MCP config copied",
+  "settings.mcpConfigCopyFailed": "Could not copy MCP config — clipboard unavailable",
   "settings.chatModel.name": "Chat model",
   "settings.chatModel.desc": "Model name as available on the chat endpoint",
   "settings.modelDetails.name": "Model details",
@@ -49,6 +50,7 @@ export const EN = {
 
   // main.ts
   "main.copied": "Copied",
+  "main.copyFailed": "Could not copy — clipboard unavailable",
   "main.unknown": "unknown",
   "main.embeddingEndpointSkipped": "Embedding endpoint skipped: {0} does not match the index's model ({1}). Changing the embedding model requires a full index rebuild.",
   "main.blockedModelMismatch": "⚠ Vault Retrieval: This endpoint's embedding model does not match the index — nothing will be written (write protection). Search and reading continue. Way out: enter a matching endpoint or \"Reindex vault\".",
@@ -491,6 +493,7 @@ export const DE = {
   "settings.mcpClientSetup.name": "Client-Setup",
   "settings.mcpClientSetup.desc": "Config für deinen MCP-Client — Client wählen, dann kopieren.",
   "settings.mcpConfigCopied": "MCP-Config kopiert",
+  "settings.mcpConfigCopyFailed": "MCP-Config nicht kopiert — Zwischenablage nicht verfügbar",
   "settings.chatModel.name": "Chat-Modell",
   "settings.chatModel.desc": "Modellname wie auf dem Chat-Endpoint verfügbar",
   "settings.modelDetails.name": "Modelldetails",
@@ -507,6 +510,7 @@ export const DE = {
   "settings.endpointSaveFailed": "Endpunkt-Änderung konnte nicht gespeichert werden — bitte erneut versuchen.",
 
   "main.copied": "Kopiert",
+  "main.copyFailed": "Nicht kopiert — Zwischenablage nicht verfügbar",
   "main.unknown": "unbekannt",
   "main.embeddingEndpointSkipped": "Embedding-Endpunkt übersprungen: {0} passt nicht zum Modell des Index ({1}). Ein Wechsel des Embedding-Modells erfordert einen vollständigen Neuaufbau des Index.",
   "main.blockedModelMismatch": "⚠ Vault Retrieval: Das Embedding-Modell dieses Endpunkts passt nicht zum Index — es wird nichts geschrieben (Schreibschutz). Suche und Lesen laufen weiter. Ausweg: passenden Endpunkt eintragen oder „Vault neu indizieren\".",

@@ -7,11 +7,13 @@
  *  gegen eine Vermutung getauscht, die bei einem gehosteten Endpunkt zusätzlich in die
  *  falsche Richtung zeigt (gemeldet 2026-08-05, externer OpenWebUI-Endpunkt).
  *
- *  `extractErrorMessage` ist übernommen aus vault-crews/src/core/chat-response.ts
- *  (REGISTRY: „Non-Streaming Chat-Response interpretieren", erstes Exemplar) und hier um
- *  `detail` ergänzt — die FastAPI-Form, die OpenWebUI und andere Python-Backends schicken.
+ *  Die Feld-Kaskade (`error.message` → `error` → `message` → `detail`) liegt seit Kit 0.27.0
+ *  im Kit — aus sieben Fassungen zusammengeführt, diese hier war eine davon. Was hier BLEIBT,
+ *  ist das, was das Kit ausdrücklich nicht mitnimmt: `ChatHttpError` (Status + Rohbody),
+ *  die Kürzung auf `MAX_DETAIL` und die Übersetzung nach `t()`.
  */
 
+import { errorMessageFromText } from "./vendor/kit/error_body";
 import { t } from "./vendor/kit/i18n";
 
 /** Transportfehler MIT HTTP-Antwort. Trägt Status + Rohbody, damit die Anzeige-Schicht
@@ -23,19 +25,6 @@ export class ChatHttpError extends Error {
   }
 }
 
-/** Zieht eine einzeilige Fehler-Message aus einem JSON-Fehlerbody.
- *  Reihenfolge: error.message → error (String) → message → detail.
- *  null, wenn kein bekanntes Feld greift (Aufrufer nutzt dann den Rohbody). */
-export function extractErrorMessage(body: unknown): string | null {
-  if (!isRecord(body)) return null;
-  const err = body.error;
-  if (isRecord(err) && typeof err.message === "string") return err.message;
-  if (typeof err === "string") return err;
-  if (typeof body.message === "string") return body.message;
-  if (typeof body.detail === "string") return body.detail;
-  return null;
-}
-
 const MAX_DETAIL = 200;
 
 /** Serverbegründung aus einem Rohbody: erst als JSON, sonst gekürzter Rohtext.
@@ -43,9 +32,7 @@ const MAX_DETAIL = 200;
 function serverDetail(body: string): string {
   const raw = body.trim();
   if (!raw) return "";
-  let parsed: unknown;
-  try { parsed = JSON.parse(raw); } catch { parsed = undefined; }
-  const msg = extractErrorMessage(parsed) ?? raw;
+  const msg = errorMessageFromText(raw) ?? raw;
   const oneLine = msg.replace(/\s+/g, " ").trim();
   return oneLine.length > MAX_DETAIL ? `${oneLine.slice(0, MAX_DETAIL)}…` : oneLine;
 }
@@ -75,8 +62,4 @@ export function chatErrorMessage(e: unknown): string {
     return withDetail(t("chatError.rejected", e.status), detail);
   }
   return t("chatError.unreachable");
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }

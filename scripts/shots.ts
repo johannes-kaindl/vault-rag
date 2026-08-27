@@ -147,12 +147,12 @@ async function hubTab(cdp: Cdp, tab: string): Promise<boolean> {
   const da = await pollUntil<boolean>(cdp, `
     const cmd = app.commands.commands[${JSON.stringify(`${PLUGIN_ID}:open-related`)}];
     if (cmd) app.commands.executeCommandById(${JSON.stringify(`${PLUGIN_ID}:open-related`)});
-    return !!document.querySelector(".vault-rag-hub-root");
+    return !!document.querySelector(".okit-hub-root");
   `, 10_000, 300);
   if (!da) return false;
 
   return Boolean(await pollUntil<boolean>(cdp, `
-    const btn = [...document.querySelectorAll(".vault-rag-hub-tab")]
+    const btn = [...document.querySelectorAll(".okit-hub-tab")]
       .find((e) => e.dataset.tab === ${JSON.stringify(tab)} && e.getBoundingClientRect().width > 1);
     if (!btn) return false;
     btn.click();
@@ -175,7 +175,7 @@ async function sidebarBreit(cdp: Cdp, breite = SIDEBAR_BREITE): Promise<void> {
   let vorher = -1;
   for (let i = 0; i < 20; i++) {
     const jetzt = Number(await cdp.evaluate<number>(`
-      const el = document.querySelector(".vault-rag-hub-root");
+      const el = document.querySelector(".okit-hub-root");
       return el ? Math.round(el.getBoundingClientRect().width) : 0;
     `));
     if (jetzt > 1 && jetzt === vorher) return;
@@ -245,11 +245,11 @@ async function baumAufklappen(cdp: Cdp): Promise<void> {
  * des Kastens; danach greift zusaetzlich die Kappung am Seitenverhaeltnis der Klasse.
  */
 async function panelBox(cdp: Cdp, ratio = MAX_RATIO_FEATURE): Promise<Ausschnitt> {
-  const b = await boxOf(cdp, ".vault-rag-hub-root", PADDING);
+  const b = await boxOf(cdp, ".okit-hub-root", PADDING);
   if (!b) return null;
 
   const unterkante = Number(await cdp.evaluate<number>(`
-    const wurzel = [...document.querySelectorAll(".vault-rag-hub-root")]
+    const wurzel = [...document.querySelectorAll(".okit-hub-root")]
       .find((e) => e.getBoundingClientRect().width > 1);
     if (!wurzel) return 0;
     let unten = 0;
@@ -280,7 +280,7 @@ async function panelBox(cdp: Cdp, ratio = MAX_RATIO_FEATURE): Promise<Ausschnitt
   // Grenze passt; gibt es keine, bleibt die harte Kappung als Rueckfall.
   const grenze = b.y + maxHoehe;
   const sauber = Number(await cdp.evaluate<number>(`
-    const wurzel = [...document.querySelectorAll(".vault-rag-hub-root")]
+    const wurzel = [...document.querySelectorAll(".okit-hub-root")]
       .find((e) => e.getBoundingClientRect().width > 1);
     if (!wurzel) return 0;
     let beste = 0;
@@ -364,7 +364,7 @@ async function lage(cdp: Cdp): Promise<string> {
       datei: app.workspace.getActiveFile()?.path ?? null,
       pluginAn: !!p,
       smartApply: p?.settings?.smartApplyEnabled ?? null,
-      tabs: [...document.querySelectorAll(".vault-rag-hub-tab")].map((e) => e.dataset.tab),
+      tabs: [...document.querySelectorAll(".okit-hub-tab")].map((e) => e.dataset.tab),
       knopf: [...document.querySelectorAll(".vault-rag-sa-run")]
         .map((e) => ({ sichtbar: e.getBoundingClientRect().width > 1, gesperrt: e.disabled })),
       status: (document.querySelector(".vault-rag-sa-scan-status-label")?.textContent ?? "").slice(0, 80),

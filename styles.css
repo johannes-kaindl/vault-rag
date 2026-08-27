@@ -195,17 +195,48 @@
 .vault-rag-sa-rank-note, .vault-rag-sa-rank-empty { font-size: var(--font-smallest); color: var(--text-muted); padding: 2px 6px; }
 .vault-rag-sa-rank-more { font-size: var(--font-smallest); color: var(--text-accent); cursor: pointer; padding: 2px 6px; }
 
-/* ── Hub-Tab-Leiste ──────────────────────────────────────────────────────── */
-.vault-rag-hub-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.vault-rag-hub-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--background-modifier-border); flex: 0 0 auto; }
-.vault-rag-hub-tab { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; gap: 4px; padding: 6px 8px; min-width: 0; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); cursor: pointer; border-radius: 0; }
-.vault-rag-hub-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vault-rag-hub-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
-.vault-rag-hub-tab.is-active { color: var(--text-normal); border-bottom-color: var(--interactive-accent); }
-.vault-rag-hub-tab-icon { display: inline-flex; }
-.vault-rag-hub-content { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; }
-.vault-rag-hub-panel { height: 100%; overflow: auto; }
-.vault-rag-hub-panel.is-hidden { display: none; }
+/* ── Hub-Tab-Leiste — uebernommen aus obsidian-kit@0.27.0 (HUB_CSS, src/obsidian/hub.ts).
+   Das Kit injiziert kein CSS; diese Kopie ist die Consumer-Haelfte des Moduls. */
+/* Hub-Tab-Leiste (obsidian-kit: buildHubInto). Die vier nummerierten Zutaten gehören
+   zusammen — jede einzeln ist wirkungslos, s. Modulkopf von src/obsidian/hub.ts. */
+.okit-hub-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.okit-hub-tabs {
+  display: flex;
+  flex-wrap: wrap;                 /* (1) erlaubt die zweite Zeile */
+  gap: var(--size-2-1);
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+/* box-shadow: none nimmt dem nativen <button> nur seinen Ruhe-Schatten. Obsidians
+   Fokusring bleibt: button:focus-visible { box-shadow: 0 0 0 3px … } hat mit (0,1,1) die
+   höhere Spezifität als .okit-hub-tab (0,1,0) — geprüft in Obsidians app.css. */
+.okit-hub-tab {
+  display: flex;
+  flex: 1 1 auto;                  /* (2) Basis = Inhaltsbreite, sonst bricht nichts um */
+  min-width: 0;                    /* (3) hebt min-width:auto auf, sonst sprengt ein langes Label die Zeile */
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-1);
+  padding: var(--size-2-3) var(--size-4-2);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.okit-hub-tab-label {              /* (4) ohne eigenes Label-Element kann nichts ellipsieren */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.okit-hub-tab-icon { display: inline-flex; flex: 0 0 auto; }
+.okit-hub-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.okit-hub-tab.is-active { color: var(--text-normal); border-bottom-color: var(--interactive-accent); }
+.okit-hub-content { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; }
+.okit-hub-panel { height: 100%; overflow: auto; }
+.okit-hub-panel.is-hidden { display: none; }
 
 .vault-rag-mcp-snippet {
   white-space: pre-wrap;

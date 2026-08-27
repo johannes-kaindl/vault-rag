@@ -6,6 +6,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Fünf lokale Fassungen sind durch die Module aus obsidian-kit 0.27.0 ersetzt** — die
+  Fehlerkörper-Kaskade, der Callout-Bau, die Hub-Tab-Leiste und beide Kopier-Stellen. Vier davon
+  waren Quellen der Kit-Extraktion; sie liefen hier weiter, während die Fixes, die beim
+  Zusammenführen entstanden, nicht ankamen. Vendoring läuft ab jetzt über `tools/sync-kit.sh`
+  statt per Handkopie, und beide Vendor-Verzeichnisse tragen einen einheitlichen Pin.
+- **„In Callout einpacken" schreibt bei Leerzeilen `>` statt `> `** (ohne nachlaufendes
+  Leerzeichen). Obsidian rendert beides identisch, im Dokument ist der Unterschied nur mit
+  sichtbarem Whitespace zu erkennen — genannt wird er trotzdem, weil der Befehl in die Notizen
+  des Nutzers schreibt und eine unbenannte Änderung dort nichts zu suchen hat.
+
+### Fixed
+- **„Kopiert" erscheint nicht mehr, wenn gar nichts kopiert wurde.** Beide Kopier-Knöpfe (MCP-Port
+  im Chat-Panel, MCP-Konfiguration in den Einstellungen) zeigten die Erfolgsmeldung unbedingt,
+  ohne das Ergebnis abzuwarten. Lehnt die Zwischenablage ab — Fokusverlust oder fehlende
+  Berechtigung, im unfokussierten Fenster der Normalfall —, stand „Kopiert" bei leerer
+  Zwischenablage. Jetzt erscheint die Meldung nach erfolgreichem Schreiben, und ein Fehlschlag
+  meldet sich als solcher.
+- **Ein Fehlerkörper mit leerem Fehlertext zeigt jetzt den Rohtext statt gar nichts.** Bei einer
+  Antwort wie `{"error":""}` fiel die Serverbegründung vorher komplett weg: der leere String galt
+  als Treffer, und der Rückfall auf den Rohtext griff deshalb nicht.
+- **Ein Tab-Wechsel auf ein abgeschaltetes Panel leert den Hub nicht mehr.** Bei deaktiviertem
+  Smart Apply konnte der Befehl einen Tab aktivieren, dessen Panel nie gebaut wurde — sichtbar
+  wurde ein leerer Hub. Der Wechsel ist jetzt wirkungslos statt zerstörend.
+
+### Accessibility
+- **Die Hub-Tab-Leiste ist eine echte ARIA-Tabliste.** Tabs melden `role`/`aria-selected` und
+  zeigen per `aria-controls` auf ihr Panel; die Navigation läuft über Pfeiltasten, Home und End
+  (roving tabindex). ⚠️ Damit sind inaktive Tabs **nicht mehr per Tab-Taste** erreichbar — das ist
+  das Standardverhalten einer Tabliste, aber eine Änderung gegenüber vorher.
+
 ## [0.27.0] — 2026-08-24
 
 ### Fixed

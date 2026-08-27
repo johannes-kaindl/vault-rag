@@ -204,11 +204,19 @@ chat_view.ts      ChatPanel (HubPanel) — Chat-UI: SSE-Streaming, Kontext-Panel
                   Modell-/Thinking-Auswahl.
 smart_apply_view.ts SmartApplyPanel (HubPanel) — Diff-Gate-Cockpit (Scan-Guard, Frontmatter-Diff,
                   Body-Reflow, Relevanz-Rangliste, Rohtext on-demand).
-hub_panel.ts      HubPanel-Interface + TabId ("related"|"search"|"chat"|"smart-apply") — Vertrag
-                  zwischen Hub und den vier Panels (mount/onShow/onHide/onFileOpen/destroy).
+hub_panel.ts      HubPanel-Interface + TabId ("related"|"search"|"chat"|"smart-apply"|"reformat") —
+                  Vertrag zwischen Hub und den fünf Panels (mount/onShow/onHide/onFileOpen/destroy).
+                  Bleibt bewusst lokal, obwohl das Kit ein `HubPanel<Id>` mitbringt: er ist
+                  strukturell zuweisbar, und die Doku hier gehört zu DIESEN Panels.
 hub_view.ts       VaultRetrievalView (ItemView, VIEW_TYPE_HUB="vault-retrieval-hub") — EIN
-                  Sidebar-View mit Tab-Leiste statt vier Views; hält alle Panels dauerhaft gemountet
-                  (State-Persistenz), blendet nur per `display:none` um (kein render-from-scratch).
+                  Sidebar-View mit Tab-Leiste statt fünf Views; hält alle Panels dauerhaft gemountet
+                  (State-Persistenz), blendet nur per `is-hidden` um (kein render-from-scratch).
+                  **Der Aufbau selbst liegt seit Kit 0.27.0 im Kit** (`buildHubInto`,
+                  `vendor/kit-obsidian/hub.ts`); diese Datei ist nur noch die Obsidian-Kante
+                  (ItemView-Lebenszyklus, `getState`/`setState`, Datei-Events). Die CSS-Grammatik
+                  heißt entsprechend `okit-hub-*`, nicht mehr `vault-rag-hub-*` — `styles.css`
+                  trägt die Consumer-Hälfte (`HUB_CSS`), `scripts/shots.ts` greift auf dieselben
+                  Klassen zu.
 plugin_api.ts     Öffentlicher Vertrag für ANDERE Obsidian-Plugins, hängt als `plugin.api` am
                   Plugin-Objekt (`app.plugins.plugins["vault-retrieval"]?.api`). Dünner Adapter
                   über die RetrievalFacade, exakt nach dem Muster von `mcp/tools.ts` — bewusst
@@ -231,7 +239,7 @@ mcp/              In-Plugin HTTP-MCP-Server (Loopback, `/mcp`, StreamableHTTP): 
                   `register_tools.ts` · `tools.ts` (dünner Adapter über RetrievalFacade) · `auth.ts`.
                   Kein Node-Adapter/kein stdio mehr.
 reformat_mechanical.ts  Pure Markdown-Struktur-Transforms (Slice C.1): `transposeTable` (Tabelle
-                  kippen) · `tableToList` · `wrapInCallout` · `splitSelectionAffix` (Rand-Whitespace
+                  kippen) · `tableToList` · `splitSelectionAffix` (Rand-Whitespace
                   vom Kern trennen; ein reiner Spalten-Einzug gehört zum KERN, sonst klebt er nur
                   an der ersten Ergebniszeile). Interner `parseTable`-Helper. **Pipes werden beim
                   Rendern re-escaped** — sonst zerreißt eine `\|`-Zelle die Tabelle (s. Gotchas).
@@ -294,20 +302,36 @@ Das Prä-0.18-Tripel (`notes.i8`/`paths.json`/`manifest.json`) wird beim ersten 
 ### Vendored Kit Module (`src/vendor/kit/` + `src/vendor/kit-obsidian/`)
 
 **Zwei Ablagen seit 2026-07-27 (workspace-weite Konvention):** `src/vendor/kit/` hält die
-**obsidian-freien** Kit-Module (`endpoint.ts`, `endpoint_diagnostics.ts`, `frontmatter.ts`,
-`i18n.ts`, `reasoning.ts`, `settings.ts`, `sse.ts`, `think.ts`, `timeout.ts`),
-`src/vendor/kit-obsidian/` die **obsidian-gekoppelten** (`confirm.ts`, `collapsible.ts`,
-`folder-suggest.ts`, `settings_walker.ts` + `VENDOR.json`). Beide sind **verbatim-Snapshots — nie
-von Hand editieren**, Updates nur per Neu-Kopie aus obsidian-kit.
+**obsidian-freien** Kit-Module (`callout.ts`, `clipboard.ts`, `endpoint.ts`,
+`endpoint_diagnostics.ts`, `error_body.ts`, `frontmatter.ts`, `i18n.ts`, `reasoning.ts`,
+`settings.ts`, `sse.ts`, `think.ts`, `timeout.ts`), `src/vendor/kit-obsidian/` die
+**obsidian-gekoppelten** (`clipboard.ts`, `collapsible.ts`, `confirm.ts`, `folder-suggest.ts`,
+`hub.ts`, `settings_walker.ts`). Beide sind **verbatim-Snapshots — nie von Hand editieren**,
+Updates nur per Neu-Kopie aus obsidian-kit.
 
-`src/vendor/kit-obsidian/confirm.ts` (@0.16.1, `b7aaf7c`) — `confirmAction(app, opts)` als einzige
+**Seit 2026-08-27 macht das `tools/sync-kit.sh`** statt einer Handkopie, und beide Verzeichnisse
+tragen eine `VENDOR.json` (vorher hatte nur `kit-obsidian/` eine, in `kit/` stand der Pin je Datei
+in Zeile 1 — sechs verschiedene Versionen nebeneinander). Zwei Eigenschaften des Skripts sind
+load-bearing, nicht kosmetisch:
+- **Es liest über `git show $KIT_REF:<pfad>`, nicht aus dem Arbeitsstand des Nachbar-Repos.**
+  obsidian-kit läuft weiter: seit 0.28.0 sind 23 `pure/`-Module nach `code-kit` gezogen, darunter
+  `error_body` und `clipboard`. Ein `cp` aus dem Kit-Arbeitsverzeichnis liefert je nach dessen HEAD
+  etwas anderes — oder gar nichts.
+- **Es löst den Tag-Commit auf, nicht `HEAD`.** Der Kit-HEAD steht auf einem späteren Stand als der
+  Tag; ein daraus gelesener SHA widerspräche der vendorierten Version in derselben Datei.
+
+Ein zweiter Lauf darf keinen Diff erzeugen — das ist die Probe darauf, dass Header und
+`VENDOR.json` deterministisch sind (deshalb steht dort **kein** Datum).
+
+`src/vendor/kit-obsidian/confirm.ts` (@0.27.0) — `confirmAction(app, opts)` als einzige
 Bestätigungs-Modal-Wahrheit; ersetzt seit `210b43c` die repo-eigenen `ConfirmModal`-Klassen in
 `main.ts`/`settings.ts` (UI-STANDARD §2: Cancel als Link, `modal-button-container`).
 **Gotcha:** der Heal-Dialog beim Start läuft bewusst **fire-and-forget** (`.then(…)`, kein `await`) —
 ein `await` in `onload` blockiert den Plugin-Start, bis der Nutzer klickt (`bee6a2a`).
 
-`src/vendor/kit-obsidian/collapsible.ts` (aus obsidian-kit#0.13.0, eigener Datei-Header-Pin —
-nicht von der `VENDOR.json` abgedeckt) — erste obsidian-gekoppelte UI-Schicht des
+`src/vendor/kit-obsidian/collapsible.ts` (@0.27.0; bis zum Re-Vendoring 2026-08-27 hing es als
+einziges auf einem eigenen Datei-Header-Pin @0.13.0 an der `VENDOR.json` vorbei) — erste
+obsidian-gekoppelte UI-Schicht des
 Kits. `collapsibleSection(containerEl, opts)` rendert eine einklappbare Settings-Sektion (klickbarer
 Header + Body). Der Header ist tastatur-/screenreader-bedienbar (`role="button"`, `tabindex="0"`,
 `aria-expanded`, Enter/Leertaste-Toggle, `:focus-visible`-Ring — a11y ab Kit 0.13.0). Der Auf-/Zu-Zustand wird über den optionalen `CollapsibleStorage`-Callback persistiert —
@@ -325,7 +349,7 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (932 Tests, 66 Files)
+npm test                          # vitest run     (971 Tests, 67 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit

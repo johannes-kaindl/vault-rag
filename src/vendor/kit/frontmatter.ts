@@ -1,4 +1,5 @@
-// vendored from obsidian-kit@0.19.0, src/pure/frontmatter.ts — do not hand-edit
+// vendored from obsidian-kit@0.27.0, src/pure/frontmatter.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// frontmatter.ts — yaml_lite: flache Skalare + einfache Listen. Kein obsidian-Import.
 //
 // Gehoben aus vault-rag/src/frontmatter.ts (Serialisier-/Parse-Pfad); die smart-apply-
 // Domäne (mergeFrontmatter/diffFrontmatter) bleibt dort.

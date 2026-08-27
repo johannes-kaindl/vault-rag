@@ -66,12 +66,6 @@ export function tableToList(md: string): string | null {
   ).join("\n");
 }
 
-/** Packt beliebigen Text in einen Obsidian-Callout `> [!type]`. Immer erfolgreich. */
-export function wrapInCallout(md: string, type: string): string {
-  const body = md.split("\n").map(l => `> ${l}`).join("\n");
-  return `> [!${type}]\n${body}`;
-}
-
 export interface SelectionAffix { lead: string; core: string; trail: string }
 
 /** Zerlegt eine Auswahl in erhaltenswerten Rand-Whitespace und den zu transformierenden Kern.

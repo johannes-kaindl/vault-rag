@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { VaultRetrievalView } from "../src/hub_view";
+import { buildHubInto } from "../src/vendor/kit-obsidian/hub";
 import { makeFakeEl } from "./__mocks__/obsidian";
 import type { HubPanel, TabId } from "../src/hub_panel";
 
@@ -17,15 +17,15 @@ function fakePanel(id: TabId): HubPanel & { log: string[] } {
 
 // Panel-Div per data-tab finden — children-Traversal + getAttribute (kein querySelector).
 function panelDiv(root: any, tab: TabId): any {
-  const content = root.children.find((c: any) => c.className?.includes("vault-rag-hub-content"));
+  const content = root.children.find((c: any) => c.className?.includes("okit-hub-content"));
   return content.children.find((c: any) => c.getAttribute?.("data-tab") === tab);
 }
 
-describe("VaultRetrievalView.buildInto", () => {
+describe("Hub-Aufbau (obsidian-kit buildHubInto)", () => {
   it("mountet alle Panels, zeigt nur den Default-Tab", () => {
     const panels = [fakePanel("related"), fakePanel("chat")];
     const root = makeFakeEl();
-    VaultRetrievalView.buildInto(root, panels, "related");   // reine Aufbau-Logik, siehe Step 3
+    buildHubInto(root, panels, "related");   // Aufbau-Logik liegt seit Kit 0.27.0 im Kit
     expect(panels.every(p => (p as any).log.includes("mount"))).toBe(true);
     expect(panelDiv(root, "related").className.includes("is-hidden")).toBe(false);
     expect(panelDiv(root, "chat").className.includes("is-hidden")).toBe(true);
@@ -33,7 +33,7 @@ describe("VaultRetrievalView.buildInto", () => {
 
   it("Default-Panel bekommt initial onShow, das andere nicht", () => {
     const panels = [fakePanel("related"), fakePanel("chat")];
-    VaultRetrievalView.buildInto(makeFakeEl(), panels, "related");
+    buildHubInto(makeFakeEl(), panels, "related");
     expect((panels[0] as any).log).toContain("show");
     expect((panels[1] as any).log).not.toContain("show");
   });
@@ -41,7 +41,7 @@ describe("VaultRetrievalView.buildInto", () => {
   it("Tab-Wechsel: altes Panel hide, neues show, Sichtbarkeit getauscht", () => {
     const panels = [fakePanel("related"), fakePanel("chat")];
     const root = makeFakeEl();
-    const ctrl = VaultRetrievalView.buildInto(root, panels, "related");
+    const ctrl = buildHubInto(root, panels, "related");
     ctrl.setTab("chat");
     expect((panels[0] as any).log).toContain("hide");
     expect((panels[1] as any).log).toContain("show");
@@ -52,7 +52,7 @@ describe("VaultRetrievalView.buildInto", () => {
   it("Kontextwechsel ruft onFileOpen auf allen Panels", () => {
     const panels = [fakePanel("related"), fakePanel("chat")];
     const root = makeFakeEl();
-    const ctrl = VaultRetrievalView.buildInto(root, panels, "related");
+    const ctrl = buildHubInto(root, panels, "related");
     ctrl.notifyFileOpen("Note.md");
     expect((panels[0] as any).log).toContain("file:Note.md");
     expect((panels[1] as any).log).toContain("file:Note.md");
@@ -63,7 +63,7 @@ describe("VaultRetrievalView.buildInto", () => {
   it("defaultTab ohne passendes Panel (z.B. deaktiviertes Feature) fällt auf panels[0] zurück", () => {
     const panels = [fakePanel("related"), fakePanel("chat")];
     const root = makeFakeEl();
-    VaultRetrievalView.buildInto(root, panels, "smart-apply");
+    buildHubInto(root, panels, "smart-apply");
     expect(panelDiv(root, "related").className.includes("is-hidden")).toBe(false);
     expect((panels[0] as any).log).toContain("show");
   });

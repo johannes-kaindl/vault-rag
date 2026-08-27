@@ -8,6 +8,7 @@ import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupMo
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
 import { chatRequestModel, effectiveModel, migrateEndpointList, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
+import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { effectiveSystemPrompt, migrateSystemPrompt } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
@@ -419,7 +420,7 @@ export default class VaultRagPlugin extends Plugin {
           app: () => this.app,
         }),
         openPath: this.openPath,
-        copyText: (text: string) => { void navigator.clipboard.writeText(text); new Notice(t("main.copied")); },
+        copyText: (text: string) => { void copyToClipboard(text, { copiedMessage: t("main.copied"), failedMessage: t("main.copyFailed") }); },
         ping: () => this.chatReady(),
         listModels: () => this.chatClient.listModels(),
         getModel: () => this.settings.chatModel,

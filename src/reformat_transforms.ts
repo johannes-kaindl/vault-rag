@@ -1,5 +1,6 @@
 import type { ChatMessage } from "./chat_client";
-import { transposeTable, tableToList, wrapInCallout } from "./reformat_mechanical";
+import { transposeTable, tableToList } from "./reformat_mechanical";
+import { wrapCallout } from "./vendor/kit/callout";
 import { buildTransformMessages } from "./reformat_prompts";
 
 export interface MechanicalTransform {
@@ -25,7 +26,7 @@ export type TransformDef = MechanicalTransform | LlmTransform;
 export const TRANSFORMS: TransformDef[] = [
   { id: "transpose", labelKey: "transform.transpose", kind: "mechanical", run: transposeTable },
   { id: "table-to-list", labelKey: "transform.tableToList", kind: "mechanical", run: tableToList },
-  { id: "wrap-callout", labelKey: "transform.wrapCallout", kind: "mechanical", run: (text) => wrapInCallout(text, "note") },
+  { id: "wrap-callout", labelKey: "transform.wrapCallout", kind: "mechanical", run: (text) => wrapCallout("", text, "note") },
   { id: "to-list", labelKey: "transform.toList", kind: "llm", buildMessages: (text) => buildTransformMessages("to-list", text) },
   { id: "to-prose", labelKey: "transform.toProse", kind: "llm", buildMessages: (text) => buildTransformMessages("to-prose", text) },
   { id: "to-table", labelKey: "transform.toTable", kind: "llm", buildMessages: (text) => buildTransformMessages("to-table", text) },

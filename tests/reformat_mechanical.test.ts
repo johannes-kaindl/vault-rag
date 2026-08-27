@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { transposeTable, tableToList, wrapInCallout, splitSelectionAffix } from "../src/reformat_mechanical";
+import { transposeTable, tableToList, splitSelectionAffix } from "../src/reformat_mechanical";
+import { TRANSFORMS } from "../src/reformat_transforms";
 
 describe("transposeTable", () => {
   it("kippt Header und Zeilen (erste Spalte wird Header-Zeile)", () => {
@@ -45,12 +46,26 @@ describe("tableToList", () => {
   });
 });
 
-describe("wrapInCallout", () => {
-  it("packt mehrzeiligen Text in einen Callout", () => {
-    expect(wrapInCallout("Hallo\nWelt", "note")).toBe("> [!note]\n> Hallo\n> Welt");
+// Der Callout-Bau liegt seit Kit 0.27.0 im Kit (`vendor/kit/callout`). Geprüft wird hier der
+// Nutzerpfad, der ihn benutzt: der Registry-Eintrag hinter dem Befehl „In Callout einpacken".
+describe("transform wrap-callout", () => {
+  const run = (text: string) => {
+    const entry = TRANSFORMS.find(t => t.id === "wrap-callout");
+    if (entry?.kind !== "mechanical") throw new Error("wrap-callout fehlt in TRANSFORMS");
+    return entry.run(text);
+  };
+
+  it("packt jede Zeile hinter das Callout-Präfix", () => {
+    expect(run("Hallo\nWelt")).toBe("> [!note]\n> Hallo\n> Welt");
   });
-  it("nutzt den übergebenen Typ", () => {
-    expect(wrapInCallout("X", "warning")).toBe("> [!warning]\n> X");
+  it("baut auch für eine einzelne Zeile einen gültigen Callout", () => {
+    expect(run("X")).toBe("> [!note]\n> X");
+  });
+  it("eine leere Body-Zeile wird `>` ohne nachlaufendes Leerzeichen", () => {
+    // Verhaltensänderung mit Kit 0.27.0: die lokale Fassung schrieb hier "> " (mit Space).
+    // Obsidian rendert beides identisch — der Unterschied ist im Nutzer-Dokument nur mit
+    // sichtbarem Whitespace zu sehen. Festgenagelt, damit es eine Entscheidung bleibt.
+    expect(run("a\n\nb")).toBe("> [!note]\n> a\n>\n> b");
   });
 });
 

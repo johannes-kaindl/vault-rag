@@ -8,6 +8,7 @@ import { normalizeIndexDir, isDotPath } from "./index_dir";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { ENDPOINT_PRESETS, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
+import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
@@ -656,8 +657,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
       })
       .addButton(b => b.setButtonText(t("settings.button.copy"))
         .onClick(() => {
-          void navigator.clipboard.writeText(buildClientSnippet(this.mcpClient, { url, token }));
-          new Notice(t("settings.mcpConfigCopied"));
+          void copyToClipboard(buildClientSnippet(this.mcpClient, { url, token }), {
+            copiedMessage: t("settings.mcpConfigCopied"),
+            failedMessage: t("settings.mcpConfigCopyFailed"),
+          });
         }));
 
     const pre = containerEl.createEl("pre", { cls: "vault-rag-mcp-snippet" });

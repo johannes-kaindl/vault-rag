@@ -1,23 +1,42 @@
 import { describe, it, expect } from "vitest";
-import { ChatHttpError, chatErrorMessage, extractErrorMessage } from "../src/chat_error";
+import { ChatHttpError, chatErrorMessage } from "../src/chat_error";
 import "../src/i18n/strings"; // Register i18n strings
 
-describe("extractErrorMessage", () => {
+// Die Feld-Kaskade selbst liegt seit Kit 0.27.0 in `vendor/kit/error_body` und ist dort
+// getestet. Hier steht, was DIESES Repo zusagt: dass die Begründung des Servers durch
+// `serverDetail` hindurch in der Meldung ankommt — über die Kaskade, den Rohtext-Fallback
+// und die Kürzung. Geprüft wird über den öffentlichen Weg, nicht am internen Helfer.
+describe("Serverbegründung in der Fehlermeldung", () => {
+  const detailOf = (body: string) => chatErrorMessage(new ChatHttpError(400, body));
+
   it("zieht error.message aus einem OpenAI-Fehlerbody", () => {
-    expect(extractErrorMessage({ error: { message: "model not found" } })).toBe("model not found");
+    expect(detailOf('{"error":{"message":"model not found"}}')).toContain("model not found");
   });
   it("zieht error, wenn es selbst ein String ist", () => {
-    expect(extractErrorMessage({ error: "kaputt" })).toBe("kaputt");
+    expect(detailOf('{"error":"kaputt"}')).toContain("kaputt");
   });
   it("zieht message als Rückfall", () => {
-    expect(extractErrorMessage({ message: "hoppla" })).toBe("hoppla");
+    expect(detailOf('{"message":"hoppla"}')).toContain("hoppla");
   });
   it("zieht detail — die FastAPI-Form, die OpenWebUI schickt", () => {
-    expect(extractErrorMessage({ detail: "Not authenticated" })).toBe("Not authenticated");
+    expect(detailOf('{"detail":"Not authenticated"}')).toContain("Not authenticated");
   });
-  it("null bei unbekanntem Body — der Aufrufer nutzt dann den Rohtext", () => {
-    expect(extractErrorMessage({ irgendwas: 1 })).toBeNull();
-    expect(extractErrorMessage("kein objekt")).toBeNull();
+  it("nimmt den Rohbody, wenn kein bekanntes Feld greift", () => {
+    expect(detailOf('{"irgendwas":1}')).toContain('{"irgendwas":1}');
+  });
+  it("ein leerer Fehlerwert zeigt jetzt den Rohbody statt gar nichts", () => {
+    // Verhaltensänderung mit Kit 0.27.0 (Fix-Richtung): vorher gab die lokale Kaskade für
+    // `{"error":""}` den leeren String zurück. `""` ist nicht nullish, der `?? raw`-Fallback
+    // griff also NICHT und die Begründung fiel komplett weg. Jetzt fällt der Leerwert durch.
+    expect(detailOf('{"error":""}')).toContain('{"error":""}');
+  });
+  it("kürzt eine überlange Begründung statt sie ungebremst anzuzeigen", () => {
+    const msg = detailOf(JSON.stringify({ detail: "x".repeat(500) }));
+    expect(msg).toContain("…");
+    expect(msg.length).toBeLessThan(300);
+  });
+  it("faltet Zeilenumbrüche der Begründung auf eine Zeile", () => {
+    expect(detailOf('{"detail":"Zeile1\nZeile2"}')).toContain("Zeile1 Zeile2");
   });
 });
 

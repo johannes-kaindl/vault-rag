@@ -59,6 +59,15 @@ const FALLBACK_ICON = "chevrons-up";
 // --- Prüfpunkte -------------------------------------------------------------
 
 interface Check { name: string; passed: boolean; detail: string }
+
+interface HubProbe {
+  present: boolean;
+  tablist?: string | null;
+  count?: number;
+  selected?: number;
+  focusable?: number;
+  controls?: boolean;
+}
 const results: Check[] = [];
 
 function record(name: string, passed: boolean, detail: string): void {
@@ -239,6 +248,85 @@ async function main(): Promise<void> {
       console.log("  – search(): übersprungen — Embedding-Endpunkt nicht erreichbar (korrekte Antwort, aber der Erfolgsfall bleibt ungeprüft)");
     } else {
       record("search() liefert semantische Treffer", false, `reason=${String(probe.search?.reason)}`);
+    }
+
+    // --- 0b. Hub-Tab-Leiste (obsidian-kit buildHubInto) ---------------------
+    // Was hier gemessen wird, kann vitest strukturell nicht: das node-Env hat kein Layout,
+    // also auch keinen Zeilenumbruch. Genau dafuer existiert dieser Treiber. Die ARIA-Rollen
+    // sind mit Kit 0.27.0 neu — die lokale Fassung setzte keinerlei Attribute.
+    const hub = await main.evaluate<HubProbe>(`
+      const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+      await p.openHub("related");
+      const root = document.querySelector(".okit-hub-root");
+      if (!root) return { present: false };
+      const tabs = [...root.querySelectorAll(".okit-hub-tab")];
+      return {
+        present: true,
+        tablist: root.querySelector(".okit-hub-tabs")?.getAttribute("role") ?? null,
+        count: tabs.length,
+        selected: tabs.filter(t => t.getAttribute("aria-selected") === "true").length,
+        // Roving tabindex: genau der aktive Tab ist per Tab-Taste erreichbar, der Rest per Pfeil.
+        focusable: tabs.filter(t => t.getAttribute("tabindex") !== "-1").length,
+        controls: tabs.every(t => {
+          const id = t.getAttribute("aria-controls");
+          return !!id && !!document.getElementById(id);
+        }),
+      };
+    `);
+    record("Hub rendert die Kit-Grammatik", hub.present, hub.present ? ".okit-hub-root vorhanden" : "kein .okit-hub-root — altes Bundle geladen?");
+    record("Tab-Leiste ist eine ARIA-Tabliste", hub.tablist === "tablist", `role="${hub.tablist ?? "(fehlt)"}" · ${hub.count} Tabs`);
+    record("Genau ein Tab ist als ausgewaehlt gemeldet", hub.selected === 1, `${hub.selected} von ${hub.count} mit aria-selected=true`);
+    record("Roving tabindex: nur der aktive Tab ist tabbar", hub.focusable === 1, `${hub.focusable} von ${hub.count} tabbar`);
+    record("Jeder Tab zeigt auf ein existierendes Panel", hub.controls === true, "aria-controls aufloesbar");
+
+    // Der eigentliche Layout-Beleg: bricht die Leiste bei schmaler Sidebar um, statt die Tabs
+    // unlesbar zu stauchen? Das kann vitest nicht — node hat kein Layout.
+    //
+    // Die Breite wird ueber `rightSplit.setSize()` gesetzt, NICHT ueber `style.width` am
+    // `.workspace-leaf`: gemessen 2026-08-27 ist das Leaf nicht breitenbestimmend, die Zahlen
+    // blieben von 1000px bis 140px unveraendert. Ein Pruefpunkt, dessen Mutation nicht wirkt,
+    // ist gruen oder rot ohne etwas zu belegen — die teurere Variante ist hier die einzige.
+    //
+    // Mutation und Wartephase getrennt (Muster: paperless-storage/scripts/gui-smoke.ts:201):
+    // ein `waitFor` IM Renderer liefe gegen den 30-s-Abbruch von `Cdp.send`.
+    const WIDE = 560, NARROW = 240;
+    const TAB_ROWS = `
+      const tabs = [...document.querySelectorAll(".okit-hub-tab")];
+      const boxen = tabs.map(t => t.getBoundingClientRect());
+      return { zeilen: new Set(boxen.map(b => Math.round(b.top))).size,
+               ueberlauf: boxen.some(b => b.right > document.querySelector(".okit-hub-tabs").getBoundingClientRect().right + 1) };
+    `;
+    const rowsAfter = async (px: number): Promise<{ zeilen: number; ueberlauf: boolean }> => {
+      await main.evaluate(`app.workspace.rightSplit.setSize(${px}); return true;`);
+      const r = await pollUntil<{ zeilen: number; ueberlauf: boolean }>(main, TAB_ROWS, 5000, 200);
+      return r ?? { zeilen: 0, ueberlauf: false };
+    };
+    // Der Hub kann vom Nutzer auch links oder im Hauptbereich liegen — dann greift setSize
+    // auf den falschen Split und der Punkt maesse Phantome. Lieber ueberspringen als luegen.
+    const inRight = await main.evaluate<boolean>(`
+      return !!app.workspace.rightSplit?.containerEl?.contains(document.querySelector(".okit-hub-root"));
+    `);
+    if (!inRight) {
+      console.log("  – Umbruch der Tab-Leiste: übersprungen (Hub liegt nicht in der rechten Sidebar)");
+    } else {
+      // Die Breite ist eine Einstellung des Nutzers — vorher merken, im finally zurueckgeben.
+      const userWidth = await main.evaluate<number>(`
+        return Math.round(app.workspace.rightSplit.containerEl.getBoundingClientRect().width);
+      `);
+      let wide = { zeilen: 0, ueberlauf: false }, narrow = { zeilen: 0, ueberlauf: false };
+      try {
+        wide = await rowsAfter(WIDE);
+        narrow = await rowsAfter(NARROW);
+      } finally {
+        await main.evaluate(`app.workspace.rightSplit.setSize(${userWidth}); return true;`)
+          .catch(() => { console.log("  ! Sidebar-Breite konnte nicht zurückgesetzt werden"); });
+      }
+      record("Tab-Leiste bricht bei schmaler Sidebar um, statt zu stauchen",
+        narrow.zeilen > wide.zeilen,
+        `${WIDE}px → ${wide.zeilen} Zeile(n) · ${NARROW}px → ${narrow.zeilen} Zeile(n)`);
+      record("Kein Tab rutscht aus der Leiste heraus",
+        !wide.ueberlauf && !narrow.ueberlauf,
+        "kein horizontaler Überlauf bei beiden Breiten");
     }
 
     // --- 1./2. Einstellungen öffnen, Zeilen lesen ---------------------------

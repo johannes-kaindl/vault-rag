@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-08-27
+
 ### Changed
 - **Fünf lokale Fassungen sind durch die Module aus obsidian-kit 0.27.0 ersetzt** — die
   Fehlerkörper-Kaskade, der Callout-Bau, die Hub-Tab-Leiste und beide Kopier-Stellen. Vier davon

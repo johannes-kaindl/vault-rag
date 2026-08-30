@@ -8,3 +8,8 @@ data.json
 index-backups/
 .gui-smoke.mjs
 .shots.mjs
+
+# Wegwerf-Skripte einer Session (Watcher, Messsonden). Nie committen — und weil sie
+# waehrend eines Laufs gebraucht werden, duerfen sie auch nicht weggestasht werden:
+# tsx liest die Quelle zur Laufzeit weiter, ein `rm` toetet den Prozess verzoegert.
+scripts/_tmp_*

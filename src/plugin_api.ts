@@ -23,8 +23,11 @@ export type ApiResult =
 
 export interface ApiStatus {
   apiVersion: number;
-  /** Ein Index ist geladen. Sagt NICHTS über die Erreichbarkeit des Embedding-Endpunkts —
-   *  das ließe sich nur mit einem Netzaufruf beantworten, und `status()` macht keinen. */
+  /** Ein Index ist geladen und benutzbar. Sagt NICHTS über die Erreichbarkeit des
+   *  Embedding-Endpunkts — das ließe sich nur mit einem Netzaufruf beantworten, und `status()`
+   *  macht keinen. Sagt ebenso wenig etwas über seine **Aktualität**: während eines laufenden
+   *  Voll-Reindex bleibt der bisherige Index geladen und dieses Feld `true`, die Antworten
+   *  stammen dann noch aus dem alten Stand. `false` heißt ausschließlich „gar kein Index da". */
   indexed: boolean;
   /** Zahl der indexierten Notizen (0 ohne Index). */
   noteCount: number;

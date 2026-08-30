@@ -6,18 +6,6 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
-- **„Vault neu indizieren" verliert bei einem Abbruch nicht mehr den ganzen Lauf.** Bisher wurde
-  der neue Index erst ganz am Schluss geschrieben — brach der Vorgang vorher ab, war die gesamte
-  Rechenzeit verloren, auch wenn er kurz vor dem Ziel stand. Jetzt wird alle 250 Notizen ein
-  Zwischenstand gespeichert; ein Abbruch kostet höchstens diese letzte Etappe, der Rest bleibt
-  erhalten und wird beim nächsten Start übernommen.
-  Der Zwischenstand ist dabei immer **vollständig**: die schon neu berechneten Notizen, ergänzt um
-  die noch nicht erreichten aus dem bisherigen Index. Während des Laufs liefert die Suche
-  unverändert den bisherigen Stand, damit die Ergebnisse nicht mitten in der Benutzung wandern.
-  Wird das Embedding-Modell gewechselt, entfallen die Zwischenstände bewusst — dort würde ein
-  gemischter Index zwei nicht vergleichbare Vektorräume enthalten.
-
 ### Added
 - **Der Index sagt jetzt, wenn seine Vektoren nicht mehr zu seinen Notizen gehören.** Bisher
   konnte er strukturell perfekt sein — CRC32 grün, Notizzahl plausibel, `indexed: true` — und
@@ -31,13 +19,22 @@ All notable changes to this project are documented here. The format follows
     Das ist die einzige Probe, die diese Schadensklasse überhaupt sieht.
 
 ### Changed
+- **„Vault neu indizieren" verliert bei einem Abbruch nicht mehr den ganzen Lauf.** Bisher wurde
+  der neue Index erst ganz am Schluss geschrieben — brach der Vorgang vorher ab, war die gesamte
+  Rechenzeit verloren, auch wenn er kurz vor dem Ziel stand. Jetzt wird alle 250 Notizen ein
+  Zwischenstand gespeichert; ein Abbruch kostet höchstens diese letzte Etappe, der Rest bleibt
+  erhalten und wird beim nächsten Start übernommen.
+  Der Zwischenstand ist dabei immer **vollständig**: die schon neu berechneten Notizen, ergänzt um
+  die noch nicht erreichten aus dem bisherigen Index. Während des Laufs liefert die Suche
+  unverändert den bisherigen Stand, damit die Ergebnisse nicht mitten in der Benutzung wandern.
+  Wird das Embedding-Modell gewechselt, entfallen die Zwischenstände bewusst — dort würde ein
+  gemischter Index zwei nicht vergleichbare Vektorräume enthalten.
 - **Die Anbindung an „LLM Lab" verlangt jetzt dessen apiVersion 3** (der stabile Anteil des
   System-Prompts wird als `promptTemplate` gemeldet, damit das Lab daraus eine Prompt-
   **Fassung** statt eines einzelnen Aufrufs bilden kann — Chat, Umformatieren und Smart Apply
   melden dafür je ihren eigenen stabilen Anteil). Ist „LLM Lab" noch auf dem alten Vertrag
   (apiVersion 2, vor dessen nächstem Release), meldet vault-rag ab diesem Release **gar nichts
   mehr** ans Lab — genau wie ohne installiertes Lab, nur still, bis „LLM Lab" nachzieht.
-
 
 ## [0.28.0] — 2026-08-27
 

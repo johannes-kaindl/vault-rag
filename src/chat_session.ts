@@ -30,7 +30,11 @@ export class ChatSession {
     try { ctx = await this.deps.assemble(paths); }
     catch { assistant.error = t("chatSession.contextLoadFailed"); return { sources: [], error: assistant.error }; }
 
-    const parts = [this.deps.systemPreamble(), ctx.text].filter(Boolean);
+    // Einmal gebunden statt zweimal aufgerufen: die Meldung unten (`trace.promptTemplate`)
+    // soll strukturell dasselbe sein wie das, was in `system` tatsaechlich gesendet wird —
+    // nicht nur zufaellig gleich, weil `systemPreamble()` zweimal denselben Wert liefert.
+    const preamble = this.deps.systemPreamble();
+    const parts = [preamble, ctx.text].filter(Boolean);
     const system: ChatMessage = { role: "system", content: parts.join("\n\n") };
     // Verlauf an das LLM: nur vollständige Turns (Assistent mit Inhalt, ohne Fehler) — paarweise,
     // damit ein fehlgeschlagener Turn nicht zwei aufeinanderfolgende User-Nachrichten hinterlässt.
@@ -52,7 +56,7 @@ export class ChatSession {
         c => { assistant.content += c; onToken(c); },
         r => { assistant.reasoning = (assistant.reasoning ?? "") + r; onToken(r); },
         this.controller.signal,
-        { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: this.deps.systemPreamble() } },
+        { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: preamble } },
       );
       assistant.content = result.content;
       assistant.reasoning = result.reasoning || undefined;

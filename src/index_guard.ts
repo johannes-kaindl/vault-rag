@@ -174,3 +174,31 @@ export function planAutoHeal(
   if (input.embedderReady) return { kind: "restore-and-reindex" };
   return input.canCompleteIndex ? { kind: "restore-only" } : { kind: "wait-for-sync" };
 }
+
+/**
+ * Findet Zeilen, deren Vektor ausschliesslich aus Nullen besteht — strukturell tote Eintraege.
+ *
+ * Warum das ein eigener Befund ist: eine solche Notiz IST im Index (ihr Pfad steht in `paths`,
+ * `count` zaehlt sie mit, CRC32 und Byte-Guard sehen einen perfekten Container), aber ihr
+ * Vektor kann zu keiner Anfrage passen — Cosinus gegen einen Nullvektor ist immer 0. Sie ist
+ * damit unauffindbar, ohne irgendwo als fehlend aufzutauchen: `diffIndexVsVault` zaehlt sie
+ * als vorhanden, `computeIndexDelta` meldet „vollstaendig". Genau diese Luecke macht den
+ * Befund unsichtbar, deshalb wird er hier eigens erhoben.
+ *
+ * Gemessen am 2026-08-30 im Arbeits-Vault: 4 solche Zeilen, darunter drei Notizen, die zuvor
+ * als „findet sich ueber den eigenen Text nicht" gemeldet worden waren.
+ *
+ * Abgrenzung: leere Notizen (nur Frontmatter) sind hiervon NICHT betroffen — sie kommen
+ * gar nicht erst in den Index (`embedNote` liefert null bei 0 Chunks).
+ */
+export function findDeadVectorPaths(paths: string[], vectors: Float32Array, dim: number): string[] {
+  const dead: string[] = [];
+  for (let r = 0; r < paths.length; r++) {
+    let alive = false;
+    for (let c = 0; c < dim; c++) {
+      if (vectors[r * dim + c] !== 0) { alive = true; break; }
+    }
+    if (!alive) dead.push(paths[r]);
+  }
+  return dead;
+}

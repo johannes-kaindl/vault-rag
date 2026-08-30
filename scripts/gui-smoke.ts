@@ -144,6 +144,12 @@ interface ApiProbe {
   serialisable?: boolean;
 }
 
+interface SelfFindProbe {
+  present: boolean;
+  offline: boolean;
+  tried: { path: string; rank: number; top: string | null }[];
+}
+
 /** Muss im HAUPTfenster laufen — nur dort existiert `app`. */
 async function openSettings(main: Cdp): Promise<void> {
   await main.evaluate(`
@@ -248,6 +254,67 @@ async function main(): Promise<void> {
       console.log("  – search(): übersprungen — Embedding-Endpunkt nicht erreichbar (korrekte Antwort, aber der Erfolgsfall bleibt ungeprüft)");
     } else {
       record("search() liefert semantische Treffer", false, `reason=${String(probe.search?.reason)}`);
+    }
+
+    // --- 0a. Selbstfindungs-Probe (Index-Zuordnung) -------------------------
+    // WARUM DIESER PRUEFPUNKT EXISTIERT: am 2026-08-30 trug der Arbeits-Vault einen Index,
+    // dessen Vektormatrix zu einer aelteren, kuerzeren Pfadliste gehoerte — jede Zeile war um
+    // 4 bis 29 Positionen verschoben, ~79 % der Notizen lieferten damit die Aehnlichkeit einer
+    // FREMDEN Notiz. Kein bestehender Waechter konnte das sehen: CRC32 gruen, count plausibel,
+    // Byte-Guard zufrieden, `status()` meldete `indexed: true`, und die Scores sahen mit
+    // 0.85–0.92 vertrauenswuerdiger aus als ein gesunder Index. Der Schaden war nur daran zu
+    // erkennen, dass eine Notiz sich ueber ihren EIGENEN Wortlaut nicht mehr fand.
+    //
+    // Die Probe ist bewusst auf kurze Notizen beschraenkt: unter der Chunk-Grenze (800 Zeichen)
+    // ist die Notiz genau EIN Chunk, ihr Index-Vektor also das Embedding genau dieses Textes.
+    // Damit ist Rang 0 die einzig richtige Antwort und der Prueflings-Erwartungswert steht
+    // VORHER fest (LESSON local-image-generator 2026-08-23) — bei langen Notizen mischt die
+    // mean-Aggregation mehrere Chunks und ein Rang > 0 waere legitim.
+    const selfFind = await main.evaluate<SelfFindProbe>(`
+      const api = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].api;
+      if (!api) return { present: false, tried: [], offline: false };
+      const strip = (t) => t.replace(/^---\\s*\\n[\\s\\S]*?\\n---\\s*\\n/, "").trim();
+      // Voraussetzung selbst herstellen (REGISTRY-Falle 11): nur Notizen nehmen, die WIRKLICH
+      // im Index stehen. related() ist dafuer der billige Test — es rechnet offline auf dem
+      // Index und braucht keinen Embedding-Endpunkt.
+      const cands = [];
+      for (const f of app.vault.getMarkdownFiles()) {
+        if (cands.length >= 6) break;
+        let body;
+        try { body = strip(await app.vault.cachedRead(f)); } catch (e) { continue; }
+        if (body.length <= 200 || body.length > 800) continue;
+        const r = await api.related(f.path);
+        if (!r.ok && r.reason === "not-indexed") continue;
+        cands.push({ path: f.path, query: body.slice(0, 300) });
+      }
+      const tried = [];
+      let offline = false;
+      for (const c of cands) {
+        const res = await api.search(c.query);
+        if (!res.ok) { if (res.reason === "offline") offline = true; continue; }
+        const hits = res.hits ?? [];
+        const rank = hits.findIndex(h => h.path === c.path);
+        tried.push({ path: c.path, rank, top: hits[0] ? hits[0].path : null });
+      }
+      return { present: true, tried, offline };
+    `);
+
+    if (!selfFind.present) {
+      record("Notizen finden sich ueber ihren eigenen Wortlaut", false, "Plugin-API nicht erreichbar");
+    } else if (selfFind.offline || selfFind.tried.length === 0) {
+      // Falle 16 der REGISTRY: ohne Embedding-Endpunkt ist "keine Antwort" die RICHTIGE
+      // Antwort und kein Befund — dann uebersprungen statt falsch-gruen oder falsch-rot.
+      console.log("  – Selbstfindung: uebersprungen — kein Embedding-Endpunkt oder keine kurze indexierte Notiz gefunden");
+    } else {
+      const hit = selfFind.tried.filter(t => t.rank === 0);
+      // Schwelle statt Perfektion: zwei Notizen mit (fast) gleichem Wortlaut duerfen sich
+      // gegenseitig verdraengen. Ein VERSCHOBENER Index faellt damit trotzdem sicher auf —
+      // dort lag die Trefferquote bei 20 %, nicht bei 80 %.
+      const ok = hit.length >= Math.max(1, selfFind.tried.length - 1);
+      const misses = selfFind.tried.filter(t => t.rank !== 0)
+        .map(t => `${t.path.split("/").pop()}: Rang ${t.rank} (statt ihrer steht ${t.top ? t.top.split("/").pop() : "nichts"} vorn)`);
+      record("Notizen finden sich ueber ihren eigenen Wortlaut",
+        ok, `${hit.length}/${selfFind.tried.length} auf Rang 0${misses.length ? " · " + misses.join(" · ") : ""}`);
     }
 
     // --- 0b. Hub-Tab-Leiste (obsidian-kit buildHubInto) ---------------------

@@ -33,7 +33,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal } from "./index_guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal } from "./index_guard";
 import { loadIndexStore, verifyBackupCandidate } from "./index_store";
 import { CONTAINER_FILE, decodeContainer } from "./index_container";
 import { McpTools } from "./mcp/tools";
@@ -898,6 +898,16 @@ export default class VaultRagPlugin extends Plugin {
       // sie sind nie indexierbar und dürfen weder Auto-Heal noch das Delta triggern.
       this.emptyNotePaths = new Set(await classifyChunkless(missing, (p) => this.app.vault.adapter.read(p)));
       const embeddable = missing.filter(p => !this.emptyNotePaths.has(p));
+      // Tote Zeilen: im Index gelistet, aber mit Nullvektor — von diffIndexVsVault/computeIndexDelta
+      // per Definition nicht erfassbar (der Pfad IST vorhanden), und per Cosinus nie auffindbar.
+      // Sie brauchen deshalb ihren eigenen Blick und den Weg zurück über die PendingQueue; der
+      // 60-s-Drain holt sie, sobald ein Endpunkt antwortet.
+      const dead = findDeadVectorPaths([...this.index.paths], this.index.vectors, this.index.dim);
+      if (dead.length > 0) {
+        new Notice(t("main.deadVectorsFound", dead.length), 8000);
+        try { await this.pendingQueue.addMany(dead); }
+        catch (e) { console.error("vault-rag: tote Index-Zeilen konnten nicht vorgemerkt werden", e); }
+      }
       // Konservativ: nur bei substanzieller Lücke laut werden (>5% UND >20 Notizen),
       // und nur wenn der Embedder erreichbar ist (sonst ist die Lücke evtl. temporär).
       if (embeddable.length > 20 && embeddable.length > vaultPaths.length * 0.05 && await this.embedderReady()) {

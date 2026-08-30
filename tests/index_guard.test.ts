@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   classifyLoadResult, assertSafeToPersist, isSuspiciousShrink,
   diffIndexVsVault, PersistBlockedError, canPersistHealedIndex, embeddingModelMatchesIndex,
-  assertModelSafeToPersist, planAutoHeal,
+  assertModelSafeToPersist, planAutoHeal, findDeadVectorPaths,
 } from "../src/index_guard";
 
 describe("classifyLoadResult", () => {
@@ -194,5 +194,16 @@ describe("planAutoHeal", () => {
   it("mit Backup, ohne Endpunkt, auf einem Gerät das nie embedden kann: gar nicht heilen", () => {
     expect(planAutoHeal({ hasBackup: true, embedderReady: false, canCompleteIndex: false }))
       .toEqual({ kind: "wait-for-sync" });
+  });
+});
+
+describe("findDeadVectorPaths", () => {
+  it("meldet eine Zeile, deren Vektor ausschliesslich aus Nullen besteht", () => {
+    const vectors = new Float32Array([
+      1, 0, 0,   // a.md — gesund
+      0, 0, 0,   // b.md — tote Zeile
+      0, 1, 0,   // c.md — gesund
+    ]);
+    expect(findDeadVectorPaths(["a.md", "b.md", "c.md"], vectors, 3)).toEqual(["b.md"]);
   });
 });

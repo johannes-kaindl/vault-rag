@@ -6,6 +6,9 @@ import { assertSafeToPersist, assertModelSafeToPersist, PersistDecision, Persist
 import { CONTAINER_FILE, encodeContainer, decodeContainer } from "./index_container";
 
 const INDEX_DIM = 256;
+/** Notizen je Zwischenstand. 250 ist klein genug, dass ein Abbruch wenig kostet, und gross
+ *  genug, dass das Schreiben des Containers (~2 MB) den Lauf nicht dominiert. */
+const CHECKPOINT_EVERY = 250;
 const INT8_SCALE = 127;
 
 /** Ergebnis eines (Delta-)Reindex-Laufs: ergänzte Notizen, chunk-lose (leer / nur
@@ -81,6 +84,12 @@ export class LiveIndexer {
   ): Promise<HealReport> {
     const fresh = new Map<string, Float32Array>();
     const report: HealReport = { added: 0, skippedEmpty: [], failed: [] };
+    // Etappen-Persist: darf NUR laufen, wenn das Modell auf der Platte zum aktuellen passt.
+    // Sonst stuende zwischenzeitlich ein Container aus zwei Vektorraeumen auf der Platte — genau
+    // der Schaden, den `assertModelSafeToPersist` sonst verhindert und der bei reason="reindex"
+    // bewusst NICHT geprueft wird (ein Voll-Ersatz konnte bisher nicht mischen).
+    const etappenErlaubt = await this.checkpointsAllowed();
+    let seitLetztem = 0;
     for (let i = 0; i < paths.length; i++) {
       try {
         const v = await this.embedNote(await read(paths[i]));
@@ -88,10 +97,58 @@ export class LiveIndexer {
         else report.skippedEmpty.push(paths[i]);
       } catch { report.failed.push(paths[i]); }
       onProgress?.(i + 1, report.added, paths.length);
+      if (etappenErlaubt && ++seitLetztem >= CHECKPOINT_EVERY && i < paths.length - 1) {
+        seitLetztem = 0;
+        await this.persistCheckpoint(fresh, paths);
+      }
     }
     this.noteVectors = fresh;
     this.ready = true;
     return report;
+  }
+
+  /**
+   * Schreibt einen Zwischenstand: die bereits neu berechneten Vektoren, ergaenzt um die noch
+   * nicht erreichten aus dem bisherigen Bestand. Der Container ist damit zu jedem Zeitpunkt
+   * VOLLSTAENDIG — er wird nur schrittweise frischer.
+   *
+   * Der In-Memory-Stand (`this.noteVectors`) bleibt absichtlich unberuehrt: die Zusage
+   * "waehrend eines Laufs bleibt der bisherige Index abrufbar" (eigener Test) gilt weiter, und
+   * die Suche liefert waehrenddessen stabil den alten Stand statt einer wandernden Mischung.
+   * Bricht der Lauf ab, ueberlebt der Fortschritt trotzdem — er steht auf der Platte und wird
+   * beim naechsten Laden uebernommen.
+   *
+   * Ein Fehlschlag hier bricht den Lauf NICHT ab: der Zwischenstand ist eine Zugabe, nicht die
+   * Zusage. Er wird gemeldet, der Lauf geht weiter.
+   */
+  private async persistCheckpoint(fresh: Map<string, Float32Array>, paths: string[]): Promise<void> {
+    const gemischt = new Map<string, Float32Array>();
+    for (const p of paths) {
+      const v = fresh.get(p) ?? this.noteVectors.get(p);
+      if (v) gemischt.set(p, v);
+    }
+    const bisher = this.noteVectors;
+    this.noteVectors = gemischt;
+    try {
+      await this.persist("reindex");
+    } catch (e) {
+      console.warn("vault-rag: Zwischenstand konnte nicht geschrieben werden - Lauf geht weiter", e);
+    } finally {
+      this.noteVectors = bisher;
+    }
+  }
+
+  /** Etappen-Persists nur bei unveraendertem Embedding-Modell (Begruendung in reindexAll). */
+  private async checkpointsAllowed(): Promise<boolean> {
+    try {
+      // Bewusst mit "heal" gefragt, nicht mit "reindex": fuer reindex antwortet der Guard
+      // pauschal `allowed` (Voll-Ersatz darf jedes Modell stempeln) — genau die Auskunft, die
+      // hier nicht taugt. "heal" stellt die Frage, um die es geht: passt das Modell auf der
+      // Platte zum aktuellen? Ein leerer/fehlender Container gilt dabei als unbedenklich.
+      return (await this.checkModelAgainstDisk("heal")).allowed;
+    } catch {
+      return false;
+    }
   }
 
   /**

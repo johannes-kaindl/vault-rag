@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **„Vault neu indizieren" verliert bei einem Abbruch nicht mehr den ganzen Lauf.** Bisher wurde
+  der neue Index erst ganz am Schluss geschrieben — brach der Vorgang vorher ab, war die gesamte
+  Rechenzeit verloren, auch wenn er kurz vor dem Ziel stand. Jetzt wird alle 250 Notizen ein
+  Zwischenstand gespeichert; ein Abbruch kostet höchstens diese letzte Etappe, der Rest bleibt
+  erhalten und wird beim nächsten Start übernommen.
+  Der Zwischenstand ist dabei immer **vollständig**: die schon neu berechneten Notizen, ergänzt um
+  die noch nicht erreichten aus dem bisherigen Index. Während des Laufs liefert die Suche
+  unverändert den bisherigen Stand, damit die Ergebnisse nicht mitten in der Benutzung wandern.
+  Wird das Embedding-Modell gewechselt, entfallen die Zwischenstände bewusst — dort würde ein
+  gemischter Index zwei nicht vergleichbare Vektorräume enthalten.
+
 ### Added
 - **Der Index sagt jetzt, wenn seine Vektoren nicht mehr zu seinen Notizen gehören.** Bisher
   konnte er strukturell perfekt sein — CRC32 grün, Notizzahl plausibel, `indexed: true` — und

@@ -147,6 +147,11 @@ live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename ·
                   persist(reason) schreibt EINE Datei (`index_container.ts` → `index.bin`, kein
                   Multi-File-Write mehr), gegen `index_guard` geguarded (ready + Live-Disk-Read des
                   tatsächlichen Counts vor jedem live-Persist statt gecachtem Zustand) ·
+                  reindexAll persistiert seit 0.29.0 alle CHECKPOINT_EVERY (250) Notizen einen
+                  VOLLSTAENDIGEN Zwischenstand (persistCheckpoint: neu berechnete Vektoren +
+                  noch nicht erreichte aus dem bisherigen Bestand) — der In-Memory-Stand bleibt
+                  dabei unberührt, damit die Suche während des Laufs stabil bleibt; nur bei
+                  unverändertem Modell (checkpointsAllowed) ·
                   healMissing (additiver Delta-Reindex für Self-Heal) · markUnready/markFresh
                   (Gefahrenzustand-Schalter) · noteCount-Getter.
 model_choice.ts   `resolveModelChoice(input) → { mode, options, value, hint }` — EINE Wahrheit für

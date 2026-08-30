@@ -36,6 +36,19 @@
  * open -a Obsidian --args --remote-debugging-port=9222
  * ```
  *
+ * **Leichen zaehlen — aber am richtigen Merkmal:**
+ *
+ * ```bash
+ * curl -s http://127.0.0.1:9222/json/list \
+ *   | python3 -c "import json,sys; d=json.load(sys.stdin); print(sum(1 for t in d if t.get('title')==t.get('url')), 'von', len(d))"
+ * ```
+ *
+ * ⚠️ **Nicht auf `about:blank` filtern.** Das liegt nahe und ist zu schwach: gemessen am
+ * 2026-08-30 an einer Instanz mit 22 Targets waren **14 Leichen** — davon trug genau **eine**
+ * `about:blank`. Der `about:blank`-Test haette „1" gemeldet und die Lage harmlos aussehen
+ * lassen. Das tragfaehige Merkmal ist `title === url` (CDP setzt die URL als Titel ein, wenn
+ * `document.title` fehlt); so filtert sie auch die zentrale Bruecke seit `0ae3cef`/`8364009`.
+ *
  * ⚠️ **Und: ein zweiter Lauf in derselben Obsidian-Sitzung ist nicht sauber.**
  * `app.setting.close()` schliesst die **Ansicht**, nicht das **Target** — gemessen an 1.13.7:
  * nach dem Schliessen steht das `about:blank`-Target weiter in `/json/list`, und

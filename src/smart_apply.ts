@@ -245,8 +245,10 @@ export class SmartApply {
 
     // Der System-Prompt ist hier ueber Aufrufe stabil: `buildRestructurePrompt` baut ihn
     // ausschliesslich aus i18n-Bausteinen und dem Schema, ohne Notiz- oder Vorlageninhalt
-    // (gemessen 2026-08-23: 958 Zeichen, Hash konstant). Deshalb ist die ganze
-    // System-Nachricht der stabile Anteil — anders als beim Chat.
+    // (gemessen 2026-08-23: 958 Zeichen bei deutscher Oberflaeche, 884 bei englischer —
+    // die System-Nachricht besteht ausschliesslich aus i18n-Bausteinen, deshalb ist der
+    // Hash je Sprache ein anderer. Innerhalb einer Sprache bleibt er konstant). Deshalb ist
+    // die ganze System-Nachricht der stabile Anteil — anders als beim Chat.
     const promptTemplate = messages.find(m => m.role === "system")?.content;
 
     // Step 7: stream — exactly ONE stream call

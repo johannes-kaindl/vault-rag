@@ -18,6 +18,14 @@ All notable changes to this project are documented here. The format follows
   - Der GUI-Smoke prüft, ob eine kurze Notiz sich über ihren eigenen Wortlaut auf Platz 1 findet.
     Das ist die einzige Probe, die diese Schadensklasse überhaupt sieht.
 
+### Changed
+- **Die Anbindung an „LLM Lab" verlangt jetzt dessen apiVersion 3** (der stabile Anteil des
+  System-Prompts wird als `promptTemplate` gemeldet, damit das Lab daraus eine Prompt-
+  **Fassung** statt eines einzelnen Aufrufs bilden kann — Chat, Umformatieren und Smart Apply
+  melden dafür je ihren eigenen stabilen Anteil). Ist „LLM Lab" noch auf dem alten Vertrag
+  (apiVersion 2, vor dessen nächstem Release), meldet vault-rag ab diesem Release **gar nichts
+  mehr** ans Lab — genau wie ohne installiertes Lab, nur still, bis „LLM Lab" nachzieht.
+
 
 ## [0.28.0] — 2026-08-27
 

@@ -188,7 +188,11 @@ describe("LiveIndexer", () => {
       expect(progress).toEqual([[1, 1, 3], [2, 2, 3], [3, 3, 3]]);
     });
 
-    it("reindexAll ersetzt den Index erst am Ende — vorheriger Index bleibt bis zum Abschluss abrufbar (kein Datenverlust bei Abbruch)", async () => {
+    // ⚠️ Diese Zusage gilt seit dem Etappen-Persist nur noch für den IN-MEMORY-Stand, und das
+    // ist Absicht: die Suche liefert während eines Laufs weiterhin stabil den bisherigen Index
+    // statt einer wandernden Mischung. Auf der PLATTE entstehen jetzt Zwischenstände (s. die
+    // beiden Tests darüber) — sonst kostet jeder Abbruch den ganzen Lauf.
+    it("reindexAll ersetzt den In-Memory-Index erst am Ende — der vorherige bleibt bis zum Abschluss abrufbar", async () => {
       const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
       // init with 3-note full index
       const idx0 = (() => {
@@ -218,6 +222,90 @@ describe("LiveIndexer", () => {
       expect(snapshotPaths).toEqual(["a.md", "b.md", "c.md"]);
       // After reindexAll: new 2-note index
       expect(indexer.buildIndex().paths).toEqual(["neu1.md", "neu2.md"]);
+    });
+
+    it("persistiert waehrend eines langen Laufs in Etappen, nicht erst am Ende", async () => {
+      // Warum: bis 0.28.0 hing der ganze Lauf an einem einzigen Persist am Schluss. Am 2026-08-30
+      // sind zwei Voll-Reindexe ueber ~6.700 Notizen kurz vor dem Ziel gestorben — beide Male war
+      // die gesamte Rechenzeit (5 bzw. 6 Stunden) verloren, weil nichts geschrieben war.
+      const adapter = makeAdapter();
+      const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      indexer.markFresh();
+      const paths = Array.from({ length: 600 }, (_, i) => `n${i}.md`);
+      await indexer.reindexAll(paths, async (p: string) => `# ${p}\nInhalt`);
+      // 600 Notizen ⇒ Zwischenstaende nach 250 und 500; der Schluss-Persist gehoert dem Aufrufer.
+      const writes = (adapter.writeBinary as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+      expect(writes).toBe(2);
+    });
+
+    it("der Zwischenstand auf der Platte ist VOLLSTAENDIG und traegt die schon erneuerten Vektoren", async () => {
+      // Die eigentliche Zusage des Etappen-Persists: bricht der Lauf ab, ist der Fortschritt
+      // nicht weg — und der Container bleibt trotzdem zu jedem Zeitpunkt komplett. Ein
+      // Zwischenstand, dem Notizen fehlen, waere schlimmer als gar keiner: er saehe beim
+      // naechsten Laden wie ein geschrumpfter Index aus.
+      const ALT = [1, ...Array(DIM - 1).fill(0)];   // Vektor des bisherigen Index
+      const NEU = [0, 1, ...Array(DIM - 2).fill(0)]; // was der Embedder jetzt liefert
+      const N = 400;
+      const paths = Array.from({ length: N }, (_, i) => `n${String(i).padStart(3, "0")}.md`);
+
+      const adapter = makeAdapter();
+      const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(NEU), "qwen3-embedding:8b");
+      // Ausgangslage: alle N Notizen bereits im Index, alle mit dem ALTEN Vektor.
+      const i8 = new Int8Array(N * DIM);
+      for (let r = 0; r < N; r++) i8[r * DIM] = SCALE;
+      indexer.init(parseIndex(
+        { schema_version: 1, embedding_model: "qwen3-embedding:8b", index_dim: DIM, scale: SCALE, count: N, granularity: "note", quant: "int8" },
+        paths, i8.buffer,
+      ));
+
+      // Mitten im Lauf (nach dem Zwischenstand bei 250) die PLATTE lesen — nicht den Speicher.
+      let platte: { paths: string[]; ersterNeu: boolean; letzterAlt: boolean } | null = null;
+      const read = vi.fn(async (pfad: string) => {
+        if (pfad === "n300.md" && platte === null) {
+          const roh = adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer | undefined;
+          if (roh) {
+            const d = decodeContainer(roh);
+            const m = new Int8Array(d.matrix);
+            const zeile = (name: string) => d.paths.indexOf(name);
+            platte = {
+              paths: d.paths,
+              ersterNeu: m[zeile("n000.md") * DIM + 1] === SCALE,
+              letzterAlt: m[zeile("n399.md") * DIM] === SCALE,
+            };
+          }
+        }
+        return `# ${pfad}\nInhalt`;
+      });
+
+      await indexer.reindexAll(paths, read);
+
+      expect(platte).not.toBeNull();
+      // vollstaendig: keine Notiz faellt zwischenzeitlich aus dem Index
+      expect(platte!.paths.length).toBe(N);
+      // schon erneuert: die erste Notiz traegt den neuen Vektor
+      expect(platte!.ersterNeu).toBe(true);
+      // noch nicht erreicht: die letzte traegt weiter den alten
+      expect(platte!.letzterAlt).toBe(true);
+    });
+
+    it("bei MODELLWECHSEL werden keine Zwischenstaende geschrieben", async () => {
+      // Die eine Einschraenkung des Etappen-Persists. Ein Zwischenstand mischt alte und neue
+      // Vektoren — harmlos, solange beide aus demselben Modell stammen, aber bei einem
+      // Modellwechsel entstuenden zwei inkommensurable Vektorraeume in einem Container.
+      // Genau das verhindert `assertModelSafeToPersist` sonst; bei reason="reindex" ist der
+      // Guard bewusst aus, weil ein Voll-Ersatz bisher gar nicht mischen konnte.
+      // Bei Modellwechsel bleibt es deshalb beim Alles-oder-nichts: ein einziger Persist am
+      // Ende, durch den Aufrufer.
+      const adapter = makeAdapter();
+      adapter.written.set(`_vaultrag/${CONTAINER_FILE}`, makeContainerBytes(10, "ein-anderes-modell"));
+      const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      indexer.markFresh();
+      const paths = Array.from({ length: 600 }, (_, i) => `n${i}.md`);
+      await indexer.reindexAll(paths, async (pfad: string) => `# ${pfad}\nInhalt`);
+      const writes = (adapter.writeBinary as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+      expect(writes).toBe(0);
+      // Der Lauf selbst ist davon unberuehrt — nur das Zwischenspeichern entfaellt.
+      expect(indexer.noteCount).toBe(600);
     });
 
     it("überspringt eine Notiz deren read wirft, andere werden trotzdem indiziert", async () => {

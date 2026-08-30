@@ -89,6 +89,7 @@
  */
 
 import { Cdp, attachTo, pollUntil } from "../../tools/obsidian-cdp/cdp.js";
+import { EN, DE } from "../src/i18n/strings";
 
 const PLUGIN_ID = "vault-retrieval";
 /** Muss zu `setIcon(...)` in `buildEndpointList` passen. */
@@ -238,6 +239,24 @@ async function main(): Promise<void> {
       `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];`,
     );
     if (!active) throw new Error(`Plugin ${PLUGIN_ID} ist nicht aktiv — Obsidian neu laden (Cmd+R)?`);
+
+    // Sprache der LAUFENDEN Oberfläche ermitteln und daraus die erwarteten Zustandstexte
+    // ableiten. Obsidian legt die Wahl in `localStorage.language` ab; fehlt sie, gilt Englisch.
+    // Der Treiber vergleicht danach gegen dasselbe Wörterbuch, aus dem die UI ihre Texte nimmt —
+    // er prüft also weiterhin, dass die richtige ROLLE angezeigt wird (ein falscher Schlüssel
+    // fällt weiter auf), nur nicht mehr, in welcher Sprache.
+    const uiLang = await main.evaluate<string>(
+      `return (window.localStorage && localStorage.getItem("language")) || "en";`,
+    );
+    const W = uiLang.startsWith("de") ? DE : EN;
+    const L = {
+      active: W["endpointRole.active"],
+      standby: W["endpointRole.standby"],
+      unreachable: W["endpointRole.unreachable"],
+      skippedModel: W["endpointRole.skippedModel"],
+      checking: W["settings.conn.checking"],
+    };
+    console.log(`  (Oberflächensprache: ${uiLang} — erwarte „${L.active}" / „${L.unreachable}")\n`);
 
     // --- 0. Plugin-API für Fremdplugins ------------------------------------
     // Der Aufruf läuft über CDP im Renderer, also exakt auf dem Weg, den ein anderes
@@ -449,7 +468,7 @@ async function main(): Promise<void> {
       let last: Row[] = [];
       for (;;) {
         last = await settings!.evaluate<Row[]>(READ_ROWS);
-        const pending = last.filter(r => r.state === "prüfe…").length;
+        const pending = last.filter(r => r.state === L.checking).length;
         if (pending === 0 || Date.now() > deadline) return last;
         await new Promise(r => setTimeout(r, 750));
       }
@@ -514,8 +533,8 @@ async function main(): Promise<void> {
     // wären zwei „aktiv" ein Fehlalarm.
     for (const li of lists) {
       const inList = withState.filter(r => r.listIndex === li);
-      const activeRows = inList.filter(r => r.state === "aktiv");
-      const reachable = inList.filter(r => r.state !== "nicht erreichbar" && r.state !== "prüfe…");
+      const activeRows = inList.filter(r => r.state === L.active);
+      const reachable = inList.filter(r => r.state !== L.unreachable && r.state !== L.checking);
       const name = listNames[li] ?? `Liste ${li}`;
       // Ist gar nichts erreichbar, ist „keine aktive Zeile" die ehrliche Anzeige, kein Fehler.
       const expected = reachable.length === 0 ? 0 : 1;
@@ -525,13 +544,27 @@ async function main(): Promise<void> {
         activeRows.length === 1 ? `„${activeRows[0].url}"` : `${activeRows.length} aktive Zeilen von ${inList.length}`,
       );
     }
-    const known = /^(aktiv|erreichbar, aber Platz \d+|nicht erreichbar|übersprungen — Modell passt nicht zum Index|prüfe…)$/;
+    // Die erwarteten Zustandstexte kommen aus DEM Woerterbuch, das die Oberflaeche gerade
+    // benutzt — nicht aus fest verdrahtetem Deutsch. Vorher pruefte der Treiber hart gegen
+    // „aktiv"/„nicht erreichbar" und wurde auf einer englisch gestellten Instanz dreimal rot,
+    // ohne dass am Produkt etwas fehlte (gemessen von der llm-lab-Session am 2026-08-30: 25/30
+    // statt 27/30). Bemerkenswert daran: dieses Repo hat vier i18n-Waechter fuer den
+    // Produktcode — nur der PRUEFSTAND wurde nie gegen dieselbe Regel gehalten.
+    const escape = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const zustandsRegex = new RegExp("^(" + [
+      escape(L.active),
+      escape(L.standby).replace("\\{0\\}", "\\d+"),
+      escape(L.unreachable),
+      escape(L.skippedModel),
+      escape(L.checking),
+    ].join("|") + ")$");
+    const known = zustandsRegex;
     const unknown = withState.filter(r => !known.test(r.state ?? ""));
     record("Alle Zustandstexte sind bekannte Formulierungen", unknown.length === 0,
       unknown.length ? unknown.map(r => `"${r.state}"`).join(", ") : `${withState.length} Zeilen geprüft`);
-    const stillProbing = withState.filter(r => r.state === "prüfe…");
+    const stillProbing = withState.filter(r => r.state === L.checking);
     if (stillProbing.length) {
-      record("Alle Proben abgeschlossen", false, `${stillProbing.length} Zeilen noch bei „prüfe…" — Timeout zu kurz?`);
+      record("Alle Proben abgeschlossen", false, `${stillProbing.length} Zeilen noch bei „${L.checking}" — Timeout zu kurz?`);
     }
 
     // --- 5. Layout ----------------------------------------------------------
@@ -596,7 +629,7 @@ async function main(): Promise<void> {
       record("Klick setzt die Zeile an die Spitze", movedToTop,
         movedToTop ? `„${beforeUrl}" steht auf Platz 1` : `Platz 1 ist „${top?.url}"`);
       record("Die nach oben geholte Zeile meldet danach ihren Zustand",
-        !!top && top.state !== null && top.state !== "prüfe…",
+        !!top && top.state !== null && top.state !== L.checking,
         `„${top?.state}"`);
       record("Die nach oben geholte Zeile trägt keinen Prioritäts-Knopf mehr",
         !!top && !top.hasPriorityButton,

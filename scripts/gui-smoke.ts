@@ -890,9 +890,24 @@ async function main(): Promise<void> {
           : "Index blieb weg — vor dem Fix von 0.24.0 war genau das das Verhalten");
       // Die Notice ist Teil der Zusage: das Backup kann älter sein, und der Nutzer muss das
       // erfahren, statt einen stillschweigend unvollständigen Index zu benutzen.
+      //
+      // NUR DIE EIGENEN NOTICES ZAEHLEN. `.notice` ist Obsidians GETEILTER Toast — jedes
+      // installierte Plugin schreibt hinein. Ein Punkt, der bloss `length > 0` prueft, wird von
+      // einer fremden Meldung gruen gemacht, die zufaellig in dieselben bis zu 90 Sekunden
+      // faellt; er belegt dann nichts ueber unsere Heilung. (Dach-Messung 2026-08-30: sechs
+      // Treiber lesen den geteilten Kanal, drei ungefiltert — dieser war einer davon. In
+      // koda-agent war dieselbe Fehlerklasse an `.view-action`/`.modal-container` zweimal die
+      // Ursache, einmal fuer einen gruenen Punkt, der seinen Gegenstand nie beruehrt hat.)
+      // Erkannt am Plugin-Praefix, das unsere Notices tragen ("Vault Retrieval: " bzw.
+      // "vault-rag: ") — beide Schreibweisen kommen in `src/i18n/strings.ts` vor.
+      const ownNotice = /vault[-\s]?rag|vault retrieval/i;
+      const healOwn = healNotices.filter(n => ownNotice.test(n));
+      const healForeign = healNotices.filter(n => !ownNotice.test(n));
       record("Die Heilung meldet sich, statt still einen aelteren Stand zu benutzen",
-        healNotices.length > 0,
-        healNotices.length ? `„${healNotices.join(" | ").slice(0, 160)}“` : "keine Notice waehrend des Laufs");
+        healOwn.length > 0,
+        healOwn.length
+          ? `„${healOwn.join(" | ").slice(0, 160)}“`
+          : `keine EIGENE Notice waehrend des Laufs${healForeign.length ? ` (${healForeign.length} fremde gesehen und verworfen)` : ""}`);
     }
 
   } finally {

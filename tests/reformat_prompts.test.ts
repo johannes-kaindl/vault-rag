@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTransformMessages, REFORMAT_MAX_TOKENS } from "../src/reformat_prompts";
+import { buildTransformMessages, transformPromptTemplate, REFORMAT_MAX_TOKENS } from "../src/reformat_prompts";
 
 describe("buildTransformMessages", () => {
   it("liefert genau [system, user] mit dem Text als User-Content", () => {
@@ -23,5 +23,24 @@ describe("buildTransformMessages", () => {
   });
   it("exportiert einen Token-Deckel", () => {
     expect(REFORMAT_MAX_TOKENS).toBe(4096);
+  });
+});
+
+describe("transformPromptTemplate", () => {
+  it("liefert fuer ein festes Format das komplette Rezept — es ist ueber Aufrufe stabil", () => {
+    const t = transformPromptTemplate("to-list");
+    expect(t).toContain("Markdown-Aufzählungsliste");
+    expect(transformPromptTemplate("to-list")).toBe(t);
+  });
+
+  it("unterscheidet die Formate — sie sind verschiedene Prompt-Fassungen", () => {
+    expect(transformPromptTemplate("to-list")).not.toBe(transformPromptTemplate("to-table"));
+  });
+
+  it("laesst bei freetext die Nutzer-Anweisung weg — sie ist der variable Anteil", () => {
+    const t = transformPromptTemplate("freetext");
+    expect(t).not.toContain("Befolge die Anweisung des Nutzers");
+    expect(buildTransformMessages("freetext", "text", "MEINE ANWEISUNG")[0].content).toContain("MEINE ANWEISUNG");
+    expect(t).not.toContain("MEINE ANWEISUNG");
   });
 });

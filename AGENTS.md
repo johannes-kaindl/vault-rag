@@ -249,7 +249,8 @@ reformat_mechanical.ts  Pure Markdown-Struktur-Transforms (Slice C.1): `transpos
                   an der ersten Ergebniszeile). Interner `parseTable`-Helper. **Pipes werden beim
                   Rendern re-escaped** — sonst zerreißt eine `\|`-Zelle die Tabelle (s. Gotchas).
 reformat_prompts.ts     Pure Prompt-Builder je LLM-Zielformat (`buildTransformMessages`) +
-                  `REFORMAT_MAX_TOKENS`. Anti-Fabrication im System-Prompt; NICHT verwandt mit
+                  `transformPromptTemplate` (der stabile Anteil fuer llm-labs `promptTemplate`,
+                  s. u.) + `REFORMAT_MAX_TOKENS`. Anti-Fabrication im System-Prompt; NICHT verwandt mit
                   `note_restructurer.antiFabrication()` (das ist SmartApplys JSON-Protokoll; dort eine
                   Funktion, weil sie erst zur Prompt-Bauzeit übersetzt werden darf).
 reformat_transforms.ts  `TRANSFORMS`-Registry — **einzige Wahrheit** für Picker UND Sidebar-Panel.
@@ -257,7 +258,8 @@ reformat_transforms.ts  `TRANSFORMS`-Registry — **einzige Wahrheit** für Pick
                   fertige Label) — die Registry ist eine Modul-Konstante, ihre Labels müssen
                   deshalb erst zur Zeichenzeit übersetzt werden. Mechanisch trägt zusätzlich
                   `run(text) → string|null` (null = Struktur passt nicht), llm trägt
-                  `buildMessages`; genau ein Eintrag hat `freetext: true`.
+                  `buildMessages` UND verpflichtend `promptTemplate: () => string` (fuer llm-labs
+                  Prompt-Fassungs-Hash); genau ein Eintrag hat `freetext: true`.
 reformat_selection_state.ts  Pure Bereitschafts-/Anzeige-Logik (Slice C.2): `ReformatReadiness`
                   (ready/reading-mode/no-selection/no-editor) · `readinessMessage` (EINE Wahrheit
                   für Notice und Panel-Kopfzeile) · `canRun` · `selectionPreview` ·

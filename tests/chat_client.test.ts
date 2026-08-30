@@ -122,7 +122,7 @@ describe("ChatClient", () => {
   });
   describe("llm-lab trace", () => {
     function fakeLabApp(log: (input: any) => unknown): unknown {
-      return { plugins: { plugins: { "llm-lab": { api: { apiVersion: 2, status: () => ({ apiVersion: 2, recording: true }), log } } } } };
+      return { plugins: { plugins: { "llm-lab": { api: { apiVersion: 3, status: () => ({ apiVersion: 3, recording: true }), log } } } } };
     }
 
     it("ein werfendes log() darf den aufgeloesten Wert nicht veraendern", async () => {

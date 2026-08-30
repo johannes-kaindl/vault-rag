@@ -659,15 +659,15 @@ async function main(): Promise<void> {
       // Die apiVersion hier ist eine VERTRAGSKOPIE — genau wie `lab_client.ts`s eigene
       // SUPPORTED_API_VERSION traegt sie den Stand von llm-labs LLM_LAB_API_VERSION
       // (src/plugin_api.ts) manuell nach und muss bei jedem Bump dort mitziehen. Aktueller
-      // Stand: 2 (seit 431c23c, "feat(api)!: apiVersion 2 — secrets und contextPaths auf
-      // LabLogInput"). Ein veralteter Wert hier faellt `readLabApi()`s strikten Vergleich
+      // Stand: 3 (seit dem Bump vom 2026-08-30). Vorher 2 (431c23c).
+      // Ein veralteter Wert hier faellt `readLabApi()`s strikten Vergleich
       // durch und laesst den Stub aussehen, als waere kein llm-lab installiert.
       await main.evaluate(`
         window.__vaultRagLabSeen = [];
         app.plugins.plugins["llm-lab"] = {
           api: {
-            apiVersion: 2,
-            status: () => ({ apiVersion: 2, recording: true }),
+            apiVersion: 3,
+            status: () => ({ apiVersion: 3, recording: true }),
             log: (input) => { window.__vaultRagLabSeen.push(input); return "smoke-" + window.__vaultRagLabSeen.length; },
           },
         };

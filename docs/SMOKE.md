@@ -24,11 +24,37 @@ genügt. Jeder andere Vault trägt eine Kopie und braucht `npm run deploy`.
 
 | Datum | Version / Commit | Obsidian | Ergebnis | Gegenprobe |
 |---|---|---|---|---|
+| 2026-08-30 | `1df2cd1` (deployt), Staging-Vault `vault-rag` | — | **25/30** — zwei rot sind die bekannte Ein-Endpunkt-Fixture-Luecke, drei rot sind ein Sprachbefund des Treibers (s. u.) | — |
 | 2026-08-24 | `f3c7f71` (Lab-Stub auf `apiVersion 2`), Staging-Vault `vault-rag` | 1.13.7 | **20/22** — alle fuenf Lab-Pruefpunkte gruen; die zwei roten sind Deckungsluecken der Umgebung (nur je EIN Endpunkt konfiguriert), keine Defekte | — Treiber unveraendert seit `f3c7f71`; der Fix selbst ist die Gegenprobe: mit `apiVersion 1` waeren genau diese fuenf Punkte rot, drei davon erst nach je 180 s Timeout |
 | 2026-08-23 | llm-lab-Pruefpunkte (5 neue) | 1.13.7 | **25/25** | **ja** — `trace` aus `chat_session.ts` entfernt, gebaut, Plugin neu geladen: genau die zwei Chat-Punkte fielen rot, die uebrigen blieben gruen |
 | 2026-08-23 | `a4d0130` (Branch `fix/backlog-kleinfixes`, vor Merge) | 1.13.7 | **20/20** (derselbe Punkt übersprungen) | Parität zum Lauf davor — der Treiber ist unverändert, geändert hat sich nur der Prüfling |
 | 2026-08-23 | `0d49ab0` (vor Merge 0.26.0) | 1.13.7 | **20/20** (1 Punkt übersprungen: kein Embedding-Endpunkt mit Modell-Override konfiguriert) | keine — Treiber unverändert seit dem Lauf, der ihn eingeführt hat |
 | 2026-08-18 | Migration auf die zentrale CDP-Brücke | 1.13.7 | 18/18 | — |
+
+### 2026-08-30 — Sprachbefund: der Treiber prueft hart gegen deutsche Zustandstexte
+
+`npm run smoke:gui -- --vault vault-rag` gegen `1df2cd1` (deployt). **25/30 gruen.** Fuenf rote
+Punkte, zwei davon sind der bekannte, dokumentierte Deckungsluecken-Fund dieser Fixture (nur je
+EIN Endpunkt konfiguriert — „Zeile 2 traegt den Prioritaets-Knopf", „Klick setzt die Zeile an
+die Spitze"), **kein Rueckschritt.**
+
+**Die anderen drei sind neu und ein Treiber-/Umgebungs-Befund, keine Produktregression:**
+„Embedding: genau eine Zeile als aktiv markiert" (0 von 1), „Chat: genau eine Zeile als aktiv
+markiert" (0 von 1) und „Alle Zustandstexte sind bekannte Formulierungen" (`"active",
+"active"`) schlagen fehl, weil `scripts/gui-smoke.ts` die Zustandstexte hart gegen deutsche
+Literale prueft (`aktiv`, `nicht erreichbar`, `pruefe…`, …), die Obsidian-Instanz in diesem
+Lauf aber mit Oberflaeche **en** lief (`localStorage.getItem("language") === "en"`,
+`moment.locale() === "en"` — gemessen per CDP direkt am Fenster) und deshalb „active" statt
+„aktiv" rendert. Dieselbe Instanz zeigte auch fuer den Vault `llm-lab` „Oberflaeche en" —
+die Sprache ist eine Eigenschaft des **laufenden Obsidian-Prozesses**, nicht des einzelnen
+Vaults, und acht Vault-Fenster liefen zum Zeitpunkt dieses Laufs gleichzeitig in derselben
+Instanz (mehrere parallele Sessions). Die Sprache selbst zu korrigieren wurde bewusst
+unterlassen, um laufende Messungen anderer Sessions am selben Port nicht zu stoeren. Betroffen
+ist ausschliesslich das Rendering der Endpunkt-Zustandszeile hier im eigenen UI-Code
+(`i18n`-Text) plus die Haertung dieses Treibers gegen Nicht-Deutsch. Mit deutscher Oberflaeche
+waeren nach dieser Diagnose 27/30 zu erwarten (die zwei Endpunkt-Luecken bleiben bestehen).
+Diagnose gemessen und dokumentiert in `llm-lab/docs/SMOKE.md` (derselbe Lauf, aus Sicht des
+Anbieters); der Treiber-Fix selbst ist noch offen.
 
 ### 2026-08-24 — der `apiVersion`-2-Bump, erstmals gegen ein laufendes Obsidian
 

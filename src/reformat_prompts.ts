@@ -28,3 +28,10 @@ export function buildTransformMessages(format: LlmFormat, text: string, instruct
     { role: "user", content: text },
   ];
 }
+
+/** Der ueber Aufrufe hinweg STABILE Anteil des System-Prompts eines Transforms — fuer
+ *  llm-labs `promptTemplate`. Bei `freetext` ist das NUR `BASE`: die Nutzer-Anweisung
+ *  wechselt je Aufruf und wuerde den Fassungs-Hash wertlos machen. */
+export function transformPromptTemplate(format: LlmFormat): string {
+  return format === "freetext" ? BASE : `${BASE} ${FORMAT_INSTRUCTION[format]}`;
+}

@@ -243,6 +243,12 @@ export class SmartApply {
     // Step 6: build prompt
     const messages = buildRestructurePrompt(tpl, blocks, mode);
 
+    // Der System-Prompt ist hier ueber Aufrufe stabil: `buildRestructurePrompt` baut ihn
+    // ausschliesslich aus i18n-Bausteinen und dem Schema, ohne Notiz- oder Vorlageninhalt
+    // (gemessen 2026-08-23: 958 Zeichen, Hash konstant). Deshalb ist die ganze
+    // System-Nachricht der stabile Anteil — anders als beim Chat.
+    const promptTemplate = messages.find(m => m.role === "system")?.content;
+
     // Step 7: stream — exactly ONE stream call
     const p = this.params();
     const { content, reasoning, finishReason } = await this.client().stream(
@@ -254,7 +260,7 @@ export class SmartApply {
       // Beispiele im Prompt (Step 6, buildRestructurePrompt) stammen aus der Vorlage, nicht
       // nur aus der Notiz — wer seinen Vorlagen-Ordner ausschliesst, soll dessen Inhalt nicht
       // trotzdem aufgezeichnet bekommen.
-      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens, trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath] } },
+      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens, trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath], ...(promptTemplate ? { promptTemplate } : {}) } },
     );
 
     // Ins Token-Budget gelaufen: das erklaert einen anschliessenden Fehlschlag und nennt die

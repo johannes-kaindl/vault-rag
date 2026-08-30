@@ -10,11 +10,23 @@
  *
  * ## Ablauf
  *
+ * `STAGING_VAULTS_DIR` muss gesetzt sein (in `~/.zshenv`, nicht `.zshrc` — npm-Scripts laufen in
+ * nicht-interaktiven Shells). Hier steht bewusst KEIN Beispielwert: genau so ist die Konvention
+ * schon einmal gegabelt worden — die Zeile `export STAGING_VAULTS_DIR="$HOME/StagingVaults"` lief
+ * durch ~20 Rezept-Koepfe und wurde dabei aus einem Beispiel zur Anweisung, bis die Vaults in zwei
+ * konkurrierenden Verzeichnissen lagen (Dach-AGENTS.md, "Staging-Vaults: ein Ort, eine Variable").
+ *
  * ```bash
- * export STAGING_VAULTS_DIR="$HOME/StagingVaults"   # einmalig
  * npm run build && npm run shots -- --setup         # Vault aus dem Fixture bauen
  *
- * osascript -e 'quit app "Obsidian"'                # Handarbeit: Debug-Port
+ * # Debug-Port — ⚠️ ERST FRAGEN, WER SONST AN DER INSTANZ HAENGT.
+ * # Anders als beim GUI-Smoke ist Mitnutzen hier KEINE Alternative: das Rezept braucht
+ * # einen echten Neustart (ein Bild pro Obsidian-Start, s. u.). Ein Quit trifft aber ALLE
+ * # Fenster aller Sessions — am 2026-08-30 waren zeitweise zehn Fenster aus neun Sessions
+ * # offen, und ein Quit haette einem laufenden Reindex vier Stunden gekostet. Der CDP-Lock
+ * # hilft dabei nicht: er kennt nur "gehalten/frei", nicht "strukturell exklusiv".
+ * # Also: vorher abstimmen, dann quitten.
+ * osascript -e 'quit app "Obsidian"'
  * open -a Obsidian --args --remote-debugging-port=9222
  * #   ... Aufnahme-Vault oeffnen, als vertrauenswuerdig markieren, Reindex laufen lassen
  *
@@ -1102,7 +1114,13 @@ async function main(): Promise<void> {
           await new Promise((r) => setTimeout(r, 900));
           return true;
         `);
-        const sCdp = await attachTo("settings", port);
+        // Vault-Parameter ist Pflicht: `attachTo("settings", …)` filtert seit
+        // obsidian-plugins@0ae3cef ueber den Fenstertitel nach Vault. Ohne ihn nimmt die Bruecke
+        // das erstbeste Einstellungs-Fenster — und davon liegen mehrere herum, weil
+        // `app.setting.close()` die ANSICHT schliesst, nicht das CDP-Target (an 1.13.7 gemessen,
+        // 2026-08-30: 14 Leichen von 22 Targets). Ein Lauf gegen das falsche Fenster sieht aus
+        // wie ein kaputtes Plugin.
+        const sCdp = await attachTo("settings", port, REPO_NAME);
         if (!sCdp) {
           console.log(`   → ${shot.name}\n      · Einstellungs-Fenster nicht gefunden`);
           continue;

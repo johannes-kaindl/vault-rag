@@ -586,6 +586,34 @@ gar nicht bis in die Oberfläche schafft.
   schloss). Einziger Ausweg für einen bewussten Modellwechsel: **„Vault neu indizieren"**
   (Voll-Ersatz, vom Guard nie geprüft). Gilt **nur** für Embedding-Endpunkte — für Chat-Endpunkte
   hängt kein Index am Modell, ein Wechsel dort ist folgenlos.
+- **Eine Prüfsumme beglaubigt Konsistenz, nicht Richtigkeit — ein CRC-grüner Index kann
+  systematisch falsch zugeordnet sein.** Am 2026-08-30 im Arbeits-Vault gemessen: die
+  Vektormatrix gehörte zu einer **älteren, kürzeren Pfadliste**. Jeder seither hinzugekommene
+  Pfad schiebt alle folgenden Zeilen um eins, der Versatz wuchs treppenförmig von 4 auf 29 —
+  ~79 % der Notizen lieferten damit die Ähnlichkeit einer fremden Notiz. **Kein bestehender
+  Wächter konnte das sehen:** CRC32 deckt Header+Payload gemeinsam ab und beglaubigt den
+  Fehlstand mit, `count == len(paths)` stimmt, der Byte-Guard stimmt, `status()` meldet
+  `indexed: true` — und die Scores sahen mit 0.85–0.92 *vertrauenswürdiger* aus als bei einem
+  gesunden Index (Median dort ~0.4). Die Trennung war scharf: jede seit Ende Juli angefasste
+  Notiz war korrekt (13/15), keine ältere (0/55) — Live-Updates heilen punktuell, weil sie unter
+  dem richtigen Key neu schreiben.
+  **Zeitlich fällt das mit der Container-Migration (0.18.0) zusammen:** die byte-level Übernahme
+  des Prä-0.18-Tripels kann ein durch das damalige Sync-Race auseinandergelaufenes Paar
+  (`paths.json` neuer als `notes.i8`) übernommen und im Container zementiert haben. Der heutige
+  Schreibpfad ist an allen Stellen korrekt (`persist` sortiert `paths` und füllt Zeile `r` aus
+  `paths[r]`, `reindexAll` ist sequenziell, `init`/`vectorFor` gehen über dieselbe `rowMap`) —
+  **es ist kein aktiver Bug, sondern ein eingefrorener Altschaden.**
+  **Heilung ist ausschließlich „Vault neu indizieren"** (`reason="reindex"`, Voll-Ersatz);
+  Heal/Delta helfen nicht, weil kein Pfad *fehlt*. **Erkennbar ist es nur an einer Probe:**
+  findet sich eine kurze Notiz über ihren eigenen Wortlaut auf Rang 0? Genau dafür gibt es
+  seit `ce08211` den Selbstfindungs-Prüfpunkt im GUI-Smoke — und `findDeadVectorPaths`
+  (`index_guard.ts`) für den verwandten Fall der Nullvektor-Zeilen (dort 4 Stück, darunter
+  drei zuvor als „nicht auffindbar" gemeldete Notizen).
+  ⚠️ **Die naheliegende Fehldiagnose ist dokumentiert und falsch:** der Befund wurde zuerst als
+  „`mean` verwässert lange Notizen" gelesen. Gegengemessen ist beides widerlegt — mit der
+  heutigen Bauart finden sich 22/23 **lange** Notizen selbst auf Rang 0, und die
+  Matryoshka-Kürzung auf 256 Dim ist ebenfalls unschuldig (58/60 bei 256 wie bei 4096). Die
+  Länge korrelierte nur mit dem wahren Faktor: dem Änderungsdatum.
 - **Leere Notizen sind nie im Index (by design):** `embedNote` → null bei 0 Chunks (nur Frontmatter/
   leer, z.B. Ordner-Notizen). Damit sie kein Phantom-Defizit erzeugen, hält `main.ts` ein
   `emptyNotePaths`-Set — **bewusst nicht persistiert**: bei jedem `loadIndex` frisch klassifiziert

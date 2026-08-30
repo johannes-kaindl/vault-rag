@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Der Index sagt jetzt, wenn seine Vektoren nicht mehr zu seinen Notizen gehören.** Bisher
+  konnte er strukturell perfekt sein — CRC32 grün, Notizzahl plausibel, `indexed: true` — und
+  trotzdem zu jeder Notiz die Ähnlichkeit einer *fremden* Notiz liefern. Die Trefferlisten sahen
+  dabei nicht kaputt aus, sondern vertrauenswürdig: hohe Werte, zusammenhanglose Notizen. Zwei
+  Wächter schließen die Lücke:
+  - Notizen, die im Index stehen, aber einen unbrauchbaren Vektor tragen, werden beim Laden
+    gemeldet und zum Neu-Einbetten vorgemerkt. Sie waren zuvor doppelt unsichtbar: nie
+    auffindbar, und von der Vollständigkeitsanzeige als vorhanden gezählt.
+  - Der GUI-Smoke prüft, ob eine kurze Notiz sich über ihren eigenen Wortlaut auf Platz 1 findet.
+    Das ist die einzige Probe, die diese Schadensklasse überhaupt sieht.
+
+
 ## [0.28.0] — 2026-08-27
 
 ### Changed

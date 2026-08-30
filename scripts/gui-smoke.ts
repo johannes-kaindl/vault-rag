@@ -13,13 +13,39 @@
  *
  * ## Voraussetzung
  *
- * Obsidian muss mit offenem Debug-Port laufen — der einzige Handgriff, der Handarbeit
- * bleibt, weil die App dafür neu starten muss:
+ * Obsidian muss mit offenem Debug-Port laufen.
+ *
+ * ⚠️ **ERST PRUEFEN, OB SCHON EINS LAEUFT — nicht blind quitten.** Obsidian ist
+ * Single-Instance: es gibt keinen Weg, "mein eigenes Obsidian daneben" zu starten, und ein
+ * `quit` beendet das der anderen mit. Am 2026-08-30 haette diese Anweisung beinahe zwei
+ * Stunden Reindex einer parallel arbeitenden Session vernichtet — der eigene Lauf waere
+ * danach sauber gruen gewesen, der Schaden entstand woanders und waere nicht aufgefallen.
+ *
+ * ```bash
+ * curl -s http://127.0.0.1:9222/json/version >/dev/null && echo "laeuft schon — MITNUTZEN"
+ * ```
+ *
+ * Laeuft schon eins: mitnutzen. Ein eigenes Vault-Fenster oeffnet man per `vault-open` ueber
+ * IPC (`open -a Obsidian` und `obsidian://open?path=` tun es NICHT), gewaehlt wird ueber
+ * `attachTo("workspace", port, "<vault>")` — der Vault-Filter trennt sauber.
+ *
+ * Laeuft keins (oder nur nach Absprache mit dem, der es benutzt):
  *
  * ```bash
  * osascript -e 'quit app "Obsidian"'
  * open -a Obsidian --args --remote-debugging-port=9222
  * ```
+ *
+ * ⚠️ **Und: ein zweiter Lauf in derselben Obsidian-Sitzung ist nicht sauber.**
+ * `app.setting.close()` schliesst die **Ansicht**, nicht das **Target** — gemessen an 1.13.7:
+ * nach dem Schliessen steht das `about:blank`-Target weiter in `/json/list`, und
+ * `/json/close` raeumt es nicht weg (antwortet `Target is closing`, danach ist es noch da).
+ * Jeder Lauf hinterlaesst also einen Settings-Kandidaten; beim naechsten Lauf ist
+ * `attachTo("settings", …)` mehrdeutig und nimmt den erstbesten — moeglicherweise die tote
+ * Ansicht des Vorlaufs, was die Endpunkt-Pruefpunkte falsch-rot macht. Das braucht **keine**
+ * zweite Session, es passiert im Normalbetrieb eines einzigen Repos.
+ * **Deshalb: vor einem erneuten Lauf Obsidian neu starten** (dann sind alle Target-Leichen weg).
+ * Das einzige, was sie sonst raeumt, ist das Schliessen des zugehoerigen Vault-Fensters.
  *
  * Dann:
  *

@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-08-30
+
 ### Added
 - **Der Index sagt jetzt, wenn seine Vektoren nicht mehr zu seinen Notizen gehören.** Bisher
   konnte er strukturell perfekt sein — CRC32 grün, Notizzahl plausibel, `indexed: true` — und

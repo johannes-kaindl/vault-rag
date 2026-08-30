@@ -3,7 +3,7 @@
  *
  *  Bewusst bei JEDEM Aufruf statt einmal beim Laden: das Lab kann zur Laufzeit
  *  aktiviert oder deaktiviert werden, und der Zugriff ist nur ein Objekt-Lookup. */
-const SUPPORTED_API_VERSION = 2;
+const SUPPORTED_API_VERSION = 3;
 const PLUGIN_ID = "llm-lab";
 
 export interface LabLogInput {
@@ -22,6 +22,9 @@ export interface LabLogInput {
   secrets?: string[];
   /** apiVersion 2: Pfade der Notizen, die in den Aufruf eingeflossen sind. */
   contextPaths?: string[];
+  /** apiVersion 3: der stabile Anteil des System-Prompts (ohne Retrieval-Kontext,
+   *  ohne Nutzereingabe). Grundlage des Prompt-Fassungsvergleichs im Lab. */
+  promptTemplate?: string;
 }
 
 export interface LabApi {

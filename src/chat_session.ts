@@ -52,7 +52,7 @@ export class ChatSession {
         c => { assistant.content += c; onToken(c); },
         r => { assistant.reasoning = (assistant.reasoning ?? "") + r; onToken(r); },
         this.controller.signal,
-        { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources } },
+        { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: this.deps.systemPreamble() } },
       );
       assistant.content = result.content;
       assistant.reasoning = result.reasoning || undefined;

@@ -144,7 +144,13 @@ einem Beispiel zur Anweisung, bis die Vaults in zwei konkurrierenden Verzeichnis
 ```bash
 npm run build && npm run shots -- --setup         # Vault aus dem Fixture bauen
 
-osascript -e 'quit app "Obsidian"'                # Handarbeit: Debug-Port
+# Debug-Port — ⚠️ ERST FRAGEN, WER SONST AN DER INSTANZ HAENGT.
+# Anders als beim GUI-Smoke ist Mitnutzen hier KEINE Alternative: das Rezept braucht einen
+# echten Neustart (ein Bild pro Obsidian-Start). Ein Quit trifft aber ALLE Fenster aller
+# Sessions — am 2026-08-30 waren zeitweise zehn Fenster aus neun Sessions offen, und ein Quit
+# haette einem laufenden Reindex vier Stunden gekostet. Der CDP-Lock hilft dabei nicht: er
+# kennt nur "gehalten/frei", nicht "strukturell exklusiv". Also: vorher abstimmen, dann quitten.
+osascript -e 'quit app "Obsidian"'
 open -a Obsidian --args --remote-debugging-port=9222
 #   ... den Aufnahme-Vault oeffnen und einmalig als vertrauenswuerdig markieren
 #   ... einmalig: Reindex-Befehl aus der Befehlspalette

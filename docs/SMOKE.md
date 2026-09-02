@@ -7,9 +7,29 @@ nicht von „anders grün" zu unterscheiden.
 
 ## Voraussetzung
 
+⚠️ **Erst prüfen, ob schon eine Instanz läuft — nicht blind quitten.** Obsidian ist
+Single-Instance: ein `quit` beendet die Fenster *aller* Sessions. Am 2026-08-30 hätte genau
+diese Anweisung beinahe zwei Stunden Reindex einer parallel arbeitenden Session vernichtet —
+der eigene Lauf wäre danach sauber grün gewesen, der Schaden entstand woanders.
+
+```bash
+curl -s http://127.0.0.1:9222/json/version >/dev/null && echo "laeuft schon — MITNUTZEN"
+```
+
+**Läuft schon eins: mitnutzen** (der Smoke braucht keinen Neustart). Ein eigenes Vault-Fenster
+öffnet man per `vault-open` über IPC; gewählt wird über den Vault-Filter von
+`attachTo("workspace", port, "<vault>")`, nicht über die Fenster-Reihenfolge.
+
+**Läuft keins** — oder nur nach Absprache mit dem, der es benutzt:
+
 ```bash
 osascript -e 'quit app "Obsidian"'
 open -a Obsidian --args --remote-debugging-port=9222
+```
+
+Dann der Lauf:
+
+```bash
 npm run smoke:gui -- --port 9222 --vault 10_Pallas
 ```
 

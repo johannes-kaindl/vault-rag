@@ -860,8 +860,24 @@ async function main(): Promise<void> {
         record("Reformat meldet sich mit der Transform-ID im feature",
           /^reformat:.+/.test(rf), rf ? `feature=${rf}` : "keine Zeile — Transform lief nicht");
         // Modal schliessen, ohne anzuwenden: der Smoke veraendert keine Notiz.
+        //
+        // `.modal-container` ist Obsidians GETEILTE Region — jedes Plugin haengt seine Modals
+        // dort ein. Ungescoped nimmt `querySelectorAll` das erstbeste, also moeglicherweise den
+        // Abbrechen-Knopf eines FREMDEN Dialogs, waehrend unsere Vorschau offen stehen bleibt
+        // und die nachfolgenden Pruefpunkte verfaelscht. Deshalb erst unser eigenes Modal
+        // suchen (`.vault-rag-reformat-preview`) und nur darin klicken; nur wenn es nicht da
+        // ist, bleibt Escape als Notausgang. Dach-Befund 2026-08-30 („GUI-Smoke greift geteilte
+        // Obsidian-DOM-Regionen"), fuer dieses Repo war es die einzige solche Stelle.
+        //
+        // Gescoped wird ueber ein KIND, nicht ueber das Modal selbst: `ReformatPreviewModal`
+        // setzt keine eigene Klasse auf `modalEl` (gemessen an `src/reformat_preview_modal.ts` —
+        // dort tragen nur `.vault-rag-reformat-{label,notice,original,result}` eine). Ein Scope
+        // auf eine erfundene Modal-Klasse haette immer leer getroffen und waere still auf den
+        // Escape-Zweig gefallen: derselbe Ausgang wie vorher, nur unsichtbar.
         await main.evaluate(`
-          const btns = [...document.querySelectorAll(".modal-container button")];
+          const marker = document.querySelector(".vault-rag-reformat-original, .vault-rag-reformat-result");
+          const eigenes = marker && (marker.closest(".modal") || marker.closest(".modal-container"));
+          const btns = eigenes ? [...eigenes.querySelectorAll("button")] : [];
           const discard = btns.find(b => /verwerf|discard|abbrech|cancel/i.test(b.textContent || ""));
           if (discard) discard.click();
           else document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));

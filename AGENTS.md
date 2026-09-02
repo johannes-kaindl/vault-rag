@@ -363,8 +363,9 @@ npm run lint                      # eslint src     (typescript-eslint + eslint-p
 npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit
 OBSIDIAN_PLUGIN_DIR=… npm run deploy   # build + main.js/manifest.json/styles.css ins Vault-Plugin-Verzeichnis
-                                  # (NICHT noetig fuer den Arbeits-Vault 10_Pallas — dessen
-                                  #  Plugin-Ordner ist ein Symlink auf dieses Repo, dort reicht Reload)
+                                  # ⚠️ AUCH fuer den Arbeits-Vault 10_Pallas noetig. Hier stand bis
+                                  #  2026-09-02 "dessen Plugin-Ordner ist ein Symlink, Reload reicht" —
+                                  #  gemessen ist er ein ECHTES Verzeichnis mit Kopien (s. PROF-OBS-02).
 npx vitest run tests/<datei>      # eine Test-Datei
 npm run version-bump              # ../tools/release/version-bump.mjs (zentral)
 npm run preflight <version>       # ../tools/release/preflight.mjs (Store-Checkliste)
@@ -786,9 +787,20 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
   bewusst unverändert — unsichtbar, ein Umbenennen wäre nur Risiko.
 - **PROF-OBS-02** — ✅ erledigt (2026-08-22): `npm run deploy` in der kanonischen, workspace-weit
   identischen Form (16 Nachbar-Repos fahren sie wortgleich). **Deploy-Target ist pro Vault verschieden,
-  und das ist der Grund, warum die Lücke so lange unauffällig blieb:** der Arbeits-Vault `10_Pallas`
-  hat sein Plugin-Verzeichnis als **Symlink auf dieses Repo** — dort genügt ein Plugin-Reload, ein
-  Deploy wäre wirkungslos. *Jeder andere Vault trägt dagegen eine Kopie und altert still.* Gemessen am
+  und das ist der Grund, warum die Lücke so lange unauffällig blieb.**
+  ⚠️ **Hier stand bis 2026-09-02, der Arbeits-Vault `10_Pallas` habe sein Plugin-Verzeichnis als
+  „Symlink auf dieses Repo", ein Deploy sei dort „wirkungslos". Das ist gemessen falsch:**
+  `.obsidian/plugins/vault-retrieval/` ist ein **echtes Verzeichnis** (`os.path.islink` false für den
+  Ordner und für jede Datei darin), es trägt Kopien wie jeder andere Vault. Ein `.hotreload`-Marker
+  liegt darin — der lädt das Plugin neu, wenn sich die Datei **im Vault** ändert, er kopiert aber
+  nichts aus dem Repo. **Folge: nach jeder `src/`-Änderung ist `npm run deploy` auch für `10_Pallas`
+  Pflicht; ein blosser Reload misst den alten Build.** Aufgefallen am 2026-09-02 beim Vorbereiten
+  eines GUI-Smokes — folgenlos nur deshalb, weil `src/` seit dem letzten Deploy unverändert war
+  (sha1 des gebauten `main.js` identisch mit dem im Vault).
+  **Der GUI-Smoke fängt das derzeit nicht ab:** `scripts/gui-smoke.ts` hat keinen Herkunfts-Guard
+  (`requireEigenerBuild`, `tools/obsidian-cdp/README.md`) — er prüft `manifest.version`, und die ist
+  blind dafür, weil Repo- und Vault-Build dieselbe Nummer tragen.
+  *Jeder Vault trägt eine Kopie und altert still.* Gemessen am
   2026-08-22, als das Script entstand: vier weitere Vaults standen auf 0.24.0, 0.17.3, 0.13.0 und
   **0.7.1** — letzterer achtzehn Versionen zurück, also vor Container-Index (0.18.0),
   Backup-Rotations-Fix (0.15.2) und Index-Robustheit (0.12.0). Wer hier nichts kopiert, lässt genau

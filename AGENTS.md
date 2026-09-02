@@ -44,9 +44,11 @@ Interface an, nie direkt die Obsidian-API → in Node testbar ohne DOM-Mock (PRO
 
 `obsidian` wird nur an der Kante importiert — **seit 2026-08-23 von `npm run check:pure` erzwungen**
 (Allowlist `EDGE` in `scripts/check-pure.mjs`, Teil von `npm run gate`; wer die Kante verschiebt,
-ändert beide Stellen): `main.ts`, `hub_view.ts`, `settings.ts`, `http.ts`
-sowie die dünnen Modal-/Picker-Wrapper (`note_picker.ts`, `template_picker.ts`,
-`reformat_picker.ts`, `reformat_preview_modal.ts`) und das `reformat_panel.ts`. Diese Wrapper
+ändert beide Stellen) — **zwölf Dateien, hier vollständig aufgezählt**: `main.ts`, `hub_view.ts`,
+`settings.ts`, `http.ts`, die dünnen Modal-/Picker-Wrapper (`note_picker.ts`,
+`template_picker.ts`, `reformat_picker.ts`, `reformat_preview_modal.ts`), das
+`reformat_panel.ts`, `chat_view.ts` und `smart_apply_view.ts` (nur `setIcon` bzw. zusätzlich
+`Notice`) sowie `mcp/http_server.ts` (Platform-Gate, desktop-only). Diese Wrapper
 sind **bewusst nicht unit-getestet** — das Test-Gewicht trägt der pure Kern; neue obsidian-Views
 folgen diesem Muster statt Tests mit DOM-Mocks aufzubauen. Historisch —
 `hub_view.ts` + `main.ts` sind die einzigen View-Layer-obsidian-Importe (Hub-Konsolidierung,
@@ -63,7 +65,7 @@ obsidianmd-Lint-Regel gesperrt ist — XHR ist der erlaubte Streaming-Primitive.
 ### Modul-Layout (`src/`)
 
 ```
-i18n/strings.ts   EN/DE-Wörterbücher (`EN`/`DE`, 365 Keys je Sprache) für `t()`
+i18n/strings.ts   EN/DE-Wörterbücher (`EN`/`DE`, 424 Keys je Sprache) für `t()`
                   (`src/vendor/kit/i18n.ts`) — EN kanonisch, DE die aktuelle deutsche
                   Übersetzung, Wort für Wort. Schlüsselschema `<datei-ohne-endung>.<sache>
                   [.variante]`; vorhandene Schlüssel wiederverwenden statt duplizieren.
@@ -356,7 +358,7 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (971 Tests, 67 Files)
+npm test                          # vitest run     (979 Tests, 67 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit

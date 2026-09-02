@@ -88,7 +88,11 @@
  * das ist die gewollte Meldung. Was ihr fehlt, wird DORT ergänzt, nicht hier nachgebaut.
  */
 
+import { join } from "node:path";
+import { cwd } from "node:process";
+
 import { Cdp, attachTo, pollUntil } from "../../tools/obsidian-cdp/cdp.js";
+import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
 import { EN, DE } from "../src/i18n/strings";
 
 const PLUGIN_ID = "vault-retrieval";
@@ -222,6 +226,10 @@ async function main(): Promise<void> {
   }
   // Außerhalb des try, damit das finally die Reihenfolge auch nach einem Abbruch
   // mitten im Lauf zurückschreiben kann.
+  // Ein `ungeklaert`-Ausgang des Herkunfts-Guards WARNT nur (ein Guard darf keinen Lauf toeten,
+  // gegen den er nichts in der Hand hat) — die Warnung gehoert dann aber in die Zusammenfassung,
+  // sonst scrollt sie oben weg und der Lauf sieht sauber aus.
+  let herkunftsWarnung: string | null = null;
   let savedChatOrder: string[] | null = null;
   let settings: Cdp | null = null;
   // Der Heal-Prüfpunkt zerstört absichtlich den Container und stellt die Endpunkt-Liste tot.
@@ -239,6 +247,31 @@ async function main(): Promise<void> {
       `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];`,
     );
     if (!active) throw new Error(`Plugin ${PLUGIN_ID} ist nicht aktiv — Obsidian neu laden (Cmd+R)?`);
+
+    // Laeuft dieser Lauf ueberhaupt gegen den eigenen Stand? `manifest.version` ist dagegen
+    // STRUKTURELL blind — Store- und Repo-Build tragen dieselbe Nummer.
+    //
+    // Der Pfad kommt aus der LAUFENDEN Instanz, nicht aus `stagingVaultDir(...)`: der Treiber
+    // dockt per `--vault` an ein beliebiges Fenster an, ein Check gegen den Staging-Pfad wuerde
+    // also eine Datei pruefen, die mit dem Lauf nichts zu tun hat. Geprueft wird, was gemessen
+    // wird (Dach-README, korrigiert 2026-09-02).
+    //
+    // Fuer dieses Repo besonders wichtig: die AGENTS.md fuehrte `10_Pallas` bis 2026-09-02 als
+    // "Plugin-Ordner ist ein Symlink aufs Repo, Reload reicht". Gemessen ist es ein echtes
+    // Verzeichnis mit Kopien — ohne `npm run deploy` misst der Lauf den alten Build (`7adf475`).
+    const vaultInfo = await main.evaluate<{ basePath: string; configDir: string }>(`
+      return { basePath: app.vault.adapter.basePath, configDir: app.vault.configDir };
+    `);
+    requireEigenerBuild(
+      join(vaultInfo.basePath, vaultInfo.configDir, "plugins", PLUGIN_ID, "main.js"),
+      // Der Vergleichsstand muss frisch sein — sonst sagt der Vergleich nichts. `npm run deploy`
+      // baut ihn direkt davor.
+      join(cwd(), "main.js"),
+      (meldung) => {
+        herkunftsWarnung = meldung;
+        console.warn(meldung);
+      },
+    );
 
     // Sprache der LAUFENDEN Oberfläche ermitteln und daraus die erwarteten Zustandstexte
     // ableiten. Obsidian legt die Wahl in `localStorage.language` ab; fehlt sie, gilt Englisch.
@@ -1027,6 +1060,14 @@ async function main(): Promise<void> {
 
   const failed = results.filter(r => !r.passed);
   console.log(`\n${results.length - failed.length}/${results.length} Prüfpunkte grün`);
+  // Die Herkunfts-Warnung steht NACH der Bilanz, nicht davor: sie erscheint sonst am Anfang
+  // eines mehrminütigen Laufs und ist beim Ablesen des Ergebnisses längst weggescrollt. Ein
+  // „18/18 grün“ ohne diesen Zusatz hätte am 2026-08-30 workspace-weit 69 Prüfpunkte auf
+  // nicht belegtem Code beglaubigt.
+  if (herkunftsWarnung) {
+    console.log(`\n⚠️  Herkunft des gemessenen Builds UNGEKLÄRT — die Bilanz oben belegt nicht,`);
+    console.log(`   dass sie für den Repo-Stand gilt:\n   ${herkunftsWarnung}`);
+  }
   if (failed.length) {
     console.log("\nOffen:");
     for (const f of failed) console.log(`  ✗ ${f.name} — ${f.detail}`);

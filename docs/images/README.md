@@ -135,8 +135,13 @@ Bild zeigt also den Zustand, den ein neuer Nutzer bekommt.
 
 ## Reproduzieren
 
+`STAGING_VAULTS_DIR` muss gesetzt sein (in `~/.zshenv`, nicht `.zshrc` — npm-Scripts laufen in
+nicht-interaktiven Shells). Hier steht bewusst **kein Beispielwert**: genau so ist die Konvention
+schon einmal gegabelt worden — eine `export`-Zeile lief durch ~20 Rezept-Köpfe und wurde dabei aus
+einem Beispiel zur Anweisung, bis die Vaults in zwei konkurrierenden Verzeichnissen lagen
+(Dach-`AGENTS.md`, „Staging-Vaults: ein Ort, eine Variable").
+
 ```bash
-export STAGING_VAULTS_DIR="$HOME/StagingVaults"   # einmalig
 npm run build && npm run shots -- --setup         # Vault aus dem Fixture bauen
 
 osascript -e 'quit app "Obsidian"'                # Handarbeit: Debug-Port

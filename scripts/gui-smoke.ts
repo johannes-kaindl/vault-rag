@@ -60,10 +60,35 @@
  * **Deshalb: vor einem erneuten Lauf Obsidian neu starten** (dann sind alle Target-Leichen weg).
  * Das einzige, was sie sonst raeumt, ist das Schliessen des zugehoerigen Vault-Fensters.
  *
- * Dann:
+ * ## Wo der Lauf hingehoert: Staging-Vault auf einer ZWEITINSTANZ (seit 2026-09-03)
+ *
+ * Im Arbeitsvault `10_Pallas` sind Pruefpunkte STRUKTURELL nicht messbar: dort ist ein echtes
+ * llm-lab installiert (der ganze Meldestrecken-Zweig wird uebersprungen, damit der Smoke dessen
+ * Aufzeichnung nicht verunreinigt), und die Endpunkt-Listen tragen je EINE Zeile (Prioritaets-Knopf
+ * und „Zuerst verwenden" haben nichts zu messen). Der Staging-Vault `vault-rag` (Fixture
+ * `docs/images/fixture/`, Plugin-Einstellungen mit je ZWEI Zeilen aus
+ * `docs/images/fixture/plugin/settings.json`) hat beides nicht — dort laeuft der ganze Treiber.
+ *
+ * Und weil ein zweiter Lauf in derselben Obsidian-Sitzung nicht sauber ist (Target-Leichen, s. o.),
+ * die regulaere Instanz aber vier fremden Sessions gehoert, laeuft er auf einer ZWEITINSTANZ mit
+ * eigenem Profil (Dach-AGENTS.md § Staging-Vaults: die Single-Instance-Sperre haengt am Profil):
  *
  * ```bash
- * npm run smoke:gui
+ * npm run build && npm run shots -- --setup        # Vault aus dem Fixture (Index ist danach weg)
+ * UD=/tmp/obs-vault-rag; mkdir -p "$UD"
+ * cp ~/Library/Application\ Support/obsidian/obsidian-1.13.7.asar "$UD"/   # sonst startet 1.12.4
+ * # $UD/obsidian.json: {"vaults":{"<id>":{"path":"$STAGING_VAULTS_DIR/vault-rag","ts":0,"open":true}}}
+ * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9333 &
+ * npm run shots -- --port 9333 --prepare          # Index bauen (18 Notizen, Sekunden)
+ * npm run smoke:gui -- --port 9333 --vault vault-rag
+ * ```
+ *
+ * Der CDP-Lock (`obsidian-cdp-lock.py acquire --exclusive quit-reload`) bleibt Pflicht: der Guard
+ * gatet den Kommandotext, und ein fremdes `pkill -f Obsidian` traefe auch die Zweitinstanz.
+ *
+ * Gegen die regulaere Instanz (Port 9222) geht es weiterhin — dann mit den Skips in der Bilanz:
+ *
+ * ```bash
  * npm run smoke:gui -- --port 9222 --vault 10_Pallas
  * ```
  *
@@ -99,6 +124,24 @@ const PLUGIN_ID = "vault-retrieval";
 /** Muss zu `setIcon(...)` in `buildEndpointList` passen. */
 const PRIORITY_ICON = "arrow-up-to-line";
 const FALLBACK_ICON = "chevrons-up";
+/** Die Pruefpunkte des llm-lab-Zweigs — namentlich, damit ein Skip des ganzen Zweigs JEDEN
+ *  davon in die Bilanz traegt. Muss zu den `record(...)`-Namen im `else` von `if (labReal)`
+ *  passen; die Zaehlung 2026-09-03: sechs (die Task nannte 15 — das war ein grep ueber
+ *  `record(` inklusive Definition und Kommentare, nicht ueber Aufrufe). */
+/** Frist fuer EINE Chat-Antwort ueber die Oberflaeche. Nicht 180 s: ein denkendes 27B-Modell
+ *  brauchte bei WARMEM Endpunkt 218 s fuer „Antworte mit genau einem Wort: Hallo." (1.191
+ *  Reasoning-Tokens, gemessen 2026-09-03 per curl) — der Punkt war rot, waehrend der zweite Chat
+ *  desselben Laufs durchlief. Das Fixture setzt `suppressThinking`, damit der Normalfall in
+ *  Sekunden liegt; die Frist deckt den Fall, dass ein Modell trotzdem denkt. */
+const CHAT_FRIST_MS = 360_000;
+const LAB_PRUEFPUNKTE = [
+  "Ein Chat über die Oberfläche meldet sich beim Lab",
+  "Die Chat-Zeile trägt ttftMs und latencyMs",
+  "Die Endpunkt-Probe meldet sich unter eigenem feature (damit das Lab sie ausschließen kann)",
+  "Reformat meldet sich mit der Transform-ID im feature",
+  "Die Reformat-Vorschau ist nach dem Verwerfen geschlossen",
+  "Ohne Lab läuft der Chat vollständig durch und meldet nichts",
+];
 
 // --- Prüfpunkte -------------------------------------------------------------
 
@@ -117,6 +160,21 @@ const results: Check[] = [];
 function record(name: string, passed: boolean, detail: string): void {
   results.push({ name, passed, detail });
   console.log(`${passed ? "  ✓" : "  ✗"} ${name}${detail ? ` — ${detail}` : ""}`);
+}
+
+/** Uebersprungene Pruefpunkte — bewusst eine EIGENE Liste, nicht `results`. Ein Punkt, der nicht
+ *  gelaufen ist, ist weder bestanden noch durchgefallen, und beide Zuordnungen sind belegt
+ *  falsch: obsidian-transmute zaehlte ihn als gruen, dieser Treiber bis 2026-09-03 als rot
+ *  („nur eine Endpunkt-Zeile konfiguriert — nicht pruefbar" stand als ✗ in der Bilanz). Er
+ *  gehoert aber IN die Bilanz: „23/25 gruen" las sich am 2026-09-02 wie ein vollstaendiger Lauf,
+ *  waehrend 15 weitere Punkte im llm-lab-Zweig nie erreicht wurden. Uebernommen aus
+ *  yijing-oracle `c0a6f6e`. Der zweite Parameter nennt den GRUND — ein Skip ohne Grund ist von
+ *  einem vergessenen Pruefpunkt nicht zu unterscheiden. */
+const uebersprungen: { name: string; reason: string }[] = [];
+
+function skipped(name: string, reason: string): void {
+  uebersprungen.push({ name, reason });
+  console.log(`  – ${name} — übersprungen: ${reason}`);
 }
 
 /** Liest die sichtbaren Endpunkt-Zeilen der zuletzt geöffneten Einstellungs-Seite. */
@@ -278,8 +336,14 @@ async function main(): Promise<void> {
     // Der Treiber vergleicht danach gegen dasselbe Wörterbuch, aus dem die UI ihre Texte nimmt —
     // er prüft also weiterhin, dass die richtige ROLLE angezeigt wird (ein falscher Schlüssel
     // fällt weiter auf), nur nicht mehr, in welcher Sprache.
+    // DIESELBE Quelle wie das Plugin: `main.ts` ruft `pickLang(getLanguage())`, und Obsidian
+    // spiegelt `getLanguage()` in `document.documentElement.lang`. `localStorage.language` ist
+    // nur die AUSDRUECKLICHE Wahl des Nutzers — auf einem frischen Profil (Zweitinstanz) fehlt
+    // sie, Obsidian nimmt die Systemsprache, und der Treiber erwartete „active" gegen eine
+    // Oberflaeche, die „aktiv" rendert: drei falsch-rote Punkte (2026-09-03). Zweiter
+    // Sprachbefund am Pruefstand nach dem vom 2026-08-30 — gleiche Wurzel, andere Quelle.
     const uiLang = await main.evaluate<string>(
-      `return (window.localStorage && localStorage.getItem("language")) || "en";`,
+      `return document.documentElement.lang || (window.localStorage && localStorage.getItem("language")) || "en";`,
     );
     const W = uiLang.startsWith("de") ? DE : EN;
     const L = {
@@ -342,7 +406,7 @@ async function main(): Promise<void> {
       record("search() liefert semantische Treffer", (probe.search.hits?.length ?? 0) > 0,
         `${probe.search.hits?.length ?? 0} Treffer`);
     } else if (probe.search?.reason === "offline") {
-      console.log("  – search(): übersprungen — Embedding-Endpunkt nicht erreichbar (korrekte Antwort, aber der Erfolgsfall bleibt ungeprüft)");
+      skipped("search() liefert semantische Treffer", "Embedding-Endpunkt nicht erreichbar (korrekte Antwort, aber der Erfolgsfall bleibt ungeprüft)");
     } else {
       record("search() liefert semantische Treffer", false, `reason=${String(probe.search?.reason)}`);
     }
@@ -361,9 +425,17 @@ async function main(): Promise<void> {
     // Damit ist Rang 0 die einzig richtige Antwort und der Prueflings-Erwartungswert steht
     // VORHER fest (LESSON local-image-generator 2026-08-23) — bei langen Notizen mischt die
     // mean-Aggregation mehrere Chunks und ein Rang > 0 waere legitim.
-    const selfFind = await main.evaluate<SelfFindProbe>(`
+    // Mutation und Wartephase TRENNEN (Dach-AGENTS.md, Umbau-Muster `paperless-storage:201`):
+    // die Probe macht bis zu sechs `search()`-Aufrufe, jeder embeddet seine Query ueber den
+    // Endpunkt. Unter Last dauert einer 5–8 s (gemessen 2026-09-03: neun fremde Verbindungen an
+    // Ollama), sechs davon in EINEM `evaluate` sprengen die 30-s-Grenze von `Cdp.send` — der
+    // Lauf brach mit „Zeitueberschreitung: Runtime.evaluate" ab, ohne dass am Prueffling etwas
+    // fehlte. Deshalb: im Renderer STARTEN und das Ergebnis ablegen, auf der Node-Seite pollen.
+    await main.evaluate(`
+      window.__vaultRagSelfFind = null;
+      (async () => {
       const api = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].api;
-      if (!api) return { present: false, tried: [], offline: false };
+      if (!api) { window.__vaultRagSelfFind = { present: false, tried: [], offline: false }; return; }
       const strip = (t) => t.replace(/^---\\s*\\n[\\s\\S]*?\\n---\\s*\\n/, "").trim();
       // Voraussetzung selbst herstellen (REGISTRY-Falle 11): nur Notizen nehmen, die WIRKLICH
       // im Index stehen. related() ist dafuer der billige Test — es rechnet offline auf dem
@@ -387,15 +459,22 @@ async function main(): Promise<void> {
         const rank = hits.findIndex(h => h.path === c.path);
         tried.push({ path: c.path, rank, top: hits[0] ? hits[0].path : null });
       }
-      return { present: true, tried, offline };
+      window.__vaultRagSelfFind = { present: true, tried, offline };
+      })().catch(e => { window.__vaultRagSelfFind = { present: true, tried: [], offline: false, error: String(e) }; });
+      return true;
     `);
+    const selfFind = await pollUntil<SelfFindProbe & { error?: string }>(main,
+      `return window.__vaultRagSelfFind;`, 240_000, 2_000)
+      ?? { present: true, tried: [], offline: false, error: "Probe nach 240 s ohne Ergebnis — Embedding-Endpunkt unter Last?" };
 
-    if (!selfFind.present) {
+    if (selfFind.error) {
+      record("Notizen finden sich ueber ihren eigenen Wortlaut", false, selfFind.error);
+    } else if (!selfFind.present) {
       record("Notizen finden sich ueber ihren eigenen Wortlaut", false, "Plugin-API nicht erreichbar");
     } else if (selfFind.offline || selfFind.tried.length === 0) {
       // Falle 16 der REGISTRY: ohne Embedding-Endpunkt ist "keine Antwort" die RICHTIGE
       // Antwort und kein Befund — dann uebersprungen statt falsch-gruen oder falsch-rot.
-      console.log("  – Selbstfindung: uebersprungen — kein Embedding-Endpunkt oder keine kurze indexierte Notiz gefunden");
+      skipped("Notizen finden sich ueber ihren eigenen Wortlaut", "kein Embedding-Endpunkt oder keine kurze indexierte Notiz gefunden");
     } else {
       const hit = selfFind.tried.filter(t => t.rank === 0);
       // Schwelle statt Perfektion: zwei Notizen mit (fast) gleichem Wortlaut duerfen sich
@@ -452,12 +531,13 @@ async function main(): Promise<void> {
       const tabs = [...document.querySelectorAll(".okit-hub-tab")];
       const boxen = tabs.map(t => t.getBoundingClientRect());
       return { zeilen: new Set(boxen.map(b => Math.round(b.top))).size,
-               ueberlauf: boxen.some(b => b.right > document.querySelector(".okit-hub-tabs").getBoundingClientRect().right + 1) };
+               ueberlauf: boxen.some(b => b.right > document.querySelector(".okit-hub-tabs").getBoundingClientRect().right + 1),
+               breite: Math.round(document.querySelector(".okit-hub-root").getBoundingClientRect().width) };
     `;
-    const rowsAfter = async (px: number): Promise<{ zeilen: number; ueberlauf: boolean }> => {
+    const rowsAfter = async (px: number): Promise<{ zeilen: number; ueberlauf: boolean; breite: number }> => {
       await main.evaluate(`app.workspace.rightSplit.setSize(${px}); return true;`);
-      const r = await pollUntil<{ zeilen: number; ueberlauf: boolean }>(main, TAB_ROWS, 5000, 200);
-      return r ?? { zeilen: 0, ueberlauf: false };
+      const r = await pollUntil<{ zeilen: number; ueberlauf: boolean; breite: number }>(main, TAB_ROWS, 5000, 200);
+      return r ?? { zeilen: 0, ueberlauf: false, breite: 0 };
     };
     // Der Hub kann vom Nutzer auch links oder im Hauptbereich liegen — dann greift setSize
     // auf den falschen Split und der Punkt maesse Phantome. Lieber ueberspringen als luegen.
@@ -465,23 +545,36 @@ async function main(): Promise<void> {
       return !!app.workspace.rightSplit?.containerEl?.contains(document.querySelector(".okit-hub-root"));
     `);
     if (!inRight) {
-      console.log("  – Umbruch der Tab-Leiste: übersprungen (Hub liegt nicht in der rechten Sidebar)");
+      skipped("Umbruch der Tab-Leiste", "Hub liegt nicht in der rechten Sidebar");
     } else {
       // Die Breite ist eine Einstellung des Nutzers — vorher merken, im finally zurueckgeben.
       const userWidth = await main.evaluate<number>(`
         return Math.round(app.workspace.rightSplit.containerEl.getBoundingClientRect().width);
       `);
-      let wide = { zeilen: 0, ueberlauf: false }, narrow = { zeilen: 0, ueberlauf: false };
+      // Voraussetzung herstellen (REGISTRY-Falle 11): eine EINGEKLAPPTE Sidebar ignoriert
+      // `setSize` — der Hub blieb 24 px breit, beide Breiten meldeten 2 Zeilen, der Punkt war
+      // rot ohne Befund (frisches Profil, 2026-09-03). Vorher ausklappen, nachher zurueck.
+      const wasCollapsed = await main.evaluate<boolean>(`
+        const rs = app.workspace.rightSplit;
+        if (rs.collapsed) { rs.expand(); return true; }
+        return false;
+      `);
+      let wide = { zeilen: 0, ueberlauf: false, breite: 0 }, narrow = { zeilen: 0, ueberlauf: false, breite: 0 };
       try {
         wide = await rowsAfter(WIDE);
         narrow = await rowsAfter(NARROW);
       } finally {
-        await main.evaluate(`app.workspace.rightSplit.setSize(${userWidth}); return true;`)
-          .catch(() => { console.log("  ! Sidebar-Breite konnte nicht zurückgesetzt werden"); });
+        await main.evaluate(`
+          app.workspace.rightSplit.setSize(${userWidth});
+          if (${wasCollapsed}) app.workspace.rightSplit.collapse();
+          return true;
+        `).catch(() => { console.log("  ! Sidebar-Breite konnte nicht zurückgesetzt werden"); });
       }
+      // Die GEMESSENE Breite steht mit im Detail: wirkt die Mutation nicht, sieht man es hier,
+      // statt einen Layout-Defekt im Plugin zu suchen (CORE-TEST-14).
       record("Tab-Leiste bricht bei schmaler Sidebar um, statt zu stauchen",
         narrow.zeilen > wide.zeilen,
-        `${WIDE}px → ${wide.zeilen} Zeile(n) · ${NARROW}px → ${narrow.zeilen} Zeile(n)`);
+        `${WIDE}px (ist ${wide.breite}px) → ${wide.zeilen} Zeile(n) · ${NARROW}px (ist ${narrow.breite}px) → ${narrow.zeilen} Zeile(n)`);
       record("Kein Tab rutscht aus der Leiste heraus",
         !wide.ueberlauf && !narrow.ueberlauf,
         "kein horizontaler Überlauf bei beiden Breiten");
@@ -558,7 +651,11 @@ async function main(): Promise<void> {
           : `KEIN SVG — Obsidians Lucide kennt den Namen nicht. Auf "${FALLBACK_ICON}" wechseln (setIcon in buildEndpointList).`,
       );
     } else {
-      record("Zeile 2 trägt den Prioritäts-Knopf", false, "nur eine Endpunkt-Zeile konfiguriert — nicht prüfbar");
+      // Kein ✗: mit nur einer Zeile gibt es nichts zu messen. Bis 2026-09-03 zaehlte das als
+      // Fehlschlag und hielt jede Bilanz im Arbeitsvault dauerhaft rot — der Staging-Vault traegt
+      // deshalb zwei Zeilen je Liste (docs/images/fixture/plugin/settings.json).
+      skipped("Zeile 2 trägt den Prioritäts-Knopf", "nur eine Endpunkt-Zeile konfiguriert — nicht prüfbar");
+      skipped(`Icon "${PRIORITY_ICON}" rendert tatsächlich ein SVG`, "braucht eine zweite Endpunkt-Zeile");
     }
 
     // --- 4. Zustandstexte ---------------------------------------------------
@@ -668,8 +765,10 @@ async function main(): Promise<void> {
         !!top && !top.hasPriorityButton,
         top?.hasPriorityButton ? "Knopf noch da" : "korrekt entfernt");
     } else {
-      record("Klick setzt die Zeile an die Spitze", false,
-        inChatList ? "übersprungen — kein zweiter Chat-Endpunkt mit Knopf" : "übersprungen — Chat-Liste hat weniger als zwei Einträge");
+      const grund = inChatList ? "kein zweiter Chat-Endpunkt mit Knopf" : "Chat-Liste hat weniger als zwei Einträge";
+      skipped("Klick setzt die Zeile an die Spitze", grund);
+      skipped("Die nach oben geholte Zeile meldet danach ihren Zustand", grund);
+      skipped("Die nach oben geholte Zeile trägt keinen Prioritäts-Knopf mehr", grund);
     }
 
     // --- 7. Rolle folgt dem Modell-Override --------------------------------
@@ -697,11 +796,13 @@ async function main(): Promise<void> {
       const withOverride = await setModel(original);
       record(
         "Rolle folgt dem Modell-Override ohne Tab-Neuaufbau",
-        withoutOverride !== withOverride && withOverride === "übersprungen — Modell passt nicht zum Index",
+        // Gegen das Woerterbuch der LAUFENDEN Oberflaeche, nicht gegen festes Deutsch — dieselbe
+        // Fehlerklasse wie der Sprachbefund vom 2026-08-30 (drei falsch-rote Zustandstexte).
+        withoutOverride !== withOverride && withOverride === L.skippedModel,
         `ohne Override „${withoutOverride}" · mit Override „${withOverride}"`,
       );
     } else {
-      console.log("  – Rolle folgt dem Modell-Override: übersprungen (kein Embedding-Endpunkt mit Override konfiguriert)");
+      skipped("Rolle folgt dem Modell-Override ohne Tab-Neuaufbau", "kein Embedding-Endpunkt mit Override konfiguriert");
     }
 
     // --- 7b. llm-lab-Meldestrecke (KONSUMENTEN-Seite) -----------------------
@@ -719,8 +820,49 @@ async function main(): Promise<void> {
     // Aufzeichnung nicht mit Testzeilen verunreinigen.
     const labReal = await main.evaluate<boolean>(`return !!app.plugins.plugins["llm-lab"];`);
     if (labReal) {
-      console.log("  – llm-lab-Meldestrecke: übersprungen (echtes llm-lab installiert — der Smoke hängt kein Stub ein, um dessen Aufzeichnung nicht zu verfälschen)");
+      // EIN Skip-Eintrag je nicht gelaufenem Pruefpunkt, nicht einer fuer den Block: die Bilanz soll
+      // sagen, wie viele Punkte fehlen, nicht wie viele Abschnitte. Am 2026-09-02 verbarg genau
+      // diese Zeile 15 von 40 Punkten hinter einem einzigen Gedankenstrich.
+      const grund = "echtes llm-lab installiert — der Smoke hängt kein Stub ein, um dessen Aufzeichnung nicht zu verfälschen; im Staging-Vault (ohne llm-lab) fahren";
+      for (const name of LAB_PRUEFPUNKTE) skipped(name, grund);
     } else {
+      // Den Chat-Endpunkt AUFWAERMEN, bevor ein Pruefpunkt an seiner Antwort haengt: LM Studio
+      // laedt das Modell erst beim ersten Request (JIT) und entlaedt es nach Leerlauf wieder;
+      // bei 27B dauert das laenger als die 180-s-Frist des Chat-Punkts — der meldete „Antwort
+      // blieb aus", waehrend der ZWEITE Chat desselben Laufs in Sekunden kam (2026-09-03).
+      // Ladezeit ist Umgebung, kein Befund; sie gehoert deshalb vor den Punkt und ins Protokoll.
+      // Auf der NODE-Seite, nicht im Renderer: von dort scheitert `fetch` am CORS-Preflight
+      // (LM Studio ohne `--cors`; das Plugin selbst geht ueber `requestUrl`/XHR, die kein CORS
+      // kennen), der erste Anlauf meldete „Failed to fetch" nach 2 s und waermte nichts.
+      // Den Endpunkt nehmen, den das Plugin WIRKLICH benutzt (`chatEndpointInUse`), nicht
+      // `chatEndpoints[0]`: der Klick-Pruefpunkt weiter oben hat die Liste umsortiert (den toten
+      // Endpunkt an Platz 1), und zurueckgeschrieben wird erst im finally — der Warmup traf so
+      // zweimal ECONNREFUSED, waehrend der Chat danach ueber den aktiven Endpunkt lief.
+      const warmEp = await main.evaluate<{ url: string; model: string; apiKey?: string } | null>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const ep = (p.chatEndpointInUse && p.chatEndpointInUse.url) ? p.chatEndpointInUse : (p.settings.chatEndpoints || [])[0];
+        return ep ? { url: ep.url, model: ep.model || p.settings.chatModel, apiKey: ep.apiKey } : null;
+      `);
+      const warmStart = Date.now();
+      let warm = "kein Chat-Endpunkt konfiguriert";
+      if (warmEp) {
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (warmEp.apiKey) headers["Authorization"] = `Bearer ${warmEp.apiKey}`;
+        try {
+          const r = await fetch(`${warmEp.url.replace(/\/+$/, "")}/v1/chat/completions`, {
+            method: "POST", headers, signal: AbortSignal.timeout(300_000),
+            body: JSON.stringify({ model: warmEp.model, max_tokens: 1, messages: [{ role: "user", content: "ok" }] }),
+          });
+          warm = `HTTP ${r.status}`;
+        } catch (e) {
+          // `fetch failed` allein sagt nichts — der Grund steckt in `cause` (undici).
+          const c = (e as { cause?: { code?: string; message?: string } }).cause;
+          const cause = c ? ` (${c.code ?? c.message ?? "?"})` : "";
+          warm = `Fehler: ${e instanceof Error ? e.message : String(e)}${cause}`;
+        }
+      }
+      console.log(`  (Chat-Endpunkt aufgewärmt: ${warm} nach ${Math.round((Date.now() - warmStart) / 1000)} s)`);
+
       labStubbed = true;   // fuers finally
       // Die apiVersion hier ist eine VERTRAGSKOPIE — genau wie `lab_client.ts`s eigene
       // SUPPORTED_API_VERSION traegt sie den Stand von llm-labs LLM_LAB_API_VERSION
@@ -754,7 +896,7 @@ async function main(): Promise<void> {
       // (_docs/LESSONS.md 2026-08-23, n=2). Die Ergebniszeile stellt nur ein fertiger Lauf her.
       const chatDone = await pollUntil(main,
         `const w = document.querySelector(".vault-rag-chat-working"); return !!w && /✓/.test(w.textContent || "");`,
-        180_000, 1_000).catch(() => false);
+        CHAT_FRIST_MS, 1_000).catch(() => false);
       const chatTrace = await main.evaluate<{ n: number; last: Record<string, unknown> | null }>(`
         const seen = window.__vaultRagLabSeen;
         return { n: seen.length, last: seen.length ? seen[seen.length - 1] : null };
@@ -762,7 +904,7 @@ async function main(): Promise<void> {
       const ct = chatTrace.last as { plugin?: string; feature?: string; ttftMs?: number; model?: string; latencyMs?: number } | null;
       record("Ein Chat über die Oberfläche meldet sich beim Lab",
         chatDone === true && ct?.plugin === "vault-retrieval" && ct?.feature === "chat",
-        chatDone ? `plugin=${String(ct?.plugin)} · feature=${String(ct?.feature)} · model=${String(ct?.model)}` : "Antwort blieb aus (Chat-Endpunkt erreichbar?)");
+        chatDone ? `plugin=${String(ct?.plugin)} · feature=${String(ct?.feature)} · model=${String(ct?.model)}` : `keine Ergebniszeile in ${CHAT_FRIST_MS / 1000} s — Warmup sagte „${warm}"; denkendes Modell ohne suppressThinking?`);
       // ttftMs trennt "Modell dachte lange" von "Verbindung stand nicht" — ohne den Wert ist
       // eine langsame Antwort in der Aufzeichnung nicht diagnostizierbar.
       record("Die Chat-Zeile trägt ttftMs und latencyMs",
@@ -793,7 +935,7 @@ async function main(): Promise<void> {
       `);
       const probeFound = await main.evaluate<boolean>(`return !!window.__vaultRagProbeFound;`);
       if (!probeFound) {
-        console.log("  – Endpunkt-Probe meldet sich unter eigenem feature: übersprungen (Testknopf in den Einstellungen nicht gefunden)");
+        skipped("Die Endpunkt-Probe meldet sich unter eigenem feature (damit das Lab sie ausschließen kann)", "Testknopf in den Einstellungen nicht gefunden");
       } else {
         await pollUntil(main, `return window.__vaultRagLabSeen.length > ${probeBefore};`, 180_000, 1_000).catch(() => false);
         const probeTrace = await main.evaluate<{ features: string[] }>(`
@@ -850,7 +992,7 @@ async function main(): Promise<void> {
         return true;
       `);
       if (!rfStarted) {
-        console.log("  – Reformat meldet sich mit Transform-ID: übersprungen (keine geeignete Notiz/Auswahl herstellbar)");
+        skipped("Reformat meldet sich mit der Transform-ID im feature", "keine geeignete Notiz/Auswahl herstellbar");
       } else {
         await pollUntil(main, `return window.__vaultRagLabSeen.length > ${rfBefore};`, 180_000, 1_000).catch(() => false);
         const rfTrace = await main.evaluate<{ features: string[] }>(`
@@ -881,7 +1023,18 @@ async function main(): Promise<void> {
           const discard = btns.find(b => /verwerf|discard|abbrech|cancel/i.test(b.textContent || ""));
           if (discard) discard.click();
           else document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-        `).catch(() => {});
+          return { eigenes: !!eigenes, discard: !!discard };
+        `).catch(() => ({ eigenes: false, discard: false }));
+        // Der Aufraeumschritt ist seit 679a9f5 auf das eigene Modal gescoped — ob er trifft, ist
+        // aber nur am ERGEBNIS zu sehen: die Vorschau muss danach aus dem DOM sein. Ohne diesen
+        // Punkt waere der Fix strukturell belegt („der Aufruf steht jetzt richtig"), nie
+        // inhaltlich (LESSONS 2026-09-03, yijing-oracle: den reparierten Pfad einmal betreten).
+        const previewGone = await pollUntil(main,
+          `return !document.querySelector(".vault-rag-reformat-original, .vault-rag-reformat-result");`,
+          5_000, 250).catch(() => false);
+        record("Die Reformat-Vorschau ist nach dem Verwerfen geschlossen",
+          previewGone === true,
+          previewGone ? "kein .vault-rag-reformat-original/-result mehr im DOM" : "Vorschau steht noch — Verwerfen-Knopf nicht im eigenen Modal getroffen?");
       }
 
       // (4) Lab weg → der Chat laeuft VOLLSTAENDIG durch und meldet nichts. Die Reihenfolge ist
@@ -902,7 +1055,7 @@ async function main(): Promise<void> {
       `);
       const offDone = await pollUntil(main,
         `const w = document.querySelector(".vault-rag-chat-working"); return !!w && /✓/.test(w.textContent || "");`,
-        180_000, 1_000).catch(() => false);
+        CHAT_FRIST_MS, 1_000).catch(() => false);
       const offTrace = await main.evaluate<{ added: number }>(`
         return { added: window.__vaultRagLabSeen.length - window.__vaultRagLabBaseline };
       `);
@@ -1075,7 +1228,16 @@ async function main(): Promise<void> {
   }
 
   const failed = results.filter(r => !r.passed);
-  console.log(`\n${results.length - failed.length}/${results.length} Prüfpunkte grün`);
+  // Die Bilanz nennt, was NICHT gelaufen ist — sonst liest sich „23/25 grün" wie ein
+  // vollstaendiger Lauf, waehrend 15 Punkte nie erreicht wurden (2026-09-02).
+  const skipNachsatz = uebersprungen.length
+    ? ` · ${uebersprungen.length} übersprungen (weder grün noch rot)`
+    : "";
+  console.log(`\n${results.length - failed.length}/${results.length} Prüfpunkte grün${skipNachsatz}`);
+  if (uebersprungen.length) {
+    console.log("\nNicht gelaufen:");
+    for (const u of uebersprungen) console.log(`  – ${u.name} — ${u.reason}`);
+  }
   // Die Herkunfts-Warnung steht NACH der Bilanz, nicht davor: sie erscheint sonst am Anfang
   // eines mehrminütigen Laufs und ist beim Ablesen des Ergebnisses längst weggescrollt. Ein
   // „18/18 grün“ ohne diesen Zusatz hätte am 2026-08-30 workspace-weit 69 Prüfpunkte auf

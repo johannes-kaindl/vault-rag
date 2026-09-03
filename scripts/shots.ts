@@ -1027,6 +1027,16 @@ async function main(): Promise<void> {
       fixtureDir: join(repoRoot, "docs/images/fixture"),
       pluginId: PLUGIN_ID,
     })) console.log(`   ${zeile}`);
+    // Plugin-Einstellungen aus dem Fixture — NACH buildVault, das data.json bewusst entfernt
+    // (Auslieferungszustand). Der Auslieferungszustand traegt aber je EINE Endpunkt-Zeile, und
+    // damit sind zwei Pruefpunkte des GUI-Smokes strukturell nicht messbar (Prioritaets-Knopf,
+    // „Zuerst verwenden"); das Fixture traegt deshalb je zwei — die zweite auf einem Port, auf
+    // dem nichts lauscht, damit die Rolle „nicht erreichbar" ECHT gemessen wird. Getrackt, damit
+    // ein neu gebauter Vault dieselbe Konfiguration hat wie der, gegen den protokolliert wurde.
+    // Im Fixture heisst sie `settings.json`, nicht `data.json`: Letzteres steht in der
+    // .gitignore (Vault-Konfig, maschinenspezifisch) und waere still ungetrackt geblieben.
+    copyFileSync(join(repoRoot, "docs/images/fixture/plugin/settings.json"), join(pluginDir(vaultDir), "data.json"));
+    console.log("   Plugin-Einstellungen aus docs/images/fixture/plugin/settings.json (je zwei Endpunkt-Zeilen)");
     console.log(`\nVault steht: ${vaultDir}`);
     console.log("Jetzt Obsidian mit Debug-Port starten, den Vault oeffnen, als");
     console.log("vertrauenswuerdig markieren und einmal \"Reindex vault\" laufen lassen.");
@@ -1048,15 +1058,9 @@ async function main(): Promise<void> {
     // Sprache pruefen, was GERENDERT ist — nicht, was gespeichert wurde. Beides weicht ab,
     // sobald jemand nach einer Aufnahme zurueckstellt und ohne Neustart weiterarbeitet
     // (Befund aus apple-health).
-    const lang = await cdp.evaluate<string>("return document.documentElement.lang || 'en';");
-    if (lang && !lang.startsWith("en")) {
-      console.error(`Obsidian laeuft auf »${lang}«. Die README-Bilder sind englisch.`);
-      console.error("Sprache umstellen (obsidian.json UND localStorage.language), dann neu starten.");
-      exit(1);
-    }
-
-    await setWindowSize(cdp, FENSTER_BREITE, FENSTER_HOEHE);
-
+    // Deploy und Prepare sind sprachneutral — nur die AUFNAHME braucht Englisch. Bis 2026-09-03
+    // stand der Sprachcheck davor und brach den Index-Aufbau auf einer frischen Zweitinstanz ab
+    // (Systemsprache Deutsch), obwohl dort nie ein Bild entsteht.
     if (argv.includes("--deploy")) {
       await ausliefern(repoRoot, vaultDir, cdp);
       return;
@@ -1066,6 +1070,15 @@ async function main(): Promise<void> {
       await vorbereiten(cdp, arg("modell", CHAT_MODELL_DEFAULT) as string);
       return;
     }
+
+    const lang = await cdp.evaluate<string>("return document.documentElement.lang || 'en';");
+    if (lang && !lang.startsWith("en")) {
+      console.error(`Obsidian laeuft auf »${lang}«. Die README-Bilder sind englisch.`);
+      console.error("Sprache umstellen (obsidian.json UND localStorage.language), dann neu starten.");
+      exit(1);
+    }
+
+    await setWindowSize(cdp, FENSTER_BREITE, FENSTER_HOEHE);
 
     const veraltet = codeStandVergleichen(repoRoot, vaultDir);
     if (veraltet.length) {

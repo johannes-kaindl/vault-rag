@@ -1,0 +1,22 @@
+{
+  "embeddingEndpoints": [
+    {
+      "url": "http://localhost:11434"
+    },
+    {
+      "url": "http://localhost:11435"
+    }
+  ],
+  "embeddingModel": "qwen3-embedding:8b",
+  "chatEndpoints": [
+    {
+      "url": "http://localhost:1234"
+    },
+    {
+      "url": "http://localhost:1235"
+    }
+  ],
+  "chatModel": "qwen/qwen3.6-27b",
+  "indexDir": "_vaultrag",
+  "suppressThinking": true
+}

@@ -37,19 +37,97 @@ Läuft Obsidian bereits mit offenem Port, aber ohne den Ziel-Vault: `open "obsid
 öffnet ihn als **zusätzliches Fenster derselben Instanz** — der Port bleibt, und parallel geöffnete
 Vaults (andere Sessions) verlieren ihr Fenster nicht.
 
-`10_Pallas` braucht keinen Deploy: dessen Plugin-Ordner ist ein Symlink aufs Repo, `npm run build`
-genügt. Jeder andere Vault trägt eine Kopie und braucht `npm run deploy`.
+⚠️ **Jeder Vault trägt eine Kopie und braucht `npm run deploy` — auch `10_Pallas`.** Hier stand bis
+2026-09-03, dessen Plugin-Ordner sei ein Symlink aufs Repo; gemessen ist er ein echtes Verzeichnis
+(`7adf475`). Ohne Deploy misst der Lauf den alten Build — der Herkunfts-Guard `requireEigenerBuild`
+bricht dann ab, statt eine falsche Bilanz zu liefern.
+
+## Staging-Vault auf einer Zweitinstanz — der Normalweg seit 2026-09-03
+
+Im Arbeitsvault `10_Pallas` sind Prüfpunkte **strukturell** nicht messbar: dort ist ein echtes
+llm-lab installiert (der Meldestrecken-Zweig wird übersprungen, damit der Smoke dessen
+Aufzeichnung nicht verunreinigt), und die Endpunkt-Listen tragen je **eine** Zeile. Am 2026-09-02
+liefen deshalb 25 von 40 Punkten, und die Bilanz „23/25 grün" verschwieg das. Der Staging-Vault
+`vault-rag` hat beides nicht: Fixture `docs/images/fixture/` (Notizen + `.obsidian/`) und
+`docs/images/fixture/plugin/settings.json` (je **zwei** Endpunkt-Zeilen, die zweite auf einem Port
+ohne Listener, damit „nicht erreichbar" echt gemessen wird).
+
+Weil ein zweiter Lauf in derselben Obsidian-Sitzung nicht sauber ist (Target-Leichen, s.
+Kopfkommentar des Treibers) und die reguläre Instanz fremden Sessions gehört, läuft der Smoke auf
+einer **Zweitinstanz mit eigenem Profil** (Dach-AGENTS.md § Staging-Vaults):
+
+```bash
+python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-rag --intent "GUI-Smoke Zweitinstanz" --exclusive quit-reload --ttl 900
+npm run build && npm run shots -- --setup            # Vault aus dem Fixture — der Index ist danach weg
+UD=/tmp/obs-vault-rag; mkdir -p "$UD"
+cp ~/Library/Application\ Support/obsidian/obsidian-1.13.7.asar "$UD"/   # sonst startet die gebündelte 1.12.4
+# $UD/obsidian.json: {"vaults":{"<id>":{"path":"$STAGING_VAULTS_DIR/vault-rag","ts":0,"open":true}}}
+/Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9333 &
+npm run shots -- --port 9333 --prepare               # Index bauen (18 Notizen, Sekunden)
+npm run smoke:gui -- --port 9333 --vault vault-rag
+python3 ~/.claude/hooks/obsidian-cdp-lock.py release
+```
+
+`quit-reload` statt `focus`: der Lauf fasst die reguläre Instanz nicht an, aber ein fremdes
+`pkill -f Obsidian` träfe auch die Zweitinstanz. Der Guard gatet den Kommandotext, der Lock bleibt
+also die Eintrittskarte — auch für Port 9333.
 
 ## Läufe
 
 | Datum | Version / Commit | Obsidian | Ergebnis | Gegenprobe |
 |---|---|---|---|---|
+| 2026-09-03 | Arbeitsbaum nach `679a9f5` (Skip-Liste, Fixture mit zwei Endpunkt-Zeilen, Modal-Prüfpunkt), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | 1.13.7 | **34/34 grün · 1 übersprungen** (Modell-Override — kein Endpunkt mit Override im Fixture). Erstmals liefen **alle** Lab- und Endpunkt-Punkte; `679a9f5` damit inhaltlich belegt (Vorschau nach dem Verwerfen aus dem DOM). Achter und letzter Lauf des Tages mit Warmup über `chatEndpointInUse` und `suppressThinking` im Fixture: Warmup HTTP 200 nach 3 s, erster Token nach **2,9 s** (vorher 55–110 s) | **ja** — Verwerfen-Klick im Treiber ausgesetzt: **33/34**, genau der neue Modal-Punkt rot („Vorschau steht noch"), kein anderer fiel mit |
 | 2026-08-30 | `1df2cd1` (deployt), Staging-Vault `vault-rag` | — | **25/30** — zwei rot sind die bekannte Ein-Endpunkt-Fixture-Luecke, drei rot sind ein Sprachbefund des Treibers (s. u.) | — |
 | 2026-08-24 | `f3c7f71` (Lab-Stub auf `apiVersion 2`), Staging-Vault `vault-rag` | 1.13.7 | **20/22** — alle fuenf Lab-Pruefpunkte gruen; die zwei roten sind Deckungsluecken der Umgebung (nur je EIN Endpunkt konfiguriert), keine Defekte | — Treiber unveraendert seit `f3c7f71`; der Fix selbst ist die Gegenprobe: mit `apiVersion 1` waeren genau diese fuenf Punkte rot, drei davon erst nach je 180 s Timeout |
 | 2026-08-23 | llm-lab-Pruefpunkte (5 neue) | 1.13.7 | **25/25** | **ja** — `trace` aus `chat_session.ts` entfernt, gebaut, Plugin neu geladen: genau die zwei Chat-Punkte fielen rot, die uebrigen blieben gruen |
 | 2026-08-23 | `a4d0130` (Branch `fix/backlog-kleinfixes`, vor Merge) | 1.13.7 | **20/20** (derselbe Punkt übersprungen) | Parität zum Lauf davor — der Treiber ist unverändert, geändert hat sich nur der Prüfling |
 | 2026-08-23 | `0d49ab0` (vor Merge 0.26.0) | 1.13.7 | **20/20** (1 Punkt übersprungen: kein Embedding-Endpunkt mit Modell-Override konfiguriert) | keine — Treiber unverändert seit dem Lauf, der ihn eingeführt hat |
 | 2026-08-18 | Migration auf die zentrale CDP-Brücke | 1.13.7 | 18/18 | — |
+
+### 2026-09-03 — Staging-Vault auf der Zweitinstanz: sechs Läufe bis zum grünen, fünf Treiber-Befunde
+
+Anlass: die Task „17 von 40 Prüfpunkten sind in Pallas tot". Die Zahl 17 war falsch gezählt (grep über
+`record(` samt Definition und Kommentaren) — der llm-lab-Zweig trägt **fünf** Punkte, mit dem neuen
+Modal-Punkt sechs, dazu die zwei Endpunkt-Punkte: **acht** strukturell nicht messbare Punkte, nicht 17.
+Der Befund selbst stand: alle acht liefen in Pallas nie, und die Bilanz schwieg.
+
+Was die Läufe gegen den frisch gebauten Vault gefunden haben — **alles Treiber, nichts Prüfling**:
+
+1. **Selbstfindungs-Probe sprengt `Cdp.send`.** Sechs `search()`-Aufrufe in EINEM `evaluate`; unter
+   Last (neun fremde Verbindungen an Ollama) dauert einer 5–8 s, die 30-s-Grenze fiel mit
+   „Zeitüberschreitung: Runtime.evaluate". Umbau: im Renderer starten, auf der Node-Seite pollen
+   (Dach-Muster „Mutation und Wartephase trennen"). In Pallas war das Modell warm — die Zeitbombe
+   lag unter der Schwelle und sah wie ein funktionierender Prüfpunkt aus.
+2. **Sprachquelle.** Der Treiber las `localStorage.language` (leer auf einem frischen Profil → „en"),
+   das Plugin nimmt `getLanguage()` → `document.documentElement.lang` („de"). Drei falsch-rote
+   Punkte. Zweiter Sprachbefund am Prüfstand nach dem vom 30.08., gleiche Wurzel, andere Quelle.
+3. **Kollabierte Sidebar.** `rightSplit.setSize()` wirkt nicht, solange die Sidebar eingeklappt ist
+   (frisches Profil): Hub 24 px breit, beide Breiten „2 Zeilen", Punkt rot ohne Befund. Jetzt wird
+   vorher ausgeklappt, nachher zurückgeklappt, und die **gemessene** Breite steht im Detail.
+4. **Kalter Chat-Endpunkt.** LM Studio lädt das 27B-Modell erst beim ersten Request und entlädt es
+   nach Leerlauf; der erste Chat-Punkt lief in die 180-s-Frist, der zweite kam in Sekunden. Ladezeit
+   ist Umgebung — deshalb ein Warmup vor dem Punkt, mit Dauer im Protokoll. Drei Anläufe: aus dem
+   Renderer scheitert `fetch` am CORS-Preflight; auf der Node-Seite traf er den **umsortierten**
+   Endpunkt (der Klick-Prüfpunkt hat den toten 1235 an Platz 1 gesetzt, zurückgeschrieben wird erst im
+   `finally`) → ECONNREFUSED. Jetzt über `chatEndpointInUse`, den Endpunkt, den das Plugin wirklich
+   benutzt. **Und der Warmup allein reichte nicht:** bei warmem Modell brauchte derselbe Prompt per
+   `curl` **218 s** — 1.191 Reasoning-Tokens für das Wort „Hallo". Die 180-s-Frist war also nicht
+   knapp, sondern falsch bemessen. Zwei Maßnahmen: das Fixture setzt `suppressThinking` (der Smoke
+   misst die Meldestrecke, nicht das Denken), und die Frist ist 360 s für den Fall, dass ein Modell
+   trotzdem denkt. Die rote Zeile nennt seitdem den gemessenen Widerspruch („Warmup sagte HTTP 200,
+   keine Ergebniszeile in 360 s") statt der geratenen Ursache „Endpunkt erreichbar?".
+5. **`\/` in einem Template-String wird zu `/`** — aus `/\/+$/` wurde `//+$/`, ein Zeilenkommentar,
+   der Rest der Zeile fiel weg, der Renderer warf „Uncaught" ohne Text. Zeichenklasse `[/]` statt Escape.
+
+Dazu die zwei Bilanz-Fehler, die die Task nannte: „nur eine Endpunkt-Zeile — nicht prüfbar" zählte
+als ✗ (jetzt `skipped()`), der Lab-Skip verbarg fünf Punkte hinter einem Gedankenstrich (jetzt einer
+je Punkt, mit Grund). Ein Skip ohne Grund wäre von einem vergessenen Prüfpunkt nicht zu unterscheiden.
+
+**Warum Zweitinstanz statt eigenes Fenster in der regulären:** der Treiber-Kopf verlangt vor jedem
+erneuten Lauf einen Neustart (Target-Leichen); sechs Läufe hätten sechs Neustarts auf vier fremde
+Vault-Fenster bedeutet. Die Zweitinstanz wurde sechsmal neu gestartet, `lsof` auf 9222 zeigte die
+reguläre Instanz jedes Mal unverändert. `pkill -f "user-data-dir=/tmp/obs-vault-rag"` trifft nur sie —
+ein ungefiltertes `pkill -f Obsidian` träfe beide.
 
 ### 2026-08-30 — Sprachbefund: der Treiber prueft hart gegen deutsche Zustandstexte
 

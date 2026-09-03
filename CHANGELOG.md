@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **GitHub-Ausstieg: beide READMEs zeigten ins Leere, alle acht Bilder waren tot.** Gemessen
+  2026-09-03: `github.com/johannes-kaindl` antwortet mit **404**, und damit auch jede der 16
+  `raw.githubusercontent.com`-Einbettungen — die READMEs waren nutzersichtbar kaputt, nicht nur
+  unvollständig verlinkt. Alle 39 GitHub-URLs zeigen jetzt auf Forgejo
+  (`raw/branch/main` für Bilder, `src/branch/main` für Dateien); jede ersetzte URL ist einzeln
+  auf 200 geprüft, nicht nur umgeschrieben.
+- **`authorUrl` → `https://jkaindl.de`.** Das Feld ist in Obsidians Plugin-Liste anklickbar und
+  zeigte auf ein aufgegebenes Profil. Die alte Regel („nie die eigene Domain") hatte den
+  Store-Review als Grund, und der findet für dieses Plugin nicht mehr statt.
+- **Installationsweg ersetzt: Plugin-Katalog statt Community-Verzeichnis.** Beide bisherigen
+  Wege waren tot — das Store-Listing ist verschwunden, und BRAT setzt den GitHub-Mirror voraus.
+  An ihrer Stelle steht der eigene Katalog über
+  [AnySource Sideloader](https://git.jkaindl.de/jkaindl/anysource-sideloader); der
+  BRAT-Abschnitt ist ersatzlos entfallen. Manueller Weg und Bau aus dem Quellcode bleiben.
+
+### Removed
+- **CI-Badge aus beiden READMEs.** GitHub Actions ist nicht mehr erreichbar, und auf der
+  Forgejo-Instanz läuft kein Runner. Das ist dieselbe Begründung wie bei seiner Einführung
+  (CORE-META-02): ein Badge, der nicht auf einen echten Lauf zeigt, ist schlechter als keiner.
+
 ### Internal
 - GUI-Smoke: läuft jetzt vollständig im Staging-Vault auf einer Zweitinstanz (34/34, Rezept in
   `docs/SMOKE.md`). Das Fixture trägt Plugin-Einstellungen mit je zwei Endpunkt-Zeilen

@@ -1,16 +1,15 @@
 # Vault Retrieval
 
-> 🇬🇧 English · [🇩🇪 Deutsch](https://github.com/johannes-kaindl/vault-rag/blob/main/README.de.md)
+> 🇬🇧 English · [🇩🇪 Deutsch](https://git.jkaindl.de/jkaindl/vault-rag/src/branch/main/README.de.md)
 
 **Retrieval over your own vault — related notes and semantic search, always on-device — plus grounded chat with the LLM endpoint you configure.**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-DOCS)
 [![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-rag?gitea_url=https%3A%2F%2Fgit.jkaindl.de&label=release)](https://git.jkaindl.de/jkaindl/vault-rag/releases)
-[![CI](https://github.com/johannes-kaindl/vault-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/johannes-kaindl/vault-rag/actions/workflows/ci.yml)
 ![Platform](https://img.shields.io/badge/platform-Obsidian%201.12.7%2B%20·%20desktop%20%26%20mobile-7c3aed)
 
-<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/hero.png" width="820" alt="Obsidian with a note open on the left and the Vault Retrieval sidebar on the right, listing the most similar notes with their similarity scores">
+<img src="https://git.jkaindl.de/jkaindl/vault-rag/raw/branch/main/docs/images/hero.png" width="820" alt="Obsidian with a note open on the left and the Vault Retrieval sidebar on the right, listing the most similar notes with their similarity scores">
 
 Vault Retrieval turns your notes into a searchable knowledge base. Retrieval — related notes, semantic search — always runs on your device. It keeps a small embedding index inside your vault, synced along with it and readable on every device, and answers three questions: *What else have I written about this? Where did I say something like that? What does my vault know about X?* Embedding and chat talk to whatever LLM endpoint you configure — one under your control, local or on your own network, by default. Add a provider's API key, and that traffic goes to them instead.
 
@@ -23,26 +22,26 @@ Everything lives in **one sidebar view** with tabs: related notes, search, chat,
 - **Related notes** — a side panel ranks the notes most similar to the one you're reading. Cosine similarity over a compact note-level index, computed on-device — works fully offline, including on mobile.
 - **Semantic search** — find notes by *meaning*, not just keywords.
 
-<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/search.png" width="820" alt="The search tab: the query “how do I stop forgetting what I read” returns Spaced repetition and Reading workflow, neither of which contains those words">
+<img src="https://git.jkaindl.de/jkaindl/vault-rag/raw/branch/main/docs/images/search.png" width="820" alt="The search tab: the query “how do I stop forgetting what I read” returns Spaced repetition and Reading workflow, neither of which contains those words">
 - **Grounded RAG chat** — ask your vault a question and get an answer grounded in retrieved notes, streamed token-by-token from your chat LLM. An editable live-context panel shows exactly which notes feed the answer, with source chips that link back.
 
-<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/chat.png" width="820" alt="The chat tab: a streamed answer about keeping an index small, with the notes that ground it listed as clickable source chips below and in the live context panel">
+<img src="https://git.jkaindl.de/jkaindl/vault-rag/raw/branch/main/docs/images/chat.png" width="820" alt="The chat tab: a streamed answer about keeping an index small, with the notes that ground it listed as clickable source chips below and in the live context panel">
 - **Visible thinking, with an off switch** — for reasoning models, the live "💭 thinking" stream appears in a collapsible block above the answer and folds away once it arrives (and is never sent back into the conversation history). A toggle suppresses thinking when you want faster answers — via cross-server-portable hints — and a settings test tells you whether your model actually honours it.
 
-<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/thinking.png" width="820" alt="The chat tab with the Thoughts block expanded, showing the model working through the retrieved notes, and the Thinking toggle in the header">
+<img src="https://git.jkaindl.de/jkaindl/vault-rag/raw/branch/main/docs/images/thinking.png" width="820" alt="The chat tab with the Thoughts block expanded, showing the model working through the retrieved notes, and the Thinking toggle in the header">
 - **Model capability hints** — settings show, best-effort, whether the selected chat model supports vision and/or thinking, so you can pick the right one. Each endpoint has an inline connection test, and the model pickers populate from the server.
 - **Endpoints are a priority list you can see and change** — the first reachable endpoint wins, so the order matters. Each row states its own role in plain words (*in use* / *reachable, but position N* / *unreachable* / *skipped — model does not match the index*), and one click moves any endpoint to the front. Reachable is not the same as in use, and now you can tell them apart without guessing.
 
-<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/endpoints.png" width="820" alt="Two embedding endpoint rows: the first marked active with a green check, the second marked unreachable with a red cross and a button to move it to the front">
+<img src="https://git.jkaindl.de/jkaindl/vault-rag/raw/branch/main/docs/images/endpoints.png" width="820" alt="Two embedding endpoint rows: the first marked active with a green check, the second marked unreachable with a red cross and a button to move it to the front">
 - **Live indexing** — notes are re-embedded on save; edits made offline queue up and catch up automatically on reconnect. A full **reindex** command builds the whole index from your vault, so you can start from nothing with just an embedding endpoint.
 - **An index that defends itself** — the index is your data, and losing it costs an hour of re-embedding. So: writes that would shrink it are refused rather than performed, a truncated index (half-finished sync download) is detected on load and switches the plugin to read-only instead of overwriting good data, device-local backups are rotated automatically and can be restored from the command palette, and a **self-heal** command re-embeds only the notes the index is actually missing. It also defends against a subtler risk: an embedding index is tied to the model that built it, so an embedding endpoint with a different model is skipped automatically, and any write that would mix vectors from two models is refused — a deliberate model change needs a full reindex. Empty notes are never counted as missing.
 - **Smart Apply — restructure a note into a template** *(opt-in)* — pick a template and your chat LLM reorganises a messy note into its sections, routing your *original* blocks under the right headings. It never invents content — a diff gate shows exactly what moves where before you apply, and the body is rebuilt from your own bytes. Templates self-describe through `%%` guidance comments, and a relevance-ranked template list (cosine over the same index — reusing the stored vectors, no re-embedding) preselects the best fit and updates live as you switch notes. Enable it under **Settings → Smart Apply**.
 
-<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/smart-apply.png" width="820" alt="The Smart Apply diff gate before applying: a relevance-ranked template list with Meeting note preselected at 100 percent, and below it each block of the messy note shown under the heading it will move to, with 8 of 8 blocks assigned and nothing left over">
+<img src="https://git.jkaindl.de/jkaindl/vault-rag/raw/branch/main/docs/images/smart-apply.png" width="820" alt="The Smart Apply diff gate before applying: a relevance-ranked template list with Meeting note preselected at 100 percent, and below it each block of the messy note shown under the heading it will move to, with 8 of 8 blocks assigned and nothing left over">
 
 - **Reformat a selection** — select any block of text and run the reformat command (command palette or editor context menu) to reshape it. Mechanical transforms (transpose a table, table → list, wrap in a callout) apply instantly, no LLM involved. Shape-changing transforms (→ list, → prose, → table, → Mermaid diagram, or your own free-text instruction) stream a preview from your chat LLM that you review and can regenerate before applying. Every transform is also available from the reformat tab in the sidebar, which shows what is currently selected and greys the buttons out (with the reason) when it cannot run.
 
-<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/reformat.png" width="820" alt="The reformat preview: the original prose selection above, the generated Markdown table below, with Discard, Regenerate and Apply buttons">
+<img src="https://git.jkaindl.de/jkaindl/vault-rag/raw/branch/main/docs/images/reformat.png" width="820" alt="The reformat preview: the original prose selection above, the generated Markdown table below, with Discard, Regenerate and Apply buttons">
 
 ## Requirements
 
@@ -53,17 +52,16 @@ Everything lives in **one sidebar view** with tabs: related notes, search, chat,
 
 ## Install
 
-### Community Plugins
+### Plugin catalog (recommended)
 
-In Obsidian, open **Settings → Community plugins → Browse**, search for **Vault Retrieval**, then install and enable it.
+This plugin is distributed through its own catalog rather than Obsidian's community directory.
+Install [AnySource Sideloader](https://git.jkaindl.de/jkaindl/anysource-sideloader), add the
+catalog `https://git.jkaindl.de/jkaindl/obsidian-catalog/raw/branch/main/catalog.json`, then
+install **Vault Retrieval** from it and enable it under **Settings → Community plugins**.
 
 ### Manual
 
 Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://git.jkaindl.de/jkaindl/vault-rag/releases), drop them into `<vault>/.obsidian/plugins/vault-retrieval/`, then enable **Settings → Community plugins → Vault Retrieval**.
-
-### BRAT (beta)
-
-Add the GitHub mirror `johannes-kaindl/vault-rag` in the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin to track pre-release builds.
 
 ### From source
 
@@ -99,7 +97,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 
 ### Configuration
 
-<a href="https://github.com/johannes-kaindl/vault-rag/blob/main/docs/images/settings.png"><img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/thumbs/settings.png" width="380" alt="The full settings tab, from search and live embedding through index robustness, MCP server and chat to Smart Apply"></a>
+<a href="https://git.jkaindl.de/jkaindl/vault-rag/src/branch/main/docs/images/settings.png"><img src="https://git.jkaindl.de/jkaindl/vault-rag/raw/branch/main/docs/images/thumbs/settings.png" width="380" alt="The full settings tab, from search and live embedding through index robustness, MCP server and chat to Smart Apply"></a>
 
 <sub>Click the preview for the full settings tab.</sub>
 
@@ -128,18 +126,18 @@ The index in `<vault>/_vaultrag/` is a portable note-level **Matryoshka-256 int8
 
 The plugin writes that index itself, as a single container file (`_vaultrag/index.bin`, CRC-checked on every load — one file instead of several means a sync service can never deliver a mixed generation), and reads any index in the same format — including one exported by an external backend such as HyperForge.
 
-Architecture, module layout and contributor conventions live in [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md).
+Architecture, module layout and contributor conventions live in [`AGENTS.md`](https://git.jkaindl.de/jkaindl/vault-rag/src/branch/main/AGENTS.md).
 
 ## Documentation
 
-Full guides live in [`docs/`](https://github.com/johannes-kaindl/vault-rag/tree/main/docs), organised along [Diátaxis](https://diataxis.fr):
+Full guides live in [`docs/`](https://git.jkaindl.de/jkaindl/vault-rag/src/branch/main/docs), organised along [Diátaxis](https://diataxis.fr):
 
 | | |
 |---|---|
-| **[Tutorial](https://github.com/johannes-kaindl/vault-rag/blob/main/docs/tutorial.md)** | From zero to your first related notes — start here |
-| **[How-to guides](https://github.com/johannes-kaindl/vault-rag/blob/main/docs/how-to/index.md)** | Chat setup, reformatting, Smart Apply, repairing an index, MCP, cross-device sync |
-| **[Reference](https://github.com/johannes-kaindl/vault-rag/blob/main/docs/reference/index.md)** | Every command, setting, default, MCP tool and the index format |
-| **[Explanation](https://github.com/johannes-kaindl/vault-rag/blob/main/docs/explanation/index.md)** | Why the index looks the way it does, and where its guarantees end |
+| **[Tutorial](https://git.jkaindl.de/jkaindl/vault-rag/src/branch/main/docs/tutorial.md)** | From zero to your first related notes — start here |
+| **[How-to guides](https://git.jkaindl.de/jkaindl/vault-rag/src/branch/main/docs/how-to/index.md)** | Chat setup, reformatting, Smart Apply, repairing an index, MCP, cross-device sync |
+| **[Reference](https://git.jkaindl.de/jkaindl/vault-rag/src/branch/main/docs/reference/index.md)** | Every command, setting, default, MCP tool and the index format |
+| **[Explanation](https://git.jkaindl.de/jkaindl/vault-rag/src/branch/main/docs/explanation/index.md)** | Why the index looks the way it does, and where its guarantees end |
 
 ## MCP server (use your index from Claude Code & other agents, desktop only)
 
@@ -217,7 +215,7 @@ If the **LLM Lab** plugin is installed, Vault Retrieval reports its LLM calls to
 
 ## Contributing
 
-Issues and pull requests are welcome on [Forgejo](https://git.jkaindl.de/jkaindl/vault-rag) (canonical; GitHub is a mirror). The project is test-driven — every change ships with tests (`npm test`), and larger features go through a brainstorm → spec → plan → TDD flow ([`docs/superpowers/`](https://github.com/johannes-kaindl/vault-rag/tree/main/docs/superpowers)). See [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md) for architecture and conventions.
+Issues and pull requests are welcome on [Forgejo](https://git.jkaindl.de/jkaindl/vault-rag) (canonical; GitHub is a mirror). The project is test-driven — every change ships with tests (`npm test`), and larger features go through a brainstorm → spec → plan → TDD flow ([`docs/superpowers/`](https://git.jkaindl.de/jkaindl/vault-rag/src/branch/main/docs/superpowers)). See [`AGENTS.md`](https://git.jkaindl.de/jkaindl/vault-rag/src/branch/main/AGENTS.md) for architecture and conventions.
 
 ## License
 

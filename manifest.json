@@ -5,6 +5,6 @@
   "minAppVersion": "1.12.7",
   "description": "On-device retrieval over your vault — related notes, semantic search — plus grounded chat with the LLM endpoint you configure.",
   "author": "Johannes Kaindl",
-  "authorUrl": "https://github.com/johannes-kaindl",
+  "authorUrl": "https://jkaindl.de",
   "isDesktopOnly": false
 }

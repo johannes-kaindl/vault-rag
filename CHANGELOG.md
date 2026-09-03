@@ -34,6 +34,14 @@ All notable changes to this project are documented here. The format follows
   und mit Grund, und ein neuer Prüfpunkt belegt, dass die Reformat-Vorschau nach dem Verwerfen
   geschlossen ist. Fünf Treiber-Befunde behoben (Warten im Renderer, Sprachquelle, kollabierte
   Sidebar, kalter Chat-Endpunkt, Backslash im Template-String) — keiner am Plugin.
+- **`scripts/index-probe.ts`** — Selbstfindungs-Stichprobe über den laufenden Index als
+  wiederholbares Werkzeug. Misst, ob eine kurze Notiz sich über ihren *eigenen* Wortlaut auf
+  Rang 0 findet, und wertet nach Änderungsdatum aus. Erster Lauf gegen 6.952 Pfade: 35/40 auf
+  Rang 0; der treppenförmige Zeilenversatz vom 2026-08-30 ist weg, drei verbliebene Rückstände
+  tragen einen konstanten Versatz von 4 Zeilen. Kein Auslieferungscode — Wartungswerkzeug.
+- **Release läuft mit `--no-github`.** Store-Weg und Mirror-getriebenes Store-Release existieren
+  für dieses Plugin nicht mehr; die Verteilung geht über den Forgejo-Release und den
+  AnySource-Sideloader-Katalog.
 
 ## [0.29.0] — 2026-08-30
 

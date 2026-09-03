@@ -370,11 +370,17 @@ npx vitest run tests/<datei>      # eine Test-Datei
 npm run version-bump              # ../tools/release/version-bump.mjs (zentral)
 npm run preflight <version>       # ../tools/release/preflight.mjs (Store-Checkliste)
 npm run release                   # ../tools/release/release.mjs (zentral: Gate, Tag, Forge-Release, Mirror)
-npm run shots -- --setup          # Aufnahme-Vault aus docs/images/fixture/ bauen
+npm run shots -- --setup          # Staging-Vault aus docs/images/fixture/ bauen (Notizen, .obsidian/,
+                                  #  Plugin-Einstellungen aus fixture/plugin/settings.json — je ZWEI
+                                  #  Endpunkt-Zeilen, suppressThinking; Index ist danach weg → --prepare)
 npm run shots -- --prepare        # Chat-Modell setzen + Index bauen (einmalig je Vault)
 npm run shots -- --deploy         # gebautes Plugin in den Aufnahme-Vault + Reload
 npm run shots -- --only hero.png  # ein README-Bild aufnehmen (Vertrag: docs/images/README.md)
 npm run shots:check               # Bild-Standard pruefen (readme_lint, maintainer-lokal)
+npm run smoke:gui -- --port 9333 --vault vault-rag   # GUI-Smoke gegen den Staging-Vault auf einer
+                                  #  ZWEITINSTANZ (Rezept: docs/SMOKE.md). In 10_Pallas sind acht
+                                  #  Pruefpunkte strukturell nicht messbar (llm-lab installiert, je
+                                  #  eine Endpunkt-Zeile) — die Bilanz nennt sie als uebersprungen.
 ```
 
 esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electron`, Output `main.js`
@@ -797,9 +803,10 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
   Pflicht; ein blosser Reload misst den alten Build.** Aufgefallen am 2026-09-02 beim Vorbereiten
   eines GUI-Smokes — folgenlos nur deshalb, weil `src/` seit dem letzten Deploy unverändert war
   (sha1 des gebauten `main.js` identisch mit dem im Vault).
-  **Der GUI-Smoke fängt das derzeit nicht ab:** `scripts/gui-smoke.ts` hat keinen Herkunfts-Guard
-  (`requireEigenerBuild`, `tools/obsidian-cdp/README.md`) — er prüft `manifest.version`, und die ist
-  blind dafür, weil Repo- und Vault-Build dieselbe Nummer tragen.
+  **Der GUI-Smoke fängt das seit `5d90449` ab:** `scripts/gui-smoke.ts` ruft `requireEigenerBuild`
+  (`tools/obsidian-cdp/vault.ts`) und vergleicht per sha1 — `manifest.version` wäre blind, weil Repo-
+  und Vault-Build dieselbe Nummer tragen. Scharf gesehen am 2026-09-02 (32 Bytes an die Vault-`main.js`
+  angehängt → Abbruch vor dem ersten Prüfpunkt). *Bis 2026-09-03 behauptete diese Zeile, der Guard fehle.*
   *Jeder Vault trägt eine Kopie und altert still.* Gemessen am
   2026-08-22, als das Script entstand: vier weitere Vaults standen auf 0.24.0, 0.17.3, 0.13.0 und
   **0.7.1** — letzterer achtzehn Versionen zurück, also vor Container-Index (0.18.0),

@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Internal
+- GUI-Smoke: läuft jetzt vollständig im Staging-Vault auf einer Zweitinstanz (34/34, Rezept in
+  `docs/SMOKE.md`). Das Fixture trägt Plugin-Einstellungen mit je zwei Endpunkt-Zeilen
+  (`docs/images/fixture/plugin/settings.json`), die Bilanz zählt übersprungene Prüfpunkte getrennt
+  und mit Grund, und ein neuer Prüfpunkt belegt, dass die Reformat-Vorschau nach dem Verwerfen
+  geschlossen ist. Fünf Treiber-Befunde behoben (Warten im Renderer, Sprachquelle, kollabierte
+  Sidebar, kalter Chat-Endpunkt, Backslash im Template-String) — keiner am Plugin.
+
 ## [0.29.0] — 2026-08-30
 
 ### Added

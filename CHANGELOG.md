@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.29.1] — 2026-09-03
+
 ### Changed
 - **GitHub-Ausstieg: beide READMEs zeigten ins Leere, alle acht Bilder waren tot.** Gemessen
   2026-09-03: `github.com/johannes-kaindl` antwortet mit **404**, und damit auch jede der 16

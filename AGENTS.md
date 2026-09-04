@@ -707,6 +707,12 @@ gar nicht bis in die Oberfläche schafft.
   strukturell leer sein MUSS, darf nicht als leeres Ergebnis angezeigt werden. `smart_apply.ts`
   (Step 5b) bricht deshalb vor dem Modell ab und meldet `template-no-sections`; `sectionDiff` und
   `unassigned` bleiben leer, damit die Summenzeile keine Zuordnung behauptet, die nie versucht wurde.
+- **`rowFor` liefert `-1`, nicht `null` — ein `expect(...).not.toBeNull()` darauf ist immer grün.**
+  `VaultIndex.rowFor` (`src/index.ts:28`) ist `this.rowMap.get(path) ?? -1`. Eine Prüfung
+  „Pfad ist im Index" muss deshalb `not.toBe(-1)` lauten (oder über `vectorFor` gehen, das
+  wirklich `null` liefert). Gemessen 2026-09-04: zwei Läufe der Reindex-Race-Messung meldeten
+  ein Loch als **widerlegt**, das tatsächlich existiert — der Test hatte nie etwas gemessen.
+  Aufgefallen ist es nur an einer Gegenprobe, die grün sein MUSSTE und es nicht war.
 - **Escapte Pipes müssen beim Rendern re-escaped werden.** `\|` in einer Markdown-Tabellenzelle wird
   beim Parsen zu `|`; schreibt man es un-escaped zurück, zerfällt eine Zelle in zwei, Header- und
   Delimiter-Spaltenzahl divergieren und der Inhalt ist beim nächsten Edit dauerhaft zerrissen.

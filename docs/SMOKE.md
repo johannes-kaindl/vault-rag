@@ -60,9 +60,16 @@ einer **Zweitinstanz mit eigenem Profil** (Dach-AGENTS.md § Staging-Vaults):
 python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-rag --intent "GUI-Smoke Zweitinstanz" --exclusive quit-reload --ttl 900
 npm run build && npm run shots -- --setup            # Vault aus dem Fixture — der Index ist danach weg
 UD=/tmp/obs-vault-rag; mkdir -p "$UD"
-cp ~/Library/Application\ Support/obsidian/obsidian-1.13.7.asar "$UD"/   # sonst startet die gebündelte 1.12.4
+cp ~/Library/Application\ Support/obsidian/obsidian-*.asar "$UD"/   # sonst startet die gebündelte 1.12.4
+# WARNUNG: liegen MEHRERE .asar im Profil, ist unbestimmt welche laeuft — fuer einen belegbaren
+# Lauf alle ausser der gewuenschten entfernen. Stand 2026-09-04 liegt dort 1.14.0, nicht 1.13.7.
 # $UD/obsidian.json: {"vaults":{"<id>":{"path":"$STAGING_VAULTS_DIR/vault-rag","ts":0,"open":true}}}
 /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9333 &
+# WARNUNG: ein frisch gebauter Vault startet im RESTRICTED MODE. Das Plugin steht dann in
+# `enabledPlugins` UND in `manifests`, ist aber NICHT in `app.plugins.plugins` — `--prepare`
+# scheitert mit "Cannot read properties of undefined (reading 'settings')", was wie ein
+# Plugin-Defekt aussieht. Einmal ueber CDP freischalten (gemessen 2026-09-04):
+#   await app.plugins.setEnable(true); await app.plugins.enablePlugin("vault-retrieval");
 npm run shots -- --port 9333 --prepare               # Index bauen (18 Notizen, Sekunden)
 npm run smoke:gui -- --port 9333 --vault vault-rag
 python3 ~/.claude/hooks/obsidian-cdp-lock.py release
@@ -76,6 +83,7 @@ also die Eintrittskarte — auch für Port 9333.
 
 | Datum | Version / Commit | Obsidian | Ergebnis | Gegenprobe |
 |---|---|---|---|---|
+| 2026-09-04 | `5551f4b` (Stempel-Waechter + Reindex-Race-Fix), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | **1.14.0** | **34/34 gruen · 1 uebersprungen** (Modell-Override, wie immer). Erster Lauf war 33/34 — der Umbruch-Punkt rot mit „560px (ist 300px) · 240px (ist 300px)“: zweimal dieselbe Breite, also eine Mutation, die nie ankam. Ursache im TREIBER, nicht im Plugin — `pollUntil` kehrt beim ersten truthy Wert zurueck, und `TAB_ROWS` lieferte immer ein Objekt, der Poll mass also den Zustand vor `setSize`. Mit Breiten-Guard gruen (`8c44c1b`). | **ja, zweifach** — (a) isoliert nachgemessen: 560px zu 1 Zeile, 240px zu 2 Zeilen, das Plugin war also durchgehend korrekt; (b) der neue Waechter am laufenden System: vor einer Aenderung **0** verdaechtige Notizen, nach einem `vault.append` auf EINE Notiz **genau diese eine** |
 | 2026-09-03 | Arbeitsbaum nach `679a9f5` (Skip-Liste, Fixture mit zwei Endpunkt-Zeilen, Modal-Prüfpunkt), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | 1.13.7 | **34/34 grün · 1 übersprungen** (Modell-Override — kein Endpunkt mit Override im Fixture). Erstmals liefen **alle** Lab- und Endpunkt-Punkte; `679a9f5` damit inhaltlich belegt (Vorschau nach dem Verwerfen aus dem DOM). Achter und letzter Lauf des Tages mit Warmup über `chatEndpointInUse` und `suppressThinking` im Fixture: Warmup HTTP 200 nach 3 s, erster Token nach **2,9 s** (vorher 55–110 s) | **ja** — Verwerfen-Klick im Treiber ausgesetzt: **33/34**, genau der neue Modal-Punkt rot („Vorschau steht noch"), kein anderer fiel mit |
 | 2026-08-30 | `1df2cd1` (deployt), Staging-Vault `vault-rag` | — | **25/30** — zwei rot sind die bekannte Ein-Endpunkt-Fixture-Luecke, drei rot sind ein Sprachbefund des Treibers (s. u.) | — |
 | 2026-08-24 | `f3c7f71` (Lab-Stub auf `apiVersion 2`), Staging-Vault `vault-rag` | 1.13.7 | **20/22** — alle fuenf Lab-Pruefpunkte gruen; die zwei roten sind Deckungsluecken der Umgebung (nur je EIN Endpunkt konfiguriert), keine Defekte | — Treiber unveraendert seit `f3c7f71`; der Fix selbst ist die Gegenprobe: mit `apiVersion 1` waeren genau diese fuenf Punkte rot, drei davon erst nach je 180 s Timeout |

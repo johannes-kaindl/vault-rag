@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   classifyLoadResult, assertSafeToPersist, isSuspiciousShrink,
   diffIndexVsVault, PersistBlockedError, canPersistHealedIndex, embeddingModelMatchesIndex,
-  assertModelSafeToPersist, planAutoHeal, findDeadVectorPaths,
+  assertModelSafeToPersist, planAutoHeal, findDeadVectorPaths, findStaleVectorPaths,
 } from "../src/index_guard";
 
 describe("classifyLoadResult", () => {
@@ -205,5 +205,51 @@ describe("findDeadVectorPaths", () => {
       0, 1, 0,   // c.md — gesund
     ]);
     expect(findDeadVectorPaths(["a.md", "b.md", "c.md"], vectors, 3)).toEqual(["b.md"]);
+  });
+});
+
+describe("findStaleVectorPaths — der Wächter gegen veraltete Vektoren", () => {
+  const jetzt = 1725400000000;
+
+  it("meldet eine Notiz, deren mtime sich seit dem Embedden geändert hat", () => {
+    const stale = findStaleVectorPaths(
+      ["a.md", "b.md"],
+      [[jetzt, 100], [jetzt, 200]],
+      new Map([["a.md", [jetzt + 5000, 100] as [number, number]], ["b.md", [jetzt, 200] as [number, number]]]),
+    );
+    expect(stale).toEqual(["a.md"]);
+  });
+
+  it("meldet eine Notiz, deren GRÖSSE sich geändert hat — auch bei gleicher mtime", () => {
+    // Die zweite Hälfte des Kriteriums: mtime allein könnte eine Änderung verpassen, die
+    // innerhalb derselben Millisekunde landet oder deren mtime ein Sync zurückgesetzt hat.
+    const stale = findStaleVectorPaths(
+      ["a.md"], [[jetzt, 100]],
+      new Map([["a.md", [jetzt, 101] as [number, number]]]),
+    );
+    expect(stale).toEqual(["a.md"]);
+  });
+
+  it("meldet NICHTS, wenn der Container keine Stempel trägt (Altbestand)", () => {
+    // Migration: ein vor dieser Version gebauter Index kann nicht geprüft werden. Er ist
+    // deshalb nicht verdächtig — sonst meldete das Plugin beim ersten Start nach dem Update
+    // den gesamten Vault als veraltet.
+    expect(findStaleVectorPaths(["a.md"], undefined,
+      new Map([["a.md", [jetzt, 100] as [number, number]]]))).toEqual([]);
+  });
+
+  it("meldet NICHTS für eine Notiz, die es im Vault nicht mehr gibt", () => {
+    // Zuständigkeit: gelöschte Pfade sind `stale` im Sinne von diffIndexVsVault, nicht hier.
+    // Sonst meldeten zwei Wächter denselben Befund und der Nutzer sähe ihn doppelt.
+    expect(findStaleVectorPaths(["weg.md"], [[jetzt, 100]], new Map())).toEqual([]);
+  });
+
+  it("ist unempfindlich gegen die Reihenfolge — der Stempel gehört zur ZEILE, nicht zum Fund", () => {
+    const stale = findStaleVectorPaths(
+      ["b.md", "a.md"],                       // absichtlich unsortiert
+      [[jetzt, 200], [jetzt, 100]],
+      new Map([["a.md", [jetzt, 999] as [number, number]], ["b.md", [jetzt, 200] as [number, number]]]),
+    );
+    expect(stale).toEqual(["a.md"]);
   });
 });

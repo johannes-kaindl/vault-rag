@@ -867,3 +867,121 @@ describe("LiveIndexer.checkModelAgainstDisk (Vorabprüfung vor additiven Läufen
     expect(await indexer.checkModelAgainstDisk("reindex")).toMatchObject({ allowed: true });
   });
 });
+
+describe("LiveIndexer — Datei-Stempel", () => {
+  it("persist schreibt die Stempel in Zeilenreihenfolge der sortierten Pfade", async () => {
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.markFresh();
+    await indexer.update("b.md", "# B\nInhalt", [2000, 20]);
+    await indexer.update("a.md", "# A\nInhalt", [1000, 10]);
+    await indexer.persist("reindex");
+
+    const d = decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer);
+    expect(d.paths).toEqual(["a.md", "b.md"]);          // persist sortiert
+    expect(d.stamps).toEqual([[1000, 10], [2000, 20]]);  // Stempel ziehen mit
+  });
+
+  it("ohne Stempel bleibt der Container stempellos — kein Halb-Zustand", async () => {
+    // Ein teilweise gestempelter Container waere schlimmer als gar keiner: der Waechter
+    // meldete die ungestempelten Zeilen als unauffaellig, obwohl sie ungeprueft sind.
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.markFresh();
+    await indexer.update("a.md", "# A\nInhalt", [1000, 10]);
+    await indexer.update("b.md", "# B\nInhalt");   // ohne Stempel
+    await indexer.persist("reindex");
+
+    expect(decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer).stamps).toBeUndefined();
+  });
+
+  it("reindexAll nimmt die Stempel über den stampFor-Callback mit", async () => {
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.markFresh();
+    await indexer.reindexAll(["a.md", "b.md"], async (p) => `# ${p}\nInhalt`,
+      undefined, (p) => (p === "a.md" ? [1000, 10] : [2000, 20]));
+    await indexer.persist("reindex");
+
+    expect(decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer).stamps)
+      .toEqual([[1000, 10], [2000, 20]]);
+  });
+
+  it("ein geloeschter Pfad nimmt seinen Stempel mit (keine Leiche in der Map)", async () => {
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.markFresh();
+    await indexer.update("a.md", "# A\nInhalt", [1000, 10]);
+    await indexer.update("b.md", "# B\nInhalt", [2000, 20]);
+    indexer.remove("a.md");
+    await indexer.persist("reindex");
+
+    const d = decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer);
+    expect(d.paths).toEqual(["b.md"]);
+    expect(d.stamps).toEqual([[2000, 20]]);
+  });
+
+  it("rename traegt den Stempel auf den neuen Pfad um", async () => {
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.markFresh();
+    await indexer.update("alt.md", "# A\nInhalt", [1000, 10]);
+    indexer.rename("alt.md", "neu.md");
+    await indexer.persist("reindex");
+
+    const d = decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer);
+    expect(d.paths).toEqual(["neu.md"]);
+    expect(d.stamps).toEqual([[1000, 10]]);
+  });
+
+  it("init uebernimmt Stempel aus dem geladenen Index", async () => {
+    // Sonst verlaeren sie beim ersten Live-Persist nach einem Neustart — der Container
+    // wuerde stempellos zurueckgeschrieben und der Waechter waere nach jedem Start blind.
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    indexer.init(oneNoteIndex("a.md"), [[1000, 10]]);
+    await indexer.update("b.md", "# B\nInhalt", [2000, 20]);
+    await indexer.persist("reindex");
+
+    const d = decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer);
+    expect(d.stamps).toEqual([[1000, 10], [2000, 20]]);
+  });
+});
+
+describe("LiveIndexer — Stempel im Zwischenstand", () => {
+  it("ein Checkpoint stempelt die bereits neu berechneten Zeilen NEU, nicht mit dem Altstand", async () => {
+    // Der Zwischenstand mischt frische und alte Vektoren. Nimmt er die Stempel pauschal aus dem
+    // Altbestand, traegt eine frisch berechnete Zeile den Stempel ihres VORIGEN Embeddens —
+    // also genau die Vektor/Stempel-Fehlzuordnung, gegen die der Waechter gebaut ist.
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+    const paths = Array.from({ length: 260 }, (_, i) => `n${String(i).padStart(3, "0")}.md`);
+
+    // Altbestand: alle Zeilen mit Stempel "1000"
+    indexer.markFresh();
+    for (const p of paths) await indexer.update(p, `# ${p}\nalt`, [1000, 10]);
+    await indexer.persist("reindex");
+    const writesVorher = (adapter.writeBinary as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+
+    let checkpoint: ArrayBuffer | null = null;
+    const orig = adapter.writeBinary;
+    (adapter as unknown as { writeBinary: unknown }).writeBinary = vi.fn(async (pf: string, d: ArrayBuffer) => {
+      if ((adapter.writeBinary as unknown as { mock: { calls: unknown[] } }).mock.calls.length === 1) checkpoint = d;
+      return orig(pf, d);
+    });
+
+    // Reindex mit NEUEN Stempeln (2000)
+    await indexer.reindexAll(paths, async (p) => `# ${p}\nneu`, undefined, () => [2000, 20]);
+
+    expect(writesVorher).toBe(1);
+    expect(checkpoint).not.toBeNull();
+    const d = decodeContainer(checkpoint!);
+    expect(d.stamps).not.toBeUndefined();
+    // Zeile 0 ist im Checkpoint bereits neu berechnet → sie muss den NEUEN Stempel tragen.
+    const zeile0 = d.paths.indexOf("n000.md");
+    expect(d.stamps![zeile0]).toEqual([2000, 20]);
+    // Die letzte Zeile ist noch nicht erreicht → sie traegt weiter den alten.
+    const zeileLetzte = d.paths.indexOf("n259.md");
+    expect(d.stamps![zeileLetzte]).toEqual([1000, 10]);
+  });
+});

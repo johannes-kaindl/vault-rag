@@ -110,3 +110,46 @@ describe("index_container", () => {
     catch (e) { expect((e as ContainerError).reason).toBe("header"); }
   });
 });
+
+describe("Stempel (mtime + size je Zeile) — Wächter gegen veraltete Vektoren", () => {
+  const M = { schema_version: 1, embedding_model: "m", index_dim: 2, scale: 127, count: 2, granularity: "note", quant: "int8" };
+
+  it("Round-Trip: Stempel kommen unverändert zurück", () => {
+    const stamps: [number, number][] = [[1725400000000, 512], [1725500000000, 1024]];
+    const buf = encodeContainer(M as never, ["a.md", "b.md"], new Uint8Array(4), stamps);
+    expect(decodeContainer(buf).stamps).toEqual(stamps);
+  });
+
+  it("ohne Stempel bleibt der Container byte-identisch zum Altbestand", () => {
+    // Der Vertrag der Migration: wer keine Stempel hat, schreibt kein Feld — sonst
+    // unterschieden sich zwei inhaltsgleiche Container und jeder Vergleich (Backup-CRC,
+    // Drift-Check) meldete eine Änderung, die keine ist.
+    const ohne = encodeContainer(M as never, ["a.md", "b.md"], new Uint8Array(4));
+    const explizitLeer = encodeContainer(M as never, ["a.md", "b.md"], new Uint8Array(4), undefined);
+    expect(new Uint8Array(ohne)).toEqual(new Uint8Array(explizitLeer));
+    expect(decodeContainer(ohne).stamps).toBeUndefined();
+  });
+
+  it("ein ALTER Container ohne Stempel bleibt lesbar (schema_version unverändert 2)", () => {
+    const alt = encodeContainer(M as never, ["a.md"], new Uint8Array(2));
+    const d = decodeContainer(alt);
+    expect(d.manifest.schema_version).toBe(CONTAINER_SCHEMA_VERSION);
+    expect(d.paths).toEqual(["a.md"]);
+    expect(d.stamps).toBeUndefined();
+  });
+
+  it("Stempel in falscher Länge werden verworfen statt fehlzuordnen", () => {
+    // Dieselbe Klasse wie der Altschaden vom 2026-08-30: eine Liste, die nicht zu `paths`
+    // passt, ordnet Zeile für Zeile falsch zu. Lieber KEIN Wächter als ein falscher.
+    const buf = encodeContainer(M as never, ["a.md", "b.md"], new Uint8Array(4), [[1, 2]] as [number, number][]);
+    expect(decodeContainer(buf).stamps).toBeUndefined();
+  });
+
+  it("kaputte Stempel-Einträge werden verworfen, der Container bleibt gültig", () => {
+    const kaputt = [[1, 2], ["nein", 3]] as unknown as [number, number][];
+    const buf = encodeContainer(M as never, ["a.md", "b.md"], new Uint8Array(4), kaputt);
+    const d = decodeContainer(buf);
+    expect(d.stamps).toBeUndefined();
+    expect(d.paths).toEqual(["a.md", "b.md"]); // Rest unbeschädigt
+  });
+});

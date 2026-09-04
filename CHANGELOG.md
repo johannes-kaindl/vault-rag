@@ -6,6 +6,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Der Index meldet jetzt, wenn eine Notiz sich seit ihrem Einbetten geändert hat.** Bis dahin
+  war ein veralteter Vektor bei vorhandenem Pfad durch **nichts** erkennbar: CRC32 deckt Header
+  und Nutzlast gemeinsam ab und beglaubigt einen Fehlstand mit, `diffIndexVsVault` ist rein
+  mengenbasiert, `findDeadVectorPaths` sieht nur Nullvektoren — die Suche wurde still schlechter,
+  während „Index vervollständigen" nichts anzubieten hatte. Der Container trägt dafür je Zeile
+  `[mtime, size]` der Notiz; beim Laden vergleicht das Plugin gegen den aktuellen Stand, meldet
+  die Abweichungen und merkt sie zum Neu-Einbetten vor (wie bisher schon die toten Zeilen).
+  - **Kein Format-Bruch:** das Feld ist optional unter derselben `schema_version`. Ein Container
+    mit Stempeln bleibt für jede ältere Plugin-Version lesbar — wichtig, weil der Index-Ordner
+    gesynct wird und eine Versionserhöhung dort den *Gefahrenzustand* ausgelöst hätte.
+  - **Ein Index ohne Stempel (vor dieser Version gebaut) meldet nichts**, statt den ganzen Vault
+    als veraltet auszuweisen: ungeprüft ist nicht verdächtig. Die Stempel entstehen beim nächsten
+    ohnehin fälligen Reindex, es wird keiner erzwungen.
+  - **Kosten beim Start: keine.** `mtime` und `size` liefert Obsidian aus `TFile.stat` im
+    Speicher. Gemessen am 2026-09-04 im Arbeits-Vault: ein Inhalts-Hash hätte stattdessen alle
+    7200 Notizen gelesen (44 MB, 768 ms roh, über die Obsidian-Schicht ein Vielfaches).
+
 ### Fixed
 - **Ein Voll-Reindex bildet den Vault jetzt so ab, wie er beim ABSCHLUSS aussieht — nicht wie
   beim Start.** `reindexAll` arbeitet eine beim Start gesnapshottete Pfadliste ab und ersetzte

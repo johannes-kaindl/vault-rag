@@ -202,3 +202,41 @@ export function findDeadVectorPaths(paths: string[], vectors: Float32Array, dim:
   }
   return dead;
 }
+
+/**
+ * Pfade, deren Vektor AELTER ist als die Notiz, zu der er gehoert — der Waechter gegen den
+ * einzigen Index-Schaden, den bisher kein Wächter sehen konnte.
+ *
+ * Warum es ihn braucht: `diffIndexVsVault` ist rein mengenbasiert (Pfad da oder nicht),
+ * `findDeadVectorPaths` sieht nur Nullvektoren, CRC32 deckt Header und Nutzlast **gemeinsam**
+ * ab und beglaubigt einen Fehlstand mit. Ein plausibler, aber veralteter Vektor bei vorhandenem
+ * Pfad passiert deshalb jede Pruefung: `computeIndexDelta` meldet „vollstaendig",
+ * `status()` meldet `indexed: true`, und die Suche wird still schlechter.
+ *
+ * Kriterium ist `[mtime, size]` aus `TFile.stat` — beides haelt Obsidian im Speicher, der
+ * Waechter kostet beim Laden also nichts. Die Asymmetrie der Fehler traegt die Wahl: ein
+ * FEHLALARM fuehrt nur zu unnoetigem Neu-Embedden und macht den Index nie falsch; der
+ * gefaehrliche Gegenfehler setzte voraus, dass ein Schreibvorgang weder mtime noch Groesse
+ * veraendert.
+ *
+ * @param paths      Pfade des Containers, in Zeilenreihenfolge
+ * @param stamps     Stempel je Zeile — `undefined` bei Altbestand: dann wird NICHTS gemeldet
+ *                   (ein vor dieser Version gebauter Index ist nicht verdaechtig, nur ungeprueft)
+ * @param aktuell    heutiger Stand je Pfad; ein fehlender Eintrag ist eine geloeschte Notiz und
+ *                   gehoert `diffIndexVsVault`, nicht hier — sonst meldeten zwei Waechter denselben Fund
+ */
+export function findStaleVectorPaths(
+  paths: string[],
+  stamps: readonly (readonly [number, number])[] | undefined,
+  aktuell: ReadonlyMap<string, readonly [number, number]>,
+): string[] {
+  if (!stamps || stamps.length !== paths.length) return [];
+  const stale: string[] = [];
+  for (let r = 0; r < paths.length; r++) {
+    const jetzt = aktuell.get(paths[r]);
+    if (!jetzt) continue;
+    const [mtime, size] = stamps[r];
+    if (jetzt[0] !== mtime || jetzt[1] !== size) stale.push(paths[r]);
+  }
+  return stale;
+}

@@ -33,7 +33,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal } from "./index_guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, findStaleVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal } from "./index_guard";
 import { loadIndexStore, verifyBackupCandidate } from "./index_store";
 import { CONTAINER_FILE, decodeContainer } from "./index_container";
 import { McpTools } from "./mcp/tools";
@@ -886,7 +886,7 @@ export default class VaultRagPlugin extends Plugin {
       // Gesunder Load beendet die Gefahrenzustand-Episode → Auto-Heal darf wieder greifen.
       this.autoHealAttempted = false;
       this.index = result.index;
-      this.liveIndexer.init(this.index);
+      this.liveIndexer.init(this.index, result.stamps);
       const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/${CONTAINER_FILE}`);
       if (st) this.lastMtime = st.mtime;
       this.indexHealthy = true;
@@ -902,6 +902,16 @@ export default class VaultRagPlugin extends Plugin {
       // per Definition nicht erfassbar (der Pfad IST vorhanden), und per Cosinus nie auffindbar.
       // Sie brauchen deshalb ihren eigenen Blick und den Weg zurück über die PendingQueue; der
       // 60-s-Drain holt sie, sobald ein Endpunkt antwortet.
+      // Veraltete Zeilen: Pfad vorhanden, Vektor aelter als die Notiz. Von diffIndexVsVault
+      // (mengenbasiert) und findDeadVectorPaths (nur Nullvektoren) per Definition nicht
+      // erfassbar — der Schaden, den bis 2026-09-04 kein Waechter sehen konnte. Ohne Stempel
+      // im Container (Altbestand) liefert die Funktion leer: ungeprueft ist nicht verdaechtig.
+      const stale = findStaleVectorPaths([...this.index.paths], result.stamps, this.vaultStamps());
+      if (stale.length > 0) {
+        new Notice(t("main.staleVectorsFound", stale.length), 8000);
+        try { await this.pendingQueue.addMany(stale); }
+        catch (e) { console.error("vault-rag: veraltete Index-Zeilen konnten nicht vorgemerkt werden", e); }
+      }
       const dead = findDeadVectorPaths([...this.index.paths], this.index.vectors, this.index.dim);
       if (dead.length > 0) {
         new Notice(t("main.deadVectorsFound", dead.length), 8000);
@@ -1036,7 +1046,8 @@ export default class VaultRagPlugin extends Plugin {
         li.init(base);
         if (plan.kind === "restore-and-reindex") {
           const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
-          const report = await li.healMissing(missing, (p) => this.app.vault.adapter.read(p));
+          const report = await li.healMissing(missing, (p) => this.app.vault.adapter.read(p),
+            undefined, (p) => this.stampOf(p));
           if (!canPersistHealedIndex(report.failed.length)) {
             li.markUnready(); // halb geheilten Index NICHT verteilen
             return;
@@ -1142,7 +1153,7 @@ export default class VaultRagPlugin extends Plugin {
         const li = this.liveIndexer;
         this.embeddingProgress.isEmbedding = true;
         try {
-          const updated = await li.update(path, content);
+          const updated = await li.update(path, content, this.stampOf(path));
           if (updated === "empty") this.emptyNotePaths.add(path); else this.emptyNotePaths.delete(path);
           // buildIndex ERST nach erfolgreichem persist: ein geblockter Persist darf `this.index`
           // nicht mit dem Manifest des Indexers überschreiben (das trägt dessen Embedding-Modell).
@@ -1244,7 +1255,7 @@ export default class VaultRagPlugin extends Plugin {
         for (const path of paths) {
           try {
             const content = await this.app.vault.adapter.read(path);
-            const updated = await li.update(path, content);
+            const updated = await li.update(path, content, this.stampOf(path));
             if (updated === "empty") this.emptyNotePaths.add(path); else this.emptyNotePaths.delete(path);
           } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
         }
@@ -1274,12 +1285,32 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private vaultMarkdownPaths(): string[] {
-    return this.app.vault.getMarkdownFiles().map(f => f.path).filter(p => {
+    return this.vaultMarkdownFiles().map(f => f.path);
+  }
+
+  /** Wie `vaultMarkdownPaths`, aber mit den TFiles — die tragen `stat` (mtime/size) im Speicher,
+   *  ohne Dateizugriff. Grundlage des Waechters gegen veraltete Vektoren. */
+  private vaultMarkdownFiles(): TFile[] {
+    return this.app.vault.getMarkdownFiles().filter(f => {
+      const p = f.path;
       if (p.startsWith(".")) return false;
       if (this.settings.exclude.some(e => p.startsWith(e))) return false;
       if (p.startsWith(this.settings.indexDir + "/")) return false;
       return true;
     });
+  }
+
+  /** Datei-Stempel je Pfad fuer `findStaleVectorPaths` — aus `TFile.stat`, kostet nichts. */
+  private vaultStamps(): Map<string, [number, number]> {
+    const m = new Map<string, [number, number]>();
+    for (const f of this.vaultMarkdownFiles()) m.set(f.path, [f.stat.mtime, f.stat.size]);
+    return m;
+  }
+
+  /** Stempel EINER Datei — fuer die Live-Pfade (update) und als `stampFor`-Callback. */
+  private stampOf(path: string): [number, number] | undefined {
+    const f = this.app.vault.getAbstractFileByPath(path);
+    return f instanceof TFile ? [f.stat.mtime, f.stat.size] : undefined;
   }
 
   async reindexVault(): Promise<void> {
@@ -1306,6 +1337,7 @@ export default class VaultRagPlugin extends Plugin {
           this.updateStatusBar();
           notice.setMessage(t("main.indexingProgress", done, tot));
         },
+        (p) => this.stampOf(p),
       );
       // Voll-Reindex hat den ganzen Vault gelesen → frischeste Leer-Klassifikation.
       this.emptyNotePaths = new Set(report.skippedEmpty);
@@ -1376,6 +1408,7 @@ export default class VaultRagPlugin extends Plugin {
           this.updateStatusBar();
           notice.setMessage(t("main.healingProgress", done, tot));
         },
+        (p) => this.stampOf(p),
       );
       // Leer-Set aktualisieren: bekannte Leere bleiben, frisch entdeckte kommen dazu.
       this.emptyNotePaths = new Set([...knownEmpty, ...report.skippedEmpty]);

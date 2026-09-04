@@ -17,6 +17,7 @@ import { migrateIndex, hasAllRequiredFiles } from "../src/index_migrate";
 import { selectBackupsToDelete } from "../src/index_backup";
 import { CONTAINER_FILE, decodeContainer } from "../src/index_container";
 import { loadIndexStore, verifyBackupCandidate } from "../src/index_store";
+import { findStaleVectorPaths } from "../src/index_guard";
 
 const DIM = 256;
 
@@ -347,5 +348,42 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     await fs.writeFile(p2, bytes);
     expect(await verifyBackupCandidate(fsAdapter(), b2)).toBeNull();
     expect((await verifyBackupCandidate(fsAdapter(), b1))?.count).toBe(100);
+  });
+
+  describe("Waechter gegen veraltete Vektoren — voller Zyklus ueber die Platte", () => {
+    it("persistierte Stempel kommen durch den Store zurueck und erkennen eine geaenderte Notiz", async () => {
+      // Die Bedeutungsprobe, nicht nur die Struktur: schreiben, von Platte lesen, und pruefen
+      // ob der Waechter GENAU die eine geaenderte Notiz nennt. Ein Fehler an einer der drei
+      // Grenzen (encode / decode / Zeilenzuordnung) bliebe in den Unit-Tests unsichtbar.
+      const li = new LiveIndexer(fsAdapter(), indexDir, fakeEmbedder(), "fake-model");
+      li.markFresh();
+      const stempel = new Map(paths.map((p, i) => [p, [1_700_000_000_000 + i, 100 + i] as [number, number]]));
+      await li.reindexAll(paths, read, undefined, (p) => stempel.get(p));
+      await li.persist("reindex");
+
+      const geladen = await loadIndexStore(fsAdapter(), indexDir);
+      expect(geladen.state).toBe("loaded");
+      if (geladen.state !== "loaded") return;
+      expect(geladen.stamps).toBeDefined();
+
+      // Eine Notiz hat sich seit dem Indizieren geaendert.
+      const jetzt = new Map(stempel);
+      jetzt.set("note-042.md", [1_800_000_000_000, 999]);
+
+      expect(findStaleVectorPaths([...geladen.index.paths], geladen.stamps, jetzt)).toEqual(["note-042.md"]);
+      // Gegenprobe: unveraendert -> kein Fund. Ohne sie waere ein Waechter, der IMMER meldet,
+      // von einem richtigen nicht zu unterscheiden.
+      expect(findStaleVectorPaths([...geladen.index.paths], geladen.stamps, stempel)).toEqual([]);
+    });
+
+    it("ein Index OHNE Stempel (Altbestand) meldet nichts statt alles", async () => {
+      await buildGoodIndex();   // healMissing ohne stampFor -> keine Stempel
+      const geladen = await loadIndexStore(fsAdapter(), indexDir);
+      expect(geladen.state).toBe("loaded");
+      if (geladen.state !== "loaded") return;
+      expect(geladen.stamps).toBeUndefined();
+      const irgendwas = new Map(paths.map(p => [p, [1, 1] as [number, number]]));
+      expect(findStaleVectorPaths([...geladen.index.paths], geladen.stamps, irgendwas)).toEqual([]);
+    });
   });
 });

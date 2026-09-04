@@ -4,10 +4,10 @@
 // geschrieben. Spec: docs/superpowers/specs/2026-07-29-sync-race-container-index-design.md
 
 import { VaultAdapter, VaultIndex, IndexManifest, IndexLoader, parseIndex } from "./index";
-import { CONTAINER_FILE, encodeContainer, decodeContainer } from "./index_container";
+import { CONTAINER_FILE, encodeContainer, decodeContainer, FileStamp } from "./index_container";
 
 export type StoreLoadResult =
-  | { state: "loaded"; index: VaultIndex; source: "container" | "legacy-migrated" }
+  | { state: "loaded"; index: VaultIndex; source: "container" | "legacy-migrated"; stamps?: FileStamp[] }
   | { state: "no-index" }
   | { state: "corrupt" };
 
@@ -23,8 +23,13 @@ export async function loadIndexStore(adapter: VaultAdapter, dir: string): Promis
   const containerPath = `${dir}/${CONTAINER_FILE}`;
   if (await existsConservative(adapter, containerPath)) {
     let index: VaultIndex;
+    // `undefined` bei Altbestand (vor dem Stempel-Feld) — dann kann der Waechter nicht
+    // pruefen, und das ist kein Fehler: der Index ist ungeprueft, nicht verdaechtig.
+    let stamps: FileStamp[] | undefined;
     try {
-      const { manifest, paths, matrix } = decodeContainer(await adapter.readBinary(containerPath));
+      const decoded = decodeContainer(await adapter.readBinary(containerPath));
+      const { manifest, paths, matrix } = decoded;
+      stamps = decoded.stamps;
       index = parseIndex(manifest, paths, matrix);
     } catch (e) {
       // Diagnose nicht verschlucken: ContainerError.reason (crc/magic/truncated/header/schema)
@@ -33,7 +38,7 @@ export async function loadIndexStore(adapter: VaultAdapter, dir: string): Promis
       return { state: "corrupt" };
     }
     await cleanupLegacyTriple(adapter, dir);
-    return { state: "loaded", index, source: "container" };
+    return { state: "loaded", index, source: "container", stamps };
   }
   if (!(await existsConservative(adapter, `${dir}/manifest.json`))) return { state: "no-index" };
   // Legacy-Tripel: erst beweisen (parseIndex), dann byte-level repacken.

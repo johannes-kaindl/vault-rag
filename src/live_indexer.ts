@@ -3,7 +3,7 @@ import { EmbeddingClient } from "./embedder";
 import { chunkMarkdown } from "./chunker";
 import { toIndexVector } from "./embed_vector";
 import { assertSafeToPersist, assertModelSafeToPersist, PersistDecision, PersistReason, PersistBlockedError } from "./index_guard";
-import { CONTAINER_FILE, encodeContainer, decodeContainer } from "./index_container";
+import { CONTAINER_FILE, encodeContainer, decodeContainer, FileStamp } from "./index_container";
 
 const INDEX_DIM = 256;
 /** Notizen je Zwischenstand. 250 ist klein genug, dass ein Abbruch wenig kostet, und gross
@@ -26,6 +26,17 @@ export type UpdateResult = "indexed" | "empty";
 
 export class LiveIndexer {
   private noteVectors = new Map<string, Float32Array>();
+  /**
+   * `[mtime, size]` der Notiz zum Zeitpunkt ihres Embeddens, je Pfad. Traegt der Waechter gegen
+   * veraltete Vektoren (`findStaleVectorPaths`). Wird **parallel** zu `noteVectors` gepflegt —
+   * jede Mutation dort muss hier mitziehen, sonst zeigt ein Stempel auf einen fremden Vektor.
+   *
+   * Bewusst KEINE Pflicht: wer ohne Stempel updatet (Aufrufer ohne `TFile`, Tests, Altpfade),
+   * bekommt einen ungestempelten Eintrag — und `persist` schreibt dann fuer den GANZEN Container
+   * keine Stempel. Ein teilweise gestempelter Container waere schlimmer als gar keiner: der
+   * Waechter hielte die ungestempelten Zeilen fuer unauffaellig, obwohl sie ungeprueft sind.
+   */
+  private noteStamps = new Map<string, FileStamp>();
   private loadedManifest: IndexManifest | null = null;
   private ready = false;
   /**
@@ -56,12 +67,18 @@ export class LiveIndexer {
     private embeddingModel: string,
   ) {}
 
-  init(index: VaultIndex): void {
+  init(index: VaultIndex, stamps?: readonly FileStamp[]): void {
     this.loadedManifest = index.manifest;
     this.noteVectors.clear();
+    this.noteStamps.clear();
     for (const path of index.paths) {
       const v = index.vectorFor(path);
       if (v) this.noteVectors.set(path, v.slice());
+    }
+    // Ohne diese Uebernahme waere der Waechter nach jedem Neustart blind: der erste
+    // Live-Persist schriebe den Container stempellos zurueck.
+    if (stamps && stamps.length === index.paths.length) {
+      index.paths.forEach((p, i) => { if (this.noteVectors.has(p)) this.noteStamps.set(p, stamps[i]); });
     }
     this.ready = true;
   }
@@ -73,17 +90,23 @@ export class LiveIndexer {
     return toIndexVector(vecs, INDEX_DIM);
   }
 
-  async update(path: string, content: string): Promise<UpdateResult> {
+  async update(path: string, content: string, stamp?: FileStamp): Promise<UpdateResult> {
     const v = await this.embedNote(content);
     this.merkeLiveAenderung(path);
-    if (v) { this.noteVectors.set(path, v); return "indexed"; }
+    if (v) {
+      this.noteVectors.set(path, v);
+      if (stamp) this.noteStamps.set(path, stamp); else this.noteStamps.delete(path);
+      return "indexed";
+    }
     this.noteVectors.delete(path);
+    this.noteStamps.delete(path);
     return "empty";
   }
 
   remove(path: string): void {
     this.merkeLiveAenderung(path);
     this.noteVectors.delete(path);
+    this.noteStamps.delete(path);
   }
 
   rename(oldPath: string, newPath: string): void {
@@ -91,6 +114,21 @@ export class LiveIndexer {
     this.merkeLiveAenderung(newPath);
     const v = this.noteVectors.get(oldPath);
     if (v) { this.noteVectors.set(newPath, v); this.noteVectors.delete(oldPath); }
+    const st = this.noteStamps.get(oldPath);
+    if (st) { this.noteStamps.set(newPath, st); this.noteStamps.delete(oldPath); }
+  }
+
+  /** Stempel in Zeilenreihenfolge — oder `undefined`, sobald auch nur eine Zeile keinen hat
+   *  (Begruendung im Feld-Docblock: kein Halb-Zustand). */
+  private stampsFor(paths: string[], quelle?: Map<string, FileStamp>): FileStamp[] | undefined {
+    const q = quelle ?? this.noteStamps;
+    const out: FileStamp[] = [];
+    for (const p of paths) {
+      const st = q.get(p);
+      if (!st) return undefined;
+      out.push(st);
+    }
+    return out;
   }
 
   /** No-op ausserhalb eines Reindex — der Normalfall kostet dann eine Nullpruefung. */
@@ -108,12 +146,23 @@ export class LiveIndexer {
    * Werte stammen dann aus derselben Dateifassung, denn eine weitere Aenderung haette ein
    * weiteres Event erzeugt. Reihenfolge-Tracking waere Aufwand ohne Unterschied.
    */
-  private wendeLiveAenderungenAn(ergebnis: Map<string, Float32Array>): void {
+  private wendeLiveAenderungenAn(
+    ergebnis: Map<string, Float32Array>,
+    stempel?: Map<string, FileStamp>,
+  ): void {
     if (!this.liveWaehrendReindex) return;
     for (const path of this.liveWaehrendReindex) {
       const aktuell = this.noteVectors.get(path);
-      if (aktuell) ergebnis.set(path, aktuell);
-      else ergebnis.delete(path); // remove() oder eine leer gewordene Notiz
+      if (aktuell) {
+        ergebnis.set(path, aktuell);
+        // Vektor und Stempel wandern IMMER zusammen — ein Stempel ohne seinen Vektor (oder
+        // umgekehrt) ist genau die Fehlzuordnung, gegen die der Waechter gebaut wird.
+        const st = this.noteStamps.get(path);
+        if (st) stempel?.set(path, st); else stempel?.delete(path);
+      } else {
+        ergebnis.delete(path); // remove() oder eine leer gewordene Notiz
+        stempel?.delete(path);
+      }
     }
   }
 
@@ -131,8 +180,10 @@ export class LiveIndexer {
     paths: string[],
     read: (p: string) => Promise<string>,
     onProgress?: (done: number, indexed: number, total: number) => void,
+    stampFor?: (p: string) => FileStamp | undefined,
   ): Promise<HealReport> {
     const fresh = new Map<string, Float32Array>();
+    const freshStamps = new Map<string, FileStamp>();
     const report: HealReport = { added: 0, skippedEmpty: [], failed: [] };
     // Etappen-Persist: darf NUR laufen, wenn das Modell auf der Platte zum aktuellen passt.
     // Sonst stuende zwischenzeitlich ein Container aus zwei Vektorraeumen auf der Platte — genau
@@ -146,21 +197,29 @@ export class LiveIndexer {
       for (let i = 0; i < paths.length; i++) {
         try {
           const v = await this.embedNote(await read(paths[i]));
-          if (v) { fresh.set(paths[i], v); report.added++; }
+          if (v) {
+            fresh.set(paths[i], v); report.added++;
+            // Stempel NACH dem Lesen holen: waere er vorher genommen worden und die Notiz
+            // aendert sich dazwischen, stuende ein zu alter Stempel auf einem neuen Vektor —
+            // die Aenderung waere damit fuer immer unsichtbar.
+            const st = stampFor?.(paths[i]);
+            if (st) freshStamps.set(paths[i], st);
+          }
           else report.skippedEmpty.push(paths[i]);
         } catch { report.failed.push(paths[i]); }
         onProgress?.(i + 1, report.added, paths.length);
         if (etappenErlaubt && ++seitLetztem >= CHECKPOINT_EVERY && i < paths.length - 1) {
           seitLetztem = 0;
-          await this.persistCheckpoint(fresh, paths);
+          await this.persistCheckpoint(fresh, freshStamps, paths);
         }
       }
       // Vault-Stand vom ENDE: was waehrend des Laufs hereinkam, gewinnt gegen den Snapshot.
-      this.wendeLiveAenderungenAn(fresh);
+      this.wendeLiveAenderungenAn(fresh, freshStamps);
     } finally {
       this.liveWaehrendReindex = null;
     }
     this.noteVectors = fresh;
+    this.noteStamps = freshStamps;
     this.ready = true;
     return report;
   }
@@ -186,11 +245,24 @@ export class LiveIndexer {
    * entfallen: `persistVectors` bekommt die zu schreibende Map als Argument, `this.noteVectors`
    * wird nie umgehaengt — das Fenster existiert nicht mehr, statt bewacht zu werden.
    */
-  private async persistCheckpoint(fresh: Map<string, Float32Array>, paths: string[]): Promise<void> {
+  private async persistCheckpoint(
+    fresh: Map<string, Float32Array>,
+    freshStamps: Map<string, FileStamp>,
+    paths: string[],
+  ): Promise<void> {
     const gemischt = new Map<string, Float32Array>();
+    const gemischteStempel = new Map<string, FileStamp>();
     for (const p of paths) {
-      const v = fresh.get(p) ?? this.noteVectors.get(p);
-      if (v) gemischt.set(p, v);
+      // Vektor und Stempel IMMER aus derselben Quelle ziehen: eine bereits neu berechnete Zeile
+      // mit dem Stempel ihres vorigen Embeddens zu schreiben waere exakt die Fehlzuordnung,
+      // gegen die der Waechter gebaut ist — er hielte die Zeile dann fuer veraltet, obwohl sie
+      // frisch ist, oder (schlimmer) fuer frisch, weil der alte Stempel zufaellig noch passt.
+      const frisch = fresh.get(p);
+      const v = frisch ?? this.noteVectors.get(p);
+      if (!v) continue;
+      gemischt.set(p, v);
+      const st = frisch ? freshStamps.get(p) : this.noteStamps.get(p);
+      if (st) gemischteStempel.set(p, st);
     }
     // Auch der Zwischenstand ist vollstaendig nur MIT dem, was live hereinkam: sonst fehlten die
     // neuen Notizen bis zum Lauf-Ende auf der Platte — und beim Abbruch dauerhaft.
@@ -201,9 +273,9 @@ export class LiveIndexer {
     // Reihenfolge ist unbestimmt. Seit der Zwischenstand die Live-Aenderungen mittraegt, ist sie
     // auch egal: schreibt der Live-Persist zuletzt, gewinnt sein Stand; schreibt der Checkpoint
     // zuletzt, enthaelt er denselben. Vorher war „Checkpoint zuletzt" ein stiller Verlust.
-    this.wendeLiveAenderungenAn(gemischt);
+    this.wendeLiveAenderungenAn(gemischt, gemischteStempel);
     try {
-      await this.persistVectors(gemischt, "reindex");
+      await this.persistVectors(gemischt, "reindex", undefined, gemischteStempel);
     } catch (e) {
       console.warn("vault-rag: Zwischenstand konnte nicht geschrieben werden - Lauf geht weiter", e);
     }
@@ -231,12 +303,17 @@ export class LiveIndexer {
     missing: string[],
     read: (p: string) => Promise<string>,
     onProgress?: (done: number, indexed: number, total: number) => void,
+    stampFor?: (p: string) => FileStamp | undefined,
   ): Promise<HealReport> {
     const report: HealReport = { added: 0, skippedEmpty: [], failed: [] };
     for (let i = 0; i < missing.length; i++) {
       try {
         const v = await this.embedNote(await read(missing[i]));
-        if (v) { this.noteVectors.set(missing[i], v); report.added++; }
+        if (v) {
+          this.noteVectors.set(missing[i], v); report.added++;
+          const st = stampFor?.(missing[i]);
+          if (st) this.noteStamps.set(missing[i], st);
+        }
         else report.skippedEmpty.push(missing[i]);
       } catch { report.failed.push(missing[i]); }
       onProgress?.(i + 1, report.added, missing.length);
@@ -283,7 +360,12 @@ export class LiveIndexer {
    * fuer Loch B (s. dort). Wer eine Map schreiben will, die nicht der aktuelle Stand ist, nimmt
    * diese Methode — er haengt nichts um.
    */
-  private async persistVectors(vectors: Map<string, Float32Array>, reason: PersistReason, stampModel?: string): Promise<void> {
+  private async persistVectors(
+    vectors: Map<string, Float32Array>,
+    reason: PersistReason,
+    stampModel?: string,
+    stamps?: Map<string, FileStamp>,
+  ): Promise<void> {
     const nextCount = vectors.size;
     if (!this.ready && reason === "live") {
       throw new PersistBlockedError("not-ready", "Persist verweigert: Index ist nicht initialisiert (Load-Fehler) — der gute Index auf Platte bleibt erhalten.");
@@ -344,7 +426,8 @@ export class LiveIndexer {
       built_at: new Date().toISOString(),
     };
     // EIN Container statt drei Dateien — Sync kann keine Generationen mehr mischen (Spec 2026-07-29).
-    await this.adapter.writeBinary(`${this.indexDir}/${CONTAINER_FILE}`, encodeContainer(manifest, paths, new Uint8Array(i8.buffer)));
+    await this.adapter.writeBinary(`${this.indexDir}/${CONTAINER_FILE}`,
+      encodeContainer(manifest, paths, new Uint8Array(i8.buffer), this.stampsFor(paths, stamps)));
     this.ready = true;
   }
 

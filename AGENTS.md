@@ -609,8 +609,21 @@ gar nicht bis in die Oberfläche schafft.
   ~79 % der Notizen lieferten damit die Ähnlichkeit einer fremden Notiz. **Kein bestehender
   Wächter konnte das sehen:** CRC32 deckt Header+Payload gemeinsam ab und beglaubigt den
   Fehlstand mit, `count == len(paths)` stimmt, der Byte-Guard stimmt, `status()` meldet
-  `indexed: true` — und die Scores sahen mit 0.85–0.92 *vertrauenswürdiger* aus als bei einem
-  gesunden Index (Median dort ~0.4). Die Trennung war scharf: jede seit Ende Juli angefasste
+  `indexed: true` — und die Scores sahen mit 0.85–0.92 *vertrauenswürdiger* aus, statt
+  aufzufallen (gemessen über `api.related()`, Notiz-gegen-Notiz).
+  ⚠️ **Hier stand bis 2026-09-04 „…als bei einem gesunden Index (Median dort ~0.4)". Diese
+  Vergleichszahl ist ersatzlos gestrichen: sie hatte im ganzen Workspace keine Quelle** — keine
+  Messung, keine Stichprobe, kein Aufrufweg, nur diesen Satz. Sie ist trotzdem gewandert: die
+  koda-agent-Session übernahm sie am 2026-09-03 als Erwartungswert, maß dagegen und deutete das
+  Ergebnis — bis auffiel, dass unklar war, ob die 0.4 aus `search()` (Query-gegen-Notiz) oder
+  `related()` (Notiz-gegen-Notiz) stammte. Zwischen beiden ist sie nicht vergleichbar, die
+  Deutung war damit gegenstandslos und kostete einen Lauf. **Merksatz von dort: ein Score ohne
+  dokumentierten Aufrufweg ist keine Skala.**
+  **Was stattdessen trägt, ist der RANG:** „findet sich eine Notiz über ihren eigenen Wortlaut
+  auf Rang 0?" hat den Sollwert 0 — unabhängig von Modell, Aufrufweg und Notizklasse. Genau so
+  misst `scripts/index-probe.ts`, und der Selbstfindungs-Prüfpunkt im GUI-Smoke ebenso. Wer hier
+  eine neue Zahl notiert, schreibt den Aufrufweg dazu **oder** notiert einen Rang.
+  Die Trennung war scharf: jede seit Ende Juli angefasste
   Notiz war korrekt (13/15), keine ältere (0/55) — Live-Updates heilen punktuell, weil sie unter
   dem richtigen Key neu schreiben.
   **Zeitlich fällt das mit der Container-Migration (0.18.0) zusammen:** die byte-level Übernahme

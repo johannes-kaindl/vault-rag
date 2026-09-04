@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Ein Voll-Reindex bildet den Vault jetzt so ab, wie er beim ABSCHLUSS aussieht — nicht wie
+  beim Start.** `reindexAll` arbeitet eine beim Start gesnapshottete Pfadliste ab und ersetzte
+  am Ende den ganzen Bestand; alles, was während des Laufs hereinkam, fiel dabei heraus. Am
+  2026-09-04 in drei Ausprägungen gemessen: eine **neu angelegte** Notiz fehlte danach, eine
+  **geänderte** behielt den beim Lauf gelesenen (also älteren) Vektor, eine **gelöschte** kam
+  zurück. Live-Handler zeichnen ihre Pfade während eines Laufs jetzt mit; beim Abschluss und bei
+  jedem Zwischenstand gewinnt der Live-Stand gegen den Snapshot.
+  ⚠️ Der Fall „geänderte Notiz" war der gefährliche, weil **stumm**: der Pfad steht im Index, nur
+  der Vektor ist veraltet — `diffIndexVsVault` ist mengenbasiert und sieht das nie,
+  `computeIndexDelta` meldet „vollständig", `status()` weiter `indexed: true`. Er heilte sich
+  weder von selbst noch über „Index vervollständigen", sondern erst beim nächsten Voll-Reindex.
+- **Ein Live-Update während des Schreibens eines Zwischenstands geht nicht mehr verloren.**
+  `persistCheckpoint` hängte `this.noteVectors` für die Dauer des Schreibvorgangs auf eine
+  temporäre Map um und stellte danach den alten Stand wieder her. Weil dazwischen `await`
+  steht und der Reindex **nicht** unter dem Live-Mutex (`runIndexOp`) läuft, schrieb ein
+  gleichzeitiges `handleModify` in genau die Map, die unmittelbar darauf verworfen wurde.
+  Das Umhängen ist ersatzlos entfallen — die zu schreibende Map wird jetzt als Argument
+  übergeben (`persistVectors`), das Zeitfenster existiert nicht mehr, statt bewacht zu werden.
+
 ## [0.29.1] — 2026-09-03
 
 ### Changed

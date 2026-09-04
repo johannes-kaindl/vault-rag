@@ -28,6 +28,26 @@ export class LiveIndexer {
   private noteVectors = new Map<string, Float32Array>();
   private loadedManifest: IndexManifest | null = null;
   private ready = false;
+  /**
+   * Pfade, die WAEHREND eines laufenden `reindexAll` von einem Live-Handler beruehrt wurden
+   * (update/remove/rename). `null`, solange kein Reindex laeuft.
+   *
+   * Warum ein Mitschrieb noetig ist: `reindexAll` arbeitet eine beim Start gesnapshottete
+   * Pfadliste ab und ersetzt am Ende den ganzen Bestand. Ohne diese Liste faellt alles heraus,
+   * was erst waehrend des Laufs entsteht oder sich aendert — der Index bildete dann den Vault
+   * vom START ab. Entscheidung vom 2026-09-04: er bildet ihn vom ENDE ab.
+   *
+   * Gespeichert werden nur die PFADE, nicht die Vektoren: nachgeschlagen wird beim Anwenden in
+   * `this.noteVectors`, und das ist zu jedem Zeitpunkt der aktuellste Stand. Ein Pfad, der dort
+   * fehlt, war ein `remove` und wird entsprechend aus dem Ergebnis entfernt.
+   *
+   * ⓘ Bekannte Grenze, unveraendert gegenueber vorher: ZWEI gleichzeitig laufende `reindexAll`
+   * teilen sich dieses Feld, und der zweite raeumt es im `finally` fuer beide ab. Das ist keine
+   * neue Schwaeche — schon vorher gewann bei parallelen Laeufen schlicht der letzte mit seinem
+   * eigenen `fresh`. Wer das schliessen will, serialisiert den Reindex (er laeuft heute nicht
+   * unter `runIndexOp`), nicht dieses Feld.
+   */
+  private liveWaehrendReindex: Set<string> | null = null;
 
   constructor(
     private adapter: VaultAdapter,
@@ -55,16 +75,46 @@ export class LiveIndexer {
 
   async update(path: string, content: string): Promise<UpdateResult> {
     const v = await this.embedNote(content);
+    this.merkeLiveAenderung(path);
     if (v) { this.noteVectors.set(path, v); return "indexed"; }
     this.noteVectors.delete(path);
     return "empty";
   }
 
-  remove(path: string): void { this.noteVectors.delete(path); }
+  remove(path: string): void {
+    this.merkeLiveAenderung(path);
+    this.noteVectors.delete(path);
+  }
 
   rename(oldPath: string, newPath: string): void {
+    this.merkeLiveAenderung(oldPath);
+    this.merkeLiveAenderung(newPath);
     const v = this.noteVectors.get(oldPath);
     if (v) { this.noteVectors.set(newPath, v); this.noteVectors.delete(oldPath); }
+  }
+
+  /** No-op ausserhalb eines Reindex — der Normalfall kostet dann eine Nullpruefung. */
+  private merkeLiveAenderung(path: string): void {
+    this.liveWaehrendReindex?.add(path);
+  }
+
+  /**
+   * Traegt die waehrend des Laufs live geaenderten Pfade in ein Reindex-Ergebnis nach.
+   * Der Live-Stand gewinnt: er stammt aus einem `modify`-Event, das der Nutzer ausgeloest hat,
+   * waehrend der Reindex-Wert aus einem Lesevorgang stammt, der vor diesem Event lag.
+   *
+   * ⓘ Der Grenzfall, in dem der Reindex-Lesevorgang der juengere ist (Debounce: Event um 10:03,
+   * Zustellung um 10:06, Lesevorgang dazwischen um 10:05), ist bewusst nicht behandelt — beide
+   * Werte stammen dann aus derselben Dateifassung, denn eine weitere Aenderung haette ein
+   * weiteres Event erzeugt. Reihenfolge-Tracking waere Aufwand ohne Unterschied.
+   */
+  private wendeLiveAenderungenAn(ergebnis: Map<string, Float32Array>): void {
+    if (!this.liveWaehrendReindex) return;
+    for (const path of this.liveWaehrendReindex) {
+      const aktuell = this.noteVectors.get(path);
+      if (aktuell) ergebnis.set(path, aktuell);
+      else ergebnis.delete(path); // remove() oder eine leer gewordene Notiz
+    }
   }
 
   get noteCount(): number { return this.noteVectors.size; }
@@ -90,17 +140,25 @@ export class LiveIndexer {
     // bewusst NICHT geprueft wird (ein Voll-Ersatz konnte bisher nicht mischen).
     const etappenErlaubt = await this.checkpointsAllowed();
     let seitLetztem = 0;
-    for (let i = 0; i < paths.length; i++) {
-      try {
-        const v = await this.embedNote(await read(paths[i]));
-        if (v) { fresh.set(paths[i], v); report.added++; }
-        else report.skippedEmpty.push(paths[i]);
-      } catch { report.failed.push(paths[i]); }
-      onProgress?.(i + 1, report.added, paths.length);
-      if (etappenErlaubt && ++seitLetztem >= CHECKPOINT_EVERY && i < paths.length - 1) {
-        seitLetztem = 0;
-        await this.persistCheckpoint(fresh, paths);
+    // Ab hier zeichnen die Live-Handler ihre Pfade mit (s. Feld-Docblock).
+    this.liveWaehrendReindex = new Set();
+    try {
+      for (let i = 0; i < paths.length; i++) {
+        try {
+          const v = await this.embedNote(await read(paths[i]));
+          if (v) { fresh.set(paths[i], v); report.added++; }
+          else report.skippedEmpty.push(paths[i]);
+        } catch { report.failed.push(paths[i]); }
+        onProgress?.(i + 1, report.added, paths.length);
+        if (etappenErlaubt && ++seitLetztem >= CHECKPOINT_EVERY && i < paths.length - 1) {
+          seitLetztem = 0;
+          await this.persistCheckpoint(fresh, paths);
+        }
       }
+      // Vault-Stand vom ENDE: was waehrend des Laufs hereinkam, gewinnt gegen den Snapshot.
+      this.wendeLiveAenderungenAn(fresh);
+    } finally {
+      this.liveWaehrendReindex = null;
     }
     this.noteVectors = fresh;
     this.ready = true;
@@ -120,6 +178,13 @@ export class LiveIndexer {
    *
    * Ein Fehlschlag hier bricht den Lauf NICHT ab: der Zwischenstand ist eine Zugabe, nicht die
    * Zusage. Er wird gemeldet, der Lauf geht weiter.
+   *
+   * ⚠️ Diese Methode tauschte bis 2026-09-04 `this.noteVectors` gegen `gemischt` aus und stellte
+   * den alten Stand im `finally` wieder her. Weil `persist` dazwischen awaitet und `reindexAll`
+   * NICHT unter `runIndexOp` laeuft, schrieb ein Live-Update in genau diesem Fenster in eine Map,
+   * die unmittelbar darauf verworfen wurde (gemessen, Loch B). Der Swap ist deshalb ersatzlos
+   * entfallen: `persistVectors` bekommt die zu schreibende Map als Argument, `this.noteVectors`
+   * wird nie umgehaengt — das Fenster existiert nicht mehr, statt bewacht zu werden.
    */
   private async persistCheckpoint(fresh: Map<string, Float32Array>, paths: string[]): Promise<void> {
     const gemischt = new Map<string, Float32Array>();
@@ -127,14 +192,13 @@ export class LiveIndexer {
       const v = fresh.get(p) ?? this.noteVectors.get(p);
       if (v) gemischt.set(p, v);
     }
-    const bisher = this.noteVectors;
-    this.noteVectors = gemischt;
+    // Auch der Zwischenstand ist vollstaendig nur MIT dem, was live hereinkam: sonst fehlten die
+    // neuen Notizen bis zum Lauf-Ende auf der Platte — und beim Abbruch dauerhaft.
+    this.wendeLiveAenderungenAn(gemischt);
     try {
-      await this.persist("reindex");
+      await this.persistVectors(gemischt, "reindex");
     } catch (e) {
       console.warn("vault-rag: Zwischenstand konnte nicht geschrieben werden - Lauf geht weiter", e);
-    } finally {
-      this.noteVectors = bisher;
     }
   }
 
@@ -202,7 +266,18 @@ export class LiveIndexer {
    *   setzen, entwaffnete den Modell-Guard beim nächsten Live-Persist.
    */
   async persist(reason: PersistReason = "live", stampModel?: string): Promise<void> {
-    const nextCount = this.noteVectors.size;
+    return this.persistVectors(this.noteVectors, reason, stampModel);
+  }
+
+  /**
+   * Schreibt eine BELIEBIGE Vektor-Map als Container. Der Umweg ueber ein Argument statt ueber
+   * `this.noteVectors` existiert wegen `persistCheckpoint`: dort ist die zu schreibende Map eine
+   * andere als der In-Memory-Stand, und sie dafuer kurzzeitig ins Feld zu haengen war der Grund
+   * fuer Loch B (s. dort). Wer eine Map schreiben will, die nicht der aktuelle Stand ist, nimmt
+   * diese Methode — er haengt nichts um.
+   */
+  private async persistVectors(vectors: Map<string, Float32Array>, reason: PersistReason, stampModel?: string): Promise<void> {
+    const nextCount = vectors.size;
     if (!this.ready && reason === "live") {
       throw new PersistBlockedError("not-ready", "Persist verweigert: Index ist nicht initialisiert (Load-Fehler) — der gute Index auf Platte bleibt erhalten.");
     }
@@ -234,11 +309,11 @@ export class LiveIndexer {
         }
       }
     }
-    const paths = [...this.noteVectors.keys()].sort();
+    const paths = [...vectors.keys()].sort();
     const n = paths.length;
     const i8 = new Int8Array(n * INDEX_DIM);
     for (let r = 0; r < n; r++) {
-      const v = this.noteVectors.get(paths[r])!;
+      const v = vectors.get(paths[r])!;
       for (let c = 0; c < INDEX_DIM; c++) {
         i8[r * INDEX_DIM + c] = Math.max(-INT8_SCALE, Math.min(INT8_SCALE, Math.round((v[c] ?? 0) * INT8_SCALE)));
       }

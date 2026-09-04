@@ -36,6 +36,21 @@ function makeEmbedder(vec?: number[]): EmbeddingClient {
   } as unknown as EmbeddingClient;
 }
 
+/** Embedder, dessen Vektor vom INHALT abhaengt — noetig, wo „alter vs. neuer Vektor derselben
+ *  Notiz" unterschieden werden muss (`makeEmbedder` liefert fuer jeden Inhalt denselben). */
+function inhaltsEmbedder(): EmbeddingClient {
+  return {
+    ping: vi.fn().mockResolvedValue(true),
+    embed: vi.fn(async (texts: string[]) => {
+      let h = 0;
+      for (const ch of texts.join("")) h = (h * 31 + ch.charCodeAt(0)) % (DIM - 1);
+      const v = new Float32Array(DIM);
+      v[h + 1] = 1;
+      return [v];
+    }),
+  } as unknown as EmbeddingClient;
+}
+
 function emptyIndex(): VaultIndex {
   const manifest = { schema_version: 1, embedding_model: "qwen3-embedding:8b", index_dim: DIM, scale: SCALE, count: 0, granularity: "note", quant: "int8" };
   return parseIndex(manifest, [], new ArrayBuffer(0));
@@ -330,6 +345,116 @@ describe("LiveIndexer", () => {
       expect(indexer.noteCount).toBe(1);
       const idx = indexer.buildIndex();
       expect(idx.paths).toEqual(["neu.md"]);
+    });
+
+    // --- Vault-Stand vom ENDE (2026-09-04) ---------------------------------------------
+    // Entscheidung: ein Voll-Reindex bildet den Vault ab, wie er beim ABSCHLUSS aussieht, nicht
+    // wie er beim Start aussah. `paths` ist ein Snapshot; alles, was waehrend des Laufs live
+    // hereinkommt, muss den Lauf ueberleben statt von `this.noteVectors = fresh` verworfen zu
+    // werden. Gemessen am 2026-09-04 (Task „Live-Update waehrend eines Reindex geht verloren").
+
+    it("eine WAEHREND des Laufs neu angelegte Notiz ueberlebt den Reindex", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      indexer.init(oneNoteIndex("alt.md"));
+      const read = async (p: string) => {
+        // Live-Event mitten im Lauf: die Notiz steht NICHT im Start-Snapshot.
+        if (p === "zwei.md") await indexer.update("waehrenddessen-neu.md", "# Neu\nangelegt waehrend des Laufs");
+        return `# ${p}\nInhalt`;
+      };
+
+      await indexer.reindexAll(["alt.md", "zwei.md"], read);
+
+      expect(indexer.buildIndex().rowFor("waehrenddessen-neu.md")).not.toBe(-1);
+    });
+
+    it("eine WAEHREND des Laufs geaenderte Notiz behaelt ihren NEUEN Vektor, nicht den beim Lauf gelesenen", async () => {
+      // Der stumme Fall: der Pfad ist im Index, nur der Vektor ist veraltet. `diffIndexVsVault`
+      // ist mengenbasiert und sieht das nie — deshalb muss es hier stimmen.
+      const adapter = makeAdapter();
+      const indexer = new LiveIndexer(adapter, "_vaultrag", inhaltsEmbedder(), "qwen3-embedding:8b");
+      indexer.init(oneNoteIndex("a.md"));
+      const NEU = "# A\nNEUER INHALT";
+      const read = async (p: string) => {
+        // a.md hat der Lauf schon gelesen; jetzt aendert der Nutzer sie.
+        if (p === "b.md") await indexer.update("a.md", NEU);
+        return `# ${p}\nalter Inhalt`;
+      };
+
+      await indexer.reindexAll(["a.md", "b.md"], read);
+
+      const referenz = new LiveIndexer(makeAdapter(), "_vaultrag", inhaltsEmbedder(), "qwen3-embedding:8b");
+      referenz.markFresh();
+      await referenz.update("a.md", NEU);
+      expect(Array.from(indexer.buildIndex().vectorFor("a.md")!))
+        .toEqual(Array.from(referenz.buildIndex().vectorFor("a.md")!));
+    });
+
+    it("eine WAEHREND des Laufs geloeschte Notiz kommt nicht zurueck", async () => {
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      indexer.init(oneNoteIndex("a.md"));
+      const read = async (p: string) => {
+        if (p === "b.md") indexer.remove("a.md");
+        return `# ${p}\nInhalt`;
+      };
+
+      await indexer.reindexAll(["a.md", "b.md"], read);
+
+      expect(indexer.buildIndex().rowFor("a.md")).toBe(-1);
+    });
+
+    it("ein Live-Update im Checkpoint-Fenster geht nicht verloren", async () => {
+      // Loch B: `persistCheckpoint` tauschte `this.noteVectors` ueber ein await hinweg aus und
+      // stellte im finally den alten Stand wieder her — ein Update in genau diesem Fenster
+      // schrieb in die Map, die gleich darauf weggeworfen wurde.
+      const adapter = makeAdapter();
+      let freigabe: (() => void) | null = null;
+      let angehalten: (() => void) | null = null;
+      const checkpointErreicht = new Promise<void>((res) => { angehalten = res; });
+      const origWriteBinary = adapter.writeBinary;
+      let writes = 0;
+      (adapter as unknown as { writeBinary: unknown }).writeBinary = vi.fn(async (pfad: string, d: ArrayBuffer) => {
+        if (++writes === 1) { angehalten!(); await new Promise<void>((res) => { freigabe = res; }); }
+        return origWriteBinary(pfad, d);
+      });
+
+      const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      indexer.init(oneNoteIndex("bestand.md"));
+
+      // Gemessen wird am ersten read NACH dem Checkpoint — dort ist das Fenster nachweislich
+      // geschlossen, und `this.noteVectors = fresh` (Lauf-Ende) hat noch nicht stattgefunden.
+      // Am Lauf-Ende gemessen wuerde dieser Test den vorigen mitmessen statt Loch B allein.
+      let imSpeicherNachCheckpoint: number | null = null;
+      let reads = 0;
+      const paths = Array.from({ length: 260 }, (_, i) => `n${String(i).padStart(3, "0")}.md`);
+      const lauf = indexer.reindexAll(paths, async (pfad) => {
+        if (++reads === 251 && imSpeicherNachCheckpoint === null) {
+          imSpeicherNachCheckpoint = indexer.buildIndex().rowFor("im-fenster.md");
+        }
+        return `# ${pfad}\nInhalt`;
+      });
+
+      await checkpointErreicht;
+      await indexer.update("im-fenster.md", "# Fenster\nwaehrend des Checkpoint-Writes");
+      freigabe!();
+      await lauf;
+
+      expect(imSpeicherNachCheckpoint).not.toBe(-1);
+      expect(indexer.buildIndex().rowFor("im-fenster.md")).not.toBe(-1);
+    });
+
+    it("GEGENPROBE: ein Update VOR dem Lauf ueberlebt ihn nur, wenn sein Pfad im Snapshot steht", async () => {
+      // Haelt die Grenze fest, die der Vertrag NICHT verschiebt: `reindexAll` bleibt ein
+      // Voll-Ersatz. Eine Notiz, die vor dem Lauf im Index stand, aber nicht in `paths`, ist
+      // danach zu Recht weg (sie existiert im Vault nicht mehr) — sonst waere der Reindex kein
+      // Ersatz mehr und ein geloeschter Pfad kaeme nie aus dem Index.
+      const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+      indexer.markFresh();
+      await indexer.update("verwaist.md", "# Verwaist\nnicht mehr im Vault");
+      expect(indexer.buildIndex().rowFor("verwaist.md")).not.toBe(-1);
+
+      await indexer.reindexAll(["a.md"], async (p) => `# ${p}\nInhalt`);
+
+      expect(indexer.buildIndex().rowFor("verwaist.md")).toBe(-1);
     });
 
     it("leere Notiz wird übersprungen (kein Chunk → noteVectors bleibt leer)", async () => {

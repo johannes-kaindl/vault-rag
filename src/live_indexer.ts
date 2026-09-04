@@ -194,6 +194,13 @@ export class LiveIndexer {
     }
     // Auch der Zwischenstand ist vollstaendig nur MIT dem, was live hereinkam: sonst fehlten die
     // neuen Notizen bis zum Lauf-Ende auf der Platte — und beim Abbruch dauerhaft.
+    //
+    // Nebeneffekt, der hier festgehalten gehoert, weil er einen zweiten Race entschaerft: ein
+    // `handleModify` kann parallel `persist("live")` fahren, also schreiben BEIDE auf dieselbe
+    // Datei. Zerreissen kann das nichts (Obsidians `writeBinary` queued intern), aber die
+    // Reihenfolge ist unbestimmt. Seit der Zwischenstand die Live-Aenderungen mittraegt, ist sie
+    // auch egal: schreibt der Live-Persist zuletzt, gewinnt sein Stand; schreibt der Checkpoint
+    // zuletzt, enthaelt er denselben. Vorher war „Checkpoint zuletzt" ein stiller Verlust.
     this.wendeLiveAenderungenAn(gemischt);
     try {
       await this.persistVectors(gemischt, "reindex");

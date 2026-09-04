@@ -527,16 +527,30 @@ async function main(): Promise<void> {
     // Mutation und Wartephase getrennt (Muster: paperless-storage/scripts/gui-smoke.ts:201):
     // ein `waitFor` IM Renderer liefe gegen den 30-s-Abbruch von `Cdp.send`.
     const WIDE = 560, NARROW = 240;
-    const TAB_ROWS = `
+    // ⚠️ Der Guard `Math.abs(breite - soll) > 8 -> null` ist load-bearing, nicht defensiv:
+    // `pollUntil` kehrt beim ersten TRUTHY Wert zurueck, und ein Objektliteral ist immer truthy.
+    // Ohne ihn misst der Poll den Zustand VOR `setSize` und kehrt sofort damit zurueck — der
+    // Punkt war am 2026-09-04 deshalb rot, mit „560px (ist 300px) / 240px (ist 300px)": zweimal
+    // dieselbe Breite, also eine Mutation, die nie ankam. Isoliert nachgemessen liefert dasselbe
+    // Plugin 560px -> 1 Zeile und 240px -> 2 Zeilen, der Punkt ist also inhaltlich gruen.
+    // (Verwandt und schon bekannt: eine EINGEKLAPPTE Sidebar ignoriert `setSize` ganz — der
+    // Guard faengt jetzt beide Faelle, statt nur den einen zu kommentieren.)
+    const TAB_ROWS = (soll: number): string => `
+      const root = document.querySelector(".okit-hub-root");
+      if (!root) return null;
+      const breite = Math.round(root.getBoundingClientRect().width);
+      if (Math.abs(breite - ${soll}) > 8) return null;   // Mutation noch nicht angekommen
       const tabs = [...document.querySelectorAll(".okit-hub-tab")];
       const boxen = tabs.map(t => t.getBoundingClientRect());
       return { zeilen: new Set(boxen.map(b => Math.round(b.top))).size,
                ueberlauf: boxen.some(b => b.right > document.querySelector(".okit-hub-tabs").getBoundingClientRect().right + 1),
-               breite: Math.round(document.querySelector(".okit-hub-root").getBoundingClientRect().width) };
+               breite };
     `;
     const rowsAfter = async (px: number): Promise<{ zeilen: number; ueberlauf: boolean; breite: number }> => {
       await main.evaluate(`app.workspace.rightSplit.setSize(${px}); return true;`);
-      const r = await pollUntil<{ zeilen: number; ueberlauf: boolean; breite: number }>(main, TAB_ROWS, 5000, 200);
+      const r = await pollUntil<{ zeilen: number; ueberlauf: boolean; breite: number }>(main, TAB_ROWS(px), 5000, 200);
+      // Kommt hier null zurueck, ist die Breite nie angekommen. Die 0 im Detailtext ist dann das
+      // Signal „Mutation wirkungslos" — nicht „Hub ist 0 breit" (CORE-TEST-14).
       return r ?? { zeilen: 0, ueberlauf: false, breite: 0 };
     };
     // Der Hub kann vom Nutzer auch links oder im Hauptbereich liegen — dann greift setSize

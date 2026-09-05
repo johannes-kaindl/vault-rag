@@ -314,6 +314,19 @@ export default class VaultRagPlugin extends Plugin {
       callback: () => void this.reindexVault(),
     });
 
+    // Bewusst `callback` und nicht `checkCallback`: ein Command, der aus der Palette VERSCHWINDET,
+    // sieht fuer den Nutzer aus, als gaebe es die Funktion nicht (dokumentierte Gotcha dieses
+    // Repos am `editorCallback`). Er bleibt auffindbar und erklaert per Notice, warum er gerade
+    // nichts tut — die Frage „kann ich das ueberhaupt abbrechen?" beantwortet man nur so.
+    this.addCommand({
+      id: "cancel-reindex",
+      name: t("command.cancelReindex"),
+      callback: () => {
+        if (this.embeddingProgress.reindex === null) { new Notice(t("main.noReindexRunning")); return; }
+        this.liveIndexer.cancelReindex();
+      },
+    });
+
     this.addCommand({
       id: "heal-index",
       name: t("command.healIndex"),
@@ -1317,6 +1330,17 @@ export default class VaultRagPlugin extends Plugin {
     return f instanceof TFile ? [f.stat.mtime, f.stat.size] : undefined;
   }
 
+  /**
+   * Ein `disablePlugin` beendet einen laufenden `reindexAll` NICHT von selbst: der Promise
+   * lebt weiter, arbeitet seine Pfadliste ab, belegt den Embedding-Endpunkt und schreibt am
+   * Ende seinen Container — in ein Plugin hinein, das es nicht mehr gibt. Der Abbruchwunsch
+   * beendet ihn an der naechsten Gruppengrenze; der bis dahin erreichte Stand ist vollstaendig
+   * und wird geschrieben.
+   */
+  onunload(): void {
+    this.liveIndexer?.cancelReindex();
+  }
+
   async reindexVault(): Promise<void> {
     if (!(await this.embedderReady())) {
       new Notice(t("main.embeddingUnreachableIndexAborted"));
@@ -1343,14 +1367,20 @@ export default class VaultRagPlugin extends Plugin {
         },
         (p) => this.stampOf(p),
       );
-      // Voll-Reindex hat den ganzen Vault gelesen → frischeste Leer-Klassifikation.
-      this.emptyNotePaths = new Set(report.skippedEmpty);
+      // Voll-Reindex hat den ganzen Vault gelesen → frischeste Leer-Klassifikation. Nach einem
+      // ABBRUCH gilt das nicht: `skippedEmpty` kennt dann nur die bis dahin gesehenen leeren
+      // Notizen, und ein Ersetzen wuerfe alle uebrigen bekannten Leeren weg — sie erschienen
+      // danach als Phantom-Defizit in der Delta-Anzeige. Bei Abbruch wird deshalb ergaenzt.
+      if (report.cancelled) for (const p of report.skippedEmpty) this.emptyNotePaths.add(p);
+      else this.emptyNotePaths = new Set(report.skippedEmpty);
       this.index = this.liveIndexer.buildIndex();
       await this.liveIndexer.persist("reindex");
       this.indexHealthy = true;
       this.refresh();
       void this.snapshotIndex();
-      notice.setMessage(t("main.indexingComplete", report.added));
+      notice.setMessage(report.cancelled
+        ? t("main.indexingCancelled", report.added, total)
+        : t("main.indexingComplete", report.added));
     } catch (e) {
       console.warn("vault-rag: reindexVault failed", e);
       notice.setMessage(this.persistBlockedMessage(e, t("main.indexingFailed")));

@@ -85,6 +85,8 @@ export const EN = {
   "main.indexingProgress": "Indexing vault… {0}/{1}",
   "main.indexingComplete": "Vault indexed: {0} notes.",
   "main.indexingFailed": "Vault indexing failed.",
+  "main.indexingCancelled": "Indexing stopped: {0} of {1} notes were rebuilt. The index stays complete — the rest keeps its previous vectors.",
+  "main.noReindexRunning": "No vault indexing is running right now.",
   "main.embeddingUnreachableHealAborted": "Embedding endpoint unreachable — completion aborted.",
   "main.noSafeBaseIndex": "No safe base index available (not loaded or write-protected) — please use \"Restore from backup\" or \"Reindex vault\".",
   "main.healAbortedIndexUnreadable": "Completion aborted: the index on disk is currently unreadable (sync running or container damaged) — please try again later or restore from a backup.",
@@ -124,6 +126,7 @@ export const EN = {
 
   // main.ts commands (command palette)
   "command.reindexVault": "Reindex vault",
+  "command.cancelReindex": "Stop reindexing the vault",
   "command.healIndex": "Complete index (missing notes)",
   "command.restoreBackup": "Restore index from backup",
   "command.openRelated": "Open related notes",
@@ -547,6 +550,8 @@ export const DE = {
   "main.indexingProgress": "Indiziere Vault… {0}/{1}",
   "main.indexingComplete": "Vault indiziert: {0} Notizen.",
   "main.indexingFailed": "Vault-Indizierung fehlgeschlagen.",
+  "main.indexingCancelled": "Indizierung gestoppt: {0} von {1} Notizen wurden neu berechnet. Der Index bleibt vollständig — der Rest behält seine bisherigen Vektoren.",
+  "main.noReindexRunning": "Gerade läuft keine Vault-Indizierung.",
   "main.embeddingUnreachableHealAborted": "Embedding-Endpoint nicht erreichbar — Vervollständigen abgebrochen.",
   "main.noSafeBaseIndex": "Kein sicherer Basis-Index verfügbar (nicht geladen oder Schreibschutz) — bitte „Aus Backup wiederherstellen\" oder „Vault neu indizieren\".",
   "main.healAbortedIndexUnreadable": "Vervollständigen abgebrochen: Der Index auf Platte ist gerade nicht lesbar (Sync läuft oder Container beschädigt) — bitte später erneut versuchen oder aus einem Backup wiederherstellen.",
@@ -585,6 +590,7 @@ export const DE = {
   "chatSession.emptyResponse": "Leere Antwort vom Chat-LLM — Endpoint/Modell in den Settings prüfen.",
 
   "command.reindexVault": "Vault neu indizieren",
+  "command.cancelReindex": "Vault-Indizierung stoppen",
   "command.healIndex": "Index vervollständigen (fehlende Notizen)",
   "command.restoreBackup": "Index aus Backup wiederherstellen",
   "command.openRelated": "Verwandte Notizen öffnen",

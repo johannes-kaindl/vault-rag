@@ -24,6 +24,9 @@ export interface HealReport {
   added: number;
   skippedEmpty: string[];
   failed: string[];
+  /** Der Lauf wurde vorzeitig beendet (`cancelReindex`). `added`/`skippedEmpty`/`failed` zaehlen
+   *  dann nur, was bis dahin bearbeitet wurde — der Index selbst bleibt trotzdem vollstaendig. */
+  cancelled: boolean;
 }
 
 /** Klassifikation eines Live-Updates: "empty" = Notiz ist chunk-los und wurde aus dem
@@ -72,6 +75,23 @@ export class LiveIndexer {
    * unter `runIndexOp`), nicht dieses Feld.
    */
   private liveWaehrendReindex: Set<string> | null = null;
+
+  /** Abbruchwunsch fuer den laufenden `reindexAll`. Wird beim Start jedes Laufs zurueckgesetzt —
+   *  bliebe er stehen, wuergte er den NAECHSTEN Lauf sofort ab, und zwar ohne Fehler, mit einem
+   *  Report, der wie ein Ergebnis aussieht. */
+  private abbruchGewuenscht = false;
+
+  /**
+   * Bittet den laufenden Voll-Reindex, an der naechsten Gruppengrenze aufzuhoeren. Kein
+   * `AbortController`: abgebrochen wird nicht die einzelne Embedding-Anfrage, sondern die
+   * Schleife — eine bereits laufende Anfrage laeuft zu Ende, damit ihre Vektoren nicht verfallen.
+   *
+   * Verpufft, wenn gerade kein Lauf aktiv ist (`liveWaehrendReindex` ist genau waehrend eines
+   * Laufs gesetzt). Sonst laege der Wunsch bis zum naechsten Reindex und schluege dort zu.
+   */
+  cancelReindex(): void {
+    if (this.liveWaehrendReindex !== null) this.abbruchGewuenscht = true;
+  }
 
   constructor(
     private adapter: VaultAdapter,
@@ -204,9 +224,9 @@ export class LiveIndexer {
     onProgress?: (done: number, indexed: number, total: number) => void,
     stampFor?: (p: string) => FileStamp | undefined,
   ): Promise<HealReport> {
-    const fresh = new Map<string, Float32Array>();
-    const freshStamps = new Map<string, FileStamp>();
-    const report: HealReport = { added: 0, skippedEmpty: [], failed: [] };
+    let fresh = new Map<string, Float32Array>();
+    let freshStamps = new Map<string, FileStamp>();
+    const report: HealReport = { added: 0, skippedEmpty: [], failed: [], cancelled: false };
     // Etappen-Persist: darf NUR laufen, wenn das Modell auf der Platte zum aktuellen passt.
     // Sonst stuende zwischenzeitlich ein Container aus zwei Vektorraeumen auf der Platte — genau
     // der Schaden, den `assertModelSafeToPersist` sonst verhindert und der bei reason="reindex"
@@ -215,10 +235,15 @@ export class LiveIndexer {
     let seitLetztem = 0;
     // Ab hier zeichnen die Live-Handler ihre Pfade mit (s. Feld-Docblock).
     this.liveWaehrendReindex = new Set();
+    this.abbruchGewuenscht = false;
     try {
       let erledigt = 0;
       let i = 0;
       while (i < paths.length) {
+        // Abbruch NUR an der Gruppengrenze: mittendrin waeren die Vektoren einer bereits
+        // laufenden Anfrage verloren, und der Zwischenstand muesste eine halb gefuellte Gruppe
+        // verwerfen. Hier ist der Zustand konsistent — alles vor `i` ist entschieden.
+        if (this.abbruchGewuenscht) { report.cancelled = true; break; }
         // (a) Gruppe fuellen: lesen + chunken, bis EMBED_BATCH Chunks beisammen sind. Eine
         //     einzelne Notiz darf die Grenze ueberschreiten — `embed` teilt intern weiter.
         const gruppe: { path: string; chunks: string[]; stamp: FileStamp | undefined }[] = [];
@@ -286,8 +311,23 @@ export class LiveIndexer {
       }
       // Vault-Stand vom ENDE: was waehrend des Laufs hereinkam, gewinnt gegen den Snapshot.
       this.wendeLiveAenderungenAn(fresh, freshStamps);
+      if (report.cancelled) {
+        // Ein Abbruch darf NICHTS kosten: `fresh` traegt nur die bereits erreichten Notizen, und
+        // `this.noteVectors = fresh` liesse den Index von Tausenden auf eine Handvoll schrumpfen.
+        // Uebernommen wird deshalb dieselbe Mischung, die auch ein Zwischenstand schreibt —
+        // neu berechnete Zeilen plus die noch nicht erreichten aus dem bisherigen Bestand.
+        const [gemischt, gemischteStempel] = this.mischeMitBestand(fresh, freshStamps, paths);
+        try {
+          await this.persistVectors(gemischt, "reindex", undefined, gemischteStempel);
+        } catch (e) {
+          console.warn("vault-rag: Stand nach Abbruch konnte nicht geschrieben werden", e);
+        }
+        fresh = gemischt;
+        freshStamps = gemischteStempel;
+      }
     } finally {
       this.liveWaehrendReindex = null;
+      this.abbruchGewuenscht = false;
     }
     this.noteVectors = fresh;
     this.noteStamps = freshStamps;
@@ -316,18 +356,24 @@ export class LiveIndexer {
    * entfallen: `persistVectors` bekommt die zu schreibende Map als Argument, `this.noteVectors`
    * wird nie umgehaengt — das Fenster existiert nicht mehr, statt bewacht zu werden.
    */
-  private async persistCheckpoint(
+  /**
+   * Neu berechnete Zeilen plus die noch nicht erreichten aus dem bisherigen Bestand — der
+   * vollstaendige Stand zu einem beliebigen Zeitpunkt eines Laufs. Wird von zwei Stellen
+   * gebraucht: vom Zwischenstand alle CHECKPOINT_EVERY Notizen und vom Abbruch.
+   *
+   * Vektor und Stempel kommen IMMER aus derselben Quelle: eine bereits neu berechnete Zeile mit
+   * dem Stempel ihres vorigen Embeddens zu schreiben waere exakt die Fehlzuordnung, gegen die
+   * der Waechter gebaut ist — er hielte die Zeile dann fuer veraltet, obwohl sie frisch ist,
+   * oder (schlimmer) fuer frisch, weil der alte Stempel zufaellig noch passt.
+   */
+  private mischeMitBestand(
     fresh: Map<string, Float32Array>,
     freshStamps: Map<string, FileStamp>,
     paths: string[],
-  ): Promise<void> {
+  ): [Map<string, Float32Array>, Map<string, FileStamp>] {
     const gemischt = new Map<string, Float32Array>();
     const gemischteStempel = new Map<string, FileStamp>();
     for (const p of paths) {
-      // Vektor und Stempel IMMER aus derselben Quelle ziehen: eine bereits neu berechnete Zeile
-      // mit dem Stempel ihres vorigen Embeddens zu schreiben waere exakt die Fehlzuordnung,
-      // gegen die der Waechter gebaut ist — er hielte die Zeile dann fuer veraltet, obwohl sie
-      // frisch ist, oder (schlimmer) fuer frisch, weil der alte Stempel zufaellig noch passt.
       const frisch = fresh.get(p);
       const v = frisch ?? this.noteVectors.get(p);
       if (!v) continue;
@@ -335,6 +381,15 @@ export class LiveIndexer {
       const st = frisch ? freshStamps.get(p) : this.noteStamps.get(p);
       if (st) gemischteStempel.set(p, st);
     }
+    return [gemischt, gemischteStempel];
+  }
+
+  private async persistCheckpoint(
+    fresh: Map<string, Float32Array>,
+    freshStamps: Map<string, FileStamp>,
+    paths: string[],
+  ): Promise<void> {
+    const [gemischt, gemischteStempel] = this.mischeMitBestand(fresh, freshStamps, paths);
     // Auch der Zwischenstand ist vollstaendig nur MIT dem, was live hereinkam: sonst fehlten die
     // neuen Notizen bis zum Lauf-Ende auf der Platte — und beim Abbruch dauerhaft.
     //
@@ -376,7 +431,7 @@ export class LiveIndexer {
     onProgress?: (done: number, indexed: number, total: number) => void,
     stampFor?: (p: string) => FileStamp | undefined,
   ): Promise<HealReport> {
-    const report: HealReport = { added: 0, skippedEmpty: [], failed: [] };
+    const report: HealReport = { added: 0, skippedEmpty: [], failed: [], cancelled: false };
     for (let i = 0; i < missing.length; i++) {
       try {
         const v = await this.embedNote(await read(missing[i]));

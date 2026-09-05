@@ -186,6 +186,78 @@ describe("LiveIndexer", () => {
   });
 
   describe("reindexAll", () => {
+    // ── Abbruch ───────────────────────────────────────────────────────────────────────────────
+    // Gemessen am 2026-09-05: ein Voll-Reindex ueber 7.210 Notizen sollte gestoppt werden und es
+    // gab keinen Weg dafuer — kein Flag, kein AbortController, und `disablePlugin` beendet den
+    // laufenden Promise nicht. Der einzige Stopp war ein Window-Reload des ganzen Fensters.
+    describe("Abbruch", () => {
+      it("bricht zwischen zwei Gruppen ab, statt die Pfadliste zu Ende zu arbeiten", async () => {
+        const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+        const gelesen: string[] = [];
+        const read = vi.fn(async (pf: string) => {
+          gelesen.push(pf);
+          if (gelesen.length === 1) indexer.cancelReindex();
+          return `# ${pf}\nInhalt lang genug fuer einen Chunk`;
+        });
+        const paths = Array.from({ length: 200 }, (_, i) => `n${i}.md`);
+        const report = await indexer.reindexAll(paths, read);
+        expect(gelesen.length).toBeLessThan(paths.length);
+        expect(report.cancelled).toBe(true);
+      });
+
+      // DER DATENVERLUST-TEST. `reindexAll` setzt am Ende `this.noteVectors = fresh` — bei einem
+      // Abbruch enthielte `fresh` nur die bereits erreichten Notizen, der Index schruempfte also
+      // von Tausenden auf eine Handvoll. Nach einem Abbruch muss der Bestand VOLLSTAENDIG sein:
+      // neu berechnete Zeilen plus die noch nicht erreichten aus dem bisherigen Stand.
+      it("behaelt nach dem Abbruch ALLE Notizen, nicht nur die bereits erreichten", async () => {
+        const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+        const paths = Array.from({ length: 200 }, (_, i) => `n${i}.md`);
+        const read = vi.fn(async (pf: string) => `# ${pf}\nInhalt lang genug fuer einen Chunk`);
+        await indexer.reindexAll(paths, read);          // Vollbestand herstellen
+        expect(indexer.noteCount).toBe(200);
+
+        let n = 0;
+        const readMitAbbruch = vi.fn(async (pf: string) => {
+          if (++n === 3) indexer.cancelReindex();
+          return `# ${pf}\nGEAENDERTER Inhalt lang genug fuer einen Chunk`;
+        });
+        await indexer.reindexAll(paths, readMitAbbruch);
+        expect(indexer.noteCount).toBe(200);
+        expect(indexer.buildIndex().paths).toHaveLength(200);
+      });
+
+      it("meldet cancelled=false, wenn der Lauf regulaer durchlaeuft", async () => {
+        const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+        const report = await indexer.reindexAll(["a.md"], vi.fn(async () => "# a\nInhalt lang genug"));
+        expect(report.cancelled).toBe(false);
+      });
+
+      // Die stille Falle: bleibt das Flag stehen, bricht der NAECHSTE Lauf sofort ab — und zwar
+      // ohne Fehler, mit einem Report, der wie ein Ergebnis aussieht.
+      it("setzt den Abbruchwunsch zurueck, sodass der naechste Lauf wieder durchlaeuft", async () => {
+        const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+        const paths = Array.from({ length: 200 }, (_, i) => `n${i}.md`);
+        let n = 0;
+        await indexer.reindexAll(paths, vi.fn(async (pf: string) => {
+          if (++n === 3) indexer.cancelReindex();
+          return `# ${pf}\nInhalt lang genug fuer einen Chunk`;
+        }));
+        const zweiter = await indexer.reindexAll(paths, vi.fn(async (pf: string) => `# ${pf}\nInhalt lang genug fuer einen Chunk`));
+        expect(zweiter.cancelled).toBe(false);
+        expect(indexer.noteCount).toBe(200);
+      });
+
+      // Ein Abbruchwunsch, waehrend gar nichts laeuft, darf nicht bis zum naechsten Reindex
+      // liegenbleiben und ihn dann sofort abwuergen.
+      it("verpufft, wenn gerade kein Reindex laeuft", async () => {
+        const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+        indexer.cancelReindex();
+        const report = await indexer.reindexAll(["a.md"], vi.fn(async () => "# a\nInhalt lang genug"));
+        expect(report.cancelled).toBe(false);
+        expect(indexer.noteCount).toBe(1);
+      });
+    });
+
     it("indiziert alle übergebenen Pfade und buildIndex enthält genau diese Pfade", async () => {
       const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
       const read = vi.fn(async (p: string) => `# ${p}\nInhalt`);

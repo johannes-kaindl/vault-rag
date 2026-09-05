@@ -2,7 +2,7 @@ import { VaultAdapter, VaultIndex, IndexManifest } from "./index";
 import { EmbeddingClient } from "./embedder";
 import { chunkMarkdown } from "./chunker";
 import { toIndexVector } from "./embed_vector";
-import { assertSafeToPersist, assertModelSafeToPersist, PersistDecision, PersistReason, PersistBlockedError } from "./index_guard";
+import { assertSafeToPersist, assertModelSafeToPersist, PersistDecision, PersistReason, PersistBlockedError, UNBEKANNTER_STEMPEL } from "./index_guard";
 import { CONTAINER_FILE, encodeContainer, decodeContainer, FileStamp } from "./index_container";
 
 const INDEX_DIM = 256;
@@ -38,9 +38,16 @@ export class LiveIndexer {
    * jede Mutation dort muss hier mitziehen, sonst zeigt ein Stempel auf einen fremden Vektor.
    *
    * Bewusst KEINE Pflicht: wer ohne Stempel updatet (Aufrufer ohne `TFile`, Tests, Altpfade),
-   * bekommt einen ungestempelten Eintrag — und `persist` schreibt dann fuer den GANZEN Container
-   * keine Stempel. Ein teilweise gestempelter Container waere schlimmer als gar keiner: der
-   * Waechter hielte die ungestempelten Zeilen fuer unauffaellig, obwohl sie ungeprueft sind.
+   * bekommt einen ungestempelten Eintrag. Beim Schreiben traegt diese Zeile dann
+   * `UNBEKANNTER_STEMPEL`, gilt also ausdruecklich als ungeprueft.
+   *
+   * ⚠️ Hier stand bis 2026-09-05, `persist` schreibe in diesem Fall fuer den GANZEN Container
+   * keine Stempel — „ein teilweise gestempelter Container waere schlimmer als gar keiner, der
+   * Waechter hielte die ungestempelten Zeilen fuer unauffaellig". Der Einwand war richtig, die
+   * Folgerung falsch: sie machte den Waechter genau in den Vaults blind, fuer die er gebaut
+   * wurde (gemessen: 18 Notizen in 30 s ⇒ Stempel, 7.002 Notizen in 10 h ⇒ keine, weil EINE
+   * Notiz zwischen Lesen und Stempeln verschwand). Der Platzhalter loest denselben Einwand
+   * besser: eine ungeprueft Zeile ist als solche markiert, statt zu fehlen.
    */
   private noteStamps = new Map<string, FileStamp>();
   private loadedManifest: IndexManifest | null = null;
@@ -124,15 +131,24 @@ export class LiveIndexer {
     if (st) { this.noteStamps.set(newPath, st); this.noteStamps.delete(oldPath); }
   }
 
-  /** Stempel in Zeilenreihenfolge — oder `undefined`, sobald auch nur eine Zeile keinen hat
-   *  (Begruendung im Feld-Docblock: kein Halb-Zustand). */
+  /** Stempel in Zeilenreihenfolge, LUECKENLOS — Zeilen ohne bekannten Stempel tragen
+   *  `UNBEKANNTER_STEMPEL` und gelten beim Vergleich als ungeprueft. `undefined` nur, wenn
+   *  ueberhaupt kein Stempel bekannt ist (Altbestand, s. u.). */
   private stampsFor(paths: string[], quelle?: Map<string, FileStamp>): FileStamp[] | undefined {
     const q = quelle ?? this.noteStamps;
+    // Kein einziger Stempel bekannt = Altbestand (Index von vor dem Waechter). Dann bleibt das
+    // Feld ganz weg, statt jede Zeile mit einem Platzhalter zu fuellen: das haelt „nie
+    // gestempelt" und „einzelne Luecke" unterscheidbar und spart bei 7.000 Notizen ~42 KB
+    // Header-JSON, die nichts aussagen. Fuer den Waechter ist beides gleichbedeutend (er
+    // meldet nichts) — der Unterschied zaehlt fuer den Menschen, der den Container ansieht.
+    if (q.size === 0) return undefined;
     const out: FileStamp[] = [];
     for (const p of paths) {
       const st = q.get(p);
-      if (!st) return undefined;
-      out.push(st);
+      // Eine Luecke darf nicht die Stempel des ganzen Laufs kosten: das Feld ist ein Array
+      // parallel zu `paths`, also braucht JEDE Zeile einen Wert — fehlt einer, traegt sie den
+      // Platzhalter und gilt beim Vergleich als ungeprueft (Begruendung an UNBEKANNTER_STEMPEL).
+      out.push(st ?? [...UNBEKANNTER_STEMPEL]);
     }
     return out;
   }

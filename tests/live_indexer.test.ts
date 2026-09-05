@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { LiveIndexer } from "../src/live_indexer";
 import { VaultAdapter, parseIndex, VaultIndex } from "../src/index";
 import { EmbeddingClient } from "../src/embedder";
-import { PersistBlockedError } from "../src/index_guard";
+import { PersistBlockedError, findStaleVectorPaths } from "../src/index_guard";
 import { CONTAINER_FILE, encodeContainer, decodeContainer } from "../src/index_container";
 
 const DIM = 256;
@@ -895,9 +895,14 @@ describe("LiveIndexer — Datei-Stempel", () => {
     expect(d.stamps).toEqual([[1000, 10], [2000, 20]]);  // Stempel ziehen mit
   });
 
-  it("ohne Stempel bleibt der Container stempellos — kein Halb-Zustand", async () => {
-    // Ein teilweise gestempelter Container waere schlimmer als gar keiner: der Waechter
-    // meldete die ungestempelten Zeilen als unauffaellig, obwohl sie ungeprueft sind.
+  it("eine ungestempelte Notiz bekommt den Platzhalter, die gestempelten behalten ihren Wert", async () => {
+    // ⚠️ Dieser Test forderte bis 2026-09-05 das Gegenteil („ohne Stempel bleibt der Container
+    // stempellos — kein Halb-Zustand"). Die Sorge dahinter war berechtigt: der Waechter darf
+    // eine ungeprueft Zeile nicht fuer unauffaellig halten. Die Umsetzung war es nicht — sie
+    // liess EINE Luecke die Stempel des ganzen Laufs verwerfen und machte den Waechter genau
+    // in grossen, aktiv benutzten Vaults blind (gemessen: 18 Notizen ⇒ Stempel, 7.002 Notizen
+    // ueber zehn Stunden ⇒ keine). Der Platzhalter beantwortet dieselbe Sorge direkt: die Zeile
+    // ist als ungeprueft MARKIERT, statt zu fehlen, und `findStaleVectorPaths` ueberspringt sie.
     const adapter = makeAdapter();
     const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
     indexer.markFresh();
@@ -905,7 +910,10 @@ describe("LiveIndexer — Datei-Stempel", () => {
     await indexer.update("b.md", "# B\nInhalt");   // ohne Stempel
     await indexer.persist("reindex");
 
-    expect(decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer).stamps).toBeUndefined();
+    const d = decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer);
+    expect(d.stamps).not.toBeUndefined();
+    expect(d.stamps![d.paths.indexOf("a.md")]).toEqual([1000, 10]);
+    expect(d.stamps![d.paths.indexOf("b.md")]).toEqual([0, 0]);
   });
 
   it("reindexAll nimmt die Stempel über den stampFor-Callback mit", async () => {
@@ -1135,5 +1143,43 @@ describe("LiveIndexer — Stempel erreichen die Platte", () => {
     expect(d.stamps).not.toBeUndefined();
     expect(d.stamps![d.paths.indexOf("a.md")]).toEqual([1000, 10]);
     expect(d.stamps![d.paths.indexOf("b.md")]).toEqual([3000, 20]);
+  });
+});
+
+describe("LiveIndexer — eine Luecke kostet nicht alle Stempel", () => {
+  it("eine Notiz ohne Stempel verwirft die Stempel der anderen NICHT", async () => {
+    // Der Befund vom 2026-09-05, der zehn Stunden Reindex wertlos machte: `stampsFor` gab bei
+    // der ersten Luecke `undefined` zurueck, `encodeContainer` liess das Feld dann ganz weg.
+    // `stampOf` liefert `undefined`, sobald eine Notiz zwischen Lesen und Stempeln aus dem
+    // Vault verschwindet — bei 7.000 Notizen ueber zehn Stunden genuegt eine einzige.
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", proTextEmbedder(), "qwen3-embedding:8b");
+    indexer.markFresh();
+    const paths = ["a.md", "verschwunden.md", "c.md"];
+
+    await indexer.reindexAll(paths, async (p: string) => `# ${p}\nInhalt von ${p}`, undefined,
+      (p) => (p === "verschwunden.md" ? undefined : [1000, 10]));
+    await indexer.persist("reindex");
+
+    const d = decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer);
+    expect(d.stamps).not.toBeUndefined();
+    expect(d.stamps![d.paths.indexOf("a.md")]).toEqual([1000, 10]);
+    expect(d.stamps![d.paths.indexOf("c.md")]).toEqual([1000, 10]);
+    // Die Luecke selbst traegt den Platzhalter — nicht den Stempel einer Nachbarin.
+    expect(d.stamps![d.paths.indexOf("verschwunden.md")]).toEqual([0, 0]);
+  });
+
+  it("der Waechter meldet die Luecken-Zeile nicht als veraltet, die echte Abweichung schon", () => {
+    // Die zweite Haelfte: der Platzhalter darf weder Fehlalarm ausloesen noch taub machen.
+    const stale = findStaleVectorPaths(
+      ["a.md", "verschwunden.md", "geaendert.md"],
+      [[1000, 10], [0, 0], [1000, 10]],
+      new Map([
+        ["a.md", [1000, 10] as const],
+        ["verschwunden.md", [7777, 99] as const],
+        ["geaendert.md", [2000, 10] as const],
+      ]),
+    );
+    expect(stale).toEqual(["geaendert.md"]);
   });
 });

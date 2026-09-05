@@ -3,6 +3,7 @@ import {
   classifyLoadResult, assertSafeToPersist, isSuspiciousShrink,
   diffIndexVsVault, PersistBlockedError, canPersistHealedIndex, embeddingModelMatchesIndex,
   assertModelSafeToPersist, planAutoHeal, findDeadVectorPaths, findStaleVectorPaths,
+  UNBEKANNTER_STEMPEL,
 } from "../src/index_guard";
 
 describe("classifyLoadResult", () => {
@@ -251,5 +252,32 @@ describe("findStaleVectorPaths — der Wächter gegen veraltete Vektoren", () =>
       new Map([["a.md", [jetzt, 999] as [number, number]], ["b.md", [jetzt, 200] as [number, number]]]),
     );
     expect(stale).toEqual(["a.md"]);
+  });
+});
+
+describe("findStaleVectorPaths — unbekannte Stempel", () => {
+  it("ein Platzhalter-Stempel gilt als ungeprueft, nicht als veraltet", () => {
+    // Warum es den Platzhalter gibt: `stampsFor` konnte fuer eine Notiz keinen Stempel
+    // ermitteln (sie verschwand zwischen Lesen und Stempeln aus dem Vault). Bis 2026-09-05
+    // verwarf das die Stempel des GANZEN Laufs — bei 7.000 Notizen ueber zehn Stunden genuegte
+    // dafuer eine einzige. Jetzt traegt diese eine Zeile [0,0], und die darf nicht als
+    // veraltet gelten: ungeprueft ist nicht verdaechtig (dieselbe Regel wie fuer einen ganzen
+    // Index ohne Stempel).
+    const stale = findStaleVectorPaths(
+      ["a.md", "unbekannt.md"],
+      [[1000, 10], UNBEKANNTER_STEMPEL],
+      new Map([["a.md", [1000, 10] as const], ["unbekannt.md", [9999, 42] as const]]),
+    );
+    expect(stale).toEqual([]);
+  });
+
+  it("meldet echte Abweichungen weiter, auch wenn eine andere Zeile ungeprueft ist", () => {
+    // Gegenprobe zur Zeile davor: der Platzhalter darf den Waechter nicht taub machen.
+    const stale = findStaleVectorPaths(
+      ["alt.md", "unbekannt.md"],
+      [[1000, 10], UNBEKANNTER_STEMPEL],
+      new Map([["alt.md", [2000, 10] as const], ["unbekannt.md", [9999, 42] as const]]),
+    );
+    expect(stale).toEqual(["alt.md"]);
   });
 });

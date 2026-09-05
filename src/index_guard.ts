@@ -4,6 +4,24 @@
 export type LoadState = "no-index" | "loaded-ok" | "load-failed-index-present";
 
 /**
+ * Stempel-Wert fuer „fuer diese Zeile war kein Stempel zu ermitteln".
+ *
+ * Warum es ihn gibt: `stampsFor` verwarf bei einer einzigen Luecke die Stempel des GANZEN
+ * Laufs (Alles-oder-nichts, weil das Format ein Array parallel zu `paths` ist). Gemessen am
+ * 2026-09-05: im Staging-Vault (18 Notizen, 30 s) entstanden Stempel, im Arbeitsvault (7.002
+ * Notizen, 10 h) keine — dort genuegte eine Notiz, die zwischen Lesen und Stempeln aus dem
+ * Vault verschwand, und `stampOf` lieferte `undefined`. Der Waechter war damit in genau den
+ * Vaults blind, fuer die er gebaut wurde.
+ *
+ * `[0, 0]` kann keine echte Notiz sein: mtime 0 waere 1970, und eine 0 Byte grosse Notiz hat
+ * keine Chunks und steht deshalb nie im Index. Der Wert bleibt unter derselben
+ * `schema_version` gueltig (`stempelGueltig` akzeptiert ihn), bricht das Format also nicht —
+ * eine aeltere Plugin-Version liest den Container weiter und meldet fuer diese Zeile
+ * hoechstens einmal zu viel „veraltet", was folgenlos neu einbettet.
+ */
+export const UNBEKANNTER_STEMPEL: readonly [number, number] = [0, 0];
+
+/**
  * Klassifiziert das Ergebnis eines Index-Ladeversuchs.
  * - Kein Manifest auf Platte → frische Installation; ein leerer Indexer darf aufbauen.
  * - Manifest da + Parse-Fehler → GEFAHRENZUSTAND: ein guter Index liegt beschädigt vor und
@@ -236,6 +254,9 @@ export function findStaleVectorPaths(
     const jetzt = aktuell.get(paths[r]);
     if (!jetzt) continue;
     const [mtime, size] = stamps[r];
+    // Ungeprueft ist nicht verdaechtig — dieselbe Regel wie fuer einen ganzen Index ohne
+    // Stempel, nur zeilenweise. Ohne sie meldete jede Platzhalter-Zeile dauerhaft „veraltet".
+    if (mtime === UNBEKANNTER_STEMPEL[0] && size === UNBEKANNTER_STEMPEL[1]) continue;
     if (jetzt[0] !== mtime || jetzt[1] !== size) stale.push(paths[r]);
   }
   return stale;

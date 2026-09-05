@@ -24,6 +24,30 @@ All notable changes to this project are documented here. The format follows
     Speicher. Gemessen am 2026-09-04 im Arbeits-Vault: ein Inhalts-Hash hätte stattdessen alle
     7200 Notizen gelesen (44 MB, 768 ms roh, über die Obsidian-Schicht ein Vielfaches).
 
+### Fixed
+- **Eine einzige Notiz ohne Stempel nimmt nicht mehr dem ganzen Index seine Stempel.** Das
+  Stempel-Feld ist ein Array parallel zu den Pfaden, und `stampsFor` brach bei der ersten Lücke
+  ab — der Container wurde dann ganz ohne Stempel geschrieben. `stampOf` liefert aber
+  `undefined`, sobald eine Notiz zwischen Lesen und Stempeln aus dem Vault verschwindet, und bei
+  einem Lauf über Tausende Notizen genügt **eine**. Der Wächter gegen veraltete Vektoren war
+  damit ausgerechnet in großen, aktiv benutzten Vaults blind — also dort, wofür er gebaut wurde.
+  - **Gemessen am 2026-09-05**, in zwei Vaults mit demselben Build: Staging (18 Notizen, ~30 s)
+    ⇒ 18 Stempel im Container. Arbeits-Vault (7.002 Notizen, ~10 h) ⇒ **keine**. Auch die drei
+    Index-Backups des Laufs trugen keine.
+  - **Der Lauf meldete dabei nichts:** Container gültig, CRC in Ordnung, Vektoren frisch, Notice
+    „N Notizen indiziert". Und beim nächsten Start schweigt der Wächter korrekt, weil ein Index
+    ohne Stempel als *ungeprüft* gilt, nicht als verdächtig — der Fehlstand war von einem
+    gesunden Zustand nicht zu unterscheiden.
+  - **Lücken tragen jetzt `[0, 0]`** und gelten beim Vergleich als ungeprüft. Der Einwand hinter
+    der alten Lösung („eine ungestempelte Zeile darf nicht für unauffällig gehalten werden")
+    bleibt damit beantwortet — die Zeile ist als ungeprüft *markiert*, statt zu fehlen. Kein
+    Format-Bruch: der Wert ist unter derselben `schema_version` gültig, und `[0, 0]` kann keine
+    echte Notiz sein (mtime 0 wäre 1970; eine 0 Byte große Notiz hat keine Chunks und steht nie
+    im Index).
+  - **Ein Altbestand-Index bleibt ohne Stempel-Feld**, statt jede Zeile mit Platzhaltern zu
+    füllen: das hält „nie gestempelt" und „einzelne Lücke" unterscheidbar und spart bei 7.000
+    Notizen ~42 KB Header-JSON ohne Aussage.
+
 ### Changed
 - **Ein Voll-Reindex bündelt die Chunks mehrerer Notizen in eine Embedding-Anfrage.** Der
   Embedding-Client batcht intern seit jeher zu 32, bekam vom Reindex aber nur die Chunks *einer*

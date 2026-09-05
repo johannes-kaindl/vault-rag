@@ -412,8 +412,13 @@ describe("LiveIndexer", () => {
       const checkpointErreicht = new Promise<void>((res) => { angehalten = res; });
       const origWriteBinary = adapter.writeBinary;
       let writes = 0;
+      let checkpointFertig = false;
       (adapter as unknown as { writeBinary: unknown }).writeBinary = vi.fn(async (pfad: string, d: ArrayBuffer) => {
-        if (++writes === 1) { angehalten!(); await new Promise<void>((res) => { freigabe = res; }); }
+        if (++writes === 1) {
+          angehalten!();
+          await new Promise<void>((res) => { freigabe = res; });
+          checkpointFertig = true;
+        }
         return origWriteBinary(pfad, d);
       });
 
@@ -423,11 +428,15 @@ describe("LiveIndexer", () => {
       // Gemessen wird am ersten read NACH dem Checkpoint — dort ist das Fenster nachweislich
       // geschlossen, und `this.noteVectors = fresh` (Lauf-Ende) hat noch nicht stattgefunden.
       // Am Lauf-Ende gemessen wuerde dieser Test den vorigen mitmessen statt Loch B allein.
+      //
+      // ⚠️ Der Messpunkt haengt am FLAG, nicht an einer read-Zahl: seit der Reindex Chunks
+      // ueber Notizgrenzen buendelt, liest er eine ganze Gruppe, bevor er embeddet — welcher
+      // read der erste nach dem Checkpoint ist, haengt damit an der Gruppengroesse. Die
+      // vorige Fassung nagelte ihn auf 251 fest und mass dadurch VOR dem Checkpoint.
       let imSpeicherNachCheckpoint: number | null = null;
-      let reads = 0;
       const paths = Array.from({ length: 260 }, (_, i) => `n${String(i).padStart(3, "0")}.md`);
       const lauf = indexer.reindexAll(paths, async (pfad) => {
-        if (++reads === 251 && imSpeicherNachCheckpoint === null) {
+        if (checkpointFertig && imSpeicherNachCheckpoint === null) {
           imSpeicherNachCheckpoint = indexer.buildIndex().rowFor("im-fenster.md");
         }
         return `# ${pfad}\nInhalt`;
@@ -438,6 +447,10 @@ describe("LiveIndexer", () => {
       freigabe!();
       await lauf;
 
+      // Zuerst: es wurde ueberhaupt gemessen. Ohne diese Zeile bliebe der Wert `null`, wenn
+      // nach dem Checkpoint gar kein read mehr kaeme — und `null !== -1` waere gruen, ohne
+      // dass je etwas geprueft wurde (dieselbe Falle wie `rowFor`s -1 statt null).
+      expect(imSpeicherNachCheckpoint).not.toBeNull();
       expect(imSpeicherNachCheckpoint).not.toBe(-1);
       expect(indexer.buildIndex().rowFor("im-fenster.md")).not.toBe(-1);
     });
@@ -983,5 +996,97 @@ describe("LiveIndexer — Stempel im Zwischenstand", () => {
     // Die letzte Zeile ist noch nicht erreicht → sie traegt weiter den alten.
     const zeileLetzte = d.paths.indexOf("n259.md");
     expect(d.stamps![zeileLetzte]).toEqual([1000, 10]);
+  });
+});
+
+/**
+ * Embedder, der JE TEXT einen unterscheidbaren Vektor liefert — anders als `makeEmbedder`,
+ * das fuer jede Eingabe genau EINEN Vektor zurueckgibt. Fuer das Buendeln ist das der
+ * entscheidende Unterschied: sobald die Chunks mehrerer Notizen in einem Aufruf stecken,
+ * ist die Aufteilung der Antwort auf die Notizen die Stelle, an der eine Fehlzuordnung
+ * entsteht — und die sieht man nur, wenn sich die Vektoren ueberhaupt unterscheiden.
+ */
+function proTextEmbedder(): EmbeddingClient {
+  return {
+    ping: vi.fn().mockResolvedValue(true),
+    embed: vi.fn(async (texts: string[]) =>
+      texts.map((t) => {
+        let h = 0;
+        for (const ch of t) h = (h * 31 + ch.charCodeAt(0)) % (DIM - 1);
+        const v = new Float32Array(DIM);
+        v[h + 1] = 1;
+        return v;
+      })),
+  } as unknown as EmbeddingClient;
+}
+
+describe("LiveIndexer — Buendelung ueber Notizgrenzen", () => {
+  it("schickt die Chunks mehrerer Notizen in EINEM embed-Aufruf", async () => {
+    // Warum: `embed()` batcht intern zu 32, aber `reindexAll` rief es bisher pro Notiz auf —
+    // eine typische Notiz hat 1-5 Chunks, der Batch griff also nie. Am echten Endpunkt
+    // gemessen (2026-09-05): 1 Chunk kostet 3,62 s, 32 Chunks kosten 4,68 s. Der Aufruf-
+    // Overhead dominiert, nicht die Arbeit.
+    const adapter = makeAdapter();
+    const embedder = proTextEmbedder();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", embedder, "qwen3-embedding:8b");
+    indexer.markFresh();
+    const paths = Array.from({ length: 10 }, (_, i) => `n${i}.md`);
+
+    await indexer.reindexAll(paths, async (p: string) => `# ${p}\nInhalt von ${p}`);
+
+    const calls = (embedder.embed as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    expect(calls).toBe(1);
+  });
+
+  it("liefert gebuendelt exakt dieselben Vektoren wie der Einzelpfad", async () => {
+    // DIE Invariante des Umbaus: die Antwort auf einen Gruppen-Aufruf wird nach Chunk-Zahl
+    // auf die Notizen aufgeteilt. Ein Versatz von EINS ordnet ab dort jeder Notiz den Vektor
+    // ihrer Nachbarin zu — treppenfoermig, unauffaellig, und von CRC32 mitbeglaubigt. Genau
+    // dieser Schaden lag am 2026-08-30 auf ~79 % des Arbeitsvaults.
+    //
+    // Referenz ist `update()`: der Einzel-Embed-Pfad, den dieser Umbau nicht anfasst.
+    const paths = Array.from({ length: 12 }, (_, i) => `n${i}.md`);
+    const text = (p: string) => `# ${p}\nGanz eigener Inhalt fuer ${p}`;
+
+    const gebuendelt = new LiveIndexer(makeAdapter(), "_vaultrag", proTextEmbedder(), "qwen3-embedding:8b");
+    gebuendelt.markFresh();
+    await gebuendelt.reindexAll(paths, async (p: string) => text(p));
+
+    const einzeln = new LiveIndexer(makeAdapter(), "_vaultrag", proTextEmbedder(), "qwen3-embedding:8b");
+    einzeln.markFresh();
+    for (const p of paths) await einzeln.update(p, text(p));
+
+    const a = gebuendelt.buildIndex();
+    const b = einzeln.buildIndex();
+    for (const p of paths) {
+      expect(a.vectorFor(p)).not.toBeNull();
+      expect(Array.from(a.vectorFor(p)!)).toEqual(Array.from(b.vectorFor(p)!));
+    }
+    // Und die Vektoren sind ueberhaupt unterscheidbar — sonst waere die Gleichheit oben
+    // wertlos, weil eine Fehlzuordnung zwischen identischen Vektoren nicht auffiele.
+    expect(Array.from(a.vectorFor("n0.md")!)).not.toEqual(Array.from(a.vectorFor("n1.md")!));
+  });
+
+  it("eine Notiz, deren Embedding scheitert, reisst ihre Gruppe nicht mit", async () => {
+    // Vorher scheiterte immer nur genau eine Notiz, weil jede ihren eigenen Aufruf hatte.
+    // Mit einem Aufruf je Gruppe wuerde ein einziger Fehler bis zu 32 Notizen als `failed`
+    // melden — der Rueckfall auf Einzelverarbeitung haelt den alten Zuschnitt.
+    const adapter = makeAdapter();
+    const embedder = proTextEmbedder();
+    const echt = embedder.embed as unknown as (t: string[]) => Promise<Float32Array[]>;
+    (embedder as unknown as { embed: unknown }).embed = vi.fn(async (texte: string[]) => {
+      if (texte.some(t => t.includes("kaputt"))) throw new Error("Embedding HTTP 500");
+      return echt(texte);
+    });
+
+    const indexer = new LiveIndexer(adapter, "_vaultrag", embedder, "qwen3-embedding:8b");
+    indexer.markFresh();
+    const paths = ["a.md", "kaputt.md", "c.md"];
+    const report = await indexer.reindexAll(paths, async (p: string) => `# ${p}\nInhalt von ${p}`);
+
+    expect(report.failed).toEqual(["kaputt.md"]);
+    expect(report.added).toBe(2);
+    expect(indexer.buildIndex().rowFor("a.md")).not.toBe(-1);
+    expect(indexer.buildIndex().rowFor("c.md")).not.toBe(-1);
   });
 });

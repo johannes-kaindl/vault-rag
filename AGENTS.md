@@ -149,6 +149,15 @@ live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename ·
                   persist(reason) schreibt EINE Datei (`index_container.ts` → `index.bin`, kein
                   Multi-File-Write mehr), gegen `index_guard` geguarded (ready + Live-Disk-Read des
                   tatsächlichen Counts vor jedem live-Persist statt gecachtem Zustand) ·
+                  reindexAll buendelt seit 2026-09-05 die Chunks MEHRERER Notizen in eine
+                  Embedding-Anfrage (EMBED_BATCH = 32, deckungsgleich mit der internen
+                  Batchgroesse von `EmbeddingClient.embed`, die vorher leer lief, weil sie nur
+                  die Chunks EINER Notiz sah). Die Antwort wird nach Chunk-Zahl aufgeteilt —
+                  stimmt ihre Laenge nicht, faellt der Lauf auf Einzelverarbeitung zurueck
+                  statt zu verteilen (ein Versatz von eins erzeugt sonst genau die
+                  treppenfoermige Fehlzuordnung aus dem Gotcha „Eine Pruefsumme beglaubigt
+                  Konsistenz, nicht Richtigkeit"); scheitert die Gruppen-Anfrage, wird Notiz
+                  fuer Notiz nachgefasst, damit `failed` seinen Zuschnitt behaelt.
                   reindexAll persistiert seit 0.29.0 alle CHECKPOINT_EVERY (250) Notizen einen
                   VOLLSTAENDIGEN Zwischenstand (persistCheckpoint: neu berechnete Vektoren +
                   noch nicht erreichte aus dem bisherigen Bestand) — der In-Memory-Stand bleibt

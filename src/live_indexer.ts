@@ -9,6 +9,12 @@ const INDEX_DIM = 256;
 /** Notizen je Zwischenstand. 250 ist klein genug, dass ein Abbruch wenig kostet, und gross
  *  genug, dass das Schreiben des Containers (~2 MB) den Lauf nicht dominiert. */
 const CHECKPOINT_EVERY = 250;
+/** Chunks je Embedding-Anfrage beim Voll-Reindex. Deckungsgleich mit der internen Batchgroesse
+ *  von `EmbeddingClient.embed` — die batchte schon immer zu 32, bekam aber bis 2026-09-05 nur
+ *  die Chunks EINER Notiz auf einmal (typisch 1-5), lief also fast immer im Leerlauf. Am echten
+ *  Endpunkt gemessen: 1 Chunk kostet 3,62 s, 32 Chunks kosten 4,68 s — der Aufruf-Overhead
+ *  dominiert, nicht die Arbeit. */
+const EMBED_BATCH = 32;
 const INT8_SCALE = 127;
 
 /** Ergebnis eines (Delta-)Reindex-Laufs: ergänzte Notizen, chunk-lose (leer / nur
@@ -194,21 +200,70 @@ export class LiveIndexer {
     // Ab hier zeichnen die Live-Handler ihre Pfade mit (s. Feld-Docblock).
     this.liveWaehrendReindex = new Set();
     try {
-      for (let i = 0; i < paths.length; i++) {
-        try {
-          const v = await this.embedNote(await read(paths[i]));
-          if (v) {
-            fresh.set(paths[i], v); report.added++;
-            // Stempel NACH dem Lesen holen: waere er vorher genommen worden und die Notiz
-            // aendert sich dazwischen, stuende ein zu alter Stempel auf einem neuen Vektor —
-            // die Aenderung waere damit fuer immer unsichtbar.
-            const st = stampFor?.(paths[i]);
-            if (st) freshStamps.set(paths[i], st);
+      let erledigt = 0;
+      let i = 0;
+      while (i < paths.length) {
+        // (a) Gruppe fuellen: lesen + chunken, bis EMBED_BATCH Chunks beisammen sind. Eine
+        //     einzelne Notiz darf die Grenze ueberschreiten — `embed` teilt intern weiter.
+        const gruppe: { path: string; chunks: string[]; stamp: FileStamp | undefined }[] = [];
+        let chunkZahl = 0;
+        let ohneEmbedding = 0;  // in dieser Gruppe erledigt, aber nicht embeddet (leer/Lesefehler)
+        while (i < paths.length && chunkZahl < EMBED_BATCH) {
+          const p = paths[i];
+          i++;
+          let text: string;
+          try { text = await read(p); }
+          catch { report.failed.push(p); ohneEmbedding++; onProgress?.(++erledigt, report.added, paths.length); continue; }
+          // Stempel NACH dem Lesen holen: waere er vorher genommen worden und die Notiz
+          // aendert sich dazwischen, stuende ein zu alter Stempel auf einem neuen Vektor —
+          // die Aenderung waere damit fuer immer unsichtbar.
+          const stamp = stampFor?.(p);
+          const chunks = chunkMarkdown(text).map(c => c.text);
+          if (chunks.length === 0) {
+            report.skippedEmpty.push(p); ohneEmbedding++;
+            onProgress?.(++erledigt, report.added, paths.length);
+            continue;
           }
-          else report.skippedEmpty.push(paths[i]);
-        } catch { report.failed.push(paths[i]); }
-        onProgress?.(i + 1, report.added, paths.length);
-        if (etappenErlaubt && ++seitLetztem >= CHECKPOINT_EVERY && i < paths.length - 1) {
+          gruppe.push({ path: p, chunks, stamp });
+          chunkZahl += chunks.length;
+        }
+
+        // (b) EIN Aufruf fuer die ganze Gruppe.
+        if (gruppe.length > 0) {
+          let vektoren: Float32Array[] | null = null;
+          try { vektoren = await this.embedder.embed(gruppe.flatMap(g => g.chunks)); }
+          catch { vektoren = null; }
+          // ⚠️ Die Laengenpruefung ist der Sicherheitsgurt, nicht Vorsicht: die Antwort wird
+          // NACH CHUNK-ZAHL auf die Notizen aufgeteilt. Liefert ein Endpunkt weniger (oder
+          // mehr) Vektoren als Chunks, verschiebt sich ab dort JEDE Zuordnung um denselben
+          // Betrag — genau die treppenfoermige Fehlzuordnung, die 2026-08-30 ~79 % des
+          // Arbeitsvaults betraf und die CRC32 nicht sehen kann. Im Zweifel lieber langsam
+          // einzeln als schnell falsch.
+          if (vektoren && vektoren.length === chunkZahl) {
+            let off = 0;
+            for (const g of gruppe) {
+              const v = toIndexVector(vektoren.slice(off, off + g.chunks.length), INDEX_DIM);
+              off += g.chunks.length;
+              fresh.set(g.path, v); report.added++;
+              if (g.stamp) freshStamps.set(g.path, g.stamp);
+              onProgress?.(++erledigt, report.added, paths.length);
+            }
+          } else {
+            // Rueckfall Notiz fuer Notiz: eine kaputte Notiz darf die anderen der Gruppe
+            // nicht mitreissen — vorher scheiterte immer nur genau die eine.
+            for (const g of gruppe) {
+              try {
+                const einzeln = await this.embedder.embed(g.chunks);
+                fresh.set(g.path, toIndexVector(einzeln, INDEX_DIM)); report.added++;
+                if (g.stamp) freshStamps.set(g.path, g.stamp);
+              } catch { report.failed.push(g.path); }
+              onProgress?.(++erledigt, report.added, paths.length);
+            }
+          }
+        }
+
+        seitLetztem += gruppe.length + ohneEmbedding;
+        if (etappenErlaubt && seitLetztem >= CHECKPOINT_EVERY && i < paths.length) {
           seitLetztem = 0;
           await this.persistCheckpoint(fresh, freshStamps, paths);
         }

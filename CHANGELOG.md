@@ -24,6 +24,25 @@ All notable changes to this project are documented here. The format follows
     Speicher. Gemessen am 2026-09-04 im Arbeits-Vault: ein Inhalts-Hash hätte stattdessen alle
     7200 Notizen gelesen (44 MB, 768 ms roh, über die Obsidian-Schicht ein Vielfaches).
 
+### Changed
+- **Ein Voll-Reindex bündelt die Chunks mehrerer Notizen in eine Embedding-Anfrage.** Der
+  Embedding-Client batcht intern seit jeher zu 32, bekam vom Reindex aber nur die Chunks *einer*
+  Notiz auf einmal — typisch 1–5 — und lief damit fast immer im Leerlauf. Am 2026-09-05 am
+  echten Endpunkt gemessen (`qwen3-embedding:8b`, Ollama): **1 Chunk kostet 3,62 s, 32 Chunks
+  kosten 4,68 s.** Der Aufruf-Overhead dominiert, nicht die Arbeit; ein Voll-Reindex über ~7.200
+  Notizen lief entsprechend bei ~0,5 Notizen/s.
+  - **Die Aufteilung der Antwort ist gegen Versatz gesichert.** Die Vektoren werden nach
+    Chunk-Zahl auf die Notizen verteilt — liefert ein Endpunkt mehr oder weniger Vektoren als
+    Chunks, verschiebt sich ab dort *jede* Zuordnung um denselben Betrag. Das ist exakt die
+    treppenförmige Fehlzuordnung, die am 2026-08-30 ~79 % des Arbeits-Vaults betraf und die
+    CRC32 nicht sehen kann. Stimmt die Länge nicht, fällt der Lauf auf Einzelverarbeitung
+    zurück: lieber langsam richtig als schnell falsch.
+  - **Eine kaputte Notiz reißt ihre Gruppe nicht mit.** Scheitert die Gruppen-Anfrage, wird
+    Notiz für Notiz nachgefasst — `failed` behält damit den Zuschnitt von vorher, statt bis zu
+    32 gesunde Notizen mitzumelden.
+  - Nicht angefasst: `healMissing` (Delta-Reindex) embeddet weiterhin pro Notiz. Dort geht es
+    um wenige Notizen, und der Umbau säße im selben Schreibpfad.
+
 ### Fixed
 - **Ein Voll-Reindex bildet den Vault jetzt so ab, wie er beim ABSCHLUSS aussieht — nicht wie
   beim Start.** `reindexAll` arbeitet eine beim Start gesnapshottete Pfadliste ab und ersetzte

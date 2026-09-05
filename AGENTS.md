@@ -828,7 +828,17 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
   Ordner und für jede Datei darin), es trägt Kopien wie jeder andere Vault. Ein `.hotreload`-Marker
   liegt darin — der lädt das Plugin neu, wenn sich die Datei **im Vault** ändert, er kopiert aber
   nichts aus dem Repo. **Folge: nach jeder `src/`-Änderung ist `npm run deploy` auch für `10_Pallas`
-  Pflicht; ein blosser Reload misst den alten Build.** Aufgefallen am 2026-09-02 beim Vorbereiten
+  Pflicht; ein blosser Reload misst den alten Build.**
+  ⚠️ **Und der Deploy allein reicht auch nicht: der Marker ist in `10_Pallas` WIRKUNGSLOS, weil das
+  Community-Plugin „Hot Reload" dort gar nicht installiert ist** (gemessen 2026-09-05: kein
+  `plugins/*hot*`-Verzeichnis, kein Eintrag in `community-plugins.json` — die Datei `.hotreload`
+  ist nur ein Marker, gelesen wird sie von jenem Plugin). Nach einem `deploy` läuft also weiter
+  der alte Build, bis jemand das Plugin explizit neu lädt:
+  `await app.plugins.disablePlugin("vault-retrieval"); await app.plugins.enablePlugin("vault-retrieval")`.
+  Aufgefallen an einer Messung, die den neuen Build belegen sollte und ihn nicht fand (das
+  Stempel-Feld des LiveIndexer fehlte zwei Minuten nach dem Deploy noch). **Wer nach einem Deploy
+  misst, ohne neu zu laden, misst den Stand von vorher** — und der Unterschied ist an
+  `manifest.version` nicht zu sehen. Aufgefallen am 2026-09-02 beim Vorbereiten
   eines GUI-Smokes — folgenlos nur deshalb, weil `src/` seit dem letzten Deploy unverändert war
   (sha1 des gebauten `main.js` identisch mit dem im Vault).
   **Der GUI-Smoke fängt das seit `5d90449` ab:** `scripts/gui-smoke.ts` ruft `requireEigenerBuild`

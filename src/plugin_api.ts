@@ -31,6 +31,20 @@ export interface ApiStatus {
   indexed: boolean;
   /** Zahl der indexierten Notizen (0 ohne Index). */
   noteCount: number;
+  /** Ein Voll-Reindex laeuft gerade: `indexed` und `noteCount` beziehen sich dann noch auf den
+   *  BISHERIGEN Stand, und die Antworten von `search`/`related` aendern sich, sobald der Lauf
+   *  umschaltet. Qualifiziert `indexed`, widerspricht ihm nicht — waehrend des Umbaus gibt es
+   *  weiterhin einen nutzbaren Index, er wird nur ersetzt.
+   *
+   *  Bewusst ein Boolean und KEINE Fortschrittszahl: `2900 von 6696` laedt dazu ein, eine
+   *  Schwelle zu bauen („ab 80 % vertraue ich den Treffern wieder"), und ein Urteil ueber
+   *  Trefferqualitaet gehoert der Quelle, nicht dem Konsumenten. Fortschritt zeigt unsere
+   *  eigene Oberflaeche, er steht nicht im Vertrag.
+   *
+   *  Aeltere Plugin-Versionen liefern hier `undefined` — das Feld kam ohne `apiVersion`-Bump
+   *  dazu, weil ein zusaetzliches Feld die Form des Vertrags nicht aendert (abgestimmt mit dem
+   *  einzigen Konsumenten, koda-agent, 2026-08-30). */
+  reindexing: boolean;
 }
 
 /** Pro Anfrage überschreibbar. `exclude` fehlt hier absichtlich: die Ausschluss-Liste
@@ -60,6 +74,7 @@ export interface VaultRetrievalApi {
 export function createVaultRetrievalApi(
   facade: RetrievalFacade,
   getIndex: () => VaultIndex | null,
+  isReindexing: () => boolean,
 ): VaultRetrievalApi {
   return {
     apiVersion: VAULT_RETRIEVAL_API_VERSION,
@@ -70,6 +85,9 @@ export function createVaultRetrievalApi(
         apiVersion: VAULT_RETRIEVAL_API_VERSION,
         indexed: index !== null,
         noteCount: index ? index.paths.length : 0,
+        // Bei JEDEM Aufruf frisch gelesen, nie beim Bauen der API eingefroren: der Zustand beim
+        // Plugin-Start ist nie „Reindex laeuft", ein eingefrorener Wert bliebe also ewig false.
+        reindexing: isReindexing(),
       };
     },
 

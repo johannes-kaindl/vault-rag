@@ -224,7 +224,11 @@ export default class VaultRagPlugin extends Plugin {
     });
     // Sofort nach der Facade setzen: sobald das Plugin-Objekt in app.plugins.plugins auftaucht,
     // soll `api` da sein — ein Konsument darf es nie halb initialisiert antreffen.
-    this.api = createVaultRetrievalApi(this.facade, () => this.index);
+    this.api = createVaultRetrievalApi(
+      this.facade,
+      () => this.index,
+      () => this.embeddingProgress.reindex !== null,
+    );
 
     this.addSettingTab(new VaultRagSettingTab(this.app, this));
 

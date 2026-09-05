@@ -10,7 +10,7 @@ function idx(): VaultIndex {
 }
 
 /** Baut die API über eine Facade mit Test-Anschlüssen. `over` überschreibt einzelne Deps. */
-function api(over: Record<string, unknown> = {}) {
+function api(over: Record<string, unknown> = {}, reindexing: () => boolean = () => false) {
   const deps = {
     getIndex: () => idx(),
     embedderReady: async () => true,
@@ -19,7 +19,7 @@ function api(over: Record<string, unknown> = {}) {
     readVault: async (r: string) => `INHALT ${r}`,
     ...over,
   } as ConstructorParameters<typeof RetrievalFacade>[0];
-  return createVaultRetrievalApi(new RetrievalFacade(deps), deps.getIndex);
+  return createVaultRetrievalApi(new RetrievalFacade(deps), deps.getIndex, reindexing);
 }
 
 describe("Plugin-API — Vertrag", () => {
@@ -28,12 +28,14 @@ describe("Plugin-API — Vertrag", () => {
   });
 
   it("status() ist synchron, netzfrei und meldet den Index-Bestand", () => {
-    expect(api().status()).toEqual({ apiVersion: VAULT_RETRIEVAL_API_VERSION, indexed: true, noteCount: 3 });
+    expect(api().status()).toEqual({
+      apiVersion: VAULT_RETRIEVAL_API_VERSION, indexed: true, noteCount: 3, reindexing: false,
+    });
   });
 
   it("status() meldet ohne Index indexed=false statt zu werfen", () => {
     expect(api({ getIndex: () => null }).status()).toEqual({
-      apiVersion: VAULT_RETRIEVAL_API_VERSION, indexed: false, noteCount: 0,
+      apiVersion: VAULT_RETRIEVAL_API_VERSION, indexed: false, noteCount: 0, reindexing: false,
     });
   });
 
@@ -117,5 +119,43 @@ describe("Plugin-API — Fremdkonsumenten-Tauglichkeit", () => {
       expect(f.ok).toBe(false);
       expect(Object.keys(f).every(k => ["ok", "reason", "path"].includes(k))).toBe(true);
     }
+  });
+});
+
+// ── reindexing: der laufende Umbau ist ein eigener Zustand ─────────────────────────────────────
+// Gemeldet von koda-agent am 2026-08-30: waehrend eines Voll-Reindex meldet status() durchgehend
+// `indexed: true`, und ein Konsument bekommt ohne es zu wissen die Nachbarschaft des ALTEN Standes.
+// Ob ein Reindex laeuft, ist eine STRUKTURELLE Aussage ueber die Quelle und gehoert deshalb ins
+// Werkzeug (Dach-AGENTS: „strukturelle Aussagen gehoeren ins Werkzeug, inhaltliche Urteile zur
+// Quelle") — ein Konsument, der es erraten muesste, baute sich eine Heuristik ueber Trefferqualitaet.
+describe("Plugin-API — laufender Reindex", () => {
+  it("meldet reindexing=true, waehrend ein Voll-Reindex laeuft", () => {
+    expect(api({}, () => true).status().reindexing).toBe(true);
+  });
+
+  it("meldet reindexing=false, wenn keiner laeuft", () => {
+    expect(api({}, () => false).status().reindexing).toBe(false);
+  });
+
+  // DIE ABGESTIMMTE SEMANTIK, gegen die naheliegende Versuchung eines „ehrlichen false":
+  // `indexed` beantwortet „gibt es einen nutzbaren Index?", und waehrend eines Reindex gibt es
+  // ihn — der alte steht vollstaendig im Speicher, related() rechnet offline darauf weiter.
+  // `false` hiesse „kein Index" und naehme dem Konsumenten die Faehigkeit fuer Stunden. Die
+  // beiden Felder sagen Verschiedenes: ES GIBT EINEN und ER WIRD GERADE ERSETZT.
+  it("laesst indexed waehrend des Reindex true — das neue Feld qualifiziert es, es widerspricht ihm nicht", () => {
+    const s = api({}, () => true).status();
+    expect(s.indexed).toBe(true);
+    expect(s.noteCount).toBe(3);
+  });
+
+  // Dieselbe Wurzel wie die i18n-Regel „nie zur Definitionszeit aufloesen": ein beim Bauen der
+  // API eingefrorener Wert waere fuer immer der Zustand des Plugin-Starts — und der ist nie
+  // „Reindex laeuft". Der Fehler waere still: das Feld staende da und bliebe ewig false.
+  it("liest den Zustand bei JEDEM Aufruf neu, statt ihn beim Bauen der API einzufrieren", () => {
+    let laeuft = false;
+    const a = api({}, () => laeuft);
+    expect(a.status().reindexing).toBe(false);
+    laeuft = true;
+    expect(a.status().reindexing).toBe(true);
   });
 });

@@ -158,6 +158,13 @@ live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename ·
                   treppenfoermige Fehlzuordnung aus dem Gotcha „Eine Pruefsumme beglaubigt
                   Konsistenz, nicht Richtigkeit"); scheitert die Gruppen-Anfrage, wird Notiz
                   fuer Notiz nachgefasst, damit `failed` seinen Zuschnitt behaelt.
+                  `cancelReindex` bittet den Lauf, an der naechsten GRUPPENGRENZE aufzuhoeren
+                  (mittendrin waeren die Vektoren der laufenden Anfrage verloren); uebernommen
+                  wird dann `mischeMitBestand` — neu berechnete Zeilen plus die noch nicht
+                  erreichten aus dem bisherigen Bestand, dieselbe Mischung wie beim Checkpoint.
+                  Ohne sie liesse `this.noteVectors = fresh` den Index auf die erreichten Notizen
+                  schrumpfen. Verpufft, wenn kein Lauf aktiv ist, und wird bei jedem Start
+                  zurueckgesetzt.
                   reindexAll persistiert seit 0.29.0 alle CHECKPOINT_EVERY (250) Notizen einen
                   VOLLSTAENDIGEN Zwischenstand (persistCheckpoint: neu berechnete Vektoren +
                   noch nicht erreichte aus dem bisherigen Bestand) — der In-Memory-Stand bleibt
@@ -247,6 +254,12 @@ plugin_api.ts     Öffentlicher Vertrag für ANDERE Obsidian-Plugins, hängt als
                   Formulierung gehört dem Aufrufer; hält zugleich den i18n-Sink-Guard sauber).
                   `exclude` ist NICHT überschreibbar (Nutzergrenze, kein Tuning-Parameter),
                   Scores kommen ungerundet (Darstellung entscheidet der Konsument).
+                  `status().reindexing` meldet einen laufenden Voll-Reindex — eine STRUKTURELLE
+                  Aussage über die Quelle, die sonst der Konsument raten müsste (und dafür eine
+                  Heuristik über Trefferqualität bauen, also die verbotene Reparatur). Bewusst
+                  ein Boolean ohne Fortschrittszahl: eine Zahl lädt zu einer Schwelle ein
+                  („ab 80 % vertraue ich den Treffern wieder"). `indexed` bleibt dabei `true` —
+                  das Feld qualifiziert es, es widerspricht ihm nicht.
 settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings (embeddingEndpoints/
                   chatEndpoints als EndpointConfig[]) · DEFAULT_SETTINGS — die Endpunkt-Helfer
                   liegen in endpoint_config.ts und werden von dort importiert, nicht hier
@@ -367,7 +380,7 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (979 Tests, 67 Files)
+npm test                          # vitest run     (1035 Tests, 68 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit
@@ -658,6 +671,26 @@ gar nicht bis in die Oberfläche schafft.
   (`classifyChunkless` über die missing-Pfade), in-Session von den Live-Handlern gepflegt, von
   Heal/Reindex aus dem `HealReport` neu aufgebaut. Delta-Anzeige/Heal-Lauf/Auto-Heal-Prompt rechnen
   alle auf der bereinigten Basis (`computeIndexDelta`/`splitHealTargets`).
+- **Die Fortschrittsrate eines Reindex ist kein Prädiktor — sie misst die Notizlänge, nicht die
+  Restzeit.** An einem Abend im Arbeits-Vault gemessen: 3,5 → 130 → 76 → 35 → 4,8 Notizen/Minute,
+  im selben Lauf. Nicht Last und nicht der Endpunkt (Modell durchgehend im VRAM laut
+  `/api/ps`, Ein-Chunk-Latenz 2,35 s), sondern die **Bündelung**: `reindexAll` füllt eine Gruppe
+  bis `EMBED_BATCH` = 32 **Chunks**, geht die Pfade aber alphabetisch durch — eine Notiz mit 30+
+  Chunks ist damit allein eine ganze Gruppe, dreißig kurze passen in eine. Jede Hochrechnung aus
+  einem Zeitfenster sagt deshalb nur, wie lang die Notizen gerade sind. Gemessen führte das an
+  einem Abend zu drei Schätzungen von 35 h, 3,4 h und 21 h für denselben Lauf, und die
+  Faktor-5-Fehlschätzung vom 2026-09-05 mittags hat dieselbe Ursache. Belastbar wäre ein
+  Fortschritt in **Chunks**; `EmbeddingProgress.reindex` zählt Notizen.
+- **Der Staging-Vault ist zu klein, um irgendetwas an einer GRUPPENGRENZE zu belegen.** Seine 18
+  Notizen ergeben zusammen weniger als `EMBED_BATCH` = 32 Chunks, passen also in **eine** einzige
+  Embedding-Anfrage. Ein Verhalten, das erst zwischen zwei Gruppen greift (der Reindex-Abbruch;
+  jeder künftige Zwischenschritt in `reindexAll`), kommt dort nie zum Zug — und die Messung sieht
+  aus wie ein Ergebnis, statt sich als ungültig zu melden. Gemessen 2026-09-05: der erste
+  Abbruch-Beleg meldete „Vault indiziert: 18 Notizen" und konnte „griff nicht" nicht von „hatte
+  keine Gelegenheit" unterscheiden. Wer so etwas belegt, legt vorher genug Wegwerf-Notizen an
+  (150 reichten) und räumt sie danach weg — der Vault ist Wegwerfware, aber sein Fixture ist
+  getrackt. Dieselbe Wurzel wie CORE-TEST-22: eine Messung braucht eine Definition davon, wann
+  sie gültig ist.
 - **HyperForge-Export** braucht Daemon-Stopp bei Live-Lauf (embedded-Qdrant ist single-process).
 - **`main.js`** ist Build-Artefakt (gitignored) — nie von Hand editieren.
 - **`adapter.rmdir(path, false)` löscht in Obsidian NIE ein Verzeichnis** — auch kein leeres.

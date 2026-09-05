@@ -1090,3 +1090,50 @@ describe("LiveIndexer — Buendelung ueber Notizgrenzen", () => {
     expect(indexer.buildIndex().rowFor("c.md")).not.toBe(-1);
   });
 });
+
+describe("LiveIndexer — Stempel erreichen die Platte", () => {
+  it("nach einem Voll-Reindex traegt der geschriebene Container die Stempel", async () => {
+    // Gemessen am 2026-09-05 im Arbeitsvault: ein Voll-Reindex ueber 7.210 Notizen lief zehn
+    // Stunden durch und hinterliess einen Container OHNE `stamps` — der Waechter gegen veraltete
+    // Vektoren war damit wirkungslos, obwohl er gebaut und in den Tests gruen war.
+    //
+    // Der Grund ist eine vergessene Durchreichung: `persistVectors` nimmt `stamps` als vierten
+    // Parameter, `persist()` gab ihn nicht mit. Nur `persistCheckpoint` tat es — und genau den
+    // pruefen die vorhandenen Stempel-Tests. Der Schluss-Persist eines Laufs (und jeder
+    // Live-Persist) blieb deshalb ungeprueft.
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", proTextEmbedder(), "qwen3-embedding:8b");
+    indexer.markFresh();
+    const paths = ["a.md", "b.md", "c.md"];
+
+    await indexer.reindexAll(paths, async (p: string) => `# ${p}\nInhalt von ${p}`, undefined,
+      (p) => [p === "a.md" ? 1000 : 2000, 42]);
+    await indexer.persist("reindex");
+
+    const roh = adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer | undefined;
+    expect(roh).not.toBeUndefined();
+    const d = decodeContainer(roh!);
+    expect(d.stamps).not.toBeUndefined();
+    expect(d.stamps![d.paths.indexOf("a.md")]).toEqual([1000, 42]);
+    expect(d.stamps![d.paths.indexOf("b.md")]).toEqual([2000, 42]);
+  });
+
+  it("ein Live-Persist erhaelt die Stempel, statt sie aus dem Container zu loeschen", async () => {
+    // Zweite Haelfte derselben Luecke: `update()` fuehrt seinen Stempel korrekt mit, aber der
+    // anschliessende `persist("live")` schrieb ihn nicht — ein einziger Live-Persist nach einem
+    // sauberen Reindex haette also alle Stempel wieder von der Platte genommen.
+    const adapter = makeAdapter();
+    const indexer = new LiveIndexer(adapter, "_vaultrag", proTextEmbedder(), "qwen3-embedding:8b");
+    indexer.markFresh();
+    await indexer.reindexAll(["a.md"], async (p: string) => `# ${p}\nInhalt`, undefined, () => [1000, 10]);
+    await indexer.persist("reindex");
+
+    await indexer.update("b.md", "# b\nneu", [3000, 20]);
+    await indexer.persist("live");
+
+    const d = decodeContainer(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer);
+    expect(d.stamps).not.toBeUndefined();
+    expect(d.stamps![d.paths.indexOf("a.md")]).toEqual([1000, 10]);
+    expect(d.stamps![d.paths.indexOf("b.md")]).toEqual([3000, 20]);
+  });
+});

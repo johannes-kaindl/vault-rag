@@ -24,6 +24,36 @@ All notable changes to this project are documented here. The format follows
     Speicher. Gemessen am 2026-09-04 im Arbeits-Vault: ein Inhalts-Hash hätte stattdessen alle
     7200 Notizen gelesen (44 MB, 768 ms roh, über die Obsidian-Schicht ein Vielfaches).
 
+- **Die Plugin-API meldet, dass gerade ein Voll-Reindex läuft** (`status().reindexing`). Bis dahin
+  war der Umbau nach außen unsichtbar: `indexed` und `noteCount` blieben wahr und bezogen sich
+  auf den *bisherigen* Stand — ein Fremdplugin konnte nicht zwischen „Index ist fertig und gut"
+  und „Index wird gerade ersetzt" unterscheiden und reichte ahnungslos die alte Nachbarschaft
+  weiter. Gemeldet von der einzigen Konsumenten-Seite (koda-agent) aus einem echten Parallellauf.
+  - **Bewusst ein Boolean, keine Fortschrittszahl.** „2900 von 6696" lädt dazu ein, eine Schwelle
+    zu bauen („ab 80 % vertraue ich den Treffern wieder") — und ein Urteil über Trefferqualität
+    gehört der Quelle, nicht dem Konsumenten. Fortschritt zeigt die eigene Oberfläche.
+  - **`indexed` bleibt dabei `true`.** Das neue Feld qualifiziert es, es widerspricht ihm nicht:
+    während des Umbaus gibt es weiterhin einen nutzbaren Index — der alte steht vollständig im
+    Speicher, `related()` rechnet offline darauf weiter. Ein „ehrliches `false`" hieße „kein
+    Index" und nähme dem Konsumenten die Fähigkeit für Stunden.
+  - **Kein `apiVersion`-Bump:** ein zusätzliches Feld ändert die Form des Vertrags nicht. Ältere
+    Plugin-Versionen liefern hier schlicht `undefined`.
+  - Am laufenden System gesehen: `reindexing` steht während eines echten Laufs auf `true` und
+    fällt mit dessen Ende zurück auf `false`.
+
+- **Ein laufender Voll-Reindex lässt sich abbrechen** (Befehl „Vault-Indizierung stoppen").
+  Bisher gab es dafür keinen Weg: kein Flag, kein `AbortController`, und ein Deaktivieren des
+  Plugins beendete den laufenden Vorgang nicht — er arbeitete seine Liste weiter ab, belegte den
+  Embedding-Endpunkt und schrieb am Ende seinen Index in ein Plugin hinein, das es nicht mehr
+  gab. Der einzige verfügbare Stopp war ein Neuladen des ganzen Vault-Fensters.
+  - **Ein Abbruch kostet nichts.** Der Index bleibt *vollständig*: neu berechnete Notizen plus
+    alle noch nicht erreichten mit ihren bisherigen Vektoren. Am laufenden System gemessen —
+    Abbruch nach 32 von 168 Notizen, danach standen weiterhin 168 im Index.
+  - Abgebrochen wird an der nächsten Gruppengrenze, nicht mitten in einer Embedding-Anfrage:
+    deren Vektoren wären sonst verloren. Gemessen endete der Lauf 6 Sekunden nach dem Befehl.
+  - Der Befehl bleibt in der Palette sichtbar, auch wenn gerade nichts läuft, und erklärt das
+    dann — ein Befehl, der verschwindet, sieht aus, als gäbe es die Funktion nicht.
+
 ### Fixed
 - **Eine einzige Notiz ohne Stempel nimmt nicht mehr dem ganzen Index seine Stempel.** Das
   Stempel-Feld ist ein Array parallel zu den Pfaden, und `stampsFor` brach bei der ersten Lücke
@@ -86,6 +116,17 @@ All notable changes to this project are documented here. The format follows
   gleichzeitiges `handleModify` in genau die Map, die unmittelbar darauf verworfen wurde.
   Das Umhängen ist ersatzlos entfallen — die zu schreibende Map wird jetzt als Argument
   übergeben (`persistVectors`), das Zeitfenster existiert nicht mehr, statt bewacht zu werden.
+
+- **`scripts/index-probe.ts` hält seine Zusage der Vergleichbarkeit jetzt ein** (Maintainer-Werkzeug).
+  Der Docblock sagte zu, ein Wiederholungslauf treffe dieselbe Auswahl — der Fisher-Yates-Shuffle
+  zog aber `j = seed % (i + 1)`, also ging die *Länge* der Dateiliste in jede Position ein. Eine
+  einzige zusätzliche Notiz verschob damit die gesamte Auswahl; zwei Läufe vor und nach einem
+  Voll-Reindex teilten keine einzige Notiz und lasen sich trotzdem wie eine Verbesserung.
+  - Die Auswahl ordnet jetzt ein Hash je *Pfad* statt der Position und lebt in getestetem Code
+    (`scripts/probe_core.ts`) statt im `evaluate`-String — vorher war sie strukturell unprüfbar.
+  - `--wie <bericht.json>` misst exakt die Notizen eines früheren Laufs und stellt die Ränge
+    gegenüber. Erst das erlaubt die Aussage „diese Notiz ist geheilt"; Notizen, die im zweiten
+    Lauf fehlen, werden ausgewiesen statt geschluckt.
 
 ## [0.29.1] — 2026-09-03
 

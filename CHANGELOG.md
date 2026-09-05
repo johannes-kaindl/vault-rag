@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.30.0] — 2026-09-05
+
 ### Added
 - **Der Index meldet jetzt, wenn eine Notiz sich seit ihrem Einbetten geändert hat.** Bis dahin
   war ein veralteter Vektor bei vorhandenem Pfad durch **nichts** erkennbar: CRC32 deckt Header

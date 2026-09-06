@@ -689,7 +689,7 @@ const SHOTS: Shot[] = [
       // Die Rollen-Zeilen werden asynchron nach der Probe befuellt — auf Text warten,
       // nicht auf die Zeile.
       await pollUntil<boolean>(cdp, `
-        const zeilen = [...document.querySelectorAll(".vault-rag-ep-state")]
+        const zeilen = [...document.querySelectorAll(".okit-ep-state")]
           .filter((e) => (e.textContent ?? "").trim().length > 0);
         return zeilen.length >= 2;
       `, 30_000, 500);
@@ -697,14 +697,14 @@ const SHOTS: Shot[] = [
       // Unterschied zwischen den Rollen, nicht eine einzelne Zeile.
       // NUR die Embedding-Liste, nicht jede Endpunkt-Zeile des Tabs.
       //
-      // Ein min/max ueber alle `.vault-rag-ep-row` umspannt auch die Chat-Endpunkte weit
+      // Ein min/max ueber alle `.okit-ep-row` umspannt auch die Chat-Endpunkte weit
       // weiter unten — die Box war 3720 px hoch, und weil `captureBeyondViewport` die Seite
       // verlaengert, aber keinen scrollenden Container, bestand das Ergebnis zu vier
       // Fuenfteln aus schwarzer Flaeche. Genommen werden deshalb die ersten vier Zeilen in
       // Dokumentreihenfolge (Zeile + Rollen-Zeile, zweimal), und vorher wird an den Anfang
       // gescrollt, damit sie ueberhaupt im Viewport liegen.
       const raw = await cdp.evaluate<string | null>(`
-        const alle = [...document.querySelectorAll(".vault-rag-ep-row, .vault-rag-ep-state")]
+        const alle = [...document.querySelectorAll(".okit-ep-row, .okit-ep-state")]
           .filter((e) => e.getBoundingClientRect().width > 1);
         if (alle.length < 2) return null;
         alle[0].scrollIntoView({ block: "start" });

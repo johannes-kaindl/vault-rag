@@ -2,6 +2,6 @@
   "source": "obsidian-kit",
   "version": "0.27.0",
   "sha": "548041b",
-  "vendored": "callout.ts, clipboard.ts, endpoint.ts, endpoint_diagnostics.ts, error_body.ts, frontmatter.ts, i18n.ts, reasoning.ts, settings.ts, sse.ts, timeout.ts, think.ts (aus pure/think-splitter.ts)",
+  "vendored": "callout.ts, clipboard.ts, endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error_body.ts, frontmatter.ts, i18n.ts, model-choice.ts, model-list-cache.ts, reasoning.ts, settings.ts, sse.ts, timeout.ts, think.ts (aus pure/think-splitter.ts)",
   "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh."
 }

@@ -179,7 +179,7 @@ function skipped(name: string, reason: string): void {
 
 /** Liest die sichtbaren Endpunkt-Zeilen der zuletzt geöffneten Einstellungs-Seite. */
 const READ_ROWS = `
-  const rows = [...document.querySelectorAll(".vault-rag-ep-row")];
+  const rows = [...document.querySelectorAll(".okit-ep-row")];
   // Es gibt ZWEI Listen (Embedding und Chat) im selben Tab, jede mit ihrem eigenen aktiven
   // Endpunkt. Global zu zählen ergäbe zwei "aktiv" und sähe wie ein Bug aus, der keiner ist.
   // Der gemeinsame Eltern-Container trennt sie zuverlässig.
@@ -192,7 +192,7 @@ const READ_ROWS = `
   };
   return rows.map((row, i) => {
     const listIndex = listIndexOf(row);
-    const state = row.querySelector(".vault-rag-ep-state");
+    const state = row.querySelector(".okit-ep-state");
     const url = row.querySelector('input[type="text"]');
     const buttons = [...row.querySelectorAll(".extra-setting-button, .clickable-icon")];
     return {
@@ -219,7 +219,7 @@ const READ_ROWS = `
         return svg ? (svg.getAttribute("class") || "").replace("svg-icon ", "") : "(leer)";
       }),
       warnIconBelowState: (() => {
-        const warn = row.querySelector(".vault-rag-ep-warn, .vault-rag-ep-thirdparty");
+        const warn = row.querySelector(".okit-ep-warn, .okit-ep-thirdparty");
         if (!warn || !state) return null;
         return warn.getBoundingClientRect().top >= state.getBoundingClientRect().bottom - 1;
       })(),
@@ -615,7 +615,7 @@ async function main(): Promise<void> {
     };
     const rows = await readRowsSettled();
     record("Endpunkt-Zeilen gefunden", rows.length > 0, `${rows.length} Zeilen`);
-    if (rows.length === 0) throw new Error("Keine .vault-rag-ep-row im DOM — falscher Tab?");
+    if (rows.length === 0) throw new Error("Keine .okit-ep-row im DOM — falscher Tab?");
 
     const listNames = ["Embedding", "Chat"];
     console.log("\n  Zeilen wie gerendert:");
@@ -743,7 +743,7 @@ async function main(): Promise<void> {
       // zweite Liste verschieben jede Index-Rechnung.
       await settings.evaluate(`
         const wanted = ${JSON.stringify(beforeUrl)};
-        const rows = [...document.querySelectorAll(".vault-rag-ep-row")];
+        const rows = [...document.querySelectorAll(".okit-ep-row")];
         const target = rows.find(r => {
           const input = r.querySelector('input[type="text"]');
           return input && input.value === wanted;
@@ -796,7 +796,7 @@ async function main(): Promise<void> {
       const rowIndex = overrideRow.index;
       const setModel = async (value: string): Promise<string | null> => {
         await settings!.evaluate(`
-          const row = [...document.querySelectorAll(".vault-rag-ep-row")][${rowIndex}];
+          const row = [...document.querySelectorAll(".okit-ep-row")][${rowIndex}];
           const sel = row.querySelector("select");
           if (!sel) throw new Error("Kein Modell-Dropdown in der Zeile");
           sel.value = ${JSON.stringify("__V__")};

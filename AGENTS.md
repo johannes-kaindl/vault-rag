@@ -184,7 +184,19 @@ model_choice.ts   `resolveModelChoice(input) → { mode, options, value, hint }`
                   „(gespeichert)"; im `locked`-Modus ist der gespeicherte Wert ohnehin die einzige
                   Option, es gibt nichts zu unterscheiden. Obsidian-frei, Zeichnen liegt beim Host
                   (`renderModelPicker` in `settings.ts`).
-settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab — vollständig deklarativ
+settings.ts       ⚠️ **Der Endpunkt-Zeilen-Editor kommt seit 2026-09-06 aus dem Kit**
+                  (`vendor/kit-obsidian/endpoint-list.ts` @0.27.0, dazu `model-picker` und die
+                  pure-Teile `endpoint_config`/`model-choice`/`model-list-cache`). Das lokale
+                  `buildEndpointList` (278 Zeilen) ist entfallen — es WAR die Vorlage der
+                  Kit-Extraktion und lief danach anderthalb Monate daneben weiter. Hier bleibt
+                  nur die Sprach-Hälfte: `endpointStrings(label)` bildet die 22 Textstellen des
+                  Kit-Vertrags auf unsere i18n-Schlüssel ab (`label` ist Parameter, weil auf
+                  diesem Tab ZWEI Listen stehen und ein gemeinsames Objekt beiden dasselbe
+                  `aria-label` gäbe). Die CSS-Grammatik heißt entsprechend `okit-ep-*`, nicht
+                  mehr `vault-rag-ep-*`; `styles.css` trägt die Consumer-Hälfte aus
+                  `ENDPOINT_LIST_CSS`, `scripts/gui-smoke.ts` und `scripts/shots.ts` greifen auf
+                  dieselben Klassen zu.
+                  VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab — vollständig deklarativ
                   (Obsidian 1.13 `getSettingDefinitions()`, 7 Gruppen, durchsuchbar): einfache
                   Zeilen sind `control`-Definitionen, `get/setControlValue` liest/schreibt sie
                   (mit Coercion + Seiteneffekten wie refresh/setStatusBarVisible). Dynamische
@@ -192,7 +204,7 @@ settings.ts       VaultRagSettings · DEFAULT_SETTINGS · VaultRagSettingTab —
                   Modell-Override als Dropdown, ein „Zuerst verwenden"-Knopf (ab Zeile 2, bewusst
                   nicht gezeichnet statt deaktiviert an Platz 1 — ein `setDisabled`-Tooltip bleibt in
                   Electron unsichtbar) verschiebt die Zeile per `moveEndpointToFront` an die Spitze,
-                  eine `vault-rag-ep-state`-Zeile zeigt pro Endpunkt seine `endpointRole` (aktiv/
+                  eine `okit-ep-state`-Zeile zeigt pro Endpunkt seine `endpointRole` (aktiv/
                   Platz N/nicht erreichbar/Modell-Mismatch) synchron angelegt + asynchron nach der
                   Probe befüllt, gesperrt während einer form-ändernden Mutation läuft,
                   plus `alert-triangle`-Hinweis-Icon bei gesetztem Schlüssel (`carriesApiKey`) —

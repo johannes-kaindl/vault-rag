@@ -7,6 +7,22 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Der Endpunkt-Zeilen-Editor kommt jetzt aus dem Kit** statt aus einer lokalen Kopie. Das
+  Modul `obsidian/endpoint-list.ts` ist am 2026-08-08 als „Umzug aus vault-rag" ins Kit gezogen —
+  dieses Repo hat seine eigene Extraktion danach anderthalb Monate nicht zurückadoptiert und die
+  Vorlage weiterlaufen lassen (278 Zeilen in `settings.ts`). Sie ist entfallen; hier bleibt nur
+  die Sprach-Hälfte, die die 22 Textstellen des Kit-Vertrags auf unsere i18n-Schlüssel abbildet.
+  - **Kein Funktionsverlust, und das war die eigentliche Frage:** alles, was diese Zeile über
+    andere Konsumenten hinaus trug — „Zuerst verwenden", die Rollen-Zeile, das Drittanbieter-Icon
+    bei gesetztem Schlüssel, der Modell-Override je Zeile, der Modell-Guard gegen das
+    Index-Modell — ist im Kit parametrisiert. Auch die neun offenen Generalisierungen aus der
+    Registry-Analyse von 2026-07-16 sind dort inzwischen alle gelöst.
+  - **Belegt statt behauptet:** GUI-Smoke vor dem Umbau 34/34, danach 34/34, mit **identischer
+    Prüfpunktmenge** (Namen gediffed, nicht nur die Summe verglichen) und demselben einen
+    übersprungenen Punkt. Ohne festgehaltene Baseline wäre „grün" nicht von „anders grün" zu
+    unterscheiden gewesen.
+  - Mitgezogen: der Modell-Listen-Cache (`vendor/kit/model-list-cache` — ebenfalls eine
+    Extraktion aus diesem Repo) und die CSS-Grammatik, die jetzt `okit-ep-*` heißt.
 - **Smart Apply unterdrückt Thinking jetzt per Default.** Denken und Antwort teilen sich dasselbe
   `smartApplyMaxTokens`-Budget; bei 4096 und einem ausführlich denkenden Modell ist es erschöpft,
   **bevor** die Antwort beginnt — gemessen am 2026-08-23 mit `google/gemma-4-26b-a4b-qat`:

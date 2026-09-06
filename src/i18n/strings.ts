@@ -422,6 +422,7 @@ export const EN = {
   "modelChoice.hintNoList": "Endpoint does not expose a model list — enter the name by hand.",
   "modelChoice.hintUnreachable": "Endpoint unreachable — the saved value is kept. Use \"Fetch models\" once it is running.",
   "modelChoice.savedLabel": "{0} (saved)",
+  "modelChoice.savedSuffix": "(saved)",
 
   // context_panel.ts
   "context.count": "Context ({0})",
@@ -883,6 +884,7 @@ export const DE = {
   "modelChoice.hintNoList": "Endpunkt gibt keine Modell-Liste heraus — Namen von Hand eintragen.",
   "modelChoice.hintUnreachable": "Endpunkt nicht erreichbar — gespeicherter Wert bleibt erhalten. „Modelle abrufen“, sobald er läuft.",
   "modelChoice.savedLabel": "{0} (gespeichert)",
+  "modelChoice.savedSuffix": "(gespeichert)",
 
   // context_panel.ts
   "context.count": "Kontext ({0})",

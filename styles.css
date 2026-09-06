@@ -31,40 +31,78 @@
 .vault-rag-conn-dot.is-ok { color: var(--text-success); }
 .vault-rag-conn-dot.is-error { color: var(--text-error); }
 .vault-rag-conn-dot.is-checking { color: var(--text-muted); }
+/* uebernommen aus obsidian-kit/src/obsidian/endpoint-list.ts (ENDPOINT_LIST_CSS), 2026-09-06
+   Verhalten ist vendored (src/vendor/kit-obsidian/endpoint-list.ts), die Darstellung ist laut
+   Kit-Vertrag eine KOPIE — Consumer haengen sie in ihre styles.css. Diese Kopie ist deshalb
+   Absicht, kein Rueckstand; sie darf nur nicht auseinanderlaufen, und genau das bewacht
+   tools/ui_adoption_check.py im Dach. Bei einem Re-Vendoring diesen Block neu aus der
+   Konstante ziehen, nicht von Hand nachpflegen. */
 /* Pro-Zeile-Status der Endpunkt-Fallback-Liste: Form trägt die Bedeutung, Farbe sekundär (WCAG 1.4.1). */
-.vault-rag-ep-status { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-muted); }
-.vault-rag-ep-status svg { width: 14px; height: 14px; }
-.vault-rag-ep-status.is-ok { color: var(--text-success); }
-.vault-rag-ep-status.is-error { color: var(--text-error); }
-.vault-rag-ep-warn { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-warning); }
-.vault-rag-ep-warn svg { width: 14px; height: 14px; }
+.okit-ep-status { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-muted); }
+.okit-ep-status svg { width: 14px; height: 14px; }
+.okit-ep-status.is-ok { color: var(--text-success); }
+.okit-ep-status.is-error { color: var(--text-error); }
+.okit-ep-warn { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-warning); }
+.okit-ep-warn svg { width: 14px; height: 14px; }
 /* Drittanbieter-Hinweis (Schlüssel gesetzt): sachlicher Hinweis, keine Fehler-Warnung — bewusst
-   gedämpfter als .vault-rag-ep-warn, Bedeutung trägt das Dreieck + der Tooltip, nicht die Farbe. */
-.vault-rag-ep-thirdparty { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-muted); }
-.vault-rag-ep-thirdparty svg { width: 14px; height: 14px; }
+   gedämpfter als .okit-ep-warn, Bedeutung trägt das Dreieck + der Tooltip, nicht die Farbe. */
+.okit-ep-thirdparty { display: inline-flex; align-items: center; margin-right: 8px; vertical-align: middle; color: var(--text-muted); }
+.okit-ep-thirdparty svg { width: 14px; height: 14px; }
 /* Rolle der Zeile als Text unter den Feldern: „aktiv" / „erreichbar, aber Platz N" / … .
    Erreichbarkeit trägt das Icon (Form), die Rolle dieser Text — keins von beiden über Farbe
    allein (WCAG 1.4.1). Die frühere Auszeichnung saß auf dem Icon-Container und war wirkungslos:
    font-weight greift auf einem SVG nicht.
-   flex-basis: 100% erzwingt den Umbruch im ohnehin umbrechenden .setting-item-control. */
-.vault-rag-ep-row .setting-item-control .vault-rag-ep-state {
+   flex-basis: 100% erzwingt den Umbruch im ohnehin umbrechenden .setting-item-control.
+   stateEl wird VOR warnIcon/thirdPartyIcon angelegt (Erst-Render-Reihenfolge in
+   buildEndpointList) — ohne order würden die beiden Icons hinter die volle-Breite-Zeile
+   rutschen statt in der Feldreihe zu bleiben. order:1 hält die Rolle visuell zuletzt,
+   unabhängig davon, was später noch an controlEl angehängt wird. */
+.okit-ep-row .setting-item-control .okit-ep-state {
   flex: 0 0 100%;
-  /* stateEl wird VOR warnIcon/thirdPartyIcon angelegt (Erst-Render-Reihenfolge in
-     buildEndpointList) — ohne order würden die beiden Icons hinter die volle-Breite-Zeile
-     rutschen statt in der Feldreihe zu bleiben. order:1 hält die Rolle visuell zuletzt,
-     unabhängig davon, was später noch an controlEl angehängt wird. */
   order: 1;
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   margin-top: 2px;
 }
-.vault-rag-ep-row .setting-item-control .vault-rag-ep-state.is-active {
+.okit-ep-row .setting-item-control .okit-ep-state.is-active {
   color: var(--text-normal);
   font-weight: var(--font-bold);
 }
 /* Speicher-/Lösch-Fenster: die gerenderten Zeilen-Indizes sind stale, bis der Re-Render kommt —
    Eingaben und Icon-Buttons (divs, kein disabled) sind solange gesperrt. */
-.vault-rag-ep-busy { pointer-events: none; opacity: 0.6; }
+.okit-ep-busy { pointer-events: none; opacity: 0.6; }
+/* Endpunkt-Zeile: drei Felder (Adresse · Schlüssel · Modell) brauchen die volle Breite.
+   Die Beschriftung steht als eigene Zeile darüber, deshalb ist der Info-Block hier leer und
+   darf keinen Platz beanspruchen — sonst quetscht er die Felder (gemeldet 2026-08-04). */
+.okit-ep-row .setting-item-info {
+  display: none;
+}
+.okit-ep-row .setting-item-control {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: var(--size-4-2);
+  width: 100%;
+}
+.okit-ep-row .setting-item-control input[type="text"],
+.okit-ep-row .setting-item-control input[type="password"] {
+  flex: 1 1 12em;
+  min-width: 8em;
+}
+/* Reservierter Platz für das Modell-Dropdown (Auffüllen der Zeile erst nach dem geladenen
+   Promise, siehe buildEndpointList). Selbst ein Flex-Container, damit Dropdown/Freitext + der
+   „Modelle abrufen"-Knopf innerhalb genauso mitwachsen wie URL/Schlüssel daneben. */
+.okit-ep-row .setting-item-control .okit-model-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  flex: 1 1 12em;
+  min-width: 10em;
+}
+.okit-ep-row .setting-item-control .okit-model-slot select,
+.okit-ep-row .setting-item-control .okit-model-slot input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .vault-rag-sa-conn-refresh { margin-left: 6px; display: inline-flex; align-items: center; }
 .vault-rag-sa-conn-refresh svg { width: 14px; height: 14px; }
 .vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; flex: 0 0 auto; }
@@ -332,35 +370,4 @@
   margin-bottom: var(--size-2-2);
 }
 
-/* Endpunkt-Zeile: drei Felder (Adresse · Schlüssel · Modell) brauchen die volle Breite.
-   Die Beschriftung steht als eigene Zeile darüber, deshalb ist der Info-Block hier leer und
-   darf keinen Platz beanspruchen — sonst quetscht er die Felder (gemeldet 2026-08-04). */
-.vault-rag-ep-row .setting-item-info {
-  display: none;
-}
-.vault-rag-ep-row .setting-item-control {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: var(--size-4-2);
-  width: 100%;
-}
-.vault-rag-ep-row .setting-item-control input[type="text"],
-.vault-rag-ep-row .setting-item-control input[type="password"] {
-  flex: 1 1 12em;
-  min-width: 8em;
-}
-/* Reservierter Platz für das Modell-Dropdown (Auffüllen der Zeile erst nach dem geladenen
-   Promise, siehe buildEndpointList). Selbst ein Flex-Container, damit Dropdown/Freitext + der
-   „Modelle abrufen"-Knopf innerhalb genauso mitwachsen wie URL/Schlüssel daneben. */
-.vault-rag-ep-row .setting-item-control .vault-rag-model-slot {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-1);
-  flex: 1 1 12em;
-  min-width: 10em;
-}
-.vault-rag-ep-row .setting-item-control .vault-rag-model-slot select,
-.vault-rag-ep-row .setting-item-control .vault-rag-model-slot input[type="text"] {
-  flex: 1 1 auto;
-  min-width: 0;
-}
+

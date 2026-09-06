@@ -62,8 +62,8 @@ vendor() {
   mv "$tmp" "$1"
 }
 
-PURE="callout clipboard endpoint endpoint_diagnostics error_body frontmatter i18n reasoning settings sse timeout"
-OBS="clipboard collapsible confirm folder-suggest hub settings_walker"
+PURE="callout clipboard endpoint endpoint_config endpoint_diagnostics error_body frontmatter i18n model-choice model-list-cache reasoning settings sse timeout"
+OBS="clipboard collapsible confirm endpoint-list folder-suggest hub model-picker settings_walker"
 
 # Alle Quellen auf einmal pruefen — vor dem ersten Schreibvorgang.
 QUELLEN=""
@@ -82,8 +82,23 @@ for f in $OBS; do
   vendor "src/vendor/kit-obsidian/$f.ts" "src/obsidian/$f.ts"
 done
 # Schichtwechsel: im Kit liegen pure/ und obsidian/ nebeneinander, hier heisst der pure-Zweig kit/.
+# Bewusst ueber ALLE obsidian-Module und ohne Modulnamen im Muster: die frueher hier stehende
+# Einzelfall-Zeile (nur clipboard) haette beim naechsten Modul mit Querimport still nichts getan —
+# `endpoint-list.ts` bringt sieben davon mit, `model-picker.ts` einen. Ein Muster, das den Namen
+# des Moduls kennt, muss bei jedem neuen Modul mitgepflegt werden und wird es nicht.
 # sed -i '' ist BSD/macOS; GNU-sed braeuchte -i''. Bewusst macOS-only wie der Rest der Maintainer-Tools.
-sed -i '' 's|from "\.\./pure/clipboard"|from "../kit/clipboard"|' src/vendor/kit-obsidian/clipboard.ts
+for f in $OBS; do
+  sed -i '' 's|from "\.\./pure/|from "../kit/|g' "src/vendor/kit-obsidian/$f.ts"
+done
+
+# Probe, dass der Schichtwechsel vollstaendig war: ein uebersehener ../pure/-Import bricht erst
+# beim Typecheck, und zwar mit einer Meldung ueber ein fehlendes Verzeichnis statt ueber das
+# Vendoring. Hier faellt er sofort auf, mit Dateinamen.
+if grep -rl 'from "\.\./pure/' src/vendor/kit-obsidian/ 2>/dev/null | grep -q .; then
+  echo "FEHLER: ../pure/-Importe nach dem Schichtwechsel uebrig in:" >&2
+  grep -rl 'from "\.\./pure/' src/vendor/kit-obsidian/ >&2
+  exit 1
+fi
 
 write_vendor_json() { # write_vendor_json <verzeichnis> <modul-liste>
   printf '{\n  "source": "obsidian-kit",\n  "version": "%s",\n  "sha": "%s",\n  "vendored": "%s",\n  "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh."\n}\n' \

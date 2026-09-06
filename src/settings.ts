@@ -1,20 +1,21 @@
-import { App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, setIcon, setTooltip } from "obsidian";
+import { App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, setIcon } from "obsidian";
 import type { SettingDefinitionItem, SettingDefinitionGroup } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import { normalizeIndexDir, isDotPath } from "./index_dir";
-import { normalizeEndpoint } from "./vendor/kit/endpoint";
-import { ENDPOINT_PRESETS, type EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
+import { ENDPOINT_PRESETS } from "./vendor/kit/endpoint_diagnostics";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import { applyEndpointEdit, effectiveModel, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointInputWarnings, type EndpointConfig } from "./endpoint_config";
+import { effectiveModel, describeEndpointRole, endpointStatusText, endpointWarningText } from "./endpoint_config";
+import { buildEndpointList as buildKitEndpointList, type EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
 import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
+import { createModelListCache, type ModelListCache } from "./vendor/kit/model-list-cache";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import { describeStartError, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
 import { t } from "./vendor/kit/i18n";
@@ -144,16 +145,18 @@ export class VaultRagSettingTab extends PluginSettingTab {
   // (renderImperative() pro Rebuild) — das Flag macht in beiden EINMAL pro Öffnen daraus;
   // hide() setzt es zurück, damit das nächste Öffnen wieder re-resolved.
   private resolvedOnOpen = false;
-  /** Modell-Listen je Endpunkt, Schlüssel = normalizeEndpoint(url).
-   *  Überlebt bewusst refreshUi(): der Tab wird bei JEDEM URL-Commit neu gebaut, und
-   *  reconnect() pingt dabei jeden Endpunkt (bis 5 s). Ohne Cache zöge jedes Tippen an
-   *  einer URL sämtliche Modell-Listen erneut. Stirbt in hide(). */
-  private modelLists = new Map<string, Promise<{ models: string[]; reachable: boolean }>>();
-  /** Läuft parallel zu jeder listen-FORMändernden Mutation hoch. Eine Antwort, die zu einer
-   *  alten Generation gehört, wird verworfen — sonst schriebe eine langsame Antwort (z.B.
-   *  LM-Studio-Timeout, danach schnelles Ollama) in eine Zeile, die inzwischen einen anderen
-   *  Endpunkt zeigt. */
-  private modelListGeneration = 0;
+  /** Modell-Listen je Endpunkt (Schlüssel = normalizeEndpoint(url)) samt Generationszähler:
+   *  eine Antwort aus einer alten Generation wird verworfen, sonst schriebe eine langsame
+   *  Antwort in eine Zeile, die inzwischen einen anderen Endpunkt zeigt.
+   *  Überlebt bewusst refreshUi() — der Tab wird bei JEDEM URL-Commit neu gebaut, und
+   *  reconnect() pingt dabei jeden Endpunkt (bis 5 s); ohne Cache zöge jedes Tippen an einer
+   *  URL sämtliche Modell-Listen erneut. Stirbt in hide().
+   *
+   *  Kommt seit der Rückadoption aus `vendor/kit/model-list-cache` — jenes Modul IST die
+   *  Extraktion genau dieser Felder aus diesem Repo (Kit-Docstring: „Herkunft: vault-rag/
+   *  src/settings.ts (loadModelList/invalidateModelList/modelListGeneration, 0.19.x)").
+   *  Instanz statt Modul-Singleton: der Cache gehört zur Lebensdauer EINES Settings-Tabs. */
+  private modelCache: ModelListCache = createModelListCache();
 
   constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
 
@@ -234,49 +237,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** Holt die Modell-Liste eines Endpunkts (mit Cache). Sparsam: eine nicht leere Liste
    *  beweist die Erreichbarkeit bereits — nur bei leerer Liste wird zusätzlich geprobt, um
    *  „offline" von „gibt keine Liste heraus" zu trennen. */
-  private loadModelList(
-    key: string,
-    client: { listModels(): Promise<string[]>; probe(): Promise<EndpointStatus> } | undefined,
-  ): Promise<{ models: string[]; reachable: boolean }> {
-    const cached = this.modelLists.get(key);
-    if (cached) return cached;
-
-    // Cache das Promise selbst vor dem ersten await — gleichzeitige Aufrufer wartet auf
-    // dieselbe Anfrage statt je einen HTTP-Request zu starten.
-    let promise: Promise<{ models: string[]; reachable: boolean }>;
-
-    if (!client) {
-      // Absicherung, kein Produktivpfad: main.ts hält embedder/chatClient immer gesetzt, sobald
-      // das Plugin geladen ist. Dieser Zweig ist nur aus Tests erreichbar (Client fehlt dort
-      // bewusst) und liefert dann einen Offline-Zustand statt zu werfen.
-      promise = Promise.resolve({ models: [], reachable: false });
-    } else {
-      // Client vorhanden: starte die Anfrage und löse bei Fehler den Cache-Eintrag auf.
-      promise = (async () => {
-        const models = await client.listModels();
-        const reachable = models.length > 0 ? true : (await client.probe()).reachable;
-        return { models, reachable };
-      })().catch(() => {
-        // Nur den eigenen Eintrag verwerfen: lief zwischen Start und Fehlschlag bereits ein
-        // invalidateModelList + neuer loadModelList, steht unter `key` schon ein anderes
-        // (neueres) Promise — das darf dieser Zweig nicht mitreißen, sonst kostet es nur eine
-        // überflüssige Anfrage statt einer falschen. listModels()/probe() fangen Fehler ohnehin
-        // schon selbst ab; dies hier ist reines Rückfallnetz für andere Fehlschläge.
-        if (this.modelLists.get(key) === promise) this.modelLists.delete(key);
-        return { models: [], reachable: false };
-      });
-    }
-
-    this.modelLists.set(key, promise);
-    return promise;
-  }
-
-  /** Verwirft einen Cache-Eintrag. Nötig nach „Modelle abrufen" und nach jedem
-   *  apiKey-Commit: vorher lieferte der Endpunkt vermutlich 401 und damit eine leere Liste. */
-  private invalidateModelList(key: string): void {
-    this.modelLists.delete(key);
-  }
-
   /** Zeichnet die Modell-Auswahl in eine bestehende Setting-Zeile. Kennt die Regeln nicht —
    *  die stehen in resolveModelChoice (model_choice.ts). */
   private renderModelPicker(opts: ModelPickerOpts): void {
@@ -454,11 +414,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private renderEmbeddingEndpoints = (setting: Setting): void => {
     this.ensureResolvedOnOpen();
     const host = settingBodyHost(setting);
-    this.buildEndpointList({
+    const embeddingLabel = t("settings.embeddingEndpoints.label");
+    buildKitEndpointList({
       containerEl: host,
-      label: t("settings.embeddingEndpoints.label"),
+      label: embeddingLabel,
       desc: t("settings.embeddingEndpoints.desc"),
       placeholder: "http://localhost:11434",   // i18n-exempt: URL-Beispiel, sprachneutral
+      strings: this.endpointStrings(embeddingLabel),
+      cache: this.modelCache,
       get: () => this.plugin.settings.embeddingEndpoints,
       set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
       active: () => this.plugin.activeEmbeddingEndpoint,
@@ -468,7 +431,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
         effectiveModel(cfg, this.plugin.settings.embeddingModel),
         this.plugin.indexEmbeddingModel,
       ),
+      save: () => this.plugin.saveSettings(),
       reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
+      rerender: () => this.refreshUi(),
+      presets: ENDPOINT_PRESETS,
     });
   };
 
@@ -477,9 +443,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const host = settingBodyHost(setting);
     const s = new Setting(host).setName(t("settings.embeddingModel.name")).setDesc(t("settings.embeddingModel.desc"));
     const key = this.plugin.activeEmbeddingEndpoint ?? "";
-    const gen = this.modelListGeneration;
-    void this.loadModelList(key, this.plugin.embedder).then(({ models, reachable }) => {
-      if (gen !== this.modelListGeneration) return;   // verspätete Antwort — Zeile ist tot
+    const gen = this.modelCache.generation();
+    void this.modelCache.load(key, this.plugin.embedder).then(({ models, reachable }) => {
+      if (gen !== this.modelCache.generation()) return;   // verspätete Antwort — Zeile ist tot
       this.renderModelPicker({
         setting: s,
         choice: resolveModelChoice({
@@ -492,7 +458,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           void this.plugin.saveSettings();
           void this.plugin.resolveAndReconnectEmbedder();
         },
-        onRefresh: () => { this.invalidateModelList(key); this.refreshUi(); },
+        onRefresh: () => { this.modelCache.invalidate(key); this.refreshUi(); },
       });
     });
   };
@@ -670,17 +636,25 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** render-Hatch: Chat-Endpunkt-Liste. Zeichnet in settingBodyHost über buildEndpointList. */
   private renderChatEndpoints = (setting: Setting): void => {
     const host = settingBodyHost(setting);
-    this.buildEndpointList({
+    const chatLabel = t("settings.chatEndpoints.label");
+    buildKitEndpointList({
       containerEl: host,
-      label: t("settings.chatEndpoints.label"),
+      label: chatLabel,
       desc: t("settings.chatEndpoints.desc"),
       placeholder: "http://localhost:1234",   // i18n-exempt: URL-Beispiel, sprachneutral
+      strings: this.endpointStrings(chatLabel),
+      cache: this.modelCache,
       get: () => this.plugin.settings.chatEndpoints,
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
       active: () => this.plugin.activeChatEndpoint,
       clientFor: (cfg) => new ChatClient(cfg.url, effectiveModel(cfg, this.plugin.settings.chatModel), cfg.apiKey),
       globalModel: () => this.plugin.settings.chatModel,
+      // KEIN modelFits: an einem Chat-Endpunkt haengt kein Index, ein Modellwechsel ist dort
+      // folgenlos. Der Kit-Vertrag liest das Fehlen als „passt immer".
+      save: () => this.plugin.saveSettings(),
       reconnect: () => this.plugin.resolveAndReconnectChat(),
+      rerender: () => this.refreshUi(),
+      presets: ENDPOINT_PRESETS,
     });
   };
 
@@ -691,14 +665,14 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const host = settingBodyHost(setting);
     const s = new Setting(host).setName(t("settings.chatModel.name")).setDesc(t("settings.chatModel.desc"));
     const key = this.plugin.activeChatEndpoint ?? "";
-    const gen = this.modelListGeneration;
-    void this.loadModelList(key, this.plugin.chatClient).then(({ models, reachable }) => {
+    const gen = this.modelCache.generation();
+    void this.modelCache.load(key, this.plugin.chatClient).then(({ models, reachable }) => {
       // Modelldetails/Fähigkeiten sind eigene Zeilen und laut Plan unabhängig von der
       // Modell-Auswahl-Zeile selbst — sie laufen deshalb VOR dem Generations-Guard, sonst
       // blieben beide Zeilen bei einer verworfenen Generation leer statt sich zu befüllen.
       this.showInfo(this.plugin.settings.chatModel);
       this.showCaps(this.plugin.settings.chatModel);
-      if (gen !== this.modelListGeneration) return;
+      if (gen !== this.modelCache.generation()) return;
       this.renderModelPicker({
         setting: s,
         choice: resolveModelChoice({
@@ -713,7 +687,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           this.showInfo(v);
           this.showCaps(v);
         },
-        onRefresh: () => { this.invalidateModelList(key); this.refreshUi(); },
+        onRefresh: () => { this.modelCache.invalidate(key); this.refreshUi(); },
       });
     });
   };
@@ -781,9 +755,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const s = new Setting(host).setName(t("settings.smartApplyModel.name"))
       .setDesc(t("settings.smartApplyModel.desc"));
     const key = this.plugin.activeChatEndpoint ?? "";
-    const gen = this.modelListGeneration;
-    void this.loadModelList(key, this.plugin.chatClient).then(({ models, reachable }) => {
-      if (gen !== this.modelListGeneration) return;
+    const gen = this.modelCache.generation();
+    void this.modelCache.load(key, this.plugin.chatClient).then(({ models, reachable }) => {
+      if (gen !== this.modelCache.generation()) return;
       this.renderModelPicker({
         setting: s,
         choice: resolveModelChoice({
@@ -796,7 +770,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           this.plugin.settings.smartApplyModel = v;
           void this.plugin.saveSettings();
         },
-        onRefresh: () => { this.invalidateModelList(key); this.refreshUi(); },
+        onRefresh: () => { this.modelCache.invalidate(key); this.refreshUi(); },
       });
     });
   };
@@ -834,288 +808,54 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.cleanupPrevious();
     this.cleanupPrevious = () => {};
     this.resolvedOnOpen = false;
-    this.modelLists.clear();
+    this.modelCache.clear();
     super.hide();
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
-  /** Geordneter Endpunkt-Fallback-Listen-Editor (für Embedding wie Chat identisch).
-   *  Rendert `[...endpoints, Adder]` (leeres Add-Feld), Label/Desc nur in Zeile 0. Mutation NUR
-   *  bei blur (nicht pro Tastendruck), via applyEndpointEdit → saveSettings → reconnect → Re-Render.
-   *  Pro echtem Eintrag: Status-Icon (loader → check/x, aktiver Endpunkt markiert), URL-,
-   *  Schlüssel- (maskiert) und Modell-Feld + Mülleimer. */
-  private buildEndpointList(opts: {
-    containerEl: HTMLElement;
-    label: string; desc: string; placeholder: string;
-    get: () => EndpointConfig[]; set: (eps: EndpointConfig[]) => void;
-    active: () => string | null;
-    /** Client GENAU dieser Zeile (URL + Schlüssel der Zeile) — trägt sowohl die Erreichbarkeits-
-     *  Probe (Status-Icon) als auch die Modell-Liste (Dropdown). EIN Client statt zwei getrennt
-     *  parametrierten Konstruktionen, damit Status-Icon und Modell-Liste nie über dieselbe Zeile
-     *  auseinanderlaufen können. */
-    clientFor: (cfg: EndpointConfig) => { listModels(): Promise<string[]>; probe(): Promise<EndpointStatus> };
-    /** Globales Modell, das gilt, wenn die Zeile keinen Override trägt. */
-    globalModel: () => string;
-    /** Nur Embedding-Listen: passt das (Override-)Modell dieser Zeile zum geladenen Index?
-     *  Fehlt der Callback (Chat-Liste), gilt true — dort hängt kein Index am Modell. */
-    modelFits?: (cfg: EndpointConfig) => boolean;
-    reconnect: () => Promise<void>;
-  }): void {
-    const eps = opts.get();
-    const rows: EndpointConfig[] = [...eps, { url: "" }];   // leeres Zusatzfeld am Ende
-    // Jede Mutation, die die Listen-FORM ändert (URL-Edit, Mülleimer, Preset), macht die
-    // gerenderten Zeilen-Indizes stale — bis der Re-Render kommt, wäre ein blur in einer anderen
-    // Zeile auf den falschen Eintrag gebucht (im schlimmsten Fall ein Anbieter-Schlüssel am
-    // falschen Host). Darum: Zeilen sofort sperren, das Re-Render entsperrt durch Neuaufbau.
-    /** Sperr-ZUSTAND des Containers. Die Klasse sperrt auch die Icon-Buttons (Obsidian rendert sie
-     *  als div, das kein `disabled` kennt), `aria-busy` sagt es Screenreadern. */
-    const setLockState = (locked: boolean): void => {
-      if (locked) opts.containerEl.addClass("vault-rag-ep-busy");
-      else opts.containerEl.removeClass("vault-rag-ep-busy");
-      opts.containerEl.setAttribute("aria-busy", locked ? "true" : "false");  // "false" = gültiger ARIA-Ruhezustand
+  /** Die Sprach-Hälfte des Kit-Endpunkt-Editors. Das Kit formuliert nichts selbst (sein
+   *  Docstring: „Sprache, Tonfall und Übersetzung gehören dem Consumer") — hier liegt die
+   *  Abbildung seiner 22 Textstellen auf unsere i18n-Schlüssel.
+   *
+   *  `label` ist Parameter und nicht aus `opts` abgeleitet, weil auf diesem Tab ZWEI Listen
+   *  stehen (Embedding und Chat): ein gemeinsames Objekt gäbe allen URL-Feldern beider Listen
+   *  dasselbe `aria-label`, und ein Screenreader könnte sie nicht auseinanderhalten. Genau
+   *  dieser Fall ist im Kit-Vertrag namentlich als unserer dokumentiert.
+   *
+   *  Drei Stellen sind bewusst KEINE t()-Aufrufe, sondern unsere eigenen Übersetzer für
+   *  Kit-Diagnose-Codes (i18n Teil 3 — die vendorten Module liefern Code UND fest deutschen
+   *  Klartext; wir nehmen immer den Code): `statusTooltip`, `role`, `warnings`. */
+  private endpointStrings(label: string): EndpointListStrings {
+    return {
+      addPlaceholder: t("settings.endpoint.addPlaceholder"),
+      apiKeyPlaceholder: t("settings.endpoint.keyPlaceholder"),
+      modelPlaceholder: t("settings.endpoint.modelPlaceholder"),
+      ariaUrl: t("settings.endpointRow.ariaUrl", label),
+      ariaAdd: t("settings.endpointRow.ariaAdd", label),
+      ariaApiKey: (url: string) => t("settings.endpoint.keyAria", url),
+      ariaModel: (url: string) => t("settings.endpoint.modelAria", url),
+      emptyModelLabel: (globalModel: string) =>
+        t("settings.endpoint.emptyModelLabel", globalModel || t("settings.endpoint.notSet")),
+      // Der Kit-Picker liefert einen sprachfreien Schlüssel statt eines fertigen Satzes —
+      // dieselbe Regel, nach der unsere eigenen Diagnose-Funktionen Codes liefern.
+      modelHint: (key) => key === "unreachable" ? t("modelChoice.hintUnreachable")
+                        : key === "no-list" ? t("modelChoice.hintNoList")
+                        : "",
+      savedSuffix: t("modelChoice.savedSuffix"),
+      refreshModels: t("settings.button.fetchModels"),
+      moveToFront: t("settings.endpoint.moveToFrontTooltip"),
+      remove: t("settings.endpoint.removeTooltip"),
+      thirdParty: t("settings.endpoint.keyWarning"),
+      probing: t("settings.conn.checking"),
+      statusTooltip: (status) => endpointStatusText(status),
+      role: (role) => describeEndpointRole(role),
+      warnings: (warnings) => warnings.map(endpointWarningText).join(" · "),
+      presetTooltip: (preset) => t("settings.endpoint.addPreset", preset.url),
+      presetLabel: (preset) => `+ ${preset.label}`,
+      checkConnection: t("settings.button.checkConnection"),
+      saveFailed: t("settings.endpointSaveFailed"),
     };
-    const setRowsDisabled = (disabled: boolean): void => {
-      opts.containerEl.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>("input, button, select")
-        .forEach(el => { el.disabled = disabled; });
-    };
-    const lockRows = (): void => {
-      this.modelListGeneration++;
-      setLockState(true);
-      setRowsDisabled(true);
-    };
-    // Idempotente Freigabe beim Betreten: Klasse und aria-busy überleben sonst den 1.13-Pfad —
-    // refreshUi() geht dort über update(), und settingBodyHost leert zwar die Kinder des Containers, aber
-    // nicht seine Klassen/Attribute. Ohne das bliebe die Liste dauerhaft pointer-events: none.
-    // Nur der Zustand: die Zeilen entstehen erst darunter, es gibt hier noch nichts zu entsperren.
-    setLockState(false);
-    // Rettungsnetz: eine gescheiterte Kette (saveData, reconnect) darf die UI nicht verriegelt
-    // zurücklassen. Bewusst ohne Fehlerdetails in Log/Notice — hier hängen Anbieter-Schlüssel dran.
-    const failSafe = (): void => {
-      setLockState(false);
-      setRowsDisabled(false);
-      new Notice(t("settings.endpointSaveFailed"), 8000);
-      // Re-Render statt bloßem Entsperren: bei einer gescheiterten Kette hat opts.set(...) die
-      // Settings im Speicher bereits mutiert, bevor saveSettings()/reconnect() geworfen hat — ohne
-      // Rebuild zeigt das DOM weiter die alte Reihenfolge/Indizes, und der nächste Klick auf
-      // Mülleimer/„zuerst verwenden" träfe den falschen Eintrag.
-      this.refreshUi();
-    };
-    // Beschriftung + Erklärung als EIGENE Zeile ohne Steuerelemente. Vorher hingen sie an der
-    // ersten Endpunkt-Zeile — Obsidians `Setting` teilt die Zeile in Info (links) und Controls
-    // (rechts), und mit drei Feldern rechts blieb der Text auf eine unlesbare Buchstabensäule
-    // gequetscht (gemeldet 2026-08-04). Die Zeilen selbst tragen deshalb keinen Text mehr und
-    // bekommen über `vault-rag-ep-row` die volle Breite für ihre Felder.
-    new Setting(opts.containerEl).setName(opts.label).setDesc(opts.desc);
-
-    rows.forEach((cfg, i) => {
-      const isAdder = i >= eps.length;
-      const s = new Setting(opts.containerEl);
-      s.settingEl.addClass("vault-rag-ep-row");
-      const statusIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-status" });
-      // Drittanbieter-Hinweis: in-place umschaltbar, NICHT nur einmal beim Zeilen-Render gebaut —
-      // der apiKey-Commit unten baut den Tab bewusst nicht neu (siehe dort), also muss dieses Icon
-      // sich selbst zeigen/verstecken können, sonst bleibt der Nutzer genau im Moment, in dem er den
-      // Schlüssel einträgt, ohne Hinweis. Eine Wahrheit (`carriesApiKey`), zwei Aufrufzeitpunkte
-      // (Erst-Render unten + apiKey-Commit) statt einer zweiten Bedingung.
-      let thirdPartyIcon: HTMLSpanElement | null = null;
-      const syncThirdPartyIcon = (hasKey: boolean): void => {
-        if (hasKey) {
-          if (thirdPartyIcon) return;   // schon da — nicht doppelt anlegen
-          thirdPartyIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-thirdparty" });
-          setIcon(thirdPartyIcon, "alert-triangle");
-          setTooltip(thirdPartyIcon, t("settings.endpoint.keyWarning"));
-        } else if (thirdPartyIcon) {
-          thirdPartyIcon.remove();
-          thirdPartyIcon = null;
-        }
-      };
-      /** Schreibt die Rollen-Zeile neu, ohne den Tab neu aufzubauen. Wird vom probe-Block
-       *  unten gesetzt (vorher gibt es keine Zeile) und beim Modell-Commit aufgerufen —
-       *  das Modell-Override entscheidet über `skipped-model`, ändert die Listen-FORM aber
-       *  nicht, löst also bewusst kein `refreshUi()` aus. Ohne diesen Rückruf behielte die
-       *  Zeile ihre Aussage von vor der Modellwahl: ein Endpunkt, den der Guard längst
-       *  überspringt, meldete weiter „erreichbar, aber Platz N" (gemeldet 2026-08-05). */
-      let syncRoleLine: (() => void) | null = null;
-      // Listen-Mutation NUR bei blur, NICHT in onChange: onChange feuert pro Tastendruck und
-      // würde im Add-Feld jeden Zwischenstand (h, ht, htt, …) als eigenen Eintrag anhängen.
-      // Nur URL-Änderungen rendern neu (Statuszeile hängt an der URL). Schlüssel/Modell tun das
-      // NICHT: refreshUi baut den Tab komplett neu auf, und da reconnect() jeden Endpunkt pingt
-      // (bis 5 s), risse es dem Nutzer sonst mitten im Tippen des nächsten Feldes das DOM weg.
-      const commit = (field: "url" | "apiKey" | "model", value: string): void => {
-        const before = opts.get();
-        const updated = applyEndpointEdit(before, i, field, value, isAdder);
-        if (JSON.stringify(updated) === JSON.stringify(before)) return;   // unverändert → kein Re-Render
-        const rerender = field === "url";
-        if (rerender) lockRows();
-        // apiKey ändert die Listen-FORM nicht (kein Re-Render) — das Drittanbieter-Icon muss sich
-        // deshalb hier selbst aktualisieren, statt auf den (bewusst ausbleibenden) Neuaufbau zu warten.
-        if (field === "apiKey") {
-          syncThirdPartyIcon(carriesApiKey(updated[i]));
-          // Ohne Schlüssel lieferte der Endpunkt vermutlich 401 → leere Liste → Notausgang.
-          // Mit Schlüssel hat er eine Liste; der alte Eintrag wäre eine Lüge. Anders als das
-          // Drittanbieter-Icon oben korrigiert sich die Modell-Zeile dadurch NICHT selbst —
-          // sichtbar wird die neue Liste erst beim nächsten Zeilen-Neuaufbau (URL-Commit,
-          // „Modelle abrufen", Tab-Reload), da dieser Commit bewusst kein refreshUi() auslöst.
-          this.invalidateModelList(normalizeEndpoint(updated[i].url));
-        }
-        opts.set(updated);
-        const chain = this.plugin.saveSettings().then(() => opts.reconnect());
-        // Das Modell-Override entscheidet mit über die Rolle der Zeile (`skipped-model`).
-        // Erst NACH reconnect() nachziehen: der Resolver kann den Endpunkt wegen des neuen
-        // Modells gerade fallengelassen oder übernommen haben, und die Zeile soll den
-        // Zustand danach zeigen, nicht den davor.
-        const withRoleSync = field === "model" ? chain.then(() => { syncRoleLine?.(); }) : chain;
-        void (rerender ? withRoleSync.then(() => this.refreshUi()) : withRoleSync).catch(failSafe);
-      };
-      s.addText(tx => {
-        tx.setPlaceholder(isAdder ? t("settings.endpoint.addPlaceholder") : opts.placeholder).setValue(cfg.url);
-        tx.inputEl.setAttribute("aria-label", isAdder ? t("settings.endpointRow.ariaAdd", opts.label) : t("settings.endpointRow.ariaUrl", opts.label));
-        tx.inputEl.addEventListener("blur", () => { commit("url", tx.getValue()); });
-      });
-      // Schlüssel + Modell nur an bestehenden Einträgen — am leeren Adder gäbe es nichts zu tragen.
-      // aria-label statt bloßem Placeholder: der verschwindet beim Tippen, und drei unbeschriftete
-      // Felder in einer Zeile sind für Screenreader nicht auseinanderzuhalten.
-      if (!isAdder) {
-        s.addText(tx => {
-          tx.setPlaceholder(t("settings.endpoint.keyPlaceholder")).setValue(cfg.apiKey ?? "");
-          tx.inputEl.type = "password";                    // maskiert gegen Schultergucken/Screenshots
-          tx.inputEl.setAttribute("autocomplete", "off");
-          tx.inputEl.setAttribute("aria-label", t("settings.endpoint.keyAria", cfg.url));
-          tx.inputEl.addEventListener("blur", () => { commit("apiKey", tx.getValue()); });
-        });
-        // Modell-Override: Dropdown mit den Modellen GENAU DIESES Endpunkts. Die Liste kommt
-        // aus dem Tab-Cache (loadModelList), nicht vom aktiven Client — eine Zeile kann einen
-        // ganz anderen Anbieter meinen als den gerade verbundenen.
-        // Platz SYNCHRON reservieren: der Picker zeichnet erst nach dem geladenen Promise, der
-        // Mülleimer/das Warn-Icon gleich darunter aber synchron. Ohne Reservierung hängt Obsidian
-        // (das jede add*-Komponente in Aufrufreihenfolge an controlEl anhängt) das Dropdown ans
-        // Ende der Zeile — hinter den Mülleimer, ein Layout-Sprung inklusive. `renderModelPicker`
-        // zeichnet über `target` deshalb direkt in dieses Element statt in `s.controlEl`.
-        const modelSlot = s.controlEl.createSpan({ cls: "vault-rag-model-slot" });
-        const listKey = normalizeEndpoint(cfg.url);
-        const gen = this.modelListGeneration;
-        void this.loadModelList(listKey, opts.clientFor(cfg)).then(({ models, reachable }) => {
-          if (gen !== this.modelListGeneration) return;   // Liste hat sich verschoben
-          this.renderModelPicker({
-            setting: s,
-            target: modelSlot,
-            choice: resolveModelChoice({
-              reachable, models, current: cfg.model ?? "",
-              allowEmpty: true, emptyLabel: t("settings.endpoint.emptyModelLabel", opts.globalModel() || t("settings.endpoint.notSet")),
-            }),
-            ariaLabel: t("settings.endpoint.modelAria", cfg.url),
-            placeholder: t("settings.endpoint.modelPlaceholder"),
-            onPick: (v: string) => { commit("model", v); },
-            onRefresh: () => { this.invalidateModelList(listKey); this.refreshUi(); },
-            hintAs: "tooltip",
-          });
-        });
-      }
-      // „Zuerst verwenden": setzt die Zeile an die Spitze der Prioritätsliste. An Platz 1
-      // bewusst GAR NICHT gezeichnet statt deaktiviert — ein setDisabled-Element trägt seinen
-      // Tooltip in Electron unsichtbar (Befund aus dem Modell-Picker-Review 2026-08-05), der
-      // Knopf wäre dort also stumm UND wirkungslos.
-      if (!isAdder && i > 0) {
-        s.addExtraButton(b => b
-          .setIcon("arrow-up-to-line")
-          .setTooltip(t("settings.endpoint.moveToFrontTooltip"))
-          .onClick(() => {
-            lockRows();
-            opts.set(moveEndpointToFront(opts.get(), i));
-            void this.plugin.saveSettings()
-              .then(() => opts.reconnect())
-              .then(() => this.refreshUi())
-              .catch(failSafe);
-          }));
-      }
-      // Löschen: expliziter Mülleimer-Button (nicht am leeren Add-Feld). Das Status-Icon links
-      // ist nur Erreichbarkeits-Anzeige, kein Lösch-Button.
-      if (!isAdder) {
-        s.addExtraButton(b => b
-          .setIcon("trash-2")
-          .setTooltip(t("settings.endpoint.removeTooltip"))
-          .onClick(() => {
-            lockRows();
-            opts.set(applyEndpointEdit(opts.get(), i, "url", "", false));
-            void this.plugin.saveSettings()
-              .then(() => opts.reconnect())
-              .then(() => this.refreshUi())
-              .catch(failSafe);
-          }));
-      }
-      // Pro-Feld-Status in A11y-Form (Form + Text + Farbe): loader → check/x, aktiver markiert.
-      const ep = cfg.url.trim();
-      if (!isAdder && ep) {
-        setIcon(statusIcon, "loader"); setTooltip(statusIcon, t("settings.conn.checking"));
-        // Rolle der Zeile als eigene Zeile UNTER den Feldern (flex-basis 100% im umbrechenden
-        // Control-Container): horizontal ist die Zeile mit drei Feldern + bis zu drei Icons +
-        // zwei Knöpfen ausgereizt (Layout-Fix 2026-08-04). Synchron angelegt, asynchron befüllt.
-        const stateEl = s.controlEl.createDiv({ cls: "vault-rag-ep-state", text: t("settings.conn.checking") });
-        // Erreichbarkeit ändert sich nur durch eine neue Probe, die Rolle aber auch durch das
-        // Modell-Override. Das Probe-Ergebnis wird deshalb festgehalten, damit die Rolle ohne
-        // erneuten Netzzugriff nachgezogen werden kann.
-        let probed: EndpointStatus | null = null;
-        const applyRole = (): void => {
-          if (!probed) return;
-          const isActive = normalizeEndpoint(ep) === (opts.active() ?? "");
-          // Den Eintrag frisch aus der Liste lesen, nicht das `cfg` vom Render-Zeitpunkt:
-          // nach einem Modell-Commit trägt nur die Liste den neuen Wert.
-          const current = opts.get()[i] ?? cfg;
-          const role = endpointRole({
-            isActive,
-            reachable: probed.reachable,
-            // Gilt nur für Embedding-Endpunkte; für Chat hängt kein Index am Modell (immer true).
-            modelFits: opts.modelFits?.(current) ?? true,
-            position: i + 1,
-          });
-          stateEl.setText(describeEndpointRole(role));
-          stateEl.toggleClass("is-active", role.kind === "active");
-        };
-        syncRoleLine = applyRole;
-        void opts.clientFor(cfg).probe().then(status => {
-          statusIcon.empty();
-          setIcon(statusIcon, status.reachable ? "circle-check" : "circle-x");
-          statusIcon.toggleClass("is-ok", status.reachable);
-          statusIcon.toggleClass("is-error", !status.reachable);
-          // Tooltip trägt nur noch die Erreichbarkeits-Diagnose; das frühere " · aktiv" entfällt,
-          // weil die Rolle jetzt als Text in der Zeile steht (keine zweite Wahrheit im Hover).
-          setTooltip(statusIcon, endpointStatusText(status));
-          probed = status;
-          applyRole();
-        });
-        // Eingabe-Prüfung: nicht-blockierendes Warn-Icon (WCAG-Form + Tooltip)
-        const warnings = endpointInputWarnings(ep);
-        if (warnings.length) {
-          const warnIcon = s.controlEl.createSpan({ cls: "vault-rag-ep-warn" });
-          setIcon(warnIcon, "alert-triangle");
-          setTooltip(warnIcon, warnings.join(" · "));
-        }
-        // Drittanbieter-Hinweis (Erst-Render): der Schlüssel ist der verlässliche Indikator, nicht
-        // die URL (ein eigener Server im LAN braucht keinen — eine URL-Heuristik wäre unzuverlässig).
-        // Sachlicher Hinweis, keine Warnung vor einem Fehler — Form/Icon + Text, nie Farbe allein
-        // (WCAG 1.4.1); NIE den Schlüssel selbst im Text/Tooltip. syncThirdPartyIcon() hält das
-        // danach auch beim apiKey-Commit aktuell (siehe dort), ohne den Tab neu zu bauen.
-        syncThirdPartyIcon(carriesApiKey(cfg));
-      }
-    });
-    const actions = new Setting(opts.containerEl);
-    ENDPOINT_PRESETS.forEach(preset => {
-      actions.addButton(b => b
-        .setButtonText(`+ ${preset.label}`)
-        .setTooltip(t("settings.endpoint.addPreset", preset.url))
-        .onClick(() => {
-          const cur = opts.get();
-          if (cur.some(c => c.url === preset.url)) return;   // schon in der Liste — kein Duplikat anhängen
-          lockRows();
-          opts.set(applyEndpointEdit(cur, cur.length, "url", preset.url, true));
-          void this.plugin.saveSettings()
-            .then(() => opts.reconnect())
-            .then(() => this.refreshUi())
-            .catch(failSafe);
-        }));
-    });
-    actions.addButton(b => b.setButtonText(t("settings.button.checkConnection")).onClick(() => this.refreshUi()));
   }
 
   /** Capability-Chips (Lucide-Icons) in die controlEl der Fähigkeiten-Zeile. */

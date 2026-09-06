@@ -881,7 +881,7 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
 - **PROF-OBS-02** — ✅ erledigt (2026-08-22): `npm run deploy` in der kanonischen, workspace-weit
   identischen Form (16 Nachbar-Repos fahren sie wortgleich). **Deploy-Target ist pro Vault verschieden,
   und das ist der Grund, warum die Lücke so lange unauffällig blieb.**
-  ⚠️ **Hier stand bis 2026-09-02, der Arbeits-Vault `Pallas` habe sein Plugin-Verzeichnis als
+  ⚠️ **Hier stand bis 2026-09-02, der Arbeits-Vault `10_Pallas` (so hiess er damals) habe sein Plugin-Verzeichnis als
   „Symlink auf dieses Repo", ein Deploy sei dort „wirkungslos". Das ist gemessen falsch:**
   `.obsidian/plugins/vault-retrieval/` ist ein **echtes Verzeichnis** (`os.path.islink` false für den
   Ordner und für jede Datei darin), es trägt Kopien wie jeder andere Vault. Ein `.hotreload`-Marker

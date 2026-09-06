@@ -31,9 +31,9 @@
  *    Laufs und stellt die Raenge gegenueber. Nur DAS erlaubt „diese Notiz ist geheilt".
  *
  * Aufruf (Obsidian muss mit Debug-Port laufen):
- *   npx tsx scripts/index-probe.ts --port 9222 --vault 10_Pallas
- *   npx tsx scripts/index-probe.ts --port 9222 --vault 10_Pallas --n 40 --json vorher.json
- *   npx tsx scripts/index-probe.ts --port 9222 --vault 10_Pallas --wie vorher.json --json nachher.json
+ *   npx tsx scripts/index-probe.ts --port 9222 --vault Pallas
+ *   npx tsx scripts/index-probe.ts --port 9222 --vault Pallas --n 40 --json vorher.json
+ *   npx tsx scripts/index-probe.ts --port 9222 --vault Pallas --wie vorher.json --json nachher.json
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { Cdp, attachTo, pollUntil } from "../../tools/obsidian-cdp/cdp.js";

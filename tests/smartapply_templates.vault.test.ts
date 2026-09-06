@@ -8,9 +8,20 @@ import "../src/i18n/strings"; // registriert die Wörterbücher: der Prompt wird
 import { t } from "../src/vendor/kit/i18n";
 
 // SSOT = die echten Vault-Vorlagen. Gated auf den Vault-Ordner: lokal grün, in CI (kein Vault) sauber übersprungen.
-const TPL_DIR =
-  process.env.PALLAS_SMARTAPPLY_DIR ??
-  "/Users/Shared/10_ObsidianVaults/10_Pallas/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply";
+//
+// ⚠️ Das Gate ist der teuerste Teil dieser Datei, nicht die Prüfungen darunter: fehlt der Ordner,
+// werden 31 Tests SAUBER übersprungen und der Gate-Lauf bleibt grün — ein Deckungsverlust, den
+// keine Zahl meldet. Genau das ist am 2026-09-06 passiert, als der Vault von `10_Pallas` nach
+// `Pallas` umbenannt wurde: derselbe Lauf ging von „1039 bestanden" auf „1008 bestanden, 31
+// übersprungen", und nur ein Blick auf die Zahl hat es gefangen.
+//
+// Deshalb eine Kandidatenliste statt eines Pfades. Sie überlebt genau diese Umbenennung; jeder
+// weitere Vault-Umzug braucht entweder einen Eintrag hier oder den ENV-Override.
+const TPL_KANDIDATEN = [
+  "/Users/Shared/10_ObsidianVaults/Pallas/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply",
+  "/Users/Shared/10_ObsidianVaults/10_Pallas/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply",
+];
+const TPL_DIR = process.env.PALLAS_SMARTAPPLY_DIR ?? TPL_KANDIDATEN.find(existsSync) ?? TPL_KANDIDATEN[0];
 const HAS_VAULT = existsSync(TPL_DIR);
 
 interface Spec {

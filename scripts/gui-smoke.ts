@@ -62,7 +62,7 @@
  *
  * ## Wo der Lauf hingehoert: Staging-Vault auf einer ZWEITINSTANZ (seit 2026-09-03)
  *
- * Im Arbeitsvault `10_Pallas` sind Pruefpunkte STRUKTURELL nicht messbar: dort ist ein echtes
+ * Im Arbeitsvault `Pallas` sind Pruefpunkte STRUKTURELL nicht messbar: dort ist ein echtes
  * llm-lab installiert (der ganze Meldestrecken-Zweig wird uebersprungen, damit der Smoke dessen
  * Aufzeichnung nicht verunreinigt), und die Endpunkt-Listen tragen je EINE Zeile (Prioritaets-Knopf
  * und „Zuerst verwenden" haben nichts zu messen). Der Staging-Vault `vault-rag` (Fixture
@@ -89,12 +89,12 @@
  * Gegen die regulaere Instanz (Port 9222) geht es weiterhin — dann mit den Skips in der Bilanz:
  *
  * ```bash
- * npm run smoke:gui -- --port 9222 --vault 10_Pallas
+ * npm run smoke:gui -- --port 9222 --vault Pallas
  * ```
  *
  * `--vault` matcht seit der zentralen CDP-Brücke exakt gegen `app.vault.getName()`
  * (den Vault-**Ordnernamen**), nicht mehr als Teilstring des Fenstertitels — `Pallas`
- * genügt also nicht mehr, es muss `10_Pallas` heißen.
+ * genügt also nicht mehr, es muss `Pallas` heißen.
  *
  * Der Klick-Prüfpunkt verändert die Endpunkt-Reihenfolge in den Einstellungen. Der Treiber
  * sichert sie vorher und schreibt sie im `finally` zurück — auch nach einem Abbruch mitten
@@ -314,7 +314,7 @@ async function main(): Promise<void> {
     // also eine Datei pruefen, die mit dem Lauf nichts zu tun hat. Geprueft wird, was gemessen
     // wird (Dach-README, korrigiert 2026-09-02).
     //
-    // Fuer dieses Repo besonders wichtig: die AGENTS.md fuehrte `10_Pallas` bis 2026-09-02 als
+    // Fuer dieses Repo besonders wichtig: die AGENTS.md fuehrte `Pallas` bis 2026-09-02 als
     // "Plugin-Ordner ist ein Symlink aufs Repo, Reload reicht". Gemessen ist es ein echtes
     // Verzeichnis mit Kopien — ohne `npm run deploy` misst der Lauf den alten Build (`7adf475`).
     const vaultInfo = await main.evaluate<{ basePath: string; configDir: string }>(`

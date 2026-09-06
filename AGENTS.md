@@ -397,7 +397,9 @@ npm run lint                      # eslint src     (typescript-eslint + eslint-p
 npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit
 OBSIDIAN_PLUGIN_DIR=… npm run deploy   # build + main.js/manifest.json/styles.css ins Vault-Plugin-Verzeichnis
-                                  # ⚠️ AUCH fuer den Arbeits-Vault 10_Pallas noetig. Hier stand bis
+                                  # ⚠️ AUCH fuer den Arbeits-Vault Pallas noetig.
+                                  # (Der Vault hiess bis 2026-09-06 `10_Pallas` und wurde
+                                  #  an dem Tag umbenannt — alter Name existiert nicht mehr.) Hier stand bis
                                   #  2026-09-02 "dessen Plugin-Ordner ist ein Symlink, Reload reicht" —
                                   #  gemessen ist er ein ECHTES Verzeichnis mit Kopien (s. PROF-OBS-02).
 npx vitest run tests/<datei>      # eine Test-Datei
@@ -412,7 +414,7 @@ npm run shots -- --deploy         # gebautes Plugin in den Aufnahme-Vault + Relo
 npm run shots -- --only hero.png  # ein README-Bild aufnehmen (Vertrag: docs/images/README.md)
 npm run shots:check               # Bild-Standard pruefen (readme_lint, maintainer-lokal)
 npm run smoke:gui -- --port 9333 --vault vault-rag   # GUI-Smoke gegen den Staging-Vault auf einer
-                                  #  ZWEITINSTANZ (Rezept: docs/SMOKE.md). In 10_Pallas sind acht
+                                  #  ZWEITINSTANZ (Rezept: docs/SMOKE.md). In Pallas sind acht
                                   #  Pruefpunkte strukturell nicht messbar (llm-lab installiert, je
                                   #  eine Endpunkt-Zeile) — die Bilanz nennt sie als uebersprungen.
 ```
@@ -879,14 +881,14 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
 - **PROF-OBS-02** — ✅ erledigt (2026-08-22): `npm run deploy` in der kanonischen, workspace-weit
   identischen Form (16 Nachbar-Repos fahren sie wortgleich). **Deploy-Target ist pro Vault verschieden,
   und das ist der Grund, warum die Lücke so lange unauffällig blieb.**
-  ⚠️ **Hier stand bis 2026-09-02, der Arbeits-Vault `10_Pallas` habe sein Plugin-Verzeichnis als
+  ⚠️ **Hier stand bis 2026-09-02, der Arbeits-Vault `Pallas` habe sein Plugin-Verzeichnis als
   „Symlink auf dieses Repo", ein Deploy sei dort „wirkungslos". Das ist gemessen falsch:**
   `.obsidian/plugins/vault-retrieval/` ist ein **echtes Verzeichnis** (`os.path.islink` false für den
   Ordner und für jede Datei darin), es trägt Kopien wie jeder andere Vault. Ein `.hotreload`-Marker
   liegt darin — der lädt das Plugin neu, wenn sich die Datei **im Vault** ändert, er kopiert aber
-  nichts aus dem Repo. **Folge: nach jeder `src/`-Änderung ist `npm run deploy` auch für `10_Pallas`
+  nichts aus dem Repo. **Folge: nach jeder `src/`-Änderung ist `npm run deploy` auch für `Pallas`
   Pflicht; ein blosser Reload misst den alten Build.**
-  ⚠️ **Und der Deploy allein reicht auch nicht: der Marker ist in `10_Pallas` WIRKUNGSLOS, weil das
+  ⚠️ **Und der Deploy allein reicht auch nicht: der Marker ist in `Pallas` WIRKUNGSLOS, weil das
   Community-Plugin „Hot Reload" dort gar nicht installiert ist** (gemessen 2026-09-05: kein
   `plugins/*hot*`-Verzeichnis, kein Eintrag in `community-plugins.json` — die Datei `.hotreload`
   ist nur ein Marker, gelesen wird sie von jenem Plugin). Nach einem `deploy` läuft also weiter

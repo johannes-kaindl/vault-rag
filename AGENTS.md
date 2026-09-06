@@ -671,6 +671,18 @@ gar nicht bis in die Oberfläche schafft.
   (`classifyChunkless` über die missing-Pfade), in-Session von den Live-Handlern gepflegt, von
   Heal/Reindex aus dem `HealReport` neu aufgebaut. Delta-Anzeige/Heal-Lauf/Auto-Heal-Prompt rechnen
   alle auf der bereinigten Basis (`computeIndexDelta`/`splitHealTargets`).
+- **`plugin.manifest.version` ist nach einem `disablePlugin`/`enablePlugin` VERALTET — sie taugt
+  nicht als Beleg, dass der neue Build läuft.** Obsidian hält die Manifeste in
+  `app.plugins.manifests` und liest sie beim Wieder-Einschalten nicht von der Platte neu; das
+  `plugin.manifest`-Objekt bleibt das vom Programmstart. Gemessen 2026-09-06 nach dem Deploy von
+  0.30.0 in zwei Fenster: `manifest.json` auf der Platte trug `0.30.0`, `plugin.manifest.version`
+  meldete weiter `0.29.1` — **während der neue Code nachweislich lief.** Der Beleg war ein
+  Feature, das es in der alten Version nicht gab: `status().reindexing` (erst seit `0cc800e`,
+  im Tag `0.29.1` kein einziges Vorkommen). **Wer prüfen will, ob ein Reload gegriffen hat,
+  fragt nach einer Fähigkeit, nicht nach einer Nummer** — eine Version ist eine Behauptung des
+  Manifests, ein Feld im Rückgabewert ist der laufende Code. Ergänzt den Grund unter PROF-OBS-02
+  („`manifest.version` wäre blind, weil Repo- und Vault-Build dieselbe Nummer tragen") um den
+  umgekehrten Fall: sie ist auch dann blind, wenn die Nummern verschieden sind.
 - **Die Fortschrittsrate eines Reindex ist kein Prädiktor — sie misst die Notizlänge, nicht die
   Restzeit.** An einem Abend im Arbeits-Vault gemessen: 3,5 → 130 → 76 → 35 → 4,8 Notizen/Minute,
   im selben Lauf. Nicht Last und nicht der Endpunkt (Modell durchgehend im VRAM laut

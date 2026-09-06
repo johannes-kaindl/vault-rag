@@ -137,6 +137,7 @@ const CHAT_FRIST_MS = 360_000;
 const LAB_PRUEFPUNKTE = [
   "Ein Chat über die Oberfläche meldet sich beim Lab",
   "Die Chat-Zeile trägt ttftMs und latencyMs",
+  "Die Chat-Zeile trägt die Kontext-Pfade, die das Panel zeigt",
   "Die Endpunkt-Probe meldet sich unter eigenem feature (damit das Lab sie ausschließen kann)",
   "Reformat meldet sich mit der Transform-ID im feature",
   "Die Reformat-Vorschau ist nach dem Verwerfen geschlossen",
@@ -897,14 +898,41 @@ async function main(): Promise<void> {
 
       // (1) Chat ueber die OBERFLAECHE — nicht ueber Plugin-Interna: der Punkt ist, dass der
       // trace-Parameter den ganzen Weg Panel → ChatSession → ChatClient uebersteht.
+      // ⚠️ Tippen und Senden sind ZWEI Schritte, und das ist der ganze Punkt.
+      // `scheduleQuery` entprellt die Eingabe 400 ms, bevor das Kontext-Panel embedded und
+      // sucht; `submit()` raeumt genau diesen Timer ab (chat_view.ts). Wer Text setzt und
+      // sofort klickt, sendet also garantiert mit LEEREM Kontext — ein Zustand, den ein
+      // Benutzer nie erzeugt, weil Tippen dauert. Der Treiber mass damit bis 2026-09-06 die
+      // `contextPaths`-Haelfte unserer Lab-Zusage nie (aufgefallen im llm-lab-Lauf am
+      // 2026-08-24, dort belegt — aber dort gehoert sie nicht hin, es ist unsere Zusage).
+      //
+      // Die Frage traegt deshalb zweierlei: Fachbegriffe, die im Fixture wirklich vorkommen
+      // ("Semantic search", "Vector embeddings", "Cosine similarity" sind eigene Notizen),
+      // damit die semantische Suche ueberhaupt Treffer hat — und die Ein-Wort-Auflage, damit
+      // der Punkt nicht an der Antwortlaenge haengt.
       await main.evaluate(`
         await app.commands.executeCommandById("vault-retrieval:open-vault-chat");
         await new Promise(r => setTimeout(r, 800));
         const ta = document.querySelector(".vault-rag-chat-input");
-        ta.value = "Antworte mit genau einem Wort: Hallo.";
+        ta.value = "Answer with exactly one word. Which note of mine covers vector embeddings and cosine similarity?";
         ta.dispatchEvent(new Event("input", { bubbles: true }));
-        document.querySelector(".vault-rag-chat-send").click();
       `);
+      // Auf die Chips warten statt auf eine feste Frist: das Embedden der Frage geht ueber den
+      // Endpunkt, und dessen Dauer ist Umgebung. 30 s reichen fuer einen lokalen Embedder mit
+      // Abstand; laeuft keiner, bleibt die Liste leer und der Punkt sagt genau das.
+      const chipsDa = await pollUntil(main,
+        `return document.querySelectorAll(".vault-rag-ctx-chip").length > 0;`,
+        30_000, 500).catch(() => false);
+      // Basenames, nicht Pfade: die Chips zeigen `basename(p)` (context_panel.ts), der Trace
+      // traegt volle Pfade. Der Vergleich laeuft deshalb ueber die Namen — Pinned-Chips tragen
+      // zusaetzlich ein 📌, alle ein ✕ zum Entfernen.
+      const panelChips = await main.evaluate<string[]>(`
+        return [...document.querySelectorAll(".vault-rag-ctx-chip")]
+          .map(c => (c.textContent || "").replace(/^\s*📌\s*/, "").replace(/\s*✕\s*$/, "").trim())
+          .filter(Boolean);
+      `);
+      // ERST JETZT senden — mit gefuelltem Panel.
+      await main.evaluate(`document.querySelector(".vault-rag-chat-send").click();`);
       // Auf das ERGEBNIS warten, nie auf den Sende-Knopf: der durchlaeuft im selben Turn
       // mehrere Uebergaenge (Senden→Stop→Senden) und meldet zu frueh "fertig"
       // (_docs/LESSONS.md 2026-08-23, n=2). Die Ergebniszeile stellt nur ein fertiger Lauf her.
@@ -924,6 +952,31 @@ async function main(): Promise<void> {
       record("Die Chat-Zeile trägt ttftMs und latencyMs",
         typeof ct?.ttftMs === "number" && typeof ct?.latencyMs === "number" && (ct.ttftMs ?? 0) <= (ct.latencyMs ?? 0),
         `ttftMs=${String(ct?.ttftMs)} · latencyMs=${String(ct?.latencyMs)}`);
+
+      // Die zweite Haelfte der Lab-Zusage: WAS als Kontext mitging, nicht nur DASS gemeldet wurde.
+      // Verglichen wird gegen das, was der Nutzer SIEHT (die Chips), nicht gegen eine zweite
+      // Abfrage derselben Quelle — sonst prueft der Punkt die Funktion gegen sich selbst.
+      // Bleiben die Chips aus, ist die naechste Frage immer dieselbe: Index oder Endpunkt?
+      // Einmal nachsehen ist billiger, als den Lauf mit „keine Chips" zu beenden und raten zu
+      // lassen — und `status()` ist synchron und netzfrei, kostet also nichts am Ergebnis.
+      const ctxDiagnose = chipsDa ? "" : await main.evaluate<string>(`
+        const api = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]?.api;
+        const st = api ? api.status() : null;
+        if (!st) return "Plugin-API nicht erreichbar";
+        if (!st.indexed) return "Index NICHT geladen — daher kein Kontext (kein Befund am Chat)";
+        if (st.reindexing) return "Voll-Reindex laeuft — Kontext waere unvollstaendig";
+        return "Index geladen (" + st.noteCount + " Notizen) — dann haengt es am Embedding-Endpunkt";
+      `).catch(() => "Diagnose fehlgeschlagen");
+      const ctxPaths = (chatTrace.last as { contextPaths?: unknown } | null)?.contextPaths;
+      const ctxListe = Array.isArray(ctxPaths) ? ctxPaths.map(String) : [];
+      const chipsGedeckt = panelChips.length > 0
+        && ctxListe.length === panelChips.length
+        && panelChips.every(name => ctxListe.some(pfad => pfad.endsWith(`/${name}.md`) || pfad === `${name}.md`));
+      record("Die Chat-Zeile trägt die Kontext-Pfade, die das Panel zeigt",
+        chipsGedeckt,
+        chipsDa
+          ? `${panelChips.length} Chips · ${ctxListe.length} contextPaths${chipsGedeckt ? "" : ` — Chips: [${panelChips.join(", ")}] · Trace: [${ctxListe.join(", ")}]`}`
+          : `keine Kontext-Chips in 30 s — ${ctxDiagnose}`);
 
       // (2) Endpunkt-Probe: sie meldet sich unter EIGENEM feature. Nicht geprueft wird, ob das
       // Lab sie ausschliesst — die Ausschlussliste ist llm-labs Zusage. Unsere ist, dass die

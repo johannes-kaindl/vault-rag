@@ -397,7 +397,7 @@ npm run lint                      # eslint src     (typescript-eslint + eslint-p
 npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit
 OBSIDIAN_PLUGIN_DIR=… npm run deploy   # build + main.js/manifest.json/styles.css ins Vault-Plugin-Verzeichnis
-                                  # ⚠️ AUCH fuer den Arbeits-Vault 10_Pallas noetig.
+                                  # ⚠️ AUCH fuer den Arbeits-Vault noetig.
                                   # ⚠️ Der Vault-NAME ist kein Fixpunkt: am 2026-09-06 hiess er
                                   #  zwischen 13:20 und 13:57 `Pallas` und danach wieder `10_Pallas`.
                                   #  Wer ihn in einem Gate hart verdrahtet, schaltet die Pruefung
@@ -891,7 +891,7 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
   `.obsidian/plugins/vault-retrieval/` ist ein **echtes Verzeichnis** (`os.path.islink` false für den
   Ordner und für jede Datei darin), es trägt Kopien wie jeder andere Vault. Ein `.hotreload`-Marker
   liegt darin — der lädt das Plugin neu, wenn sich die Datei **im Vault** ändert, er kopiert aber
-  nichts aus dem Repo. **Folge: nach jeder `src/`-Änderung ist `npm run deploy` auch für `10_Pallas`
+  nichts aus dem Repo. **Folge: nach jeder `src/`-Änderung ist `npm run deploy` auch für den Arbeits-Vault
   Pflicht; ein blosser Reload misst den alten Build.**
   ⚠️ **Und der Deploy allein reicht auch nicht: der Marker ist in `10_Pallas` WIRKUNGSLOS, weil das
   Community-Plugin „Hot Reload" dort gar nicht installiert ist** (gemessen 2026-09-05: kein

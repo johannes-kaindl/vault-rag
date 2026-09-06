@@ -337,12 +337,25 @@ async function main(): Promise<void> {
     // Der Treiber vergleicht danach gegen dasselbe Wörterbuch, aus dem die UI ihre Texte nimmt —
     // er prüft also weiterhin, dass die richtige ROLLE angezeigt wird (ein falscher Schlüssel
     // fällt weiter auf), nur nicht mehr, in welcher Sprache.
-    // DIESELBE Quelle wie das Plugin: `main.ts` ruft `pickLang(getLanguage())`, und Obsidian
-    // spiegelt `getLanguage()` in `document.documentElement.lang`. `localStorage.language` ist
-    // nur die AUSDRUECKLICHE Wahl des Nutzers — auf einem frischen Profil (Zweitinstanz) fehlt
-    // sie, Obsidian nimmt die Systemsprache, und der Treiber erwartete „active" gegen eine
-    // Oberflaeche, die „aktiv" rendert: drei falsch-rote Punkte (2026-09-03). Zweiter
-    // Sprachbefund am Pruefstand nach dem vom 2026-08-30 — gleiche Wurzel, andere Quelle.
+    // DIESELBE Quelle wie das Plugin: `main.ts:186` ruft `pickLang(getLanguage())`, und Obsidian
+    // spiegelt `getLanguage()` in `document.documentElement.lang`. (Das Plugin selbst leitet
+    // nirgends aus `localStorage` ab — gemessen 2026-09-06, `src/` kennt den Key nicht.)
+    //
+    // `localStorage.language` ist dagegen die **Einstellung fuer den naechsten Start**, nicht
+    // die geladene Sprache. Beide Werte weichen deshalb in ZWEI Lagen ab, nicht nur in einer:
+    //   · frisches Profil (Zweitinstanz) — der Key fehlt, Obsidian nimmt die Systemsprache;
+    //     der Treiber erwartete „active" gegen eine Oberflaeche, die „aktiv" rendert:
+    //     drei falsch-rote Punkte (2026-09-03, hier gemessen).
+    //   · nach einer Sprachumstellung OHNE Neustart — der Key sagt schon „de", die laufende
+    //     Oberflaeche steht noch auf Englisch (2026-08-18 in `apple-health` gemessen, zwei
+    //     Wochen vor uns; deren Fassung nennt diesen allgemeineren Grund, unsere nannte nur
+    //     die erste Lage).
+    //
+    // n=3 (apple-health 08-18, hier 09-03, local-image-generator 09-06), drei unabhaengige
+    // Entdeckungen ohne REGISTRY-Eintrag — genau der Fall, gegen den der Katalog steht; der
+    // Eintrag entsteht gerade. Sechs Treiber im Dach tragen die defekte Fassung noch, fuenf
+    // davon `shots.ts`: dort erzeugt sie falsch beschriftete README-Bilder statt roter Punkte,
+    // der Lauf ist also gruen und das Ergebnis trotzdem falsch.
     const uiLang = await main.evaluate<string>(
       `return document.documentElement.lang || (window.localStorage && localStorage.getItem("language")) || "en";`,
     );

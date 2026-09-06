@@ -397,9 +397,14 @@ npm run lint                      # eslint src     (typescript-eslint + eslint-p
 npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit
 OBSIDIAN_PLUGIN_DIR=… npm run deploy   # build + main.js/manifest.json/styles.css ins Vault-Plugin-Verzeichnis
-                                  # ⚠️ AUCH fuer den Arbeits-Vault Pallas noetig.
-                                  # (Der Vault hiess bis 2026-09-06 `10_Pallas` und wurde
-                                  #  an dem Tag umbenannt — alter Name existiert nicht mehr.) Hier stand bis
+                                  # ⚠️ AUCH fuer den Arbeits-Vault 10_Pallas noetig.
+                                  # ⚠️ Der Vault-NAME ist kein Fixpunkt: am 2026-09-06 hiess er
+                                  #  zwischen 13:20 und 13:57 `Pallas` und danach wieder `10_Pallas`.
+                                  #  Wer ihn in einem Gate hart verdrahtet, schaltet die Pruefung
+                                  #  still ab statt sie fehlschlagen zu lassen — genau so uebersprang
+                                  #  `tests/smartapply_templates.vault.test.ts` in dem Fenster seine
+                                  #  31 Tests bei gruenem Gate. Dort steht deshalb eine
+                                  #  Kandidatenliste, und `--vault` bleibt ein Parameter. Hier stand bis
                                   #  2026-09-02 "dessen Plugin-Ordner ist ein Symlink, Reload reicht" —
                                   #  gemessen ist er ein ECHTES Verzeichnis mit Kopien (s. PROF-OBS-02).
 npx vitest run tests/<datei>      # eine Test-Datei
@@ -414,7 +419,7 @@ npm run shots -- --deploy         # gebautes Plugin in den Aufnahme-Vault + Relo
 npm run shots -- --only hero.png  # ein README-Bild aufnehmen (Vertrag: docs/images/README.md)
 npm run shots:check               # Bild-Standard pruefen (readme_lint, maintainer-lokal)
 npm run smoke:gui -- --port 9333 --vault vault-rag   # GUI-Smoke gegen den Staging-Vault auf einer
-                                  #  ZWEITINSTANZ (Rezept: docs/SMOKE.md). In Pallas sind acht
+                                  #  ZWEITINSTANZ (Rezept: docs/SMOKE.md). In 10_Pallas sind acht
                                   #  Pruefpunkte strukturell nicht messbar (llm-lab installiert, je
                                   #  eine Endpunkt-Zeile) — die Bilanz nennt sie als uebersprungen.
 ```
@@ -886,9 +891,9 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
   `.obsidian/plugins/vault-retrieval/` ist ein **echtes Verzeichnis** (`os.path.islink` false für den
   Ordner und für jede Datei darin), es trägt Kopien wie jeder andere Vault. Ein `.hotreload`-Marker
   liegt darin — der lädt das Plugin neu, wenn sich die Datei **im Vault** ändert, er kopiert aber
-  nichts aus dem Repo. **Folge: nach jeder `src/`-Änderung ist `npm run deploy` auch für `Pallas`
+  nichts aus dem Repo. **Folge: nach jeder `src/`-Änderung ist `npm run deploy` auch für `10_Pallas`
   Pflicht; ein blosser Reload misst den alten Build.**
-  ⚠️ **Und der Deploy allein reicht auch nicht: der Marker ist in `Pallas` WIRKUNGSLOS, weil das
+  ⚠️ **Und der Deploy allein reicht auch nicht: der Marker ist in `10_Pallas` WIRKUNGSLOS, weil das
   Community-Plugin „Hot Reload" dort gar nicht installiert ist** (gemessen 2026-09-05: kein
   `plugins/*hot*`-Verzeichnis, kein Eintrag in `community-plugins.json` — die Datei `.hotreload`
   ist nur ein Marker, gelesen wird sie von jenem Plugin). Nach einem `deploy` läuft also weiter

@@ -203,6 +203,41 @@ describe("SmartApply", () => {
     expect(truncated?.detail).toContain("2048");
   });
 
+  // Gemessen 2026-08-23 (llm-lab-Abnahme): reasoning 14.083 Zeichen, content leer,
+  // finishReason "length", kein ttftMs — das Budget war weg, BEVOR die Antwort begann.
+  // `output-truncated` ist dafuer die richtige Klasse, aber die falsche Auskunft: es nennt
+  // "Max-Tokens erhoehen" als einzige Stellschraube, waehrend hier die zweite (Thinking
+  // unterdruecken) die naeherliegende ist. Ohne diese Unterscheidung dreht der Nutzer am
+  // Budget, und das Modell denkt es beim naechsten Mal wieder auf.
+  it("Budget im Reasoning verbraucht (content leer, reasoning voll) → eigener Befund statt generischem Truncation-Hinweis", async () => {
+    const deps = makeDeps({
+      read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),
+    });
+    const sa = new SmartApply(deps, makeClient("", "x".repeat(14083), "length"), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 4096 }));
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
+
+    expect(proposal.hardOk).toBe(false);
+    const befund = proposal.checks.find((c) => c.id === "reasoning-consumed-budget");
+    expect(befund?.ok).toBe(false);
+    expect(befund?.detail).toContain("4096");
+    // Der generische Befund tritt zurueck: zwei Zeilen ueber dieselbe Ursache, die
+    // verschiedene Auswege nennen, sind schlechter als eine, die den richtigen nennt.
+    expect(proposal.checks.find((c) => c.id === "output-truncated")).toBeUndefined();
+  });
+
+  // Gegenprobe zum Test darueber: OHNE Reasoning ist derselbe leere Content etwas anderes —
+  // dann hat das Modell schlicht nichts geliefert, und "Budget erhoehen" bleibt der Rat.
+  it("content leer, aber kein Reasoning → weiterhin der generische Truncation-Befund", async () => {
+    const deps = makeDeps({
+      read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),
+    });
+    const sa = new SmartApply(deps, makeClient("", "", "length"), () => ({ model: 'm', temperature: 0, suppressThinking: false, maxTokens: 4096 }));
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
+
+    expect(proposal.checks.find((c) => c.id === "output-truncated")?.ok).toBe(false);
+    expect(proposal.checks.find((c) => c.id === "reasoning-consumed-budget")).toBeUndefined();
+  });
+
   it("Token-Limit erreicht, Antwort aber vollständig verwertbar → kein Truncation-Befund (abgeschnitten ≠ kaputt)", async () => {
     const deps = makeDeps({
       read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),

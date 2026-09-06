@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Smart Apply unterdrückt Thinking jetzt per Default.** Denken und Antwort teilen sich dasselbe
+  `smartApplyMaxTokens`-Budget; bei 4096 und einem ausführlich denkenden Modell ist es erschöpft,
+  **bevor** die Antwort beginnt — gemessen am 2026-08-23 mit `google/gemma-4-26b-a4b-qat`:
+  14.083 Zeichen Reasoning, Antwort leer, 105,9 s Laufzeit ohne Ergebnis. Smart Apply füllt ein
+  JSON-Schema aus; eine Denkphase davor bringt dafür nichts. Der Toggle existierte bereits, er
+  stand nur falsch herum, und die Beschreibung des Feldes sagt jetzt, was das Ausschalten kostet.
+  - **Bewusst ohne Migration:** ein fehlendes Feld erbt den neuen Default, ein explizit
+    gespeichertes `false` bleibt stehen. `data.json` hält nur den Wert, nicht ob ihn jemand
+    gesetzt hat — eine Migration könnte beide Fälle nicht unterscheiden und würde damit auch eine
+    bewusste Entscheidung umdrehen. Für diesen Fall trägt der neue Befund die Auskunft.
+
+### Added
+- **Ein eigener Befund, wenn das Token-Budget im Denken aufgebraucht wurde**
+  (`reasoning-consumed-budget`, ersetzt in diesem Fall `output-truncated`). Beide beschreiben
+  dieselbe Klasse, haben aber verschiedene Auswege: lief das Budget während der *Antwort* aus,
+  hilft nur ein größeres; ging es für die *Denkphase* drauf, ist Thinking abzuschalten der
+  nähere Griff. Der generische Text nannte nur „Max-Tokens erhöhen" — wer dem folgte, drehte am
+  Budget, und das Modell dachte es beim nächsten Mal wieder auf. Wie `output-truncated` ein
+  reiner Begleit-Befund: er geht nie in `hardOk` ein.
+
+
 ## [0.30.0] — 2026-09-05
 
 ### Added

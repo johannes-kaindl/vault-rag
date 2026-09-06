@@ -32,7 +32,9 @@ export interface Assignment {
  *  `template-no-sections` ist das Gegenteil: ein VORAB-Abbruch, bevor ueberhaupt ein Modell
  *  gefragt wird. Ohne Ziel-Ueberschriften verwirft `reconcileAssignment` jede Zuordnung, das
  *  Ergebnis waere zwangslaeufig leer — und saehe wie ein Modell-Versagen aus. */
-export type CheckId = "assignment-parse" | "permutation" | "fm-roundtrip" | "fm-source" | "assemble" | "additions-target" | "output-truncated" | "template-no-sections";
+// `reasoning-consumed-budget` ist wie `output-truncated` ein Begleit-Befund und geht NICHT in
+// die hardOk-Formel ein (s. smart_apply.ts Step 18) — abgeschnitten ist nicht automatisch kaputt.
+export type CheckId = "assignment-parse" | "permutation" | "fm-roundtrip" | "fm-source" | "assemble" | "additions-target" | "output-truncated" | "reasoning-consumed-budget" | "template-no-sections";
 export interface CheckResult { id: CheckId; ok: boolean; detail?: string }
 
 // ── splitBlocks ──────────────────────────────────────────────────────────────

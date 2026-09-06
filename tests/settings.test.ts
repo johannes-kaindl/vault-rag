@@ -77,15 +77,28 @@ describe("settings", () => {
 
   it("hat Smart-Apply-Dashboard-Defaults", () => {
     expect(DEFAULT_SETTINGS.smartApplyModel).toBe("");
-    expect(DEFAULT_SETTINGS.smartApplySuppressThinking).toBe(false);
+    // Seit 2026-09-06 unterdrueckt: Denken und Antwort teilen sich `smartApplyMaxTokens`,
+    // und ein Schema auszufuellen braucht keine Denkphase (Messung s. settings_core.test.ts).
+    expect(DEFAULT_SETTINGS.smartApplySuppressThinking).toBe(true);
     expect(DEFAULT_SETTINGS.smartApplyMaxTokens).toBe(4096);
   });
 
   it("Default-Merge ergänzt fehlende Dashboard-Felder (Backward-Compat)", () => {
     const merged = Object.assign({}, DEFAULT_SETTINGS, { smartApplyEnabled: true } as Partial<VaultRagSettings>);
     expect(merged.smartApplyModel).toBe("");
-    expect(merged.smartApplySuppressThinking).toBe(false);
+    expect(merged.smartApplySuppressThinking).toBe(true);
     expect(merged.smartApplyMaxTokens).toBe(4096);
+  });
+
+  // Die Kehrseite desselben Merges, und der Grund, warum es zum Default-Wechsel bewusst KEINE
+  // Migration gibt: ein FEHLENDES Feld erbt den neuen Default (Test darueber), ein explizit
+  // gespeichertes `false` bleibt stehen. `data.json` haelt nur den Wert, nicht ob ihn jemand
+  // gesetzt hat — eine Migration koennte beide Faelle nicht unterscheiden und wuerde damit auch
+  // eine bewusste Nutzerentscheidung umdrehen. Fuer diesen Fall traegt der neue Befund
+  // `reasoning-consumed-budget` die Auskunft, statt sie stillschweigend zu erzwingen.
+  it("explizit gespeichertes false ueberlebt den Default-Wechsel", () => {
+    const merged = Object.assign({}, DEFAULT_SETTINGS, { smartApplySuppressThinking: false } as Partial<VaultRagSettings>);
+    expect(merged.smartApplySuppressThinking).toBe(false);
   });
 
   it("hideIndexFolder-Default ist true", () => {

@@ -114,7 +114,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   templateDir: "Templates/",
   smartApplyTemperature: 0,
   smartApplyModel: "",
-  smartApplySuppressThinking: false,
+  smartApplySuppressThinking: true,
   smartApplyMaxTokens: 4096,
   smartApplyDefaultMode: "deterministisch",
   mcpEnabled: false,

@@ -269,10 +269,20 @@ export class SmartApply {
     // Stellschraube. Bewusst NUR als Begleit-Befund zu einem echten Fehlschlag — eine
     // abgeschnittene Antwort, die sich vollstaendig verwerten laesst, ist kein Fehler
     // (Uebernahme aus vault-crews 0.9.3). Er geht daher nie in `hardOk` ein.
-    const truncationCheck = (): CheckResult[] =>
-      finishReason === "length"
-        ? [{ id: "output-truncated", ok: false, detail: t("smartApply.check.outputTruncated", String(p.maxTokens)) }]
-        : [];
+    // Zwei Ausgaenge, weil dieselbe Klasse zwei verschiedene Auswege hat: lief das Budget
+    // waehrend der ANTWORT aus, hilft nur ein groesseres; ging es fuer die DENKPHASE drauf
+    // (content leer, reasoning voll), ist Thinking abzuschalten der naeherliegende Griff —
+    // gemessen 2026-08-23: 14.083 Zeichen Reasoning, Antwort leer, 105,9 s ohne Ergebnis.
+    // Der spezifische Befund ERSETZT den generischen; zwei Zeilen ueber eine Ursache, die
+    // verschiedene Stellschrauben nennen, schicken den Nutzer an die falsche.
+    const budgetImDenkenVerbraucht =
+      finishReason === "length" && content.trim() === "" && (reasoning ?? "").trim() !== "";
+    const truncationCheck = (): CheckResult[] => {
+      if (finishReason !== "length") return [];
+      return budgetImDenkenVerbraucht
+        ? [{ id: "reasoning-consumed-budget", ok: false, detail: t("smartApply.check.reasoningBudget", String(p.maxTokens)) }]
+        : [{ id: "output-truncated", ok: false, detail: t("smartApply.check.outputTruncated", String(p.maxTokens)) }];
+    };
 
     // Step 8: parse assignment
     const assignment = parseAssignment(content);

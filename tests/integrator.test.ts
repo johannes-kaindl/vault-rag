@@ -31,6 +31,12 @@ describe("proposeLinks", () => {
   it("nothing-new bei leerer Trefferliste", () => {
     expect(proposeLinks("a.md", "T", deps({ related: () => ({ kind: "hits", hits: [] }) }))).toEqual({ kind: "nothing-new" });
   });
+  it("filtert die Notiz selbst, falls die Quelle sie mitliefert", () => {
+    const r = proposeLinks("a.md", "T", deps({
+      related: () => ({ kind: "hits", hits: [{ path: "a.md", score: 1 }, { path: "b.md", score: 0.9 }] }),
+    }));
+    expect(r.kind === "proposal" && r.proposal.links.map(l => l.path)).toEqual(["b.md"]);
+  });
 });
 
 describe("inScope", () => {

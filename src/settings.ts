@@ -347,7 +347,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     ] };
   }
 
-  /** Chat-Gruppe: Endpunkte/Modell/Modelldetails/Fähigkeiten/Budget bleiben render-Hatches
+  /** Chat-Gruppe: Endpunkte/Modelldetails/Fähigkeiten/Budget bleiben render-Hatches
    *  (Cross-Referenzen über lastCaps/infoValue/capSetting, Budget-Max ans Modell-Fenster
    *  gekoppelt). „Thinking testen“ war ein Button IN der Toggle-Zeile — jetzt eigene
    *  Action-Zeile, das Toggle selbst ist deklarativ. */

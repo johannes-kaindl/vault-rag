@@ -6,7 +6,7 @@ import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
-import { chatRequestModel, rowModel, migrateEndpointList, type EndpointConfig } from "./endpoint_config";
+import { chatRequestModel, rowModel, migrateEndpointList, applyEndpointEdit, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
@@ -447,9 +447,24 @@ export default class VaultRagPlugin extends Plugin {
         ping: () => this.chatReady(),
         listModels: () => this.chatClient.listModels(),
         getModel: () => this.chatModelInUse,
-        // Kein globales Feld mehr: eine Auswahl aus diesem Dropdown schreibt direkt in die
-        // Zeile des aktiven Chat-Endpunkts (dieselbe Config-Instanz wie in settings.chatEndpoints).
-        setModel: (m: string) => { this.chatEndpointInUse.model = m; void this.saveSettings(); },
+        // Kein globales Feld mehr: eine Auswahl aus diesem Dropdown schreibt in die Zeile des
+        // aktiven Chat-Endpunkts. NICHT in-place mutieren (`chatEndpointInUse.model = m`) —
+        // zwei Pfade zerreißen sonst die Identitätsannahme "dieselbe Instanz wie in
+        // settings.chatEndpoints": (a) bei leerer Liste ist chatEndpointInUse ein frisches
+        // `{ url: "" }`-Objekt außerhalb des Arrays (verwaister Schreiber, geht beim nächsten
+        // Save verloren); (b) buildKitEndpointList ersetzt vor save()/reconnect() das GANZE
+        // Array durch Kopien (opts.set) — eine Auswahl in diesem Fenster träfe ein bereits
+        // losgelöstes Objekt. Deshalb über Index + `applyEndpointEdit` (Kopie), wie jede
+        // andere Zeilen-Bearbeitung auch.
+        setModel: (m: string) => {
+          const eps = this.settings.chatEndpoints;
+          const i = eps.indexOf(this.chatEndpointInUse);
+          if (i < 0) return;   // kein aktiver Endpunkt in der Liste (leere Liste/Platzhalter) — nichts zu schreiben
+          const updated = applyEndpointEdit(eps, i, "model", m, false);
+          this.settings.chatEndpoints = updated;
+          this.chatEndpointInUse = updated[i] ?? this.chatEndpointInUse;
+          void this.saveSettings();
+        },
         inputPosition: () => this.settings.chatInputPosition,
         getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
         embed: async (q) => {

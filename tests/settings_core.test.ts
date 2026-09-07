@@ -1,10 +1,35 @@
 import { describe, it, expect } from "vitest";
-import { splitExcludePaths, normalizeTemplateDir, DEFAULT_SETTINGS } from "../src/settings_core";
+import { splitExcludePaths, normalizeTemplateDir, DEFAULT_SETTINGS, migrateGlobalModels } from "../src/settings_core";
 
 describe("DEFAULT_SETTINGS Endpunkte", () => {
-  it("Default-Endpunkte sind EndpointConfig-Objekte ohne Schlüssel", () => {
-    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434" }]);
-    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234" }]);
+  it("Default-Endpunkte tragen ihr Modell in der Zeile (E2: Erstinstallation wie vorher)", () => {
+    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }]);
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234", model: "qwen3" }]);
+  });
+});
+
+describe("migrateGlobalModels — Prä-0.31 globales Modellfeld in die Zeilen ziehen", () => {
+  it("eine Zeile ohne Modell bekommt den alten globalen Wert", () => {
+    expect(migrateGlobalModels([{ url: "u" }], "qwen3")).toEqual([{ url: "u", model: "qwen3" }]);
+  });
+  it("eine Zeile mit eigenem Modell bleibt unangetastet — auch wenn es leer-getrimmt anders wäre", () => {
+    expect(migrateGlobalModels([{ url: "u", model: "gemma" }], "qwen3")).toEqual([{ url: "u", model: "gemma" }]);
+  });
+  it("Whitespace-Modell zählt als fehlend", () => {
+    expect(migrateGlobalModels([{ url: "u", model: "  " }], "qwen3")).toEqual([{ url: "u", model: "qwen3" }]);
+  });
+  it("kein alter globaler Wert (neue data.json) → Liste unverändert, gleiche Objekte nicht nötig, aber gleicher Inhalt", () => {
+    expect(migrateGlobalModels([{ url: "u" }], undefined)).toEqual([{ url: "u" }]);
+    expect(migrateGlobalModels([{ url: "u" }], "")).toEqual([{ url: "u" }]);
+  });
+  it("mutiert die Eingabe nicht", () => {
+    const eps = [{ url: "u" }];
+    migrateGlobalModels(eps, "qwen3");
+    expect(eps).toEqual([{ url: "u" }]);
+  });
+  it("gemischte Liste: nur die leeren Zeilen werden gefüllt", () => {
+    expect(migrateGlobalModels([{ url: "a" }, { url: "b", model: "x" }, { url: "c", apiKey: "k" }], "g"))
+      .toEqual([{ url: "a", model: "g" }, { url: "b", model: "x" }, { url: "c", apiKey: "k", model: "g" }]);
   });
 });
 

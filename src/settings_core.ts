@@ -91,17 +91,31 @@ export function effectiveSystemPrompt(stored: string): string {
   return stored;
 }
 
+/**
+ * Migration (0.31.0): das globale Modellfeld (`embeddingModel`/`chatModel`) ist entfallen —
+ * ein Modellname existiert nur auf dem Endpunkt, der ihn meldet. Der alte globale Wert wandert
+ * in jede Zeile, die noch kein eigenes Modell trägt; Zeilen mit Modell bleiben, wie sie sind.
+ * Ohne diesen Schritt stünden Bestandsnutzer nach dem Update mit Endpunkten ohne Modell da,
+ * und das scheitert STILL (leerer Modellname in der Anfrage) — dieselbe Falle, die bei
+ * `chatApiKey` dokumentiert ist. Pure, mutiert die Eingabe nicht.
+ */
+export function migrateGlobalModels(eps: EndpointConfig[], legacyGlobal: string | undefined): EndpointConfig[] {
+  const global = legacyGlobal?.trim();
+  if (!global) return eps.map(e => ({ ...e }));
+  return eps.map(e => (e.model?.trim() ? { ...e } : { ...e, model: global }));
+}
+
 export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
   minSim: 0.3,
   indexDir: "_vaultrag",
   hideIndexFolder: true,
   exclude: ["Templates/", "Archive/"],
-  embeddingEndpoints: [{ url: "http://localhost:11434" }],
+  embeddingEndpoints: [{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }],
   embeddingModel: "qwen3-embedding:8b",
   showStatusBar: false,
   debounceMs: 3000,
-  chatEndpoints: [{ url: "http://localhost:1234" }],
+  chatEndpoints: [{ url: "http://localhost:1234", model: "qwen3" }],
   chatModel: "qwen3",
   chatK: 5,
   contextCharBudget: 12000,

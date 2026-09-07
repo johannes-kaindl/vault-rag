@@ -14,7 +14,7 @@ describe("settings", () => {
   });
 
   it("hat embeddingEndpoints-Default (Liste)", () => {
-    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434" }]);
+    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }]);
   });
 
   it("hat embeddingModel-Default", () => {
@@ -30,7 +30,7 @@ describe("settings", () => {
   });
 
   it("hat Chat-Defaults", () => {
-    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234" }]);
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234", model: "qwen3" }]);
     expect(DEFAULT_SETTINGS.chatModel).toBe("qwen3");
     expect(DEFAULT_SETTINGS.chatK).toBe(5);
     expect(DEFAULT_SETTINGS.contextCharBudget).toBe(12000);
@@ -128,10 +128,10 @@ describe("applyDestructive", () => {
 
 describe("DEFAULT_SETTINGS Endpunkte", () => {
   it("Chat-Default ist LM Studio :1234", () => {
-    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234" }]);
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234", model: "qwen3" }]);
   });
   it("Embedding-Default bleibt Ollama :11434", () => {
-    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434" }]);
+    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }]);
   });
 });
 

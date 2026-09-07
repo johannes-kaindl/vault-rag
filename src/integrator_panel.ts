@@ -33,6 +33,7 @@ export class IntegratorPanel implements HubPanel {
   readonly icon = "link";
   private container!: HTMLElement;
   private activePath: string | null = null;
+  private pending = false;
 
   constructor(private deps: IntegratorPanelDeps) {}
 
@@ -46,11 +47,19 @@ export class IntegratorPanel implements HubPanel {
     this.renderHead(c, items.length);
     if (items.length === 0) {
       const empty = c.createDiv({ cls: "vault-rag-empty", text: t("panel.integrator.empty") });
-      const cta = empty.createEl("button", { cls: "mod-cta", text: t("panel.integrator.proposeActive") });
+      const cta = this.button(empty, "mod-cta", t("panel.integrator.proposeActive"));
       cta.addEventListener("click", () => void this.run(() => this.deps.proposeActive()));
       return;
     }
     for (const p of items) this.renderCard(c, p);
+  }
+
+  /** Einzige Stelle, an der ein Button entsteht — sperrt ihn sofort mit, solange eine
+   *  Aktion läuft (Doppelklick-Schutz nach dem `reformat_panel.ts`-Muster). */
+  private button(parent: HTMLElement, cls: string, text: string): HTMLButtonElement {
+    const b = parent.createEl("button", { cls, text });
+    b.disabled = this.pending;
+    return b;
   }
 
   private sorted(list: LinkProposal[]): LinkProposal[] {
@@ -64,9 +73,9 @@ export class IntegratorPanel implements HubPanel {
   private renderHead(c: HTMLElement, n: number): void {
     const head = c.createDiv({ cls: "vault-rag-int-head" });
     head.createSpan({ cls: "vault-rag-int-count", text: t("panel.integrator.count", String(n)) });
-    const active = head.createEl("button", { text: t("panel.integrator.proposeActive") });
+    const active = this.button(head, "", t("panel.integrator.proposeActive"));
     active.addEventListener("click", () => void this.run(() => this.deps.proposeActive()));
-    const scope = head.createEl("button", { text: t("panel.integrator.proposeScope") });
+    const scope = this.button(head, "", t("panel.integrator.proposeScope"));
     scope.addEventListener("click", () => void this.run(() => this.deps.proposeScope()));
     if (this.deps.isBusy()) {
       const st = head.createSpan({ cls: "vault-rag-int-status is-checking", attr: { "aria-label": t("panel.integrator.busy") } });
@@ -84,20 +93,20 @@ export class IntegratorPanel implements HubPanel {
       const icon = warn.createSpan({ cls: "vault-rag-int-stale-icon" });
       setIcon(icon, "alert-triangle");
       warn.createSpan({ text: t("panel.integrator.stale") });
-      const re = warn.createEl("button", { cls: "vault-rag-int-recompute", text: t("panel.integrator.recompute") });
+      const re = this.button(warn, "vault-rag-int-recompute", t("panel.integrator.recompute"));
       re.addEventListener("click", () => void this.run(() => this.deps.recompute(p.notePath)));
     }
     renderHits(card, p.links, path => this.deps.openPath(path), (row, hit) => {
       const acts = row.createSpan({ cls: "vault-rag-int-row-actions" });
-      const ok = acts.createEl("button", { cls: "mod-cta vault-rag-int-accept", text: t("panel.integrator.accept") });
+      const ok = this.button(acts, "mod-cta vault-rag-int-accept", t("panel.integrator.accept"));
       ok.addEventListener("click", () => void this.run(() => this.acceptOne(p.notePath, hit.path)));
-      const no = acts.createEl("button", { cls: "vault-rag-int-reject", text: t("panel.integrator.reject") });
+      const no = this.button(acts, "vault-rag-int-reject", t("panel.integrator.reject"));
       no.addEventListener("click", () => void this.run(() => this.deps.reject(p.notePath, hit.path)));
     });
     const actions = card.createDiv({ cls: "vault-rag-int-card-actions" });
-    const all = actions.createEl("button", { cls: "vault-rag-int-accept-all", text: t("panel.integrator.acceptAll") });
+    const all = this.button(actions, "vault-rag-int-accept-all", t("panel.integrator.acceptAll"));
     all.addEventListener("click", () => void this.run(async () => { for (const l of p.links) await this.acceptOne(p.notePath, l.path); }));
-    const none = actions.createEl("button", { cls: "vault-rag-int-reject-all", text: t("panel.integrator.rejectAll") });
+    const none = this.button(actions, "vault-rag-int-reject-all", t("panel.integrator.rejectAll"));
     none.addEventListener("click", () => void this.run(async () => { for (const l of p.links) await this.deps.reject(p.notePath, l.path); }));
   }
 
@@ -114,8 +123,14 @@ export class IntegratorPanel implements HubPanel {
     }
   }
 
-  /** Jede Aktion zeichnet danach neu — der Store ist die Wahrheit, das Panel nur ihre Sicht. */
+  /** Jede Aktion zeichnet danach neu — der Store ist die Wahrheit, das Panel nur ihre Sicht.
+   *  Doppelklick-Schutz: läuft schon eine Aktion, verpufft ein zweiter Aufruf (Muster aus
+   *  `reformat_panel.ts` — dort per `disabled`-Button, hier zusätzlich hart im Guard, weil
+   *  der Klick auch über einen bereits gerenderten, noch nicht neu gezeichneten Button kommen
+   *  kann). */
   private async run(fn: () => Promise<void>): Promise<void> {
-    try { await fn(); } finally { this.refresh(); }
+    if (this.pending) return;
+    this.pending = true;
+    try { await fn(); } finally { this.pending = false; this.refresh(); }
   }
 }

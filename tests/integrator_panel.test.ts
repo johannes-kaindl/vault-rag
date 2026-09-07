@@ -84,4 +84,13 @@ describe("IntegratorPanel", () => {
       expect((EN as Record<string, string>)[`integrator.reason.${code}`]).toBeTypeOf("string");
     }
   });
+  it("ein zweiter Klick, bevor der erste fertig ist, verpufft", async () => {
+    let release!: () => void;
+    const accept = vi.fn(() => new Promise<{ kind: "written" }>(r => { release = () => r({ kind: "written" }); }));
+    const { el, deps } = mk([prop("Notes/A.md", ["Notes/B.md"])], { accept });
+    const btn = all(el, "vault-rag-int-accept")[0];
+    btn.click(); btn.click();
+    expect(deps.accept).toHaveBeenCalledTimes(1);
+    release(); await flush();
+  });
 });

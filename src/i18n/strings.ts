@@ -280,6 +280,7 @@ export const EN = {
   "integrator.reason.frontmatter-unparseable": "Frontmatter block does not close.",
   "integrator.reason.unlinkable": "Path cannot be written as a wikilink.",
   "integrator.reason.write-failed": "Writing the note failed.",
+  "integrator.reason.not-found": "Note not found.",
   "integrator.reason.disabled": "Integrator is disabled in the settings.",
   "integrator.done": "{0} notes with new suggestions.",
 
@@ -787,6 +788,7 @@ export const DE = {
   "integrator.reason.frontmatter-unparseable": "Der Frontmatter-Block schließt nicht.",
   "integrator.reason.unlinkable": "Pfad lässt sich nicht als Wikilink schreiben.",
   "integrator.reason.write-failed": "Schreiben der Notiz fehlgeschlagen.",
+  "integrator.reason.not-found": "Notiz nicht gefunden.",
   "integrator.reason.disabled": "Der Integrator ist in den Einstellungen ausgeschaltet.",
   "integrator.done": "{0} Notizen mit neuen Vorschlägen.",
 

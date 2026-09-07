@@ -49,7 +49,11 @@ import { mapStartError, describeStartError, classifySelfCheck, type SelfCheckRes
 import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
 import { RetrievalFacade } from "./retrieval_facade";
-import { createVaultRetrievalApi, type VaultRetrievalApi } from "./plugin_api";
+import { createVaultRetrievalApi, type VaultRetrievalApi, type ApiApplyResult } from "./plugin_api";
+import { IntegratorStore, INTEGRATOR_FILE } from "./integrator_store";
+import { proposeLinks, inScope, hashText, type ProposeResult } from "./integrator";
+import { appendSectionLink, appendFrontmatterLink, type WriteResult } from "./link_writer";
+import { IntegratorPanel, type AcceptOutcome } from "./integrator_panel";
 
 export interface EmbeddingProgress {
   isEmbedding: boolean;
@@ -118,6 +122,9 @@ export default class VaultRagPlugin extends Plugin {
   private lastReadiness: ReformatReadiness = { kind: "no-editor" };
   private selectionDebounce: number | null = null;
   private reformatPanel: ReformatPanel | null = null;
+  integratorStore = new IntegratorStore();
+  private integratorPanel: IntegratorPanel | null = null;
+  private integratorBusy = false;
 
   /** Serialisiert mutierende Index-Operationen (mutate+build+persist), damit der persist-Guard
    *  nicht durch nebenläufige Events (z.B. Ordner-Bulk-Delete) fälschlich Shrink meldet und kein
@@ -242,6 +249,15 @@ export default class VaultRagPlugin extends Plugin {
       this.facade,
       () => this.index,
       () => this.embeddingProgress.reindex !== null,
+      {
+        enabled: () => this.settings.integratorEnabled,
+        propose: async (p) => {
+          let text: string;
+          try { text = await this.app.vault.adapter.read(p); } catch { return { kind: "not-indexed" }; }
+          return proposeLinks(p, text, this.proposeDeps());
+        },
+        apply: (p, tgt) => this.applyLinkNow(p, tgt),
+      },
     );
 
     this.addSettingTab(new VaultRagSettingTab(this.app, this));
@@ -264,6 +280,7 @@ export default class VaultRagPlugin extends Plugin {
     }));
 
     await this.pendingQueue.load();
+    await this.loadIntegratorStore();
     await this.loadIndex();
     // Nur aus bekannt-gutem Kontext sichern (vgl. Fix 3 im Whole-Branch-Review): loadIndex selbst
     // snapshottet nicht mehr, damit ein Gefahrenzustand/Fremd-Shrink keinen Backup-Slot kapert.
@@ -373,6 +390,13 @@ export default class VaultRagPlugin extends Plugin {
     this.addCommand({ id: "open-semantic-search", name: t("command.openSemanticSearch"), callback: () => void this.openHub("search") });
     this.addCommand({ id: "open-vault-chat", name: t("command.openVaultChat"), callback: () => void this.openHub("chat") });
     this.addCommand({ id: "open-reformat", name: t("command.openReformat"), callback: () => void this.openHub("reformat") });
+    if (this.settings.integratorEnabled) {
+      this.addCommand({ id: "open-integrator", name: t("command.openIntegrator"), callback: () => void this.openHub("integrator") });
+      this.addCommand({ id: "integrator-propose-active", name: t("command.integratorProposeActive"),
+        callback: () => void this.proposeActiveNote().then(() => this.openHub("integrator")) });
+      this.addCommand({ id: "integrator-propose-scope", name: t("command.integratorProposeScope"),
+        callback: () => void this.proposeScope().then(() => this.openHub("integrator")) });
+    }
     this.addCommand({
       id: "smart-apply-active-note",
       name: t("command.smartApplyActiveNote"),
@@ -517,6 +541,22 @@ export default class VaultRagPlugin extends Plugin {
         setSuppress: (v: boolean) => { this.settings.smartApplySuppressThinking = v; void this.saveSettings(); },
         templateDefaultMode: (templatePath: string) => this.templateDefaultMode(templatePath),
       }));
+    }
+    if (this.settings.integratorEnabled) {
+      const panel = new IntegratorPanel({
+        list: () => this.integratorStore.list(),
+        activePath: () => this.app.workspace.getActiveFile()?.path ?? null,
+        openPath: this.openPath,
+        accept: (p, tgt) => this.acceptLink(p, tgt),
+        reject: (p, tgt) => this.rejectLink(p, tgt),
+        recompute: async (p) => { await this.proposeFor(p); },
+        proposeActive: async () => { await this.proposeActiveNote(); },
+        proposeScope: async () => { await this.proposeScope(); },
+        isBusy: () => this.integratorBusy,
+        notify: (text) => { new Notice(text); },
+      });
+      this.integratorPanel = panel;
+      panels.push(panel);
     }
     const reformat = new ReformatPanel({
       getReadiness: () => this.reformatReadiness(),
@@ -1196,6 +1236,143 @@ export default class VaultRagPlugin extends Plugin {
     } catch { /* noch kein Index */ }
   }
 
+  private integratorFile(): string { return `${this.manifest.dir}/${INTEGRATOR_FILE}`; }
+
+  private async loadIntegratorStore(): Promise<void> {
+    const a = this.app.vault.adapter;
+    if (!(await a.exists(this.integratorFile()))) return;
+    try {
+      this.integratorStore = new IntegratorStore(IntegratorStore.parse(await a.read(this.integratorFile())));
+    } catch (e) {
+      // Kaputte Datei: laut melden, NICHT still leer starten (CORE-DATA-01) — der Bestand ist
+      // aus dem Index neu berechenbar, das Ablehnungs-Gedaechtnis nicht.
+      console.error("[vault-rag] integrator.json unlesbar", e);
+      new Notice(t("integrator.reason.write-failed"), 8000);
+    }
+  }
+
+  private integratorSaveChain: Promise<void> = Promise.resolve();
+
+  private saveIntegratorStore(): Promise<void> {
+    // Serialisiert wie runIndexOp: jeder Write sieht den Stand ZUM SCHREIBZEITPUNKT, nicht den
+    // beim Aufruf — sonst ueberschreibt ein aelterer Snapshot einen juengeren auf der Platte.
+    const next = this.integratorSaveChain.then(
+      () => this.app.vault.adapter.write(this.integratorFile(), this.integratorStore.serialize()),
+    );
+    this.integratorSaveChain = next.catch((e) => { console.error("[vault-rag] integrator.json schreiben", e); });
+    return next;
+  }
+
+  /** Aufgeloeste ausgehende Links (Ziel-Pfade mit .md) — auch kurze Formen und Frontmatter-Links. */
+  private existingLinks(path: string): Set<string> {
+    const links = this.app.metadataCache.resolvedLinks[path] ?? {};
+    return new Set(Object.keys(links));
+  }
+
+  private proposeDeps() {
+    return {
+      related: (p: string) => this.facade.related(p, { k: this.settings.linkK, minSim: this.settings.linkMinSim }),
+      existingLinks: (p: string) => this.existingLinks(p),
+      rejected: (p: string) => this.integratorStore.rejectedFor(p),
+      now: () => Date.now(),
+    };
+  }
+
+  /** Rechnet und legt in die Inbox. Wer nur rechnen will (API), nimmt proposeLinks direkt.
+   *  `save=false` (Batch-Aufruf aus proposeScope) spart den Store-Write UND das Panel-Refresh
+   *  pro Notiz — sonst wäre ein Scope-Lauf über n Notizen O(n²) im Store-Write. Der Aufrufer
+   *  ist dann selbst dafür verantwortlich, am Ende EINMAL zu speichern/zu refreshen. */
+  async proposeFor(path: string, save = true): Promise<ProposeResult | { kind: "outside-scope" } | { kind: "disabled" }> {
+    if (!this.settings.integratorEnabled) return { kind: "disabled" };
+    let text: string;
+    try { text = await this.app.vault.adapter.read(path); } catch { return { kind: "not-indexed" }; }
+    const r = proposeLinks(path, text, this.proposeDeps());
+    if (r.kind === "proposal") this.integratorStore.upsert(r.proposal);
+    else if (r.kind === "nothing-new") this.integratorStore.remove(path);   // alter Vorschlag ist erledigt
+    if (save) { await this.saveIntegratorStore(); this.integratorPanel?.refresh(); }
+    return r;
+  }
+
+  async proposeScope(): Promise<number> {
+    const folders = this.settings.integratorFolders;
+    if (folders.length === 0) { new Notice(t("integrator.reason.scope-empty")); return 0; }
+    this.integratorBusy = true; this.integratorPanel?.refresh();
+    let n = 0;
+    try {
+      for (const f of this.app.vault.getMarkdownFiles()) {
+        if (!inScope(f.path, folders)) continue;
+        if (this.settings.exclude.some(e => f.path.startsWith(e))) continue;
+        const r = await this.proposeFor(f.path, false);
+        if (r.kind === "proposal") n++;
+      }
+    } finally {
+      // Genau EIN Store-Write je Stapel — auch wenn der Lauf mittendrin abbricht, bleibt der
+      // bis dahin erreichte Stand auf der Platte (vorher ging er bei einer Exception verloren).
+      try { await this.saveIntegratorStore(); } catch (e) { console.error("[vault-rag] integrator.json schreiben", e); }
+      this.integratorBusy = false; this.integratorPanel?.refresh();
+    }
+    new Notice(t("integrator.done", String(n)));
+    return n;
+  }
+
+  private async proposeActiveNote(): Promise<void> {
+    const f = this.app.workspace.getActiveFile();
+    if (!(f instanceof TFile) || f.extension !== "md") return;
+    const r = await this.proposeFor(f.path);
+    if (r.kind !== "proposal") {
+      const reasonKey = `integrator.reason.${r.kind}`;
+      new Notice(t(reasonKey));
+    }
+  }
+
+  private writeLinkInto(text: string, target: string): WriteResult {
+    return this.settings.linkTarget === "frontmatter"
+      ? appendFrontmatterLink(text, this.settings.linkField, target)
+      : appendSectionLink(text, this.settings.linkHeading, target);
+  }
+
+  /** Annehmen aus der Inbox: Hash-Guard gegen den Stand der Berechnung (Spec §4). */
+  async acceptLink(path: string, target: string): Promise<AcceptOutcome> {
+    const p = this.integratorStore.get(path);
+    if (!p) return { kind: "error", reason: "not-found" };
+    let text: string;
+    try { text = await this.app.vault.adapter.read(path); } catch { return { kind: "error", reason: "not-found" }; }
+    if (hashText(text) !== p.noteHash) {
+      this.integratorStore.markStale(path); await this.saveIntegratorStore();
+      return { kind: "stale" };
+    }
+    const r = this.writeLinkInto(text, target);
+    if (!r.ok) return { kind: "error", reason: r.reason };
+    if (r.changed) {
+      try { await this.app.vault.adapter.write(path, r.content); } catch { return { kind: "error", reason: "write-failed" }; }
+    }
+    this.integratorStore.resolve(path, target, "accepted");
+    // Der Text hat sich durch UNS geaendert: der naechste Klick auf derselben Karte darf nicht
+    // als stale gelten. Hash auf den geschriebenen Stand setzen.
+    this.integratorStore.updateHash(path, hashText(r.content));
+    await this.saveIntegratorStore();
+    return { kind: r.changed ? "written" : "unchanged" };
+  }
+
+  /** Sofort schreiben, ohne Inbox und ohne Hash-Guard — die Plugin-API-Flaeche (Spec §8). */
+  async applyLinkNow(path: string, target: string): Promise<ApiApplyResult> {
+    if (!this.settings.integratorEnabled) return { ok: false, reason: "disabled" };
+    if (this.settings.exclude.some(e => path.startsWith(e))) return { ok: false, reason: "excluded" };
+    let text: string;
+    try { text = await this.app.vault.adapter.read(path); } catch { return { ok: false, reason: "not-found" }; }
+    const r = this.writeLinkInto(text, target);
+    if (!r.ok) return { ok: false, reason: r.reason };
+    if (r.changed) {
+      try { await this.app.vault.adapter.write(path, r.content); } catch { return { ok: false, reason: "write-failed" }; }
+    }
+    return { ok: true, changed: r.changed };
+  }
+
+  private async rejectLink(path: string, target: string): Promise<void> {
+    this.integratorStore.resolve(path, target, "rejected");
+    await this.saveIntegratorStore();
+  }
+
   private scheduleEmbed(path: string): void {
     const existing = this.debounceTimers.get(path);
     if (existing !== undefined) window.clearTimeout(existing);
@@ -1253,11 +1430,18 @@ export default class VaultRagPlugin extends Plugin {
       await this.pendingQueue.add(path);
       this.syncProgress();
     }
+
+    if (this.settings.integratorEnabled && this.indexHealthy && inScope(path, this.settings.integratorFolders)) {
+      try { await this.proposeFor(path); } catch (e) { console.error("[vault-rag] integrator", e); }
+    }
   }
 
   private async handleDelete(path: string): Promise<void> {
-    if (this.isSwitchingIndexDir) return;
     if (path.startsWith(".")) return;
+    // Vor jedem Early-Return: die Inbox muss dem Vault folgen, auch waehrend eines Index-Ordner-Wechsels.
+    this.integratorStore.remove(path);
+    void this.saveIntegratorStore();
+    if (this.isSwitchingIndexDir) return;
     if (!(await this.embedderReady())) return;
     // liveIndexer VOR der Serialisierung snapshotten (Minor 6): ein paralleler Instanz-Swap
     // (resolveAndReconnectEmbedder) darf die laufende Operation nicht unter der Hand wechseln.
@@ -1282,8 +1466,11 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async handleRename(newPath: string, oldPath: string): Promise<void> {
-    if (this.isSwitchingIndexDir) return;
     if (newPath.startsWith(".") || oldPath.startsWith(".")) return;
+    // Vor jedem Early-Return: die Inbox muss dem Vault folgen, auch waehrend eines Index-Ordner-Wechsels.
+    this.integratorStore.rename(oldPath, newPath);
+    void this.saveIntegratorStore();
+    if (this.isSwitchingIndexDir) return;
     if (await this.embedderReady()) {
       // liveIndexer VOR der Serialisierung snapshotten (Minor 6, analog handleDelete).
       const li = this.liveIndexer;

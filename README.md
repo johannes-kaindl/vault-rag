@@ -81,6 +81,7 @@ npm run build      # → main.js
 4. Switch to the chat tab, point the chat endpoint at your local LLM in settings, and ask away. Edit the live-context list to control which notes ground the answer.
 5. *(Optional)* Enable **Smart Apply** in settings — it then appears as an extra tab. Pick a template from the relevance-ranked list and apply it to the active note; review the diff, then accept, re-generate, or pick another template.
 6. Select a block of text, then run the reformat command from the command palette or the editor right-click menu — or use the reformat tab and click a transform. Mechanical ones apply immediately; LLM ones open a streamed preview to review before applying. Reformatting needs editing mode; in reading mode the buttons stay disabled and say so. If you edit the note while a preview is open, the replacement is refused rather than applied at the wrong spot.
+7. *(Optional)* Enable the **Integrator** in settings — a sixth tab collects **link suggestions** for your notes. Run `Suggest links for active note`, or list folders in settings so notes there get suggestions automatically after each change (and `Suggest links for folders` runs over the backlog). **Accept** writes a wikilink into the note — into a section at the end (default heading `Verwandte Notizen`, editable) or into a frontmatter list property such as `related`, your choice; **Reject** remembers the target for that note. Nothing is written until you click, and nothing needs a language model: suggestions come straight from the index.
 
 ### Commands
 
@@ -91,6 +92,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 | Open sidebar (per tab) | `Open related notes` · `Open semantic search` · `Open vault chat` · `Open reformat panel` | Opens the sidebar on that tab |
 | Reformat selection | `Reformat section` | Reshapes the current selection (see step 6) |
 | Smart Apply on active note | `Smart Apply on active note` | Restructures the active note into a template |
+| Integrator (opt-in) | `Open integrator inbox` · `Suggest links for active note` · `Suggest links for folders` | Collects link suggestions; accept writes the link, reject remembers the target |
 | Reindex vault | `Reindex vault` | Rebuilds the whole index from the vault |
 | Complete the index | `Complete index (missing notes)` | Embeds only what the index is missing |
 | Restore index backup | `Restore index from backup` | Restores a device-local index backup |
@@ -189,11 +191,20 @@ if (api?.apiVersion === 1 && api.status().indexed) {
 | `status()` | `{ apiVersion, indexed, noteCount }` | Synchronous and **network-free** — meant for "can I offer retrieval at all?". Says nothing about endpoint reachability; that would need a request. |
 | `search(query, opts?)` | `Promise<Result>` | Text → semantically similar notes. Needs a reachable embedding endpoint. |
 | `related(path, opts?)` | `Promise<Result>` | Note → related notes. Straight from the index: no network, works offline and on mobile. |
+| `proposeLinks(path)` | `Promise<LinkResult>` | Link candidates for a note (Integrator, opt-in): index only, filtered for already-linked and rejected targets. **Computes only** — nothing lands in the inbox; the caller decides. |
+| `applyLink(path, target)` | `Promise<ApplyResult>` | Writes **one** wikilink into the note in the configured mode (section or frontmatter property), immediately and without the inbox's stale guard — the caller holds the state. Idempotent: `changed: false` if the link is already there. |
 
 `Result` is either `{ ok: true, hits: [{ path, score }] }` or `{ ok: false, reason }` with
 `reason` one of `"no-index"`, `"offline"` or `"not-indexed"` (the latter carries the `path`).
 **These calls never throw** — expected states are values, and `reason` is a machine-readable
 code, never translated prose, so the caller phrases its own message.
+
+`LinkResult` is `{ ok: true, links: [{ path, score }] }` or `{ ok: false, reason }` with `reason`
+one of `"no-index"`, `"not-indexed"`, `"nothing-new"` or `"disabled"` (Integrator switched off).
+`ApplyResult` is `{ ok: true, changed }` or `{ ok: false, reason }` with `reason` one of
+`"disabled"`, `"excluded"`, `"not-found"`, `"unlinkable"`, `"block-scalar"`, `"not-a-list"`,
+`"frontmatter-unparseable"` or `"write-failed"`. These two exist so that something *outside* this
+plugin — a scheduled workflow, say — can automate linking; the plugin itself never writes unasked.
 
 `opts` accepts `k` (number of hits) and `minSim` (similarity floor); both default to your
 settings. The **exclude list is not overridable** — it is a boundary you set, not a tuning knob

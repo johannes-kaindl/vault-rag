@@ -93,7 +93,7 @@ export class RestoreBackupModal extends Modal {
 }
 
 /**
- * Settings-Tab. `getSettingDefinitions()` liefert die deklarative Struktur (7 Gruppen); einfache
+ * Settings-Tab. `getSettingDefinitions()` liefert die deklarative Struktur (8 Gruppen); einfache
  * Zeilen sind reine `control`-Definitionen, dynamische Zeilen (Endpoint-Listen, Modell-Dropdowns,
  * Status-Polls, MCP-Sektion) sind `render`-Hatches. Querverweise zwischen Zeilen (Modelldetails↔
  * Budget-Slider, Suppress-Test↔Fähigkeiten) laufen über Render-State-Felder (`lastCaps`,
@@ -149,13 +149,19 @@ export class VaultRagSettingTab extends PluginSettingTab {
   getControlValue(key: string): unknown {
     const s = this.plugin.settings as unknown as Record<string, unknown>;
     if (key === "exclude") return (s.exclude as string[]).join(", ");
+    if (key === "integratorFolders") return (s.integratorFolders as string[]).join(", ");
     return s[key];
   }
 
   async setControlValue(key: string, value: unknown): Promise<void> {
     const s = this.plugin.settings as unknown as Record<string, unknown>;
     if (key === "exclude") s.exclude = splitExcludePaths(value as string);
+    else if (key === "integratorFolders") s.integratorFolders = splitExcludePaths(value as string);
     else if (key === "templateDir") s.templateDir = normalizeTemplateDir(value as string);
+    else if (key === "linkField" || key === "linkHeading") {
+      const trimmed = (value as string).trim();
+      s[key] = trimmed === "" ? (DEFAULT_SETTINGS as unknown as Record<string, unknown>)[key] : trimmed;
+    }
     else s[key] = value;
     await this.plugin.saveSettings();
     switch (key) {
@@ -167,7 +173,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup()];
+    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup(), this.integratorGroup()];
   }
 
   /** Einmal-pro-Öffnen die aktiven Endpunkte auflösen. An ein echtes Render-Signal (erster
@@ -351,6 +357,28 @@ export class VaultRagSettingTab extends PluginSettingTab {
         desc: t("settings.smartApply.defaultMode.desc"),
         control: { type: "dropdown", key: "smartApplyDefaultMode",
           options: { deterministisch: t("settings.smartApply.defaultMode.optionDeterministic"), additiv: t("settings.smartApply.defaultMode.optionAdditive") } } },
+    ] };
+  }
+
+  /** Integrator-Gruppe: vollstaendig deklarativ. Die beiden Textfelder tragen Werte, die in den
+   *  VAULT geschrieben werden — bewusst kein t() auf ihrem Default (Spec §5). */
+  private integratorGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: t("settings.integrator.group"), items: [
+      { name: t("settings.integrator.enable.name"), desc: t("settings.integrator.enable.desc"),
+        control: { type: "toggle", key: "integratorEnabled" } },
+      { name: t("settings.integrator.folders.name"), desc: t("settings.integrator.folders.desc"),
+        control: { type: "text", key: "integratorFolders", placeholder: "Inbox/, Daily/" } },   // i18n-exempt: Pfad-Beispiel
+      { name: t("settings.integrator.target.name"), desc: t("settings.integrator.target.desc"),
+        control: { type: "dropdown", key: "linkTarget",
+          options: { section: t("settings.integrator.target.optionSection"), frontmatter: t("settings.integrator.target.optionFrontmatter") } } },
+      { name: t("settings.integrator.heading.name"), desc: t("settings.integrator.heading.desc"),
+        control: { type: "text", key: "linkHeading", placeholder: "Verwandte Notizen" } },   // i18n-exempt: Vault-Inhalt
+      { name: t("settings.integrator.field.name"), desc: t("settings.integrator.field.desc"),
+        control: { type: "text", key: "linkField", placeholder: "related" } },   // i18n-exempt: Frontmatter-Schluessel
+      { name: t("settings.integrator.k.name"), desc: t("settings.integrator.k.desc"),
+        control: { type: "slider", key: "linkK", min: 1, max: 20, step: 1, displayFormat: (v: number) => String(v) } },
+      { name: t("settings.integrator.minSim.name"), desc: t("settings.integrator.minSim.desc"),
+        control: { type: "slider", key: "linkMinSim", min: 0, max: 1, step: 0.05, displayFormat: (v: number) => v.toFixed(2) } },
     ] };
   }
 

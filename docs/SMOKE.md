@@ -83,6 +83,7 @@ also die Eintrittskarte — auch für Port 9333.
 
 | Datum | Version / Commit | Obsidian | Ergebnis | Gegenprobe |
 |---|---|---|---|---|
+| 2026-09-07 | Branch `feat/integrator` (Integrator Stufe 1: Verlinkung mit Review-Inbox — sechs neue Prüfpunkte 7c), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | 1.14.0 | **43/43 grün · 0 übersprungen** (37 bisherige + 6 neue; ein bisheriger Punkt umbenannt: „Fläche ist auf status/search/related begrenzt" → „…/proposeLinks/applyLink begrenzt", weil die API zwei Flächen dazubekommt). Lauf 1 war 42/43 — rot war **der Treiber**: „Tab ist der sechste Tab" hatte die Sechs hart verdrahtet, im Fixture ist Smart Apply aus, also fünf Tabs; jetzt Tab-Liste gegen Panel-Liste. Lauf 2 43/43, Lauf 3 Gegenprobe, Lauf 4 43/43 mit identischer Prüfpunktmenge (Namen gediffed) | **ja** — Idempotenz-Guard in `appendSectionLink` temporär entfernt (Lauf 3): **42/43**, genau „Zweites Anwenden … byte-identisch" rot („changed=true · Bytes VERSCHIEDEN"), kein anderer Punkt fiel mit |
 | 2026-09-07 | Branch `feat/kit-buendel` (Kit-Bündel: Vendor code-kit 0.5.0 / obsidian-kit 0.31.0, Modell je Endpunkt, Smart-Apply-Vorrang), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | 1.14.0 | Baseline vor dem Umbau **35/35 grün · 1 übersprungen**; nach dem Umbau **36/36 grün · 0 übersprungen** — Prüfpunktmenge bis auf einen Namen identisch: „Rolle folgt dem Modell-Override" (dauerhaft übersprungen, weil die Leer-Option des Dropdowns entfallen ist) wurde zu „Rolle folgt dem Zeilen-Modell" und läuft jetzt. Dazwischen ein Abnahme-Befund, den kein Prüfpunkt sah: die Alt-Schlüssel `embeddingModel`/`chatModel` blieben in `data.json` (der Kit-Merge kopiert unbekannte Schlüssel), die Migration lief bei jedem Start erneut — gefunden per CDP-Probe auf `Object.keys(p.settings)`, behoben, jetzt Prüfpunkt | **ja** — E1 am laufenden Plugin: `smartApplyModelInUse` folgt dem Feature-Feld, `chatModelInUse` der Zeile (CDP-Probe, Wert gesetzt und zurückgesetzt) |
 | 2026-09-04 | `5551f4b` (Stempel-Waechter + Reindex-Race-Fix), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | **1.14.0** | **34/34 gruen · 1 uebersprungen** (Modell-Override, wie immer). Erster Lauf war 33/34 — der Umbruch-Punkt rot mit „560px (ist 300px) · 240px (ist 300px)“: zweimal dieselbe Breite, also eine Mutation, die nie ankam. Ursache im TREIBER, nicht im Plugin — `pollUntil` kehrt beim ersten truthy Wert zurueck, und `TAB_ROWS` lieferte immer ein Objekt, der Poll mass also den Zustand vor `setSize`. Mit Breiten-Guard gruen (`8c44c1b`). | **ja, zweifach** — (a) isoliert nachgemessen: 560px zu 1 Zeile, 240px zu 2 Zeilen, das Plugin war also durchgehend korrekt; (b) der neue Waechter am laufenden System: vor einer Aenderung **0** verdaechtige Notizen, nach einem `vault.append` auf EINE Notiz **genau diese eine** |
 | 2026-09-03 | Arbeitsbaum nach `679a9f5` (Skip-Liste, Fixture mit zwei Endpunkt-Zeilen, Modal-Prüfpunkt), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | 1.13.7 | **34/34 grün · 1 übersprungen** (Modell-Override — kein Endpunkt mit Override im Fixture). Erstmals liefen **alle** Lab- und Endpunkt-Punkte; `679a9f5` damit inhaltlich belegt (Vorschau nach dem Verwerfen aus dem DOM). Achter und letzter Lauf des Tages mit Warmup über `chatEndpointInUse` und `suppressThinking` im Fixture: Warmup HTTP 200 nach 3 s, erster Token nach **2,9 s** (vorher 55–110 s) | **ja** — Verwerfen-Klick im Treiber ausgesetzt: **33/34**, genau der neue Modal-Punkt rot („Vorschau steht noch"), kein anderer fiel mit |
@@ -92,6 +93,41 @@ also die Eintrittskarte — auch für Port 9333.
 | 2026-08-23 | `a4d0130` (Branch `fix/backlog-kleinfixes`, vor Merge) | 1.13.7 | **20/20** (derselbe Punkt übersprungen) | Parität zum Lauf davor — der Treiber ist unverändert, geändert hat sich nur der Prüfling |
 | 2026-08-23 | `0d49ab0` (vor Merge 0.26.0) | 1.13.7 | **20/20** (1 Punkt übersprungen: kein Embedding-Endpunkt mit Modell-Override konfiguriert) | keine — Treiber unverändert seit dem Lauf, der ihn eingeführt hat |
 | 2026-08-18 | Migration auf die zentrale CDP-Brücke | 1.13.7 | 18/18 | — |
+
+### 2026-09-07 — Integrator: sechs Prüfpunkte, ein Treiber-Befund, eine Gegenprobe
+
+Anlass: Slice D (Integrator Stufe 1, Spec im Cockpit `_SDD/2026-09-07-integrator-linking-design.md`).
+Der Abschnitt 7c misst die **Verdrahtung** — die reinen Hälften (`link_writer`, `integrator_store`,
+`integrator`) sind unit-getestet, ob `acceptLink` den richtigen Schreiber wählt und der Store
+gespeichert wird, sieht nur der Lauf. Zwei neue Fixture-Notizen (`Integrator plain.md` ohne
+Frontmatter, `Integrator related.md` mit `related: []`), Fixture-Einstellungen mit
+`integratorEnabled` und `integratorFolders: ["Notes/"]`.
+
+Vier Läufe, jeder mit Neustart der Zweitinstanz (Target-Leichen, s. Kopfkommentar):
+
+1. **42/43 — Treiber-Befund, kein Prüfling.** „Tab ist der sechste Tab" hatte die Sechs aus der Spec
+   übernommen; im Fixture ist Smart Apply aus, der Hub trägt fünf Tabs, der Integrator stand korrekt
+   an vierter Stelle vor „Umformatieren". Ein Prüfpunkt, der eine Konstante behauptet, die von einer
+   anderen Einstellung abhängt (CORE-TEST-22). Jetzt: Tab-Liste gegen Panel-Liste des Hubs, plus
+   Position vor `reformat`.
+2. **43/43.** Alle sechs Integrator-Punkte grün: Vorschlag über `proposeFor` (5 Ziele), Annehmen per
+   Klick auf den Knopf der Karte „Integrator plain" schreibt `## Verwandte Notizen` + Wikilink
+   (+74 Bytes), zweites Anwenden byte-identisch (`changed=false`), abgelehntes Ziel fehlt nach der
+   Neuberechnung, Frontmatter-Modus macht aus `related: []` eine Blockliste mit einem Eintrag bei
+   byte-identischem Rest.
+3. **Gegenprobe (CORE-TEST-13): 42/43.** Idempotenz-Guard in `appendSectionLink` entfernt, gebaut,
+   deployt — genau der Punkt „Zweites Anwenden … byte-identisch" rot, kein anderer fiel mit. Der
+   Punkt kann fehlschlagen, misst also etwas.
+4. **43/43** mit wiederhergestelltem Guard, Prüfpunktmenge gegen Lauf 2 gediffed: identisch.
+
+Aufräumen im `finally`: beide Fixture-Notizen werden byteweise zurückgeschrieben und aus der Inbox
+entfernt. **Der Rückschreib-Vorgang trifft den automatischen Auslöser** (Notizen liegen unter
+`Notes/`), drei Sekunden später stehen die Vorschläge wieder in `integrator.json` — erwartet und
+harmlos, das Ablehnungs-Gedächtnis bleibt leer. Ein zweiter Lauf ohne `--setup` findet dieselbe Lage.
+
+Nicht gemessen und bewusst offen: die Sortierung „aktive Notiz zuerst" wird nur indirekt geprüft
+(der erste Accept-Knopf gehört zur Karte „Integrator plain", nachdem sie geöffnet wurde); der
+Doppelklick-Schutz ist unit-getestet, nicht am laufenden Obsidian.
 
 ### 2026-09-03 — Staging-Vault auf der Zweitinstanz: sechs Läufe bis zum grünen, fünf Treiber-Befunde
 

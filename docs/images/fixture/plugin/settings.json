@@ -20,5 +20,12 @@
     }
   ],
   "indexDir": "_vaultrag",
-  "suppressThinking": true
+  "suppressThinking": true,
+  "integratorEnabled": true,
+  "integratorFolders": [
+    "Notes/"
+  ],
+  "linkTarget": "section",
+  "linkHeading": "Verwandte Notizen",
+  "linkField": "related"
 }

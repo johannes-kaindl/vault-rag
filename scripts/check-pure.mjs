@@ -32,6 +32,7 @@ const EDGE = new Set([
   "src/reformat_panel.ts",
   "src/chat_view.ts",                 // nur setIcon
   "src/smart_apply_view.ts",          // setIcon + Notice (Fehler-Feedback)
+  "src/integrator_panel.ts",          // nur setIcon
   "src/mcp/http_server.ts",           // Platform-Gate (desktop-only)
 ]);
 // Die bewusst obsidian-gekoppelte Vendor-Schicht. Die Grenze verlaeuft bei "pure", nicht bei

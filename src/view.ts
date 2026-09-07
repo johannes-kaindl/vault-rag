@@ -6,13 +6,19 @@ export const VIEW_TYPE_RELATED = "vault-rag-related";
 
 export interface ViewDeps { getHits: () => Hit[]; openPath: (path: string) => void; }
 
-export function renderHits(el: HTMLElement, hits: Hit[], openPath: (path: string) => void): void {
+export function renderHits(
+  el: HTMLElement, hits: Hit[], openPath: (path: string) => void,
+  actions?: (row: HTMLElement, hit: Hit) => void,
+): void {
   for (const h of hits) {
     const row = el.createDiv({ cls: "vault-rag-hit" });
     const name = h.path.split("/").pop()?.replace(/\.md$/, "") ?? h.path;
-    row.createSpan({ cls: "vault-rag-hit-title", text: name });
+    const title = row.createSpan({ cls: "vault-rag-hit-title", text: name });
     row.createSpan({ cls: "vault-rag-hit-score", text: h.score.toFixed(2) });
-    row.addEventListener("click", () => openPath(h.path));
+    // Ohne Aktions-Slot bleibt die ganze Zeile klickbar (Tab „Ähnlich", unverändert). Mit Slot
+    // öffnet nur der Titel — sonst träfe ein Klick auf „Ablehnen" auch openPath.
+    if (actions) { title.addEventListener("click", () => openPath(h.path)); actions(row, h); }
+    else row.addEventListener("click", () => openPath(h.path));
   }
 }
 

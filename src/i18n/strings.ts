@@ -879,7 +879,7 @@ export const DE = {
   "settings.integrator.enable.name": "Integrator aktivieren",
   "settings.integrator.enable.desc": "Sammelt Verlinkungs-Vorschläge für Notizen in einer Review-Inbox (sechster Tab). Geschrieben wird erst, wenn du einen Vorschlag annimmst. Greift beim nächsten Neuladen des Plugins.",
   "settings.integrator.folders.name": "Ordner",
-  "settings.integrator.folders.desc": "Kommagetrennte Pfad-Präfixe. Notizen darunter bekommen nach jeder Änderung automatisch Vorschläge, und der Befehl „Vorschläge für Ordner\" läuft über sie. Leer: nur Befehle.",
+  "settings.integrator.folders.desc": "Kommagetrennte Pfad-Präfixe. Notizen darunter bekommen nach jeder Änderung automatisch Vorschläge, und der Befehl „Vorschläge für Ordner“ läuft über sie. Leer: nur Befehle.",
   "settings.integrator.target.name": "Wohin Links geschrieben werden",
   "settings.integrator.target.desc": "Abschnitt: eine Überschrift am Notiz-Ende. Frontmatter: eine Listen-Eigenschaft. Angefasst werden nur die Zeilen dieser einen Eigenschaft.",
   "settings.integrator.target.optionSection": "Abschnitt am Ende",

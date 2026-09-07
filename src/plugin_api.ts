@@ -58,7 +58,10 @@ export interface ApiOverrides {
 export type ApiLinkResult =
   | { ok: true; links: ApiHit[] }
   | { ok: false; reason: "no-index" | "not-indexed" | "nothing-new" | "disabled" };
-export type ApiApplyResult = { ok: true; changed: boolean } | { ok: false; reason: string };
+export type ApiApplyReason =
+  | "disabled" | "excluded" | "not-found" | "unlinkable" | "block-scalar" | "not-a-list"
+  | "frontmatter-unparseable" | "write-failed";
+export type ApiApplyResult = { ok: true; changed: boolean } | { ok: false; reason: ApiApplyReason };
 
 /** Anschluss an den Integrator (main.ts). `propose` rechnet nur — es legt NICHTS in die Inbox,
  *  der Aufrufer entscheidet (Spec §8). */

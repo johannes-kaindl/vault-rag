@@ -131,6 +131,8 @@ export class IntegratorPanel implements HubPanel {
   private async run(fn: () => Promise<void>): Promise<void> {
     if (this.pending) return;
     this.pending = true;
-    try { await fn(); } finally { this.pending = false; this.refresh(); }
+    try { await fn(); }
+    catch (e) { console.error("[vault-rag] integrator panel", e); this.deps.notify(t("integrator.reason.write-failed")); }
+    finally { this.pending = false; this.refresh(); }
   }
 }

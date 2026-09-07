@@ -5,6 +5,9 @@ describe("wikilinkFor", () => {
   it("bildet [[pfad|basename]] ohne .md", () => {
     expect(wikilinkFor("Notes/Foo bar.md")).toBe("[[Notes/Foo bar|Foo bar]]");
   });
+  it("laesst den Alias bei Root-Notizen weg (basename === target)", () => {
+    expect(wikilinkFor("A.md")).toBe("[[A]]");
+  });
   it("liefert null bei Zeichen, die Obsidian nicht klammern kann", () => {
     for (const p of ["a#b.md", "a|b.md", "a[b.md", "a]b.md", "a^b.md", ""]) expect(wikilinkFor(p)).toBeNull();
   });
@@ -119,5 +122,16 @@ describe("appendFrontmatterLink", () => {
   it("nur leere Einträge: Einrückung des ersten leeren Eintrags, doppelte Quotes", () => {
     const r = appendFrontmatterLink("---\nrelated:\n    - \n---\n", "related", "Notes/B.md");
     expect(r.ok && r.content).toBe("---\nrelated:\n    - \n    - \"[[Notes/B|B]]\"\n---\n");
+  });
+  it("leeres linkField → not-a-list statt kaputter YAML (bare ':')", () => {
+    expect(appendFrontmatterLink("---\ntitle: A\n---\nBody\n", "", "Notes/B.md")).toEqual({ ok: false, reason: "not-a-list" });
+  });
+  it("linkField mit ':' → not-a-list statt kaputter YAML", () => {
+    expect(appendFrontmatterLink("---\ntitle: A\n---\nBody\n", "a:b", "Notes/B.md")).toEqual({ ok: false, reason: "not-a-list" });
+  });
+  it("Backslash im Pfad wird im doppelt-gequoteten Skalar verdoppelt", () => {
+    const text = '---\nrelated: ["a"]\n---\n';
+    const r = appendFrontmatterLink(text, "related", "Notes\\B.md");
+    expect(r.ok && r.content).toBe('---\nrelated: ["a", "[[Notes\\\\B]]"]\n---\n');
   });
 });

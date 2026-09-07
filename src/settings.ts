@@ -158,6 +158,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
     if (key === "exclude") s.exclude = splitExcludePaths(value as string);
     else if (key === "integratorFolders") s.integratorFolders = splitExcludePaths(value as string);
     else if (key === "templateDir") s.templateDir = normalizeTemplateDir(value as string);
+    else if (key === "linkField" || key === "linkHeading") {
+      const trimmed = (value as string).trim();
+      s[key] = trimmed === "" ? (DEFAULT_SETTINGS as unknown as Record<string, unknown>)[key] : trimmed;
+    }
     else s[key] = value;
     await this.plugin.saveSettings();
     switch (key) {

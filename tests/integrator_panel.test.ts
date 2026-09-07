@@ -93,4 +93,14 @@ describe("IntegratorPanel", () => {
     expect(deps.accept).toHaveBeenCalledTimes(1);
     release(); await flush();
   });
+  it("eine verworfene accept-Promise meldet write-failed und gibt pending wieder frei", async () => {
+    const accept = vi.fn(async () => { throw new Error("disk"); });
+    const { el, deps } = mk([prop("Notes/A.md", ["Notes/B.md"])], { accept });
+    const btn = () => all(el, "vault-rag-int-accept")[0];
+    btn().click(); await flush();
+    expect(deps.notify).toHaveBeenCalledWith(EN["integrator.reason.write-failed"]);
+    expect(deps.accept).toHaveBeenCalledTimes(1);
+    btn().click(); await flush();
+    expect(deps.accept).toHaveBeenCalledTimes(2);
+  });
 });

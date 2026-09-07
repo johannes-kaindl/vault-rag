@@ -49,7 +49,7 @@ import { mapStartError, describeStartError, classifySelfCheck, type SelfCheckRes
 import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "./index_delta";
 import type { McpServerHandle } from "./mcp/http_server";
 import { RetrievalFacade } from "./retrieval_facade";
-import { createVaultRetrievalApi, type VaultRetrievalApi } from "./plugin_api";
+import { createVaultRetrievalApi, type VaultRetrievalApi, type ApiApplyResult } from "./plugin_api";
 import { IntegratorStore, INTEGRATOR_FILE } from "./integrator_store";
 import { proposeLinks, inScope, hashText, type ProposeResult } from "./integrator";
 import { appendSectionLink, appendFrontmatterLink, type WriteResult } from "./link_writer";
@@ -1278,16 +1278,18 @@ export default class VaultRagPlugin extends Plugin {
     };
   }
 
-  /** Rechnet und legt in die Inbox. Wer nur rechnen will (API), nimmt proposeLinks direkt. */
-  async proposeFor(path: string): Promise<ProposeResult | { kind: "outside-scope" } | { kind: "disabled" }> {
+  /** Rechnet und legt in die Inbox. Wer nur rechnen will (API), nimmt proposeLinks direkt.
+   *  `save=false` (Batch-Aufruf aus proposeScope) spart den Store-Write UND das Panel-Refresh
+   *  pro Notiz — sonst wäre ein Scope-Lauf über n Notizen O(n²) im Store-Write. Der Aufrufer
+   *  ist dann selbst dafür verantwortlich, am Ende EINMAL zu speichern/zu refreshen. */
+  async proposeFor(path: string, save = true): Promise<ProposeResult | { kind: "outside-scope" } | { kind: "disabled" }> {
     if (!this.settings.integratorEnabled) return { kind: "disabled" };
     let text: string;
     try { text = await this.app.vault.adapter.read(path); } catch { return { kind: "not-indexed" }; }
     const r = proposeLinks(path, text, this.proposeDeps());
     if (r.kind === "proposal") this.integratorStore.upsert(r.proposal);
     else if (r.kind === "nothing-new") this.integratorStore.remove(path);   // alter Vorschlag ist erledigt
-    await this.saveIntegratorStore();
-    this.integratorPanel?.refresh();
+    if (save) { await this.saveIntegratorStore(); this.integratorPanel?.refresh(); }
     return r;
   }
 
@@ -1300,9 +1302,10 @@ export default class VaultRagPlugin extends Plugin {
       for (const f of this.app.vault.getMarkdownFiles()) {
         if (!inScope(f.path, folders)) continue;
         if (this.settings.exclude.some(e => f.path.startsWith(e))) continue;
-        const r = await this.proposeFor(f.path);
+        const r = await this.proposeFor(f.path, false);
         if (r.kind === "proposal") n++;
       }
+      await this.saveIntegratorStore();
     } finally { this.integratorBusy = false; this.integratorPanel?.refresh(); }
     new Notice(t("integrator.done", String(n)));
     return n;
@@ -1348,7 +1351,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   /** Sofort schreiben, ohne Inbox und ohne Hash-Guard — die Plugin-API-Flaeche (Spec §8). */
-  async applyLinkNow(path: string, target: string): Promise<{ ok: true; changed: boolean } | { ok: false; reason: string }> {
+  async applyLinkNow(path: string, target: string): Promise<ApiApplyResult> {
     if (!this.settings.integratorEnabled) return { ok: false, reason: "disabled" };
     if (this.settings.exclude.some(e => path.startsWith(e))) return { ok: false, reason: "excluded" };
     let text: string;

@@ -23,7 +23,8 @@ function basenameOf(target: string): string {
 export function wikilinkFor(path: string): string | null {
   if (path === "" || BRICHT_WIKILINK.test(path)) return null;
   const target = linkTargetOf(path);
-  return `[[${target}|${basenameOf(target)}]]`;
+  const basename = basenameOf(target);
+  return basename === target ? `[[${target}]]` : `[[${target}|${basename}]]`;
 }
 
 function escapeRe(s: string): string {
@@ -100,10 +101,11 @@ function unquoteItem(raw: string): string {
 function quoteLike(sample: string, value: string): string {
   const s = sample.trim();
   if (s.startsWith("'")) return `'${value.replace(/'/g, "''")}'`;
-  return `"${value.replace(/"/g, '\\"')}"`;
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 export function appendFrontmatterLink(text: string, field: string, path: string): WriteResult {
+  if (!/^[A-Za-z0-9_][\w .-]*$/.test(field)) return { ok: false, reason: "not-a-list" };
   const link = wikilinkFor(path);
   if (link === null) return { ok: false, reason: "unlinkable" };
   const m = FM_RE.exec(text);

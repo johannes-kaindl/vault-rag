@@ -1242,8 +1242,16 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
-  private async saveIntegratorStore(): Promise<void> {
-    await this.app.vault.adapter.write(this.integratorFile(), this.integratorStore.serialize());
+  private integratorSaveChain: Promise<void> = Promise.resolve();
+
+  private saveIntegratorStore(): Promise<void> {
+    // Serialisiert wie runIndexOp: jeder Write sieht den Stand ZUM SCHREIBZEITPUNKT, nicht den
+    // beim Aufruf — sonst ueberschreibt ein aelterer Snapshot einen juengeren auf der Platte.
+    const next = this.integratorSaveChain.then(
+      () => this.app.vault.adapter.write(this.integratorFile(), this.integratorStore.serialize()),
+    );
+    this.integratorSaveChain = next.catch((e) => { console.error("[vault-rag] integrator.json schreiben", e); });
+    return next;
   }
 
   /** Aufgeloeste ausgehende Links (Ziel-Pfade mit .md) — auch kurze Formen und Frontmatter-Links. */
@@ -1413,10 +1421,11 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async handleDelete(path: string): Promise<void> {
-    if (this.isSwitchingIndexDir) return;
     if (path.startsWith(".")) return;
+    // Vor jedem Early-Return: die Inbox muss dem Vault folgen, auch waehrend eines Index-Ordner-Wechsels.
     this.integratorStore.remove(path);
     void this.saveIntegratorStore();
+    if (this.isSwitchingIndexDir) return;
     if (!(await this.embedderReady())) return;
     // liveIndexer VOR der Serialisierung snapshotten (Minor 6): ein paralleler Instanz-Swap
     // (resolveAndReconnectEmbedder) darf die laufende Operation nicht unter der Hand wechseln.
@@ -1441,10 +1450,11 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async handleRename(newPath: string, oldPath: string): Promise<void> {
-    if (this.isSwitchingIndexDir) return;
     if (newPath.startsWith(".") || oldPath.startsWith(".")) return;
+    // Vor jedem Early-Return: die Inbox muss dem Vault folgen, auch waehrend eines Index-Ordner-Wechsels.
     this.integratorStore.rename(oldPath, newPath);
     void this.saveIntegratorStore();
+    if (this.isSwitchingIndexDir) return;
     if (await this.embedderReady()) {
       // liveIndexer VOR der Serialisierung snapshotten (Minor 6, analog handleDelete).
       const li = this.liveIndexer;

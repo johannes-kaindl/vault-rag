@@ -136,11 +136,18 @@ export function appendFrontmatterLink(text: string, field: string, path: string)
   if (items.length === 0) return rebuild([...lines.slice(0, start), `${field}:`, `  - "${link}"`, ...lines.slice(end)]);
   if (items.some(l => containsLink(unquoteItem((ITEM_RE.exec(l)?.[2]) ?? ""), path))) return { ok: true, content: text, changed: false };
   let indent = "  ", sample = '"';
+  let firstIndent = "  ";
+  let foundNonEmpty = false;
   for (const l of items) {
     const im = ITEM_RE.exec(l);
     if (!im) continue;
-    indent = im[1] ?? indent;
-    if ((im[2] ?? "").trim() !== "") sample = im[2] ?? sample;
+    if (!foundNonEmpty) firstIndent = im[1] ?? firstIndent;
+    if ((im[2] ?? "").trim() !== "") {
+      indent = im[1] ?? indent;
+      sample = im[2] ?? sample;
+      foundNonEmpty = true;
+    }
   }
+  if (!foundNonEmpty) indent = firstIndent;
   return rebuild([...lines.slice(0, end), `${indent}- ${quoteLike(sample, link)}`, ...lines.slice(end)]);
 }

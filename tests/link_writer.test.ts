@@ -112,4 +112,12 @@ describe("appendFrontmatterLink", () => {
     const b = appendFrontmatterLink(a.ok ? a.content : "", "related", "Notes/B.md");
     expect(b).toEqual({ ok: true, content: a.ok ? a.content : "", changed: false });
   });
+  it("Einrückung kommt von der letzten NICHT-leeren Zeile, nicht von einem leeren Nachzügler", () => {
+    const r = appendFrontmatterLink("---\nrelated:\n  - '[[a]]'\n    - \ntags: [x]\n---\n", "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe("---\nrelated:\n  - '[[a]]'\n    - \n  - '[[Notes/B|B]]'\ntags: [x]\n---\n");
+  });
+  it("nur leere Einträge: Einrückung des ersten leeren Eintrags, doppelte Quotes", () => {
+    const r = appendFrontmatterLink("---\nrelated:\n    - \n---\n", "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe("---\nrelated:\n    - \n    - \"[[Notes/B|B]]\"\n---\n");
+  });
 });

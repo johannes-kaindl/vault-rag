@@ -1305,8 +1305,12 @@ export default class VaultRagPlugin extends Plugin {
         const r = await this.proposeFor(f.path, false);
         if (r.kind === "proposal") n++;
       }
-      await this.saveIntegratorStore();
-    } finally { this.integratorBusy = false; this.integratorPanel?.refresh(); }
+    } finally {
+      // Genau EIN Store-Write je Stapel — auch wenn der Lauf mittendrin abbricht, bleibt der
+      // bis dahin erreichte Stand auf der Platte (vorher ging er bei einer Exception verloren).
+      try { await this.saveIntegratorStore(); } catch (e) { console.error("[vault-rag] integrator.json schreiben", e); }
+      this.integratorBusy = false; this.integratorPanel?.refresh();
+    }
     new Notice(t("integrator.done", String(n)));
     return n;
   }

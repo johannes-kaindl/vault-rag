@@ -81,6 +81,7 @@ npm run build      # → main.js
 4. In den Chat-Tab wechseln, den Chat-Endpunkt in den Einstellungen setzen und fragen. Über die Kontext-Liste steuerst du, welche Notizen die Antwort tragen.
 5. *(Optional)* **Smart Apply** in den Einstellungen aktivieren — es erscheint dann als weiterer Tab. Template aus der Relevanz-Liste wählen, auf die aktive Notiz anwenden, Diff prüfen, dann übernehmen, neu erzeugen oder ein anderes Template nehmen.
 6. Einen Textblock markieren, dann `Abschnitt umformatieren` aus der Befehlspalette oder dem Rechtsklick-Menü — oder den Umformatieren-Tab benutzen. Mechanische Transformationen greifen sofort; LLM-gestützte öffnen eine gestreamte Vorschau. Umformatieren braucht den Bearbeitungsmodus; im Lesemodus bleiben die Buttons deaktiviert und sagen warum. Wird die Notiz geändert, während eine Vorschau offen ist, wird die Ersetzung verweigert statt an der falschen Stelle angewendet.
+7. *(Optional)* Den **Integrator** in den Einstellungen aktivieren — ein sechster Tab sammelt **Verlinkungs-Vorschläge** für deine Notizen. `Links für aktive Notiz vorschlagen` ausführen, oder in den Einstellungen Ordner eintragen, dann bekommen Notizen darunter nach jeder Änderung automatisch Vorschläge (und `Links für Ordner vorschlagen` läuft über den Altbestand). **Annehmen** schreibt einen Wikilink in die Notiz — in einen Abschnitt am Ende (Überschrift `Verwandte Notizen`, einstellbar) oder in eine Frontmatter-Listen-Eigenschaft wie `related`, nach Wahl; **Ablehnen** merkt sich das Ziel für diese Notiz. Geschrieben wird erst beim Klick, und kein Sprachmodell ist nötig: die Vorschläge kommen direkt aus dem Index.
 
 ### Befehle
 
@@ -91,6 +92,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 | `Verwandte Notizen öffnen` · `Semantische Suche öffnen` · `Vault Chat öffnen` · `Umformatieren-Panel öffnen` | Öffnet die Sidebar auf dem jeweiligen Tab |
 | `Abschnitt umformatieren` | Formt die aktuelle Auswahl um (siehe Schritt 6) |
 | `Smart Apply auf aktive Notiz` | Baut die aktive Notiz in ein Template um |
+| `Integrator-Inbox öffnen` · `Links für aktive Notiz vorschlagen` · `Links für Ordner vorschlagen` | Sammelt Verlinkungs-Vorschläge (opt-in); Annehmen schreibt den Link, Ablehnen merkt sich das Ziel |
 | `Vault neu indizieren` | Baut den kompletten Index neu aus dem Vault |
 | `Index vervollständigen (fehlende Notizen)` | Bettet nur ein, was dem Index fehlt |
 | `Index aus Backup wiederherstellen` | Holt ein geräte-lokales Backup zurück |
@@ -179,11 +181,21 @@ if (api?.apiVersion === 1 && api.status().indexed) {
 | `status()` | `{ apiVersion, indexed, noteCount }` | Synchron und **netzfrei** — gedacht für „kann ich Retrieval überhaupt anbieten?". Sagt nichts über die Erreichbarkeit des Endpunkts; das ginge nur mit einer Anfrage. |
 | `search(query, opts?)` | `Promise<Result>` | Text → semantisch ähnliche Notizen. Braucht einen erreichbaren Embedding-Endpunkt. |
 | `related(path, opts?)` | `Promise<Result>` | Notiz → verwandte Notizen. Direkt aus dem Index: kein Netz, offline und mobil nutzbar. |
+| `proposeLinks(path)` | `Promise<LinkResult>` | Link-Kandidaten für eine Notiz (Integrator, opt-in): nur aus dem Index, ohne schon verlinkte und abgelehnte Ziele. **Rechnet nur** — nichts landet in der Inbox; der Aufrufer entscheidet. |
+| `applyLink(path, target)` | `Promise<ApplyResult>` | Schreibt **einen** Wikilink im eingestellten Modus (Abschnitt oder Frontmatter-Eigenschaft) in die Notiz — sofort und ohne den Stale-Guard der Inbox; der Aufrufer hält den Stand. Idempotent: `changed: false`, wenn der Link schon da ist. |
 
 `Result` ist entweder `{ ok: true, hits: [{ path, score }] }` oder `{ ok: false, reason }` mit
 `reason` aus `"no-index"`, `"offline"` oder `"not-indexed"` (letzteres trägt den `path` mit).
 **Diese Aufrufe werfen nie** — erwartbare Zustände sind Werte, und `reason` ist ein
 maschinenlesbarer Code, nie übersetzter Fließtext: die Formulierung gehört dem Aufrufer.
+
+`LinkResult` ist `{ ok: true, links: [{ path, score }] }` oder `{ ok: false, reason }` mit `reason`
+aus `"no-index"`, `"not-indexed"`, `"nothing-new"` oder `"disabled"` (Integrator ausgeschaltet).
+`ApplyResult` ist `{ ok: true, changed }` oder `{ ok: false, reason }` mit `reason` aus
+`"disabled"`, `"excluded"`, `"not-found"`, `"unlinkable"`, `"block-scalar"`, `"not-a-list"`,
+`"frontmatter-unparseable"` oder `"write-failed"`. Die beiden gibt es, damit etwas *außerhalb*
+dieses Plugins — etwa ein geplanter Ablauf — das Verlinken automatisieren kann; das Plugin selbst
+schreibt nie ungefragt.
 
 `opts` nimmt `k` (Trefferzahl) und `minSim` (Ähnlichkeits-Untergrenze), beide mit deinen
 Einstellungen als Vorgabe. Die **Ausschluss-Liste ist nicht überschreibbar** — sie ist eine

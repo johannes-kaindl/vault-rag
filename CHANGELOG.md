@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Integrator (Stufe 1): Verlinkungs-Vorschläge mit Review-Inbox** — sechster Tab in der Sidebar
+  (opt-in, Einstellung „Integrator aktivieren"). Für eine Notiz holt das Plugin die inhaltlich
+  nächsten Notizen aus dem Index (offline, kein LLM), filtert schon verlinkte und abgelehnte Ziele
+  und legt den Rest als Vorschlag in die Inbox. **Annehmen** schreibt einen Wikilink in die Notiz,
+  **Ablehnen** merkt sich das Ziel für diese Notiz. Kein Auto-Apply: geschrieben wird nur nach
+  Bestätigung (Dach-Zuschnitt: vault-rag liefert Material, entscheidet nichts).
+  - Drei Auslöser: automatisch nach jeder Änderung für Notizen unter den eingestellten Ordnern,
+    Befehl „Links für aktive Notiz vorschlagen", Befehl „Links für Ordner vorschlagen" (Stapel für
+    den Altbestand). Ordnerliste leer heißt: nur die Befehle.
+  - Zwei Schreibmodi: **Abschnitt** am Notiz-Ende (Werks-Default, Überschrift einstellbar) oder
+    **Frontmatter-Listen-Eigenschaft** (Default `related`). Im Frontmatter-Modus werden nur die
+    Zeilen dieser einen Eigenschaft angefasst — alles andere bleibt byteweise stehen; Inline- und
+    Blocklisten behalten ihre Form.
+  - Ein Vorschlag je Notiz (neu ersetzt alt), Stale-Schutz per Hash gegen zwischenzeitliche
+    Änderungen, Inbox geräte-lokal im Plugin-Ordner (kein Vault-Footprint).
+- **Plugin-API:** `proposeLinks(path)` und `applyLink(path, target)` für andere Plugins — z. B. eine
+  spätere Crew, die das Unbeaufsichtigte übernimmt. `apiVersion` bleibt 1 (additiv).
+
 ## [0.31.0] — 2026-09-07
 
 ### Changed

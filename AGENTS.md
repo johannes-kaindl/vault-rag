@@ -23,7 +23,9 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
 **Bewusste Designentscheidungen:**
 - **Retrieval ≠ Generierung.** Retrieval läuft über HyperForge; Chat/Composer (spätere Slices)
   über lokale LLMs. Das Panel selbst braucht **keinen** Daemon, kein VPN, kein On-Device-LLM.
-- **Slices statt Monolith:** **A Related-Notes** (✅ gebaut + live) · **B Chat** · **C Inline-Composer**.
+- **Slices statt Monolith:** **A Related-Notes** (✅ gebaut + live) · **B Chat** · **C Inline-Composer** ·
+  **D Integrator Stufe 1 — Verlinkung mit Review-Inbox** (✅ seit 0.32.0; ADR-031, Spec im Cockpit
+  `_SDD/2026-09-07-integrator-linking-design.md`).
 - **IMG→MD ausgegliedert (2026-06-21):** Bild-Transkription ist kein RAG → eigenständiges
   Plugin [`image-to-markdown`](https://git.jkaindl.de/jkaindl/vault-rag) (Schwester-Repo `../image-to-markdown`).
   vault-rag bleibt der schlanke RAG-Kern. Der SSE-Transport (`sse.ts`/`think_splitter.ts`) ist in beide
@@ -44,10 +46,10 @@ Interface an, nie direkt die Obsidian-API → in Node testbar ohne DOM-Mock (PRO
 
 `obsidian` wird nur an der Kante importiert — **seit 2026-08-23 von `npm run check:pure` erzwungen**
 (Allowlist `EDGE` in `scripts/check-pure.mjs`, Teil von `npm run gate`; wer die Kante verschiebt,
-ändert beide Stellen) — **zwölf Dateien, hier vollständig aufgezählt**: `main.ts`, `hub_view.ts`,
+ändert beide Stellen) — **dreizehn Dateien, hier vollständig aufgezählt**: `main.ts`, `hub_view.ts`,
 `settings.ts`, `http.ts`, die dünnen Modal-/Picker-Wrapper (`note_picker.ts`,
 `template_picker.ts`, `reformat_picker.ts`, `reformat_preview_modal.ts`), das
-`reformat_panel.ts`, `chat_view.ts` und `smart_apply_view.ts` (nur `setIcon` bzw. zusätzlich
+`reformat_panel.ts`, `chat_view.ts`, `integrator_panel.ts` und `smart_apply_view.ts` (nur `setIcon` bzw. zusätzlich
 `Notice`) sowie `mcp/http_server.ts` (Platform-Gate, desktop-only). Diese Wrapper
 sind **bewusst nicht unit-getestet** — das Test-Gewicht trägt der pure Kern; neue obsidian-Views
 folgen diesem Muster statt Tests mit DOM-Mocks aufzubauen. Historisch —
@@ -65,7 +67,7 @@ obsidianmd-Lint-Regel gesperrt ist — XHR ist der erlaubte Streaming-Primitive.
 ### Modul-Layout (`src/`)
 
 ```
-i18n/strings.ts   EN/DE-Wörterbücher (`EN`/`DE`, 423 Keys je Sprache) für `t()`
+i18n/strings.ts   EN/DE-Wörterbücher (`EN`/`DE`, 471 Keys je Sprache) für `t()`
                   (`src/vendor/kit/i18n.ts`) — EN kanonisch, DE die aktuelle deutsche
                   Übersetzung, Wort für Wort. Schlüsselschema `<datei-ohne-endung>.<sache>
                   [.variante]`; vorhandene Schlüssel wiederverwenden statt duplizieren.
@@ -227,8 +229,9 @@ chat_view.ts      ChatPanel (HubPanel) — Chat-UI: SSE-Streaming, Kontext-Panel
                   Modell-/Thinking-Auswahl.
 smart_apply_view.ts SmartApplyPanel (HubPanel) — Diff-Gate-Cockpit (Scan-Guard, Frontmatter-Diff,
                   Body-Reflow, Relevanz-Rangliste, Rohtext on-demand).
-hub_panel.ts      HubPanel-Interface + TabId ("related"|"search"|"chat"|"smart-apply"|"reformat") —
-                  Vertrag zwischen Hub und den fünf Panels (mount/onShow/onHide/onFileOpen/destroy).
+hub_panel.ts      HubPanel-Interface + TabId ("related"|"search"|"chat"|"smart-apply"|"reformat"|
+                  "integrator") — Vertrag zwischen Hub und den sechs Panels (mount/onShow/onHide/
+                  onFileOpen/destroy).
                   Bleibt bewusst lokal, obwohl das Kit ein `HubPanel<Id>` mitbringt: er ist
                   strukturell zuweisbar, und die Doku hier gehört zu DIESEN Panels.
 hub_view.ts       VaultRetrievalView (ItemView, VIEW_TYPE_HUB="vault-retrieval-hub") — EIN
@@ -246,7 +249,8 @@ plugin_api.ts     Öffentlicher Vertrag für ANDERE Obsidian-Plugins, hängt als
                   NICHT die Facade selbst: die trägt readNote/embedQuery/searchVector, also
                   Dateizugriff und Vektor-Interna, und ist unser internes Refactoring-Objekt.
                   Fläche: `apiVersion` (1) · `status()` (synchron, netzfrei) · `search(query)` ·
-                  `related(path)` — beide async, auch `related`, obwohl es intern synchron
+                  `related(path)` · seit 0.32.0 `proposeLinks(path)` (rechnet nur, legt NICHTS in die
+                  Inbox) und `applyLink(path, target)` (schreibt sofort, ohne Hash-Guard) — alle async, auch `related`, obwohl es intern synchron
                   rechnet: ein synchroner Vertrag ließe sich nie wieder async machen.
                   Rückgaben sind laufzeit-lesbare Diskriminatoren (`{ok:true,hits}` /
                   `{ok:false,reason}`), keine Compile-Zeit-Unions — ein Fremdplugin kann unsere
@@ -305,6 +309,27 @@ reformat_preview_modal.ts  `ReformatPreviewModal` — Ur-Text vs. gestreamtes Er
                   `onClose` nullt den Controller, sonst wäre der Guard nach dem Schließen wirkungslos.
 reformat_panel.ts       `ReformatPanel` (HubPanel, 5. Tab) — rendert die Gruppen aus `TRANSFORMS`,
                   zeigt Auswahl-Vorschau bzw. den Grund, deaktiviert alle Buttons wenn `canRun` false.
+link_writer.ts    Reine Textfunktionen des Integrators: `wikilinkFor(path)` (`[[pfad|basename]]` oder
+                  null — die Zeichen `[ ] # ^ |` kann Obsidian nicht klammern; uebernommen aus mailstone)
+                  · `containsLink(text, path)` (voller Pfad oder nackter Basename, mit/ohne Alias und
+                  Ueberschrift) · `appendSectionLink(text, heading, path)` (Abschnitt am Notiz-Ende,
+                  idempotent) · `appendFrontmatterLink(text, field, path)` (ZEILENWEISE: nur die Zeilen
+                  des einen Schluessels aendern sich, alles andere bleibt byteweise — Scanner-Semantik
+                  aus mailstone `merge.ts`; sieben Formen von `related:` gemessen im Arbeits-Vault, dazu
+                  `block-scalar`/`not-a-list`/`frontmatter-unparseable` als Codes statt Schreiben).
+integrator_store.ts  Inbox des Integrators als reines Zustandsobjekt: ein Vorschlag je Notiz (`upsert`
+                  ersetzt), Ablehnungs-Gedaechtnis je Notiz, `markStale`/`updateHash` fuer den
+                  Hash-Guard, `rename`/`remove` folgen dem Vault. Persistiert als `integrator.json` im
+                  Plugin-Ordner (geraete-lokal, KEIN Vault-Footprint — Spec E5); I/O in main.ts.
+integrator.ts     `proposeLinks(path, noteText, deps)` → Kandidaten aus `facade.related` (offline, kein
+                  LLM), deterministisch gefiltert (selbst, schon verlinkt per `metadataCache.resolvedLinks`,
+                  abgelehnt, nicht als Wikilink darstellbar) → Ergebnis-Union proposal/no-index/
+                  not-indexed/nothing-new. `inScope(path, folders)` (leer = automatischer Ausloeser aus),
+                  `hashText` (djb2, bewusst Kopie aus smart_apply.ts statt Kopplung).
+integrator_panel.ts  `IntegratorPanel` (HubPanel, 6. Tab, Icon `link`) — Karte je Notiz (Rezept
+                  vault-crews), Ziel-Zeilen ueber `renderHits` mit Aktions-Slot, Annehmen/Ablehnen je
+                  Ziel und je Notiz, Stale-Hinweis als Icon+Text, Empty-State mit genau einem CTA,
+                  Doppelklick-Schutz (`pending`). Fehlercodes werden erst hier zu Text.
 main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab registrieren, file-Events
                   (modify/delete/rename), 3 s-Debounce, 60 s-Drain, EmbeddingProgress + Statusleiste.
                   Zusätzlich Index-Robustheit: `loadIndex` klassifiziert per `index_guard` in
@@ -319,6 +344,15 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
                   `workspace.activeEditor` null ist, sobald der Fokus im Sidebar-Panel liegt;
                   `runTransform` ist der gemeinsame Weg für Command, Kontextmenü und Panel und
                   guarded jedes `replaceRange` mit `captureIsLive` + `isRangeStale`.
+                  Integrator (Slice D): drei Ausloeser fuer `proposeFor` — automatisch im Modify-Pfad
+                  NACH erfolgreichem Persist und AUSSERHALB von `runIndexOp` (nur `integratorEnabled`
+                  + `indexHealthy` + `inScope`), Kommando „aktive Notiz", Kommando „Bereich" (Stapel
+                  ueber `integratorFolders`). `acceptLink` liest frisch, prueft den djb2-Hash gegen den
+                  Stand der Berechnung (Abweichung → `markStale`, kein Schreiben), waehlt den Schreiber
+                  nach `linkTarget`, schreibt nur bei `changed` und setzt den Hash auf den geschriebenen
+                  Stand. `saveIntegratorStore` ist eine Promise-Kette, `serialize()` laeuft erst im
+                  Kettenglied — sonst ueberschriebe ein aelterer Snapshot einen juengeren.
+                  `applyLinkNow` ist die Plugin-API-Flaeche: sofort, ohne Inbox, ohne Hash-Guard.
                   Aktive Endpunkt-Modelle: `embeddingModelInUse` (Embedder + LiveIndexer/Manifest
                   als Paar) und `chatEndpointInUse` → Getter `chatModelInUse` /
                   `smartApplyModelInUse` (`chatRequestModel`). JEDE Chat-Anfrage muss einen der
@@ -805,6 +839,17 @@ gar nicht bis in die Oberfläche schafft.
   wirklich `null` liefert). Gemessen 2026-09-04: zwei Läufe der Reindex-Race-Messung meldeten
   ein Loch als **widerlegt**, das tatsächlich existiert — der Test hatte nie etwas gemessen.
   Aufgefallen ist es nur an einer Gegenprobe, die grün sein MUSSTE und es nicht war.
+- **`fileManager.processFrontMatter` schreibt den ganzen Block neu** — Kommentare weg, Formatierung
+  fremder Felder umgeschrieben (mailstone hat es 2026-08-30 an einem echten Postfach gemessen, aus
+  `to: [adresse]` wurde eine Blockliste). Der Integrator schreibt Frontmatter deshalb **zeilenweise**
+  (`appendFrontmatterLink`): nur die Zeilen des einen Schluessels aendern sich. Preis: ein Schluessel als
+  Block-Skalar (`>`/`|`) wird nicht angefasst, sondern als Code gemeldet; ein `---` innerhalb eines
+  fremden Block-Skalars schliesst den Block vorzeitig (Grenze des zeilenbasierten Designs). Wer je
+  auf die Obsidian-API zurueckfaellt, tauscht Byte-Erhalt gegen Vollstaendigkeit — bewusst, nicht nebenbei.
+- **Ein Vorschlag des Integrators haengt am Notiztext zur Berechnungszeit** (djb2-Hash). Aendert sich die
+  Notiz dazwischen, verweigert `acceptLink` das Schreiben und markiert die Karte als veraltet — dieselbe
+  Bauart wie der Stale-Guard von Smart Apply. Nach dem eigenen Schreiben wird der Hash auf den neuen
+  Stand gesetzt, sonst waere der zweite Klick auf derselben Karte immer „veraltet".
 - **Escapte Pipes müssen beim Rendern re-escaped werden.** `\|` in einer Markdown-Tabellenzelle wird
   beim Parsen zu `|`; schreibt man es un-escaped zurück, zerfällt eine Zelle in zwei, Header- und
   Delimiter-Spaltenzahl divergieren und der Inhalt ist beim nächsten Edit dauerhaft zerrissen.

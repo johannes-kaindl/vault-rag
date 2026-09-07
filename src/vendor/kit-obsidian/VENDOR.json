@@ -1,7 +1,7 @@
 {
   "source": "obsidian-kit",
-  "version": "0.27.0",
-  "sha": "548041b",
+  "version": "0.31.0",
+  "sha": "c558d91",
   "vendored": "clipboard.ts, collapsible.ts, confirm.ts, endpoint-list.ts, folder-suggest.ts, hub.ts, model-picker.ts, settings_walker.ts",
-  "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh."
+  "note": "Verbatim snapshot von obsidian-kit/src/obsidian (plus Herkunfts-Header). Module mit Kit-internem Import der code-kit-Schicht tragen EINE mechanische Abweichung: der Import zeigt auf ../kit/ (Vendor-Layout). Never hand-edit. Re-vendor via tools/sync-kit.sh."
 }

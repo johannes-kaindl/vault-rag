@@ -103,7 +103,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 
 | Setting | What it does | Default |
 |---|---|---|
-| Embedding endpoint / model | Re-embeds notes on save; a fallback list, each row optionally with its own API key and model | `http://localhost:11434` · `qwen3-embedding:8b` |
+| Embedding endpoint / model | Re-embeds notes on save; a fallback list, each row with its own model and optionally an API key | `http://localhost:11434` · `qwen3-embedding:8b` |
 | Chat endpoint / model | LLM for RAG chat, Smart Apply and reformatting; same fallback-list shape as embedding | `http://localhost:1234` · `qwen3` |
 | Index folder | Where the synced index lives. Cross-device sync (including iPhone) requires the Obsidian Sync option "Sync all other file types" | `_vaultrag` |
 | Hide index folder in file explorer | Hides the index folder from the file explorer for a cleaner workspace (cosmetic; data and sync are unaffected) | on |

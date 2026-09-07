@@ -45,8 +45,7 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 
 | Setting | Effect | Default |
 |---|---|---|
-| Embedding endpoints | OpenAI-compatible servers, local or hosted; each row has a connection test plus an optional API key and model override | `http://localhost:11434` |
-| Embedding model | Global default model. A candidate endpoint whose (override or default) model doesn't match the index is skipped, and any write from a mismatched model is blocked rather than mixing vector spaces — see [Explanation → Why an endpoint's model has to match](../explanation/index.md#why-an-endpoints-model-has-to-match) | `qwen3-embedding:8b` |
+| Embedding endpoints | OpenAI-compatible servers, local or hosted; each row has a connection test, an optional API key and its model. A candidate endpoint whose model doesn't match the index is skipped, and any write from a mismatched model is blocked rather than mixing vector spaces — see [Explanation → Why an endpoint's model has to match](../explanation/index.md#why-an-endpoints-model-has-to-match) | `http://localhost:11434` · `qwen3-embedding:8b` |
 | Re-embed delay | Debounce between saving a note and re-embedding it | `3000` ms |
 | Status bar | Shows embedding progress; revealed automatically during a reindex | off |
 
@@ -69,7 +68,7 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 
 | Setting | Effect | Default |
 |---|---|---|
-| Chat endpoints / model | LLM used for chat, Smart Apply and LLM reformatting; each row may add its own API key and model override (no model-guard here — chat has no index to protect) | `http://localhost:1234` · `qwen3` |
+| Chat endpoints / model | LLM used for chat, Smart Apply and LLM reformatting; each row may add its own API key and model (no model-guard here — chat has no index to protect) | `http://localhost:1234` · `qwen3` |
 | Context notes (k) | How many retrieved notes are offered as context | `5` |
 | Context budget | Maximum characters of context; ceiling follows the model window | `12000` |
 | Temperature | Sampling temperature for chat | `0.7` |
@@ -84,7 +83,7 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 |---|---|---|
 | Enable Smart Apply | Adds the tab and the command | off |
 | Template folder | Where templates are read from | `Templates/` |
-| Model | Overrides the chat model for Smart Apply | chat model |
+| Model | Overrides the active chat endpoint's model for Smart Apply. If a fallback endpoint doesn't know the name, Smart Apply fails loudly | chat endpoint's model |
 | Temperature | Sampling temperature | `0` |
 | Max tokens | Output cap for a restructuring run | `4096` |
 | Default mode | `deterministisch` · `additiv` · `transformativ` | `deterministisch` |

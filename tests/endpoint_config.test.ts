@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { authHeaders, effectiveModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointWarningText, endpointInputWarnings, type EndpointConfig } from "../src/endpoint_config";
+import { authHeaders, rowModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointWarningText, endpointInputWarnings, type EndpointConfig } from "../src/endpoint_config";
 import "../src/i18n/strings"; // Register i18n strings
 
 describe("authHeaders", () => {
@@ -16,39 +16,33 @@ describe("authHeaders", () => {
   });
 });
 
-describe("effectiveModel", () => {
-  it("ohne Override gilt das globale Modell", () => {
-    expect(effectiveModel({ url: "u" }, "qwen3")).toBe("qwen3");
-    expect(effectiveModel({ url: "u", model: "  " }, "qwen3")).toBe("qwen3");
-  });
-
-  it("Override gewinnt und wird getrimmt", () => {
-    expect(effectiveModel({ url: "u", model: " gpt-4o " }, "qwen3")).toBe("gpt-4o");
+describe("rowModel", () => {
+  it("liefert das getrimmte Zeilen-Modell, sonst leer", () => {
+    expect(rowModel({ url: "u", model: " gpt-4o " })).toBe("gpt-4o");
+    expect(rowModel({ url: "u", model: "  " })).toBe("");
+    expect(rowModel({ url: "u" })).toBe("");
   });
 });
 
-describe("chatRequestModel", () => {
-  const local: EndpointConfig = { url: "http://localhost:1234" };
-  const hosted: EndpointConfig = { url: "https://openrouter.ai/api", apiKey: "sk-x", model: "anthropic/claude" };
+describe("chatRequestModel — Feature-Modell schlägt Zeile (E1, 2026-09-07)", () => {
+  const row: EndpointConfig = { url: "http://localhost:1234", model: "qwen3" };
 
-  it("ohne Override und ohne feature-eigenes Modell gilt das globale", () => {
-    expect(chatRequestModel(local, "", "qwen3")).toBe("qwen3");
-    expect(chatRequestModel(local, undefined, "qwen3")).toBe("qwen3");
-    expect(chatRequestModel(local, "   ", "qwen3")).toBe("qwen3");
+  it("ohne feature-eigenes Modell gilt das Zeilen-Modell des aktiven Endpunkts", () => {
+    expect(chatRequestModel(row)).toBe("qwen3");
+    expect(chatRequestModel(row, "")).toBe("qwen3");
+    expect(chatRequestModel(row, "   ")).toBe("qwen3");
   });
 
-  it("ohne Override gewinnt das feature-eigene Modell (Smart Apply)", () => {
-    expect(chatRequestModel(local, " qwen3-coder ", "qwen3")).toBe("qwen3-coder");
+  it("ein gesetztes feature-eigenes Modell (Smart Apply) gewinnt — getrimmt", () => {
+    // Vorher schlug die Zeile das Feature; damit war smartApplyModel wirkungslos, sobald die
+    // Zeile ein Modell trug — und seit 0.31.0 trägt jede Zeile eines. Preis: kennt ein
+    // Fallback-Endpunkt den Namen nicht, scheitert Smart Apply laut (HTTP 400) statt still
+    // auf ein anderes Modell zu wechseln.
+    expect(chatRequestModel(row, " gemma ")).toBe("gemma");
   });
 
-  it("das Zeilen-Override des aktiven Endpunkts schlägt beides", () => {
-    // Sonst ginge „qwen3-coder" an einen Anbieter, der diesen Namen nicht kennt → HTTP 400.
-    expect(chatRequestModel(hosted, "qwen3-coder", "qwen3")).toBe("anthropic/claude");
-    expect(chatRequestModel(hosted, "", "qwen3")).toBe("anthropic/claude");
-  });
-
-  it("ein leeres Override zählt nicht als Override", () => {
-    expect(chatRequestModel({ url: "u", model: "  " }, "qwen3-coder", "qwen3")).toBe("qwen3-coder");
+  it("Zeile ohne Modell und ohne Feature → leer (noch nichts gewählt)", () => {
+    expect(chatRequestModel({ url: "u" })).toBe("");
   });
 });
 

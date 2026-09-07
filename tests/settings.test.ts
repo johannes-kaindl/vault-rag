@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { DEFAULT_SETTINGS, VaultRagSettings, applyDestructive, VaultRagSettingTab } from "../src/settings";
 import { makeFakeEl, Setting } from "./__mocks__/obsidian";
 import { findUntranslatedSinks } from "./i18n/sink_guard";
@@ -14,11 +15,7 @@ describe("settings", () => {
   });
 
   it("hat embeddingEndpoints-Default (Liste)", () => {
-    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434" }]);
-  });
-
-  it("hat embeddingModel-Default", () => {
-    expect(DEFAULT_SETTINGS.embeddingModel).toBe("qwen3-embedding:8b");
+    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }]);
   });
 
   it("showStatusBar-Default ist false", () => {
@@ -30,8 +27,7 @@ describe("settings", () => {
   });
 
   it("hat Chat-Defaults", () => {
-    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234" }]);
-    expect(DEFAULT_SETTINGS.chatModel).toBe("qwen3");
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234", model: "qwen3" }]);
     expect(DEFAULT_SETTINGS.chatK).toBe(5);
     expect(DEFAULT_SETTINGS.contextCharBudget).toBe(12000);
   });
@@ -61,18 +57,26 @@ describe("settings", () => {
     // altes data.json — vor Smart Apply geschrieben, kennt die drei Felder nicht
     const loaded: Partial<VaultRagSettings> = {
       k: 30,
-      chatModel: "mein-altes-modell",
+      chatK: 9,
       exclude: ["Archive/"],
     };
     const merged = Object.assign({}, DEFAULT_SETTINGS, loaded);
     // bestehende Werte aus data.json gewinnen
     expect(merged.k).toBe(30);
-    expect(merged.chatModel).toBe("mein-altes-modell");
+    expect(merged.chatK).toBe(9);
     expect(merged.exclude).toEqual(["Archive/"]);
     // die drei neuen Felder fehlen im alten data.json → fallen auf die Defaults zurück
     expect(merged.smartApplyEnabled).toBe(false);
     expect(merged.templateDir).toBe("Templates/");
     expect(merged.smartApplyTemperature).toBe(0);
+  });
+
+  it("Object.assign trägt ein Alt-chatModel durch; DEFAULT_SETTINGS kennt den Schlüssel nicht mehr — deshalb MUSS die Migration in onload vor dem ersten saveData laufen", () => {
+    const merged = Object.assign({}, DEFAULT_SETTINGS, { chatModel: "alt" } as Partial<VaultRagSettings>);
+    // Object.assign kopiert fremde Schlüssel — das ist der Beweis, dass die Migration in onload
+    // die Zeilen füllen MUSS, bevor der Wert beim nächsten saveData verschwindet.
+    expect((merged as Record<string, unknown>).chatModel).toBe("alt");
+    expect("chatModel" in DEFAULT_SETTINGS).toBe(false);
   });
 
   it("hat Smart-Apply-Dashboard-Defaults", () => {
@@ -128,10 +132,10 @@ describe("applyDestructive", () => {
 
 describe("DEFAULT_SETTINGS Endpunkte", () => {
   it("Chat-Default ist LM Studio :1234", () => {
-    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234" }]);
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234", model: "qwen3" }]);
   });
   it("Embedding-Default bleibt Ollama :11434", () => {
-    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434" }]);
+    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }]);
   });
 });
 
@@ -277,14 +281,14 @@ describe("getSettingDefinitions – Struktur", () => {
     expect(keys).toEqual(["k", "minSim", "exclude"]);
   });
 
-  it("Live-Embedding-Gruppe: Debounce/Statusleiste deklarativ, 3 render-Hatches", () => {
+  it("Live-Embedding-Gruppe: Debounce/Statusleiste deklarativ, 2 render-Hatches", () => {
     const { tab } = makeTab();
     const g = groups(tab)[1];
     expect(g.heading).toBe("Live embedding");
     const items = g.items as any[];
     const controlKeys = items.filter(i => i.control).map(i => i.control.key);
     expect(controlKeys).toEqual(["debounceMs", "showStatusBar"]);
-    expect(items.filter(i => typeof i.render === "function").length).toBe(3); // Endpunkte, Modell, Status
+    expect(items.filter(i => typeof i.render === "function").length).toBe(2); // Endpunkte, Status — kein globales Modellfeld mehr
   });
 
   it("Index-Gruppe: Index-Ordner render-Hatch + hideIndexFolder toggle", () => {
@@ -321,8 +325,8 @@ describe("getSettingDefinitions – Struktur", () => {
     const items = g.items as any[];
     const keys = items.filter(i => i.control).map(i => i.control.key);
     expect(keys).toEqual(["chatK", "chatTemperature", "chatSystemPrompt", "chatInputPosition", "suppressThinking", "enterSends"]);
-    // Endpunkte, Modell, Modelldetails, Fähigkeiten, Budget = 5 render-Hatches
-    expect(items.filter(i => typeof i.render === "function").length).toBe(5);
+    // Endpunkte, Modelldetails, Fähigkeiten, Budget = 4 render-Hatches — kein globales Modellfeld mehr
+    expect(items.filter(i => typeof i.render === "function").length).toBe(4);
     // „Testen" als eigene Action-Zeile
     expect(items.filter(i => typeof i.action === "function").length).toBe(1);
   });
@@ -405,5 +409,12 @@ describe("settings render hatches i18n", () => {
     // Ausnahmen (i18n-exempt-Marker, buchstabenlose Literale) und bekannte Grenzen.
     const findings = findUntranslatedSinks(join(__dirname, "..", "src", "settings.ts"));
     expect(findings.map(f => `${f.line}: ${f.text}`)).toEqual([]);
+  });
+
+  it("settings.ts zeichnet Modellfelder nur über den Kit-Picker — kein lokaler renderModelPicker, kein model_choice", () => {
+    const src = readFileSync(join(__dirname, "..", "src", "settings.ts"), "utf8");
+    expect(src).not.toMatch(/from "\.\/model_choice"/);
+    expect(src).not.toMatch(/private renderModelPicker/);
+    expect(src).toMatch(/from "\.\/vendor\/kit-obsidian\/model-picker"/);
   });
 });

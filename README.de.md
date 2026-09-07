@@ -103,7 +103,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 
 | Einstellung | Wirkung | Default |
 |---|---|---|
-| Embedding-Endpunkt / Modell | Bettet Notizen beim Speichern neu ein; eine Fallback-Liste, jede Zeile optional mit eigenem API-Schlüssel und Modell | `http://localhost:11434` · `qwen3-embedding:8b` |
+| Embedding-Endpunkt / Modell | Bettet Notizen beim Speichern neu ein; eine Fallback-Liste, jede Zeile mit eigenem Modell und optional einem API-Schlüssel | `http://localhost:11434` · `qwen3-embedding:8b` |
 | Chat-Endpunkt / Modell | LLM für Chat, Smart Apply und Umformatieren; dieselbe Fallback-Listen-Form wie Embedding | `http://localhost:1234` · `qwen3` |
 | Index-Ordner | Wo der gesyncte Index liegt. Geräteübergreifender Sync (auch iPhone) braucht die Obsidian-Sync-Option „Alle anderen Dateitypen synchronisieren" | `_vaultrag` |
 | Index-Ordner ausblenden | Versteckt den Ordner im Datei-Explorer (kosmetisch; Daten und Sync bleiben unberührt) | an |

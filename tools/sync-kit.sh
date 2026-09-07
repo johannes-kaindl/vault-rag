@@ -1,110 +1,117 @@
 #!/bin/sh
-# Vendort Kit-Module byte-identisch aus dem Schwester-Repo obsidian-kit (Dach-AGENTS.md, Kit-first).
+# Vendort Kit-Module byte-identisch aus zwei Quellen (Dach-AGENTS.md, Kit-first).
 # Nie von Hand editieren — Skript neu laufen lassen.
 #
-# Gelesen wird aus einer festen Ref (KIT_REF), nicht aus dem Arbeitsstand des Nachbar-Repos:
-# obsidian-kit laeuft weiter (0.28.0 hat die pure-Teilmenge nach code-kit verschoben, dort gibt es
-# `src/pure/error_body.ts` und `src/pure/clipboard.ts` nicht mehr), und ein `cat` aus dessen
-# Arbeitsverzeichnis liefert je nach dessen HEAD etwas anderes oder gar nichts. `git show <ref>:<pfad>`
-# ist reproduzierbar und stoert keine parallele Session im Nachbar-Repo.
+# ZWEI QUELLEN seit dem code-kit-Split (obsidian-kit 0.28.0, `2ab1bb5`): die domaenenfreie
+# pure-Schicht liegt in code-kit (`src/ts/{pure,web}/`), obsidian-kit vendort sie selbst nur
+# noch zurueck. Von unseren 15 pure-Modulen gibt es ACHT in obsidian-kit 0.31.0 gar nicht mehr
+# (clipboard, error_body, i18n, reasoning, settings, sse, timeout, think-splitter) — ein reiner
+# Ref-Sprung liefe dort ins Leere. Nur `callout` und `frontmatter` sind in obsidian-kit geblieben.
+# Form uebernommen aus kuro-gamification/tools/sync-kit.sh (2026-09-02).
 #
-# Zweiter Lauf darf keinen Diff erzeugen — das ist die Probe darauf, dass Header und VENDOR.json
-# deterministisch sind (deshalb steht hier KEIN Datum: es wuerde jeden Lauf einen Diff erzeugen).
+# GELESEN WIRD AUS EINER FESTEN REF (`git show <ref>:<pfad>`), nicht aus dem Arbeitsstand des
+# Nachbar-Repos — reproduzierbar, und es stoert keine parallele Session dort. `^{commit}` peelt
+# annotierte Tags (code-kit taggt annotiert; ohne Peel stuende die SHA des Tag-OBJEKTS in
+# VENDOR.json, die in `git log` der Quelle nie vorkommt).
+#
+# Zweiter Lauf darf keinen Diff erzeugen — deshalb steht in VENDOR.json KEIN Datum.
 set -e
-KIT=../obsidian-kit
-KIT_REF=${KIT_REF:-0.27.0}
-# Der Tag-Commit, nicht der Kit-HEAD: HEAD steht auf einem spaeteren Stand, und ein daraus
-# gelesener SHA widerspraeche der vendorierten Version.
-SHA=$(git -C "$KIT" rev-parse --short "$KIT_REF^{commit}")
-VER=$(git -C "$KIT" describe --tags --abbrev=0 "$KIT_REF")
+KIT="${KIT_DIR:-../obsidian-kit}"
+KIT_REF="${KIT_REF:-0.31.0}"
+CODEKIT="${CODEKIT_DIR:-../../code-kit}"
+CODEKIT_REF="${CODEKIT_REF:-0.5.0}"
 
+CK_PURE="endpoint endpoint_config endpoint_diagnostics error_body i18n model-choice model-list-cache reasoning settings sse timeout"
+CK_WEB="clipboard"
+KIT_PURE="callout frontmatter"
+KIT_OBSIDIAN="clipboard collapsible confirm endpoint-list folder-suggest hub model-picker settings_walker"
+# Ausnahme: pure/think-splitter.ts heisst hier think.ts (Konsumenten importieren "./vendor/kit/think").
+
+# --- Vorbedingungen, ALLE vor dem ersten Schreibvorgang (ein Abbruch mitten im Lauf hinterliesse
+#     eine halb aktualisierte Vendor-Schicht — so am 2026-08-30 mit KIT_REF=0.28.0 passiert).
+for pair in "$KIT|$KIT_REF|KIT_DIR" "$CODEKIT|$CODEKIT_REF|CODEKIT_DIR"; do
+  dir=$(printf '%s' "$pair" | cut -d'|' -f1)
+  ref=$(printf '%s' "$pair" | cut -d'|' -f2)
+  var=$(printf '%s' "$pair" | cut -d'|' -f3)
+  git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 \
+    || { echo "sync-kit: kein git-Repo unter $dir — $var setzen. Nichts geschrieben." >&2; exit 1; }
+  git -C "$dir" rev-parse --verify --quiet "$ref^{commit}" >/dev/null \
+    || { echo "sync-kit: Ref '$ref' gibt es in $dir nicht. Nichts geschrieben." >&2; exit 1; }
+done
+fehlend=""
+for m in $CK_PURE think-splitter; do git -C "$CODEKIT" cat-file -e "$CODEKIT_REF:src/ts/pure/$m.ts" 2>/dev/null || fehlend="$fehlend code-kit:src/ts/pure/$m.ts"; done
+for m in $CK_WEB; do git -C "$CODEKIT" cat-file -e "$CODEKIT_REF:src/ts/web/$m.ts" 2>/dev/null || fehlend="$fehlend code-kit:src/ts/web/$m.ts"; done
+for m in $KIT_PURE; do git -C "$KIT" cat-file -e "$KIT_REF:src/pure/$m.ts" 2>/dev/null || fehlend="$fehlend obsidian-kit:src/pure/$m.ts"; done
+for m in $KIT_OBSIDIAN; do git -C "$KIT" cat-file -e "$KIT_REF:src/obsidian/$m.ts" 2>/dev/null || fehlend="$fehlend obsidian-kit:src/obsidian/$m.ts"; done
+if [ -n "$fehlend" ]; then echo "sync-kit: fehlende Quellen —$fehlend. Nichts geschrieben." >&2; exit 1; fi
+
+KIT_SHA=$(git -C "$KIT" rev-parse --short "$KIT_REF^{commit}")
+CK_SHA=$(git -C "$CODEKIT" rev-parse --short "$CODEKIT_REF^{commit}")
 mkdir -p src/vendor/kit src/vendor/kit-obsidian
 
-# VORPRUEFUNG, bevor irgendetwas geschrieben wird.
-#
-# Ein Abbruch mitten im Lauf ist zu spaet: Am 2026-08-30 gemessen — mit KIT_REF=0.28.0 wurde
-# `callout.ts` bereits ueberschrieben, bevor `clipboard.ts` fehlschlug. Der Vendor-Stand war
-# danach halb 0.27.0, halb 0.28.0, und `set -e` hatte "korrekt" abgebrochen. Ein Schutz, der nur
-# die Datei rettet, an der er ausloest, laesst alle vorherigen kaputt.
-# Deshalb: erst pruefen, ob JEDE Quelle in der Ref existiert, dann schreiben.
-pruefe_quellen() {
-  local fehlend=""
-  for pfad in "$@"; do
-    git -C "$KIT" cat-file -e "$KIT_REF:$pfad" 2>/dev/null || fehlend="$fehlend $pfad"
-  done
-  if [ -n "$fehlend" ]; then
-    echo "FEHLER: in obsidian-kit@$KIT_REF fehlen:$fehlend" >&2
-    echo "        Nichts geschrieben. Seit 0.28.0 sind pure/-Module nach code-kit gezogen —" >&2
-    echo "        die Ref zu heben verlangt eine Entscheidung ueber die QUELLE, nicht nur ueber die Version." >&2
-    exit 1
+# copy <repo-dir> <ref> <quell-label> <quellpfad> <zielpfad> — Header + Inhalt in einem Zug,
+# in .tmp geschrieben und erst bei Erfolg per mv umgelegt (Torso-Schutz, CORE-META-22).
+copy() {
+  tmp="$5.tmp$$"
+  { printf '%s\n' "// vendored from $3@$2, $4 — do not hand-edit; re-vendor via tools/sync-kit.sh"
+    git -C "$1" show "$2:$4"; } > "$tmp" \
+    || { rm -f "$tmp"; echo "sync-kit: $4 fehlt in $3@$2 — nichts geschrieben." >&2; exit 1; }
+  mv "$tmp" "$5"
+}
+
+# Kit-interne Querimporte aufs Vendor-Layout umschreiben: im Kit liegt die pure-Schicht unter
+# src/vendor/code-kit/{pure,web}/ (oder historisch src/pure/), hier flach unter src/vendor/kit/.
+# EINZIGE zulaessige Abweichung von verbatim. Getrennte sed-Ausdruecke: BSD-sed kennt `\|` nicht
+# und schreibt dann lautlos nichts um.
+relayer() {
+  f=$1
+  sed -e 's|\(["'"'"']\)\.\./vendor/code-kit/pure/|\1../kit/|g' \
+      -e 's|\(["'"'"']\)\.\./vendor/code-kit/web/|\1../kit/|g' \
+      -e 's|\(["'"'"']\)\.\./pure/|\1../kit/|g' "$f" > "$f.tmp"
+  changed=1
+  cmp -s "$f" "$f.tmp" && changed=0
+  mv "$f.tmp" "$f"
+  # Laeuft fuer JEDE relayerte Datei, nicht nur bei geaendertem sed-Treffer — sonst entginge
+  # dem Guard genau der Fall, dass sed nichts traf, aber ein Kit-interner Pfad trotzdem drinsteht.
+  if grep -qE '\.\./(vendor/code-kit/(pure|web)|pure)/' "$f"; then
+    echo "sync-kit: Kit-interner Importpfad in $f nicht umgeschrieben — Muster pruefen" >&2; exit 1
   fi
+  [ "$changed" = 1 ] || return 0
+  for dep in $(sed -n 's|.*from ["'"'"']\.\./kit/\([A-Za-z0-9_/-]*\)["'"'"'].*|\1|p' "$f" | sort -u); do
+    [ -f "src/vendor/kit/$dep.ts" ] || { echo "sync-kit: $f importiert ../kit/$dep, aber src/vendor/kit/$dep.ts fehlt — mitvendorieren" >&2; exit 1; }
+  done
+  # Herkunfts-Header bleibt Zeile 1 (VENDOR.json sagt das explizit zu); die Abweichungs-Notiz
+  # wird als Zeile 2 eingefuegt, nicht vorangestellt.
+  note="// ONE mechanical deviation from verbatim: kit-internal imports of the code-kit layer → ../kit/ (vendor layout); reproduce on every re-vendor, nothing else may differ."
+  { head -n 1 "$f"; printf '%s\n' "$note"; tail -n +2 "$f"; } > "$f.tmp"
+  mv "$f.tmp" "$f"
 }
 
-# vendor <zielpfad> <kit-relativer-quellpfad>
-#
-# Schreibt ERST nach .tmp und verschiebt NUR bei Erfolg. Grund: die naheliegende Form
-# `{ printf header; git show ...; } > ziel` legt die Zieldatei an, BEVOR `git show` laeuft —
-# fehlt die Quelle in der Ref, bleibt eine Datei zurueck, die nur aus dem Herkunftsstempel
-# besteht (hier 43 Bytes) und wie ein gueltiges Vendoring aussieht. `set -e` bricht zwar ab,
-# aber der Stummel liegt dann schon da. Genau dieser Fall ist als CORE-META-22 promotet
-# (Beleg: finance-ledger, 2026-08-27) — und er ist real: seit Kit 0.28.0 sind 23 `pure/`-Module
-# nach `code-kit` gezogen, darunter die hier vendorierten `error_body` und `clipboard`. Ein Lauf
-# mit KIT_REF=0.28.0 traefe also genau darauf.
-# Reproduziert am 2026-08-30, nachdem `3d-codeblocks` denselben Defekt im eigenen Skript fand.
-vendor() {
-  local tmp="$1.tmp"
-  { printf '%s\n' "// vendored from obsidian-kit@$VER, $2 — do not hand-edit; re-vendor via tools/sync-kit.sh"
-    git -C "$KIT" show "$KIT_REF:$2"; } > "$tmp" || {
-      rm -f "$tmp"
-      echo "FEHLER: $2 fehlt in obsidian-kit@$KIT_REF — nichts geschrieben." >&2
-      exit 1
-    }
-  mv "$tmp" "$1"
+for m in $CK_PURE; do copy "$CODEKIT" "$CODEKIT_REF" code-kit "src/ts/pure/$m.ts" "src/vendor/kit/$m.ts"; done
+copy "$CODEKIT" "$CODEKIT_REF" code-kit "src/ts/pure/think-splitter.ts" "src/vendor/kit/think.ts"
+for m in $CK_WEB; do copy "$CODEKIT" "$CODEKIT_REF" code-kit "src/ts/web/$m.ts" "src/vendor/kit/$m.ts"; done
+for m in $KIT_PURE; do copy "$KIT" "$KIT_REF" obsidian-kit "src/pure/$m.ts" "src/vendor/kit/$m.ts"; done
+for m in $KIT_OBSIDIAN; do
+  copy "$KIT" "$KIT_REF" obsidian-kit "src/obsidian/$m.ts" "src/vendor/kit-obsidian/$m.ts"
+  relayer "src/vendor/kit-obsidian/$m.ts"
+done
+
+liste() { l=""; for m in "$@"; do [ -z "$l" ] && l="$m.ts" || l="$l, $m.ts"; done; printf '%s' "$l"; }
+cat > src/vendor/kit/VENDOR.json <<JSON
+{
+  "source": "code-kit + obsidian-kit",
+  "code-kit": { "version": "$CODEKIT_REF", "sha": "$CK_SHA", "vendored": "pure: $(liste $CK_PURE), think.ts (aus pure/think-splitter.ts); web: $(liste $CK_WEB)" },
+  "obsidian-kit": { "version": "$KIT_REF", "sha": "$KIT_SHA", "vendored": "pure: $(liste $KIT_PURE)" },
+  "note": "Verbatim snapshots (plus Herkunfts-Header in Zeile 1). Der Ordner heisst historisch 'kit'; die pure-Schicht kommt seit dem code-kit-Split aus code-kit, nur callout/frontmatter noch aus obsidian-kit. Never hand-edit. Re-vendor via tools/sync-kit.sh."
 }
-
-PURE="callout clipboard endpoint endpoint_config endpoint_diagnostics error_body frontmatter i18n model-choice model-list-cache reasoning settings sse timeout"
-OBS="clipboard collapsible confirm endpoint-list folder-suggest hub model-picker settings_walker"
-
-# Alle Quellen auf einmal pruefen — vor dem ersten Schreibvorgang.
-QUELLEN=""
-for f in $PURE; do QUELLEN="$QUELLEN src/pure/$f.ts"; done
-QUELLEN="$QUELLEN src/pure/think-splitter.ts"
-for f in $OBS; do QUELLEN="$QUELLEN src/obsidian/$f.ts"; done
-pruefe_quellen $QUELLEN
-
-for f in $PURE; do
-  vendor "src/vendor/kit/$f.ts" "src/pure/$f.ts"
-done
-# Ausnahme: dieses Repo nennt pure/think-splitter.ts lokal think.ts (Konsumenten importieren "./vendor/kit/think").
-vendor "src/vendor/kit/think.ts" "src/pure/think-splitter.ts"
-
-for f in $OBS; do
-  vendor "src/vendor/kit-obsidian/$f.ts" "src/obsidian/$f.ts"
-done
-# Schichtwechsel: im Kit liegen pure/ und obsidian/ nebeneinander, hier heisst der pure-Zweig kit/.
-# Bewusst ueber ALLE obsidian-Module und ohne Modulnamen im Muster: die frueher hier stehende
-# Einzelfall-Zeile (nur clipboard) haette beim naechsten Modul mit Querimport still nichts getan —
-# `endpoint-list.ts` bringt sieben davon mit, `model-picker.ts` einen. Ein Muster, das den Namen
-# des Moduls kennt, muss bei jedem neuen Modul mitgepflegt werden und wird es nicht.
-# sed -i '' ist BSD/macOS; GNU-sed braeuchte -i''. Bewusst macOS-only wie der Rest der Maintainer-Tools.
-for f in $OBS; do
-  sed -i '' 's|from "\.\./pure/|from "../kit/|g' "src/vendor/kit-obsidian/$f.ts"
-done
-
-# Probe, dass der Schichtwechsel vollstaendig war: ein uebersehener ../pure/-Import bricht erst
-# beim Typecheck, und zwar mit einer Meldung ueber ein fehlendes Verzeichnis statt ueber das
-# Vendoring. Hier faellt er sofort auf, mit Dateinamen.
-if grep -rl 'from "\.\./pure/' src/vendor/kit-obsidian/ 2>/dev/null | grep -q .; then
-  echo "FEHLER: ../pure/-Importe nach dem Schichtwechsel uebrig in:" >&2
-  grep -rl 'from "\.\./pure/' src/vendor/kit-obsidian/ >&2
-  exit 1
-fi
-
-write_vendor_json() { # write_vendor_json <verzeichnis> <modul-liste>
-  printf '{\n  "source": "obsidian-kit",\n  "version": "%s",\n  "sha": "%s",\n  "vendored": "%s",\n  "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh."\n}\n' \
-    "$VER" "$SHA" "$2" > "$1/VENDOR.json"
+JSON
+cat > src/vendor/kit-obsidian/VENDOR.json <<JSON
+{
+  "source": "obsidian-kit",
+  "version": "$KIT_REF",
+  "sha": "$KIT_SHA",
+  "vendored": "$(liste $KIT_OBSIDIAN)",
+  "note": "Verbatim snapshot von obsidian-kit/src/obsidian (plus Herkunfts-Header). Module mit Kit-internem Import der code-kit-Schicht tragen EINE mechanische Abweichung: der Import zeigt auf ../kit/ (Vendor-Layout). Never hand-edit. Re-vendor via tools/sync-kit.sh."
 }
-write_vendor_json src/vendor/kit "$(printf '%s.ts, ' $PURE)think.ts (aus pure/think-splitter.ts)"
-write_vendor_json src/vendor/kit-obsidian "$(printf '%s.ts, ' $OBS | sed 's/, $//')"
-
-echo "vendored obsidian-kit@$VER ($SHA): $PURE think | $OBS"
+JSON
+echo "vendored code-kit@$CODEKIT_REF ($CK_SHA) + obsidian-kit@$KIT_REF ($KIT_SHA)"

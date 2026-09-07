@@ -16,11 +16,9 @@ export interface VaultRagSettings {
   hideIndexFolder: boolean;
   exclude: string[];
   embeddingEndpoints: EndpointConfig[];
-  embeddingModel: string;
   showStatusBar: boolean;
   debounceMs: number;
   chatEndpoints: EndpointConfig[];
-  chatModel: string;
   chatK: number;
   contextCharBudget: number;
   chatTemperature: number;
@@ -91,18 +89,41 @@ export function effectiveSystemPrompt(stored: string): string {
   return stored;
 }
 
+/**
+ * Migration (0.31.0): das globale Modellfeld (`embeddingModel`/`chatModel`) ist entfallen —
+ * ein Modellname existiert nur auf dem Endpunkt, der ihn meldet. Der alte globale Wert wandert
+ * in jede Zeile, die noch kein eigenes Modell trägt; Zeilen mit Modell bleiben, wie sie sind.
+ * Ohne diesen Schritt stünden Bestandsnutzer nach dem Update mit Endpunkten ohne Modell da,
+ * und das scheitert STILL (leerer Modellname in der Anfrage) — dieselbe Falle, die bei
+ * `chatApiKey` dokumentiert ist. Pure, mutiert die Eingabe nicht.
+ */
+export function migrateGlobalModels(eps: EndpointConfig[], legacyGlobal: string | undefined): EndpointConfig[] {
+  const global = legacyGlobal?.trim();
+  if (!global) return eps.map(e => ({ ...e }));
+  return eps.map(e => (e.model?.trim() ? { ...e } : { ...e, model: global }));
+}
+
+/** Prä-0.31-Schlüssel, die `mergeSettings` aus einer alten data.json mitkopiert (Object.assign
+ *  kennt keine Schemagrenze). Nach `migrateGlobalModels` gehören sie weg — sonst liefe die
+ *  Migration bei JEDEM Start erneut und füllte ein bewusst geleertes Zeilen-Modell still wieder
+ *  aus dem Altwert. Gemessen 2026-09-07 am laufenden Plugin. */
+export const LEGACY_GLOBAL_MODEL_KEYS = ["embeddingModel", "chatModel"] as const;
+export function stripLegacyGlobalModels<T extends object>(settings: T): T {
+  const s = settings as Record<string, unknown>;
+  for (const k of LEGACY_GLOBAL_MODEL_KEYS) delete s[k];
+  return settings;
+}
+
 export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
   minSim: 0.3,
   indexDir: "_vaultrag",
   hideIndexFolder: true,
   exclude: ["Templates/", "Archive/"],
-  embeddingEndpoints: [{ url: "http://localhost:11434" }],
-  embeddingModel: "qwen3-embedding:8b",
+  embeddingEndpoints: [{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }],
   showStatusBar: false,
   debounceMs: 3000,
-  chatEndpoints: [{ url: "http://localhost:1234" }],
-  chatModel: "qwen3",
+  chatEndpoints: [{ url: "http://localhost:1234", model: "qwen3" }],
   chatK: 5,
   contextCharBudget: 12000,
   chatTemperature: 0.7,

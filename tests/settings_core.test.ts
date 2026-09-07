@@ -1,10 +1,54 @@
 import { describe, it, expect } from "vitest";
-import { splitExcludePaths, normalizeTemplateDir, DEFAULT_SETTINGS } from "../src/settings_core";
+import { splitExcludePaths, normalizeTemplateDir, DEFAULT_SETTINGS, migrateGlobalModels, stripLegacyGlobalModels } from "../src/settings_core";
+import { mergeSettings } from "../src/vendor/kit/settings";
 
 describe("DEFAULT_SETTINGS Endpunkte", () => {
-  it("Default-Endpunkte sind EndpointConfig-Objekte ohne Schlüssel", () => {
-    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434" }]);
-    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234" }]);
+  it("Default-Endpunkte tragen ihr Modell in der Zeile (E2: Erstinstallation wie vorher)", () => {
+    expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }]);
+    expect(DEFAULT_SETTINGS.chatEndpoints).toEqual([{ url: "http://localhost:1234", model: "qwen3" }]);
+  });
+});
+
+describe("migrateGlobalModels — Prä-0.31 globales Modellfeld in die Zeilen ziehen", () => {
+  it("eine Zeile ohne Modell bekommt den alten globalen Wert", () => {
+    expect(migrateGlobalModels([{ url: "u" }], "qwen3")).toEqual([{ url: "u", model: "qwen3" }]);
+  });
+  it("eine Zeile mit eigenem Modell bleibt unangetastet — auch wenn es leer-getrimmt anders wäre", () => {
+    expect(migrateGlobalModels([{ url: "u", model: "gemma" }], "qwen3")).toEqual([{ url: "u", model: "gemma" }]);
+  });
+  it("Whitespace-Modell zählt als fehlend", () => {
+    expect(migrateGlobalModels([{ url: "u", model: "  " }], "qwen3")).toEqual([{ url: "u", model: "qwen3" }]);
+  });
+  it("kein alter globaler Wert (neue data.json) → Liste unverändert, gleiche Objekte nicht nötig, aber gleicher Inhalt", () => {
+    expect(migrateGlobalModels([{ url: "u" }], undefined)).toEqual([{ url: "u" }]);
+    expect(migrateGlobalModels([{ url: "u" }], "")).toEqual([{ url: "u" }]);
+  });
+  it("mutiert die Eingabe nicht", () => {
+    const eps = [{ url: "u" }];
+    migrateGlobalModels(eps, "qwen3");
+    expect(eps).toEqual([{ url: "u" }]);
+  });
+  it("gemischte Liste: nur die leeren Zeilen werden gefüllt", () => {
+    expect(migrateGlobalModels([{ url: "a" }, { url: "b", model: "x" }, { url: "c", apiKey: "k" }], "g"))
+      .toEqual([{ url: "a", model: "g" }, { url: "b", model: "x" }, { url: "c", apiKey: "k", model: "g" }]);
+  });
+});
+
+describe("stripLegacyGlobalModels — Alt-Schlüssel raus, sonst liefe die Migration bei jedem Start erneut", () => {
+  it("entfernt genau embeddingModel/chatModel, behält andere Felder", () => {
+    const obj = { k: 20, embeddingModel: "alt-embed", chatModel: "alt-chat" };
+    expect(stripLegacyGlobalModels(obj)).toEqual({ k: 20 });
+  });
+
+  it("ein Objekt ohne die Alt-Schlüssel bleibt unverändert", () => {
+    const obj = { k: 20 };
+    expect(stripLegacyGlobalModels(obj)).toEqual({ k: 20 });
+  });
+
+  it("Ende-zu-Ende: mergeSettings kopiert den Alt-Schlüssel, stripLegacyGlobalModels räumt ihn wieder weg", () => {
+    const merged = stripLegacyGlobalModels(mergeSettings(DEFAULT_SETTINGS, { chatModel: "alt", k: 9 } as Partial<typeof DEFAULT_SETTINGS>));
+    expect("chatModel" in merged).toBe(false);
+    expect(merged.k).toBe(9);
   });
 });
 

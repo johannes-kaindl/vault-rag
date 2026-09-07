@@ -9,7 +9,7 @@ export interface EndpointConfig {
   url: string;
   /** Leer/fehlend = kein Authorization-Header (lokaler Server). */
   apiKey?: string;
-  /** Leer/fehlend = das globale Modell gilt. */
+  /** Leer/fehlend = noch kein Modell gewählt (siehe `rowModel`). */
   model?: string;
 }
 
@@ -21,26 +21,25 @@ export function authHeaders(apiKey?: string): Record<string, string> {
   return k ? { Authorization: `Bearer ${k}` } : {};
 }
 
-/** Modell-Override des Endpunkts, sonst das globale Modell. */
-export function effectiveModel(cfg: EndpointConfig, globalModel: string): string {
-  const m = cfg.model?.trim();
-  return m ? m : globalModel;
+/** Modell der Zeile, getrimmt; "" = noch nichts gewählt. Seit 0.31.0 die EINZIGE Quelle für
+ *  das Modell eines Endpunkts — ein Modellname existiert nur auf dem Endpunkt, der ihn in
+ *  `/v1/models` meldet (Kit-Entscheidung obsidian-kit 0.29.0; das frühere globale Feld war
+ *  dieselbe Information an zwei Orten plus Vorrangregel). */
+export function rowModel(cfg: EndpointConfig): string {
+  return cfg.model?.trim() ?? "";
 }
 
-/** Modell für EINE Chat-Anfrage an den gerade aktiven Endpunkt. Vorrang, absteigend:
- *  Zeilen-Override des aktiven Endpunkts → feature-eigenes Modell (z. B. `smartApplyModel`)
- *  → globales Chat-Modell.
+/** Modell für EINE Chat-Anfrage an den gerade aktiven Endpunkt: feature-eigenes Modell
+ *  (z. B. `smartApplyModel`), wenn gesetzt, sonst das Zeilen-Modell.
  *
- *  Warum das Override auch das feature-eigene Modell schlägt: ein Modellname ist nur bei dem
- *  Anbieter gültig, von dessen Liste er stammt. Fällt die Kette auf einen gehosteten Anbieter
- *  zurück, wäre ein lokal gewählter Name dort schlicht unbekannt (HTTP 400) — das Override ist
- *  die einzige Angabe, die zum aktiven Endpunkt gehört. */
-export function chatRequestModel(
-  active: EndpointConfig,
-  featureModel: string | undefined,
-  globalModel: string,
-): string {
-  return effectiveModel(active, featureModel?.trim() || globalModel);
+ *  ⚠️ Bis 0.30.0 stand die Zeile ÜBER dem Feature („ein lokal gewählter Name ist am
+ *  Fallback-Anbieter unbekannt, HTTP 400"). Seit jede Zeile ihr Modell trägt, war das Feature
+ *  damit strukturell tot — gemessen 2026-09-07 an einem echten Vault: Smart Apply lief auf dem
+ *  Zeilen-Modell, die Oberfläche zeigte ein anderes. Gedreht (E1): das Feature gewinnt, und
+ *  der Preis ist benannt — kennt ein Fallback-Endpunkt den Namen nicht, scheitert Smart Apply
+ *  LAUT in seiner Fehlerbox, während der Chat weiterläuft. Laut ist hier besser als still. */
+export function chatRequestModel(active: EndpointConfig, featureModel?: string): string {
+  return featureModel?.trim() || rowModel(active);
 }
 
 /** Verlässlicher Indikator für "geht an einen Drittanbieter": der Schlüssel, NICHT die URL —

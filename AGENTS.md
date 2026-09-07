@@ -65,7 +65,7 @@ obsidianmd-Lint-Regel gesperrt ist — XHR ist der erlaubte Streaming-Primitive.
 ### Modul-Layout (`src/`)
 
 ```
-i18n/strings.ts   EN/DE-Wörterbücher (`EN`/`DE`, 424 Keys je Sprache) für `t()`
+i18n/strings.ts   EN/DE-Wörterbücher (`EN`/`DE`, 423 Keys je Sprache) für `t()`
                   (`src/vendor/kit/i18n.ts`) — EN kanonisch, DE die aktuelle deutsche
                   Übersetzung, Wort für Wort. Schlüsselschema `<datei-ohne-endung>.<sache>
                   [.variante]`; vorhandene Schlüssel wiederverwenden statt duplizieren.
@@ -111,10 +111,10 @@ retrieval_facade.ts  Gemeinsame obsidian-freie Fassade über Retriever/Embedder 
 chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker.py).
 endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZIGE Stelle, an der
                   ein Bearer aus einem Endpunkt-/Anbieter-Schlüssel gebaut wird — der MCP-Server
-                  baut seinen Loopback-Token-Bearer separat) · effectiveModel (Endpunkt-Override
-                  vor globalem Modell) · chatRequestModel (Vorrang für EINE Chat-Anfrage:
-                  Zeilen-Override → feature-eigenes Modell (`smartApplyModel`) → globales
-                  Chat-Modell; `ChatClient.stream` liest nur `opts.model`, nie das
+                  baut seinen Loopback-Token-Bearer separat) · rowModel (Zeilen-Modell, getrimmt —
+                  seit 0.31.0 die einzige Quelle) · chatRequestModel (Feature-Modell schlägt Zeile;
+                  Preis: laut an fremdem Fallback-Endpunkt — E1, 2026-09-07;
+                  `ChatClient.stream` liest nur `opts.model`, nie das
                   Konstruktor-Modell) · migrateEndpointList (alte String-Liste → Configs) ·
                   applyEndpointEdit (Zeilen-Bearbeitung bei blur, Feld-Diskriminator
                   "url"|"apiKey"|"model") · carriesApiKey (verlässlicher Drittanbieter-Indikator
@@ -172,20 +172,8 @@ live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename ·
                   unverändertem Modell (checkpointsAllowed) ·
                   healMissing (additiver Delta-Reindex für Self-Heal) · markUnready/markFresh
                   (Gefahrenzustand-Schalter) · noteCount-Getter.
-model_choice.ts   `resolveModelChoice(input) → { mode, options, value, hint }` — EINE Wahrheit für
-                  alle vier Modellname-Felder der Einstellungen (Embedding-, Chat-, Smart-Apply-Modell,
-                  Endpunkt-Zeilen-Override). Drei Modi: `dropdown` (Endpunkt liefert eine Liste),
-                  `locked` (Endpunkt nicht erreichbar — gespeicherter Wert bleibt sichtbar, aber
-                  unveränderbar), `freetext` (erreichbar, aber ohne Liste). Invariante: in `dropdown`
-                  und `locked` steht `value` **immer** unter `options` — sonst fällt ein `<select>`
-                  still auf die erste Option zurück und überschreibt einen gültigen, nur nicht
-                  gelisteten Wert beim nächsten Speichern. Nur im `dropdown`-Modus bekommt ein
-                  gespeicherter, aber nicht gelisteter Wert deshalb eine eigene Option mit Zusatz
-                  „(gespeichert)"; im `locked`-Modus ist der gespeicherte Wert ohnehin die einzige
-                  Option, es gibt nichts zu unterscheiden. Obsidian-frei, Zeichnen liegt beim Host
-                  (`renderModelPicker` in `settings.ts`).
 settings.ts       ⚠️ **Der Endpunkt-Zeilen-Editor kommt seit 2026-09-06 aus dem Kit**
-                  (`vendor/kit-obsidian/endpoint-list.ts` @0.27.0, dazu `model-picker` und die
+                  (`vendor/kit-obsidian/endpoint-list.ts` @0.31.0, dazu `model-picker` und die
                   pure-Teile `endpoint_config`/`model-choice`/`model-list-cache`). Das lokale
                   `buildEndpointList` (278 Zeilen) ist entfallen — es WAR die Vorlage der
                   Kit-Extraktion und lief danach anderthalb Monate daneben weiter. Hier bleibt
@@ -201,7 +189,7 @@ settings.ts       ⚠️ **Der Endpunkt-Zeilen-Editor kommt seit 2026-09-06 aus 
                   Zeilen sind `control`-Definitionen, `get/setControlValue` liest/schreibt sie
                   (mit Coercion + Seiteneffekten wie refresh/setStatusBarVisible). Dynamische
                   Zeilen (Endpoint-Listen — pro Zeile URL + maskiertes API-Schlüssel-Feld +
-                  Modell-Override als Dropdown, ein „Zuerst verwenden"-Knopf (ab Zeile 2, bewusst
+                  Modell als Dropdown, ein „Zuerst verwenden"-Knopf (ab Zeile 2, bewusst
                   nicht gezeichnet statt deaktiviert an Platz 1 — ein `setDisabled`-Tooltip bleibt in
                   Electron unsichtbar) verschiebt die Zeile per `moveEndpointToFront` an die Spitze,
                   eine `okit-ep-state`-Zeile zeigt pro Endpunkt seine `endpointRole` (aktiv/
@@ -211,10 +199,10 @@ settings.ts       ⚠️ **Der Endpunkt-Zeilen-Editor kommt seit 2026-09-06 aus 
                   Form/Icon + Tooltip, nie Farbe allein, Schlüssel selbst nie im Text; das Icon
                   schaltet sich beim apiKey-Commit **in-place** um, weil dieser Commit bewusst kein
                   `refreshUi()` auslöst (Tab-Neuaufbau bleibt URL-Commits vorbehalten) —,
-                  Status-Poll alle 2 s, MCP-Sektion) sind render-Hatches. Die vier Modellname-Felder
-                  zeichnet `renderModelPicker` (dünner Host über `resolveModelChoice`,
-                  `model_choice.ts`) — welcher Wert wo gilt, entscheidet `model_choice.ts`, wie
-                  gezeichnet wird `renderModelPicker` (`hintAs: "desc"|"tooltip"`: Endpunkt-Zeilen
+                  Status-Poll alle 2 s, MCP-Sektion) sind render-Hatches. Das eine verbliebene
+                  Modellfeld (Smart Apply) und die Endpunkt-Zeilen zeichnet der Kit-Picker
+                  (`vendor/kit-obsidian/model-picker`), Hint-Codes übersetzt `modelHint`
+                  (`hintAs: "desc"|"tooltip"`: Endpunkt-Zeilen
                   bekommen den Hinweis als Tooltip statt als Zeilentext, weil sie bewusst keinen
                   tragen — Layout, siehe Kommentar in `buildEndpointList`). Modell-Listen werden pro
                   Endpunkt-URL in `modelLists` gecacht (`Map<string, Promise<{models, reachable}>>`
@@ -273,9 +261,13 @@ plugin_api.ts     Öffentlicher Vertrag für ANDERE Obsidian-Plugins, hängt als
                   („ab 80 % vertraue ich den Treffern wieder"). `indexed` bleibt dabei `true` —
                   das Feld qualifiziert es, es widerspricht ihm nicht.
 settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings (embeddingEndpoints/
-                  chatEndpoints als EndpointConfig[]) · DEFAULT_SETTINGS — die Endpunkt-Helfer
-                  liegen in endpoint_config.ts und werden von dort importiert, nicht hier
-                  durchgereicht. Vom MCP-Server direkt importiert.
+                  chatEndpoints als EndpointConfig[]) · DEFAULT_SETTINGS · migrateGlobalModels
+                  (Prä-0.31-Altwert der entfallenen globalen Modell-Felder in die Zeilen, die noch
+                  kein eigenes Modell tragen — Zeilen mit Modell bleiben unberührt) ·
+                  `stripLegacyGlobalModels` räumt die Alt-Schlüssel nach der Migration, sonst
+                  liefe sie bei jedem Start erneut — die Endpunkt-Helfer liegen in
+                  endpoint_config.ts und werden von dort importiert, nicht hier durchgereicht.
+                  Vom MCP-Server direkt importiert.
 mcp/              In-Plugin HTTP-MCP-Server (Loopback, `/mcp`, StreamableHTTP): `http_server.ts` ·
                   `register_tools.ts` · `tools.ts` (dünner Adapter über RetrievalFacade) · `auth.ts`.
                   Kein Node-Adapter/kein stdio mehr.
@@ -330,8 +322,8 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
                   Aktive Endpunkt-Modelle: `embeddingModelInUse` (Embedder + LiveIndexer/Manifest
                   als Paar) und `chatEndpointInUse` → Getter `chatModelInUse` /
                   `smartApplyModelInUse` (`chatRequestModel`). JEDE Chat-Anfrage muss einen der
-                  beiden Getter als `opts.model` mitgeben — `settings.chatModel` direkt zu
-                  senden ignoriert das Zeilen-Override des aktiven Endpunkts.
+                  beiden Getter als `opts.model` mitgeben — die Zeile des aktiven Endpunkts direkt zu
+                  senden ignoriert das Feature-Modell (`smartApplyModel`), das seit 0.31.0 gewinnt (E1).
 ```
 
 **Index-Format (seit 0.18.0):** EINE Container-Datei `_vaultrag/index.bin` — `"VRIX"` · u32 headerLen LE
@@ -345,34 +337,39 @@ Das Prä-0.18-Tripel (`notes.i8`/`paths.json`/`manifest.json`) wird beim ersten 
 ### Vendored Kit Module (`src/vendor/kit/` + `src/vendor/kit-obsidian/`)
 
 **Zwei Ablagen seit 2026-07-27 (workspace-weite Konvention):** `src/vendor/kit/` hält die
-**obsidian-freien** Kit-Module (`callout.ts`, `clipboard.ts`, `endpoint.ts`,
-`endpoint_diagnostics.ts`, `error_body.ts`, `frontmatter.ts`, `i18n.ts`, `reasoning.ts`,
-`settings.ts`, `sse.ts`, `think.ts`, `timeout.ts`), `src/vendor/kit-obsidian/` die
-**obsidian-gekoppelten** (`clipboard.ts`, `collapsible.ts`, `confirm.ts`, `folder-suggest.ts`,
-`hub.ts`, `settings_walker.ts`). Beide sind **verbatim-Snapshots — nie von Hand editieren**,
-Updates nur per Neu-Kopie aus obsidian-kit.
+**obsidian-freien** Module — seit dem code-kit-Split (obsidian-kit 0.28.0) aus **zwei Quellen**:
+`callout.ts`/`frontmatter.ts` kommen weiterhin aus **obsidian-kit** (0.31.0), die restlichen dreizehn
+(`clipboard.ts`, `endpoint.ts`, `endpoint_config.ts`, `endpoint_diagnostics.ts`, `error_body.ts`,
+`i18n.ts`, `model-choice.ts`, `model-list-cache.ts`, `reasoning.ts`, `settings.ts`, `sse.ts`,
+`think.ts`, `timeout.ts`) aus **code-kit** (0.5.0), das die pure-Schicht seither führt.
+`src/vendor/kit-obsidian/` hält die **obsidian-gekoppelten** Module, alle aus obsidian-kit 0.31.0
+(`clipboard.ts`, `collapsible.ts`, `confirm.ts`, `endpoint-list.ts`, `folder-suggest.ts`, `hub.ts`,
+`model-picker.ts`, `settings_walker.ts`). Beide sind **verbatim-Snapshots — nie von Hand editieren**,
+Updates nur per Neu-Kopie über `tools/sync-kit.sh`.
 
 **Seit 2026-08-27 macht das `tools/sync-kit.sh`** statt einer Handkopie, und beide Verzeichnisse
 tragen eine `VENDOR.json` (vorher hatte nur `kit-obsidian/` eine, in `kit/` stand der Pin je Datei
-in Zeile 1 — sechs verschiedene Versionen nebeneinander). Zwei Eigenschaften des Skripts sind
+in Zeile 1 — sechs verschiedene Versionen nebeneinander). Drei Eigenschaften des Skripts sind
 load-bearing, nicht kosmetisch:
-- **Es liest über `git show $KIT_REF:<pfad>`, nicht aus dem Arbeitsstand des Nachbar-Repos.**
+- **Es liest über `git show <ref>:<pfad>`, nicht aus dem Arbeitsstand des Nachbar-Repos.**
   obsidian-kit läuft weiter: seit 0.28.0 sind 23 `pure/`-Module nach `code-kit` gezogen, darunter
   `error_body` und `clipboard`. Ein `cp` aus dem Kit-Arbeitsverzeichnis liefert je nach dessen HEAD
   etwas anderes — oder gar nichts.
 - **Es löst den Tag-Commit auf, nicht `HEAD`.** Der Kit-HEAD steht auf einem späteren Stand als der
   Tag; ein daraus gelesener SHA widerspräche der vendorierten Version in derselben Datei.
+- **Annotierte Tags brauchen `^{commit}`.** code-kit taggt annotiert; ohne das Peel stünde in
+  `VENDOR.json` die SHA des Tag-*Objekts*, die in der `git log` der Quelle nie auftaucht.
 
 Ein zweiter Lauf darf keinen Diff erzeugen — das ist die Probe darauf, dass Header und
 `VENDOR.json` deterministisch sind (deshalb steht dort **kein** Datum).
 
-`src/vendor/kit-obsidian/confirm.ts` (@0.27.0) — `confirmAction(app, opts)` als einzige
+`src/vendor/kit-obsidian/confirm.ts` (@0.31.0) — `confirmAction(app, opts)` als einzige
 Bestätigungs-Modal-Wahrheit; ersetzt seit `210b43c` die repo-eigenen `ConfirmModal`-Klassen in
 `main.ts`/`settings.ts` (UI-STANDARD §2: Cancel als Link, `modal-button-container`).
 **Gotcha:** der Heal-Dialog beim Start läuft bewusst **fire-and-forget** (`.then(…)`, kein `await`) —
 ein `await` in `onload` blockiert den Plugin-Start, bis der Nutzer klickt (`bee6a2a`).
 
-`src/vendor/kit-obsidian/collapsible.ts` (@0.27.0; bis zum Re-Vendoring 2026-08-27 hing es als
+`src/vendor/kit-obsidian/collapsible.ts` (@0.31.0; bis zum Re-Vendoring 2026-08-27 hing es als
 einziges auf einem eigenen Datei-Header-Pin @0.13.0 an der `VENDOR.json` vorbei) — erste
 obsidian-gekoppelte UI-Schicht des
 Kits. `collapsibleSection(containerEl, opts)` rendert eine einklappbare Settings-Sektion (klickbarer
@@ -392,7 +389,7 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (1035 Tests, 68 Files)
+npm test                          # vitest run     (1039 Tests, 67 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit
@@ -453,6 +450,11 @@ eingestellten Sprache. Dieses Repo hat eine eigene i18n-Schicht (`src/i18n/`), u
 an dieser Stelle aber. Gemessen 2026-08-16 im Consumer-Sweep über alle Repos mit
 gevendortem `endpoint_diagnostics.ts`.
 
+**`applyEndpointEdit` existiert zweimal — lokal (`src/endpoint_config.ts`, vom Chat-Panel
+genutzt) und vendored (`src/vendor/kit/endpoint_config.ts`, vom Kit-Listeneditor). Heute
+byte-gleich (gemessen 2026-09-07); driften sie, editieren Chat-Panel und Einstellungsliste
+dieselbe Liste nach verschiedenen Regeln. Zusammenlegen ist Kit-Arbeit.**
+
 **Fix-Muster:** eigene Statusschlüssel statt des Kit-Klartexts — `statusKindKey(kind)`
 bildet die Statusklasse auf einen i18n-Schlüssel ab, das Wörterbuch führt EN und DE
 (Referenz: `yijing-oracle` und `obsidian-transmute`). Dazu gehört ein
@@ -473,10 +475,10 @@ gar nicht bis in die Oberfläche schafft.
     (`reformat_transforms.ts`), `MCP_CLIENTS` (`mcp/client_snippets.ts`) und `MODE_LABELS`
     (`smart_apply_view.ts`) — die Registry trägt nur den **Schlüssel** (sprachneutral, an
     Modul-Ebene unproblematisch), `t(labelKey)` wird erst beim Rendern aufgerufen.
-  - Die früheren `HINT_*`-Modulkonstanten in `model_choice.ts` sind **ersatzlos entfernt**, nicht
-    auf `labelKey` umgestellt — dieselbe Übersetzung wurde stattdessen direkt im
-    Render-Aufrufer (`renderModelPicker`, `settings.ts`) per `t()` gebaut, weil dort ohnehin
-    schon zur Anzeigezeit gerechnet wird.
+  - Die früheren `HINT_*`-Modulkonstanten in der früheren `model_choice.ts` (seit 0.31.0 gelöscht,
+    Kit-Picker) sind **ersatzlos entfernt**, nicht auf `labelKey` umgestellt — dieselbe Übersetzung
+    wird stattdessen direkt im Render-Aufrufer (`modelHint`, `settings.ts`) per `t()` gebaut, weil
+    dort ohnehin schon zur Anzeigezeit gerechnet wird.
   - **`HubPanel.label` ist ein Getter** (`get label(): string { return t("panel.chat.label"); }`
     in `chat_view.ts`/`search_view.ts`/`view.ts`/`smart_apply_view.ts`/`reformat_panel.ts`), kein
     Feld — ein Feld würde beim Konstruktor-Lauf (früh, potenziell vor `setLang`) einmalig
@@ -626,7 +628,7 @@ gar nicht bis in die Oberfläche schafft.
   Vektoren erzeugt:** Notiz-Count, Dimension und CRC bleiben in Ordnung, nur die
   Ähnlichkeitssuche wird still schlechter — und nur ein vollständiger Neuaufbau (`reason="reindex"`)
   heilt es. **Vorbeugend:** `resolveAndReconnectEmbedder` überspringt jeden Endpunkt-Kandidaten,
-  dessen (Override-)Modell nicht zu `this.index.manifest.embedding_model` passt
+  dessen Modell nicht zu `this.index.manifest.embedding_model` passt
   (`embeddingModelMatchesIndex`, `index_guard.ts`) — auch in der Rückfall-Verdrahtung, die sonst
   einen erreichbaren, aber falschen Kandidaten aktiv geschaltet hätte; nur wenn **kein** Kandidat
   passt, gewinnt trotzdem der erste (bewusster Modellwechsel), mit Notice.
@@ -756,6 +758,10 @@ gar nicht bis in die Oberfläche schafft.
   stillschweigend (kein Ping-Erfolg); das Feature wirkt dann wie tot, ohne Fehlermeldung, weil
   ein reiner Ping-Fehlschlag keine Notice auslöst (anders als der Modell-Guard oben, der explizit
   meldet).
+- **Ein Feature-Modell (`smartApplyModel`) schlägt seit 0.31.0 das Zeilen-Modell.** Bis 0.30.0
+  war es umgekehrt, und damit war das Feld tot, sobald die Zeile ein Modell trug — sichtbar nur
+  als Widerspruch zwischen Einstellung und Verhalten (gemessen 2026-09-07). Wer den Vorrang je
+  wieder dreht, macht das Feld erneut still wirkungslos.
 - **`editorCallback` blendet einen Command aus der Palette aus**, sobald kein Markdown-Editor
   fokussiert ist — Lesemodus, Fokus in der Sidebar, Canvas/Graph/PDF/Settings. Für den Nutzer sieht
   das aus, als wäre der Command **verschwunden** (real passiert, Slice C.2). Wenn ein Command auch

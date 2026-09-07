@@ -1,22 +1,24 @@
 {
   "embeddingEndpoints": [
     {
-      "url": "http://localhost:11434"
+      "url": "http://localhost:11434",
+      "model": "qwen3-embedding:8b"
     },
     {
-      "url": "http://localhost:11435"
+      "url": "http://localhost:11435",
+      "model": "qwen3-embedding:8b"
     }
   ],
-  "embeddingModel": "qwen3-embedding:8b",
   "chatEndpoints": [
     {
-      "url": "http://localhost:1234"
+      "url": "http://localhost:1234",
+      "model": "qwen/qwen3.6-27b"
     },
     {
-      "url": "http://localhost:1235"
+      "url": "http://localhost:1235",
+      "model": "qwen/qwen3.6-27b"
     }
   ],
-  "chatModel": "qwen/qwen3.6-27b",
   "indexDir": "_vaultrag",
   "suppressThinking": true
 }

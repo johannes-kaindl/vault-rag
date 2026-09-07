@@ -944,8 +944,14 @@ async function corsPruefen(cdp: Cdp): Promise<string | null> {
  * generischer Name ist, den kein Server unter genau diesem Namen fuehrt.
  */
 async function vorbereiten(cdp: Cdp, modell: string): Promise<void> {
-  await setPluginSetting(cdp, PLUGIN_ID, "chatModel", modell);
-  console.log(`   Chat-Modell: ${modell}`);
+  // Seit 0.31.0 steht das Modell in der Endpunkt-Zeile, nicht in einem globalen Feld.
+  const eps = await cdp.evaluate<{ url: string; model?: string; apiKey?: string }[]>(
+    `return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.chatEndpoints`);
+  await setPluginSetting(cdp, PLUGIN_ID, "chatEndpoints", eps.map((e, i) => i === 0 ? { ...e, model: modell } : e));
+  // setPluginSetting speichert nur; chatEndpointInUse zeigt noch auf die alte Zeile — erst der
+  // Resolver haengt den Client an die neue Zeile (und damit an das neue Modell).
+  await cdp.evaluate(`await app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].resolveAndReconnectChat(); return true;`);
+  console.log(`   Chat-Modell (Zeile 1): ${modell}`);
 
   const start = await cdp.evaluate<boolean>(`
     return app.commands.executeCommandById(${JSON.stringify(`${PLUGIN_ID}:reindex-vault`)});

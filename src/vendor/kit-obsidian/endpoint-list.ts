@@ -1,4 +1,5 @@
-// vendored from obsidian-kit@0.27.0, src/obsidian/endpoint-list.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.31.0, src/obsidian/endpoint-list.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// ONE mechanical deviation from verbatim: kit-internal imports of the code-kit layer → ../kit/ (vendor layout); reproduce on every re-vendor, nothing else may differ.
 /* Geordneter Endpunkt-Fallback-Listen-Editor: eine Setting-Zeile je Endpunkt (URL ·
  * Schlüssel · Modell-Override · „zuerst verwenden" · entfernen) plus Adder-Zeile,
  * Status-Icon, Rollenzeile, Drittanbieter-Hinweis und Preset-Knöpfe.
@@ -41,7 +42,9 @@ export interface EndpointListStrings {
    *  „globales Modell ()" in der Oberfläche. Die Vorlage hatte dafür einen Fallback
    *  (`globalModel() || "nicht gesetzt"`); der gehört jetzt dem Consumer, weil der
    *  Ersatztext ein Satz in seiner Sprache ist. */
-  emptyModelLabel(globalModel: string): string;
+  /** Nur nötig, wenn `globalModel` gesetzt ist — ohne globales Feld gibt es keine Leer-Option
+   *  zu beschriften. */
+  emptyModelLabel?(globalModel: string): string;
   modelHint(key: ModelHintKey): string;
   savedSuffix: string;
   refreshModels: string;
@@ -80,8 +83,21 @@ export interface EndpointListOptions {
    *  TypeScript löst eine Methoden-Intersection als Überladungsliste in Schreibreihenfolge auf —
    *  stünde `ModelListClient` vorn, käme am Aufruf die schmalere Signatur heraus. */
   clientFor(cfg: EndpointConfig): { probe(): Promise<EndpointStatus> } & ModelListClient;
-  /** Globales Modell, das gilt, wenn die Zeile keinen Override trägt. */
-  globalModel(): string;
+  /** Globales Modell, das gilt, wenn die Zeile keinen Override trägt.
+   *
+   *  **Optional, und das Fehlen ist eine Aussage.** Fehlt der Callback, gibt es kein globales
+   *  Modellfeld: das Zeilen-Modell ist die einzige Wahrheit, und die Leer-Option des Dropdowns
+   *  („nimm das globale") entfällt — sie hätte nichts mehr zu bedeuten. `emptyModelLabel` wird
+   *  dann nie gerufen.
+   *
+   *  Bis 0.29.0 war der Callback **Pflicht**, und das war ein Konstruktionsfehler: ein Modellname
+   *  existiert nur auf dem Endpunkt, der ihn in `/v1/models` meldet — auf der Nachbarzeile ist er
+   *  bedeutungslos. „Globales Modell + Override je Zeile" ist dieselbe Information an zwei Orten
+   *  plus Vorrangregel, und der Leerwert wird dabei still bedeutungstragend. Das Kit hat diese
+   *  Struktur nicht erfunden, sondern von seinen ersten Konsumenten geerbt und im Vertrag
+   *  festgeschrieben — womit sie jeder neue Konsument erbte, auch wer nie ein globales Feld hatte
+   *  (belegt an vault-crews, das 2026-08-14 einen Wert übergeben musste, den es nicht hat). */
+  globalModel?(): string;
   /** Nur Embedding-Listen: passt das (Override-)Modell dieser Zeile zum geladenen Index?
    *  Fehlt der Callback (Chat-Liste), gilt true — dort hängt kein Index am Modell. */
   modelFits?(cfg: EndpointConfig): boolean;
@@ -236,11 +252,13 @@ export function buildEndpointList(opts: EndpointListOptions): void {
         // über die Oberfläche nicht mehr zurücknehmen (Einbahnstraße). Die Kit-Fassung von
         // resolveModelChoice kennt kein `emptyLabel`: die Option kommt sprachfrei mit leerem
         // Label, beschriftet wird sie erst hier, beim Zeichnen.
-        const choice = resolveModelChoice({ reachable, models, current: cfg.model ?? "", allowEmpty: true });
-        const labelled = {
+        // Die Leer-Option existiert nur, wo es ein globales Modell gibt, auf das sie zeigen kann.
+        const allowEmpty = opts.globalModel !== undefined;
+        const choice = resolveModelChoice({ reachable, models, current: cfg.model ?? "", allowEmpty });
+        const emptyLabel = allowEmpty ? opts.strings.emptyModelLabel?.(opts.globalModel?.() ?? "") : undefined;
+        const labelled = emptyLabel === undefined ? choice : {
           ...choice,
-          options: choice.options.map(o =>
-            o.value === "" ? { ...o, label: opts.strings.emptyModelLabel(opts.globalModel()) } : o),
+          options: choice.options.map(o => o.value === "" ? { ...o, label: emptyLabel } : o),
         };
         renderModelPicker({
           setting: s,

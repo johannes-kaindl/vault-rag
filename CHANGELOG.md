@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-09-07
+
 ### Changed
 - **Das Modell steht nur noch in der Endpunkt-Zeile.** Die globalen Felder „Embedding-Modell"
   und „Chat-Modell" sind entfallen; beim ersten Start nach dem Update wandert der alte Wert in

@@ -134,6 +134,16 @@ const FALLBACK_ICON = "chevrons-up";
  *  desselben Laufs durchlief. Das Fixture setzt `suppressThinking`, damit der Normalfall in
  *  Sekunden liegt; die Frist deckt den Fall, dass ein Modell trotzdem denkt. */
 const CHAT_FRIST_MS = 360_000;
+/** Die Pruefpunkte des Integrator-Abschnitts — namentlich, damit ein Skip des Zweigs JEDEN in die
+ *  Bilanz traegt (dieselbe Regel wie LAB_PRUEFPUNKTE). */
+const INTEGRATOR_PRUEFPUNKTE = [
+  "Tab „Integrator“ steht in der Leiste, vor „Umformatieren“",
+  "Kommando-Pfad erzeugt einen Vorschlag für die Fixture-Notiz",
+  "Annehmen im Panel schreibt den Abschnitt mit dem Wikilink in die Datei",
+  "Zweites Anwenden desselben Ziels lässt die Datei byte-identisch",
+  "Abgelehntes Ziel kommt beim Neuberechnen nicht wieder",
+  "Frontmatter-Modus: related: [] wird zur Blockliste, Rest byte-identisch",
+];
 const LAB_PRUEFPUNKTE = [
   "Ein Chat über die Oberfläche meldet sich beim Lab",
   "Die Chat-Zeile trägt ttftMs und latencyMs",
@@ -294,6 +304,9 @@ async function main(): Promise<void> {
   // Der Heal-Prüfpunkt zerstört absichtlich den Container und stellt die Endpunkt-Liste tot.
   // Beides wird im finally zurückgeschrieben — auch nach einem Abbruch mitten im Lauf.
   let healRestore: { indexPath: string; savedEndpoints: unknown } | null = null;
+  // Der Integrator-Abschnitt schreibt in zwei Fixture-Notizen und in integrator.json. Beides wird
+  // im finally zurueckgesetzt, damit ein zweiter Lauf ohne `--setup` dieselbe Lage vorfindet.
+  let integratorRestore: { plain: string; rel: string } | null = null;
   // Das Lab-Stub haengt im Renderer und muss auch nach einem Abbruch mitten im Lauf weg —
   // sonst glaubt ein spaeter installiertes echtes Lab, es sei bereits registriert.
   let labStubbed = false;
@@ -402,8 +415,11 @@ async function main(): Promise<void> {
       probe.present && probe.apiVersion === 1, `apiVersion ${String(probe.apiVersion)}`);
     // Regressionsschutz gegen ein spaeteres `this.api = this.facade`: der externe Vertrag
     // darf NICHT readNote/embedQuery/searchVector tragen (Dateizugriff und Vektor-Interna).
-    record("Fläche ist auf status/search/related begrenzt",
-      JSON.stringify(probe.keys) === JSON.stringify(["apiVersion", "related", "search", "status"]),
+    // Seit 0.32.0 kommen `proposeLinks`/`applyLink` dazu (Integrator, Spec 2026-09-07 §8) —
+    // additiv, apiVersion bleibt 1. Die Liste bleibt vollstaendig aufgezaehlt, damit eine
+    // versehentliche Ausweitung (etwa `this.api = this.facade`) weiter auffaellt.
+    record("Fläche ist auf status/search/related/proposeLinks/applyLink begrenzt",
+      JSON.stringify(probe.keys) === JSON.stringify(["apiVersion", "applyLink", "proposeLinks", "related", "search", "status"]),
       (probe.keys ?? []).join(", "));
     record("status() ist synchron und meldet einen Index",
       probe.statusIsSync === true && probe.status?.indexed === true && (probe.status?.noteCount ?? 0) > 0,
@@ -1179,6 +1195,125 @@ async function main(): Promise<void> {
         offDone ? `Antwort kam, ${offTrace.added} neue Zeilen` : "Antwort blieb aus — Abwesenheit der Zeile beweist hier NICHTS");
     }
 
+    // --- 7c. Integrator: Vorschlag → Annehmen → Idempotenz → Ablehnen → Frontmatter ---
+    // Spec 2026-09-07 §10. Misst die VERDRAHTUNG (main.ts) am laufenden Plugin: dass ein
+    // Vorschlag entsteht, dass Annehmen wirklich in die Datei schreibt, dass ein zweites Anwenden
+    // die Datei byte-identisch laesst, dass eine Ablehnung beim Neuberechnen haelt, und dass der
+    // Frontmatter-Modus nur die `related:`-Zeilen anfasst. Die reinen Haelften sind unit-getestet;
+    // ob `acceptLink` den richtigen Schreiber waehlt und der Store gespeichert wird, sieht nur
+    // dieser Abschnitt. Der Integrator ist im Fixture eingeschaltet (`integratorEnabled`).
+    {
+      const PLAIN = "Notes/Integrator plain.md";
+      const REL = "Notes/Integrator related.md";
+      // Die Tab-Zahl ist KEINE Konstante: Smart Apply ist im Fixture aus, also stehen fuenf Tabs in
+      // der Leiste, mit Smart Apply sechs. Gemessen wird deshalb die Tab-LISTE gegen die Panel-Liste
+      // des Hubs — Lauf 1 am 2026-09-07 war an einer hart verdrahteten Sechs rot, ohne Befund.
+      const intPre = await main.evaluate<{ enabled: boolean; tabs: string[]; panels: string[]; plain: string; rel: string }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const leaf = app.workspace.getLeavesOfType("vault-retrieval-hub")[0];
+        return {
+          enabled: !!p.settings.integratorEnabled,
+          tabs: [...document.querySelectorAll(".okit-hub-tab")].map(t => t.textContent.trim()),
+          panels: leaf ? (leaf.view.panels || []).map(x => x.id) : [],
+          plain: await app.vault.adapter.read(${JSON.stringify(PLAIN)}),
+          rel: await app.vault.adapter.read(${JSON.stringify(REL)}),
+        };
+      `);
+      if (!intPre.enabled) {
+        for (const n of INTEGRATOR_PRUEFPUNKTE) skipped(n, "integratorEnabled ist aus — Fixture-Einstellungen nicht geladen?");
+      } else {
+        integratorRestore = { plain: intPre.plain, rel: intPre.rel };
+        record("Tab „Integrator“ steht in der Leiste, vor „Umformatieren“",
+          intPre.panels.includes("integrator") && intPre.tabs.length === intPre.panels.length
+            && intPre.panels.indexOf("integrator") === intPre.panels.indexOf("reformat") - 1,
+          `${intPre.tabs.length} Tabs: ${intPre.tabs.join(" · ")}`);
+
+        const proposed = await main.evaluate<{ kind: string; n: number; target: string | null }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const r = await p.proposeFor(${JSON.stringify(PLAIN)});
+          const links = r.kind === "proposal" ? r.proposal.links : [];
+          return { kind: r.kind, n: links.length, target: links[0]?.path ?? null };
+        `);
+        record("Kommando-Pfad erzeugt einen Vorschlag für die Fixture-Notiz",
+          proposed.kind === "proposal" && proposed.n > 0, `${proposed.kind} · ${proposed.n} Ziele · erstes: ${proposed.target ?? "—"}`);
+
+        if (proposed.target) {
+          const target = proposed.target;
+          const expectLink = `[[${target.replace(/\.md$/, "")}|${(target.split("/").pop() ?? target).replace(/\.md$/, "")}]]`;
+          // Annehmen ueber den Knopf im Panel — der Weg, den der Nutzer geht. Der Tab wird per
+          // Kommando geoeffnet; der erste Accept-Knopf gehoert zur Karte der aktiven Notiz, also
+          // erst PLAIN oeffnen, damit die Sortierung sie nach oben stellt.
+          await main.evaluate(`
+            await app.workspace.openLinkText(${JSON.stringify(PLAIN)}, "", false);
+            await app.commands.executeCommandById("vault-retrieval:open-integrator");
+          `);
+          await pollUntil<number>(main, `const n = document.querySelectorAll(".vault-rag-int-accept").length; return n > 0 ? n : null;`, 5000, 250);
+          const acceptedFirst = await main.evaluate<{ title: string | null }>(`
+            const card = document.querySelector(".vault-rag-int-card");
+            const btn = card ? card.querySelector(".vault-rag-int-accept") : null;
+            const title = card ? card.querySelector(".vault-rag-int-card-title") : null;
+            if (btn) btn.click();
+            return { title: title ? title.textContent : null };
+          `);
+          const after1 = await pollUntil<string>(main, `
+            const t = await app.vault.adapter.read(${JSON.stringify(PLAIN)});
+            return t !== ${JSON.stringify(intPre.plain)} ? t : null;
+          `, 5000, 250);
+          const wroteSection = typeof after1 === "string" && after1.startsWith(intPre.plain.replace(/\n+$/, ""))
+            && after1.includes("## Verwandte Notizen") && after1.includes(expectLink);
+          record("Annehmen im Panel schreibt den Abschnitt mit dem Wikilink in die Datei",
+            wroteSection && acceptedFirst.title === "Integrator plain",
+            `Karte „${acceptedFirst.title ?? "—"}“ · +${(after1?.length ?? 0) - intPre.plain.length} Bytes · ${expectLink}`);
+
+          const again = await main.evaluate<{ ok: boolean; changed?: boolean; reason?: string; text: string }>(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            const r = await p.applyLinkNow(${JSON.stringify(PLAIN)}, ${JSON.stringify(target)});
+            return { ...r, text: await app.vault.adapter.read(${JSON.stringify(PLAIN)}) };
+          `);
+          record("Zweites Anwenden desselben Ziels lässt die Datei byte-identisch",
+            again.ok && again.changed === false && again.text === after1,
+            `changed=${String(again.changed)} · ${again.text === after1 ? "Bytes gleich" : "Bytes VERSCHIEDEN"}`);
+        } else {
+          record("Annehmen im Panel schreibt den Abschnitt mit dem Wikilink in die Datei", false, "kein Ziel vorgeschlagen");
+          record("Zweites Anwenden desselben Ziels lässt die Datei byte-identisch", false, "kein Ziel vorgeschlagen");
+        }
+
+        // Ablehnen: das erste verbleibende Ziel ablehnen, neu berechnen, es darf nicht wiederkommen.
+        const rejected = await main.evaluate<{ before: number; after: number; has: boolean; tgt: string | null }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const cur = p.integratorStore.get(${JSON.stringify(PLAIN)});
+          if (!cur || cur.links.length === 0) return { before: 0, after: 0, has: false, tgt: null };
+          const tgt = cur.links[0].path;
+          p.integratorStore.resolve(${JSON.stringify(PLAIN)}, tgt, "rejected");
+          const r = await p.proposeFor(${JSON.stringify(PLAIN)});
+          const links = r.kind === "proposal" ? r.proposal.links.map(l => l.path) : [];
+          return { before: cur.links.length, after: links.length, has: links.includes(tgt), tgt };
+        `);
+        if (rejected.before === 0) skipped("Abgelehntes Ziel kommt beim Neuberechnen nicht wieder", "nach dem Annehmen blieb kein weiteres Ziel zum Ablehnen");
+        else record("Abgelehntes Ziel kommt beim Neuberechnen nicht wieder", !rejected.has, `${rejected.tgt} · vorher ${rejected.before}, nachher ${rejected.after} Ziele`);
+
+        // Frontmatter-Modus an der Notiz mit `related: []` — nur diese Zeilen duerfen sich aendern.
+        const fm = await main.evaluate<{ ok: boolean; detail: string; text: string }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const saved = p.settings.linkTarget;
+          p.settings.linkTarget = "frontmatter"; await p.saveSettings();
+          try {
+            const r = await p.proposeFor(${JSON.stringify(REL)});
+            if (r.kind !== "proposal") return { ok: false, detail: "proposeFor: " + r.kind, text: "" };
+            const a = await p.acceptLink(${JSON.stringify(REL)}, r.proposal.links[0].path);
+            return { ok: a.kind === "written", detail: "acceptLink: " + a.kind + (a.reason ? " " + a.reason : ""), text: await app.vault.adapter.read(${JSON.stringify(REL)}) };
+          } finally { p.settings.linkTarget = saved; await p.saveSettings(); }
+        `);
+        const fmHead = fm.text.split("\n").slice(0, 6);
+        const fmOk = fm.ok
+          && fmHead[0] === "---" && fmHead[1] === "title: Integrator related" && fmHead[2] === "related:"
+          && /^  - "\[\[[^\]]+\]\]"$/.test(fmHead[3] ?? "") && fmHead[4] === "tags: [fixture]" && fmHead[5] === "---"
+          && fm.text.slice(fm.text.indexOf("\n---\n") + 5) === intPre.rel.slice(intPre.rel.indexOf("\n---\n") + 5);
+        record("Frontmatter-Modus: related: [] wird zur Blockliste, Rest byte-identisch",
+          fmOk, `${fm.detail} · ${fmHead.join(" ⏎ ")}`);
+      }
+    }
+
     // --- 8. Auto-Heal-Kaskade: defekter Container ohne Endpunkt ------------
     // Der einzige Prüfpunkt, der die VERDRAHTUNG misst statt der Entscheidung. `planAutoHeal`
     // ist unit-getestet — der Bug von 2026-08-14 lag aber in `attemptAutoHeal`: die
@@ -1323,6 +1458,17 @@ async function main(): Promise<void> {
       `.replace("__PATH__", healRestore.indexPath).replace("__ENDPOINTS__", JSON.stringify(healRestore.savedEndpoints)))
         .catch(() => { console.log("  ! Index/Endpunkte konnten nicht zurückgeschrieben werden — Auto-Heal-Kaskade oder „Index-Backup wiederherstellen“ holt den Index zurück"); });
       console.log("\n  Index-Datei und Embedding-Endpunkte wiederhergestellt.");
+    }
+    if (integratorRestore) {
+      await main.evaluate(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        await app.vault.adapter.write("Notes/Integrator plain.md", ${JSON.stringify(integratorRestore.plain)});
+        await app.vault.adapter.write("Notes/Integrator related.md", ${JSON.stringify(integratorRestore.rel)});
+        p.integratorStore.remove("Notes/Integrator plain.md");
+        p.integratorStore.remove("Notes/Integrator related.md");
+        await p.saveIntegratorStore();
+      `).catch(() => { console.log("  ! Integrator-Fixture-Notizen konnten nicht zurückgeschrieben werden — `npm run shots -- --setup` stellt sie her"); });
+      console.log("\n  Integrator-Fixture-Notizen und Inbox zurückgesetzt.");
     }
     if (savedChatOrder && !keep) {
       // Reihenfolge zurückschreiben: der Smoke soll die Konfiguration des Nutzers nicht

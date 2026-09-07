@@ -11,7 +11,7 @@ export function makeFakeEl(): any {
     setText: (t: string) => { _ownText = t; }, addClass: () => {}, removeClass: () => {},
     createSpan: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; children.push(c); return c; },
     // Reales HTMLElement-Verhalten: hängt einen bestehenden (ggf. schon anderswo geparenteten)
-    // Knoten an — nötig, weil renderModelPicker (settings.ts) Komponenten-Elemente per
+    // Knoten an — nötig, weil renderModelPicker (vendor/kit-obsidian/model-picker.ts) Komponenten-Elemente per
     // appendChild in ein reserviertes Ziel umhängt (siehe okit-model-slot).
     appendChild: (child: any) => { children.push(child); return child; },
     toggleClass: (cls: string, on: boolean) => {

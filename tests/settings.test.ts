@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { DEFAULT_SETTINGS, VaultRagSettings, applyDestructive, VaultRagSettingTab } from "../src/settings";
 import { makeFakeEl, Setting } from "./__mocks__/obsidian";
 import { findUntranslatedSinks } from "./i18n/sink_guard";
@@ -408,5 +409,12 @@ describe("settings render hatches i18n", () => {
     // Ausnahmen (i18n-exempt-Marker, buchstabenlose Literale) und bekannte Grenzen.
     const findings = findUntranslatedSinks(join(__dirname, "..", "src", "settings.ts"));
     expect(findings.map(f => `${f.line}: ${f.text}`)).toEqual([]);
+  });
+
+  it("settings.ts zeichnet Modellfelder nur über den Kit-Picker — kein lokaler renderModelPicker, kein model_choice", () => {
+    const src = readFileSync(join(__dirname, "..", "src", "settings.ts"), "utf8");
+    expect(src).not.toMatch(/from "\.\/model_choice"/);
+    expect(src).not.toMatch(/private renderModelPicker/);
+    expect(src).toMatch(/from "\.\/vendor\/kit-obsidian\/model-picker"/);
   });
 });

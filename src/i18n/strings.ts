@@ -382,7 +382,7 @@ export const EN = {
   "settings.thinking.alwaysOn": "Thinking (always on)",
   "settings.thinkingTest.prompt": "Reply in exactly one word: Hello.",
 
-  // endpoint_config.ts + model_choice.ts
+  // endpoint_config.ts + Kit-Picker
   "endpointStatus.ok": "Connected",
   "endpointStatus.refused": "Connection refused — server not running or wrong port.",
   "endpointStatus.unknownHost": "Unknown hostname — typo in the address?",
@@ -415,10 +415,6 @@ export const EN = {
   "endpointRole.skippedModel": "skipped — model does not match the index",
   "modelChoice.hintNoList": "Endpoint does not expose a model list — enter the name by hand.",
   "modelChoice.hintUnreachable": "Endpoint unreachable — the saved value is kept. Use \"Fetch models\" once it is running.",
-  // Noch von src/model_choice.ts genutzt (Smart-Apply-Feld) — entfällt erst mit dessen
-  // Löschung in Task 4 dieses Bündels, nicht hier: eine verwaiste Übersetzung ist harmlos,
-  // ein fehlender Key, den lebender Code aufruft, ist ein Testbruch (tests/i18n/keys.test.ts).
-  "modelChoice.savedLabel": "{0} (saved)",
   "modelChoice.savedSuffix": "(saved)",
 
   // context_panel.ts
@@ -841,7 +837,7 @@ export const DE = {
   "settings.thinking.alwaysOn": "Thinking (immer an)",
   "settings.thinkingTest.prompt": "Antworte in genau einem Wort: Hallo.",
 
-  // endpoint_config.ts + model_choice.ts
+  // endpoint_config.ts + Kit-Picker
   "endpointStatus.ok": "Verbunden",
   "endpointStatus.refused": "Verbindung abgelehnt — Server läuft nicht oder Port falsch.",
   "endpointStatus.unknownHost": "Hostname unbekannt — Tippfehler in der Adresse?",
@@ -874,7 +870,6 @@ export const DE = {
   "endpointRole.skippedModel": "übersprungen — Modell passt nicht zum Index",
   "modelChoice.hintNoList": "Endpunkt gibt keine Modell-Liste heraus — Namen von Hand eintragen.",
   "modelChoice.hintUnreachable": "Endpunkt nicht erreichbar — gespeicherter Wert bleibt erhalten. „Modelle abrufen“, sobald er läuft.",
-  "modelChoice.savedLabel": "{0} (gespeichert)",
   "modelChoice.savedSuffix": "(gespeichert)",
 
   // context_panel.ts

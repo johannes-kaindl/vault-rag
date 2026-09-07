@@ -14,7 +14,8 @@ import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRa
 import { rowModel, describeEndpointRole, endpointStatusText, endpointWarningText } from "./endpoint_config";
 import { buildEndpointList as buildKitEndpointList, type EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
 import { embeddingModelMatchesIndex } from "./index_guard";
-import { resolveModelChoice, type ModelChoice } from "./model_choice";
+import { resolveModelChoice, type ModelHintKey } from "./vendor/kit/model-choice";
+import { renderModelPicker } from "./vendor/kit-obsidian/model-picker";
 import { createModelListCache, type ModelListCache } from "./vendor/kit/model-list-cache";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import { describeStartError, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
@@ -91,30 +92,6 @@ export class RestoreBackupModal extends Modal {
   onClose(): void { this.contentEl.empty(); }
 }
 
-interface ModelPickerOpts {
-  /** Zeile, in die gezeichnet wird (bereits vorhandene Setting). */
-  setting: Setting;
-  choice: ModelChoice;
-  /** Für Screenreader — in einer Endpunkt-Zeile stehen drei Felder nebeneinander. */
-  ariaLabel: string;
-  placeholder: string;
-  /** Speichern + Nachwirkungen (reconnect, showInfo/showCaps, commit) — je Stelle verschieden. */
-  onPick: (value: string) => void;
-  /** Cache für diesen Endpunkt verwerfen und neu zeichnen. */
-  onRefresh: () => void;
-  /** Wie der Hinweistext aus ModelChoice dargestellt wird. "desc" (Vorgabe) schreibt ihn als
-   *  Beschreibung unter die Zeile; "tooltip" hängt ihn an den „Modelle abrufen"-Knopf — nötig in
-   *  den Endpunkt-Zeilen, die bewusst keinen Zeilentext tragen (siehe Kommentar in
-   *  buildEndpointList), UND weil das Steuerelement selbst im Modus "locked" disabled ist (ein
-   *  Tooltip darauf käme in Chromium nie an — deaktivierte Controls bekommen keine Pointer-Events). */
-  hintAs?: "desc" | "tooltip";
-  /** Wohin gezeichnet wird statt in `setting.controlEl` selbst (optional). Nötig, wenn der Picker
-   *  asynchron nach bereits gezeichneten Geschwistern (Mülleimer, Warn-Icon) in dieselbe Zeile
-   *  soll — Obsidians `add*`-Methoden hängen sonst immer ans Ende von `controlEl` an, unabhängig
-   *  von der Aufrufreihenfolge im Code (siehe buildEndpointList). */
-  target?: HTMLElement;
-}
-
 /**
  * Settings-Tab. `getSettingDefinitions()` liefert die deklarative Struktur (7 Gruppen); einfache
  * Zeilen sind reine `control`-Definitionen, dynamische Zeilen (Endpoint-Listen, Modell-Dropdowns,
@@ -155,7 +132,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  Kommt seit der Rückadoption aus `vendor/kit/model-list-cache` — jenes Modul IST die
    *  Extraktion genau dieser Felder aus diesem Repo (Kit-Docstring: „Herkunft: vault-rag/
    *  src/settings.ts (loadModelList/invalidateModelList/modelListGeneration, 0.19.x)").
-   *  Instanz statt Modul-Singleton: der Cache gehört zur Lebensdauer EINES Settings-Tabs. */
+   *  Instanz statt Modul-Singleton: der Cache gehört zur Lebensdauer EINES Settings-Tabs.
+   *
+   *  Holt die Modell-Liste eines Endpunkts (mit Cache). Sparsam: eine nicht leere Liste
+   *  beweist die Erreichbarkeit bereits — nur bei leerer Liste wird zusätzlich geprobt, um
+   *  „offline" von „gibt keine Liste heraus" zu trennen. */
   private modelCache: ModelListCache = createModelListCache();
 
   constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
@@ -234,47 +215,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
     refreshSettingsTab(this, () => this.renderImperative());
   }
 
-  /** Holt die Modell-Liste eines Endpunkts (mit Cache). Sparsam: eine nicht leere Liste
-   *  beweist die Erreichbarkeit bereits — nur bei leerer Liste wird zusätzlich geprobt, um
-   *  „offline" von „gibt keine Liste heraus" zu trennen. */
-  /** Zeichnet die Modell-Auswahl in eine bestehende Setting-Zeile. Kennt die Regeln nicht —
-   *  die stehen in resolveModelChoice (model_choice.ts). */
-  private renderModelPicker(opts: ModelPickerOpts): void {
-    const { setting: s, choice, target } = opts;
-    const hintAs = opts.hintAs ?? "desc";
-    if (choice.hint && hintAs === "desc") s.setDesc(choice.hint);
-
-    if (choice.mode === "freetext") {
-      s.addText(t => {
-        t.setPlaceholder(opts.placeholder).setValue(choice.value);
-        t.inputEl.setAttribute("aria-label", opts.ariaLabel);
-        t.inputEl.addEventListener("blur", () => { opts.onPick(t.getValue().trim()); });
-        target?.appendChild(t.inputEl);
-      });
-    } else {
-      s.addDropdown(d => {
-        for (const o of choice.options) d.addOption(o.value, o.label);
-        d.setValue(choice.value);
-        d.selectEl.setAttribute("aria-label", opts.ariaLabel);
-        if (choice.mode === "locked") d.setDisabled(true);
-        else d.onChange((v: string) => { opts.onPick(v); });
-        target?.appendChild(d.selectEl);
-      });
-    }
-
-    // „Modelle abrufen" zeichnet IMMER, in allen drei Modi — auch im Regelfall (dropdown), sonst
-    // lässt sich eine frisch installierte Modell-Liste nicht auffrischen, ohne die Einstellungen
-    // neu zu öffnen. Er ist außerdem der Träger des Hinweistexts bei hintAs "tooltip": er ist als
-    // einziges Element in jedem Modus nie disabled (anders als das <select> im Modus "locked"),
-    // ein Tooltip landet dort also zuverlässig. Der eigene Zweck bleibt erhalten — der Hinweis wird
-    // an den Button-Tooltip angehängt, nicht dessen Ersatz.
-    s.addExtraButton(b => {
-      const tooltip = choice.hint && hintAs === "tooltip"
-        ? `${choice.hint} · ${t("settings.button.fetchModels")}`
-        : t("settings.button.fetchModels");
-      b.setIcon("refresh-cw").setTooltip(tooltip).onClick(() => { opts.onRefresh(); });
-      target?.appendChild(b.extraSettingsEl);
-    });
+  /** Übersetzt den sprachfreien Hinweis-Schlüssel des Kit-Pickers (i18n Teil 3: das Kit
+   *  liefert Codes, wir formulieren). Eine Wahrheit für Endpunkt-Zeilen und Smart-Apply-Feld. */
+  private modelHint(key: ModelHintKey): string {
+    return key === "unreachable" ? t("modelChoice.hintUnreachable")
+         : key === "no-list" ? t("modelChoice.hintNoList")
+         : "";
   }
 
   private searchGroup(): SettingDefinitionGroup {
@@ -684,8 +630,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
       });
   };
 
-  /** render-Hatch: Smart-Apply-Modell. Der leere Wert ist bedeutungstragend
-   *  (= Chat-Modell erben), deshalb allowEmpty. */
+  /** render-Hatch: Smart-Apply-Modell. Der leere Wert ist bedeutungstragend (= Modell des
+   *  aktiven Chat-Endpunkts), deshalb allowEmpty; das Label der Leer-Option setzt der Host,
+   *  das Kit formuliert nicht. */
   private renderSmartApplyModel = (setting: Setting): void => {
     const host = settingBodyHost(setting);
     const s = new Setting(host).setName(t("settings.smartApplyModel.name"))
@@ -694,14 +641,16 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const gen = this.modelCache.generation();
     void this.modelCache.load(key, this.plugin.chatClient).then(({ models, reachable }) => {
       if (gen !== this.modelCache.generation()) return;
-      this.renderModelPicker({
+      const choice = resolveModelChoice({ reachable, models, current: this.plugin.settings.smartApplyModel, allowEmpty: true });
+      const emptyLabel = t("settings.smartApplyModel.emptyLabel");
+      renderModelPicker({
         setting: s,
-        choice: resolveModelChoice({
-          reachable, models, current: this.plugin.settings.smartApplyModel,
-          allowEmpty: true, emptyLabel: t("settings.smartApplyModel.emptyLabel"),
-        }),
+        choice: { ...choice, options: choice.options.map(o => o.value === "" ? { ...o, label: emptyLabel } : o) },
         ariaLabel: t("settings.smartApplyModel.name"),
         placeholder: t("settings.smartApplyModel.placeholder"),
+        hint: this.modelHint(choice.hintKey),
+        savedSuffix: t("modelChoice.savedSuffix"),
+        refreshTooltip: t("settings.button.fetchModels"),
         onPick: (v: string) => {
           this.plugin.settings.smartApplyModel = v;
           void this.plugin.saveSettings();
@@ -773,9 +722,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       ariaModel: (url: string) => t("settings.endpoint.modelAria", url),
       // Der Kit-Picker liefert einen sprachfreien Schlüssel statt eines fertigen Satzes —
       // dieselbe Regel, nach der unsere eigenen Diagnose-Funktionen Codes liefern.
-      modelHint: (key) => key === "unreachable" ? t("modelChoice.hintUnreachable")
-                        : key === "no-list" ? t("modelChoice.hintNoList")
-                        : "",
+      modelHint: (key) => this.modelHint(key),
       savedSuffix: t("modelChoice.savedSuffix"),
       refreshModels: t("settings.button.fetchModels"),
       moveToFront: t("settings.endpoint.moveToFrontTooltip"),

@@ -81,3 +81,12 @@ describe("Smart-Apply-Defaults", () => {
     expect(DEFAULT_SETTINGS.smartApplySuppressThinking).toBe(true);
   });
 });
+
+describe("Integrator-Defaults (Spec §5)", () => {
+  it("sind exakt die Werks-Defaults", () => {
+    expect(DEFAULT_SETTINGS).toMatchObject({
+      integratorEnabled: false, integratorFolders: [], linkTarget: "section",
+      linkHeading: "Verwandte Notizen", linkField: "related", linkK: 5, linkMinSim: 0.5,
+    });
+  });
+});

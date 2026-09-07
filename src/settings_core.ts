@@ -33,6 +33,16 @@ export interface VaultRagSettings {
   smartApplySuppressThinking: boolean;
   smartApplyMaxTokens: number;
   smartApplyDefaultMode: ApplyMode;
+  // Integrator (Spec 2026-09-07, §5)
+  integratorEnabled: boolean;
+  /** Pfad-Praefixe wie `exclude`. Leer = automatischer Ausloeser aus, nur Kommandos. */
+  integratorFolders: string[];
+  linkTarget: "section" | "frontmatter";
+  /** Wird UNUEBERSETZT in die Notiz geschrieben (dieselbe Grenze wie UEBRIG_HEADING). */
+  linkHeading: string;
+  linkField: string;
+  linkK: number;
+  linkMinSim: number;
   mcpEnabled: boolean;
   mcpPort: number;
   mcpToken: string;
@@ -138,6 +148,13 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   smartApplySuppressThinking: true,
   smartApplyMaxTokens: 4096,
   smartApplyDefaultMode: "deterministisch",
+  integratorEnabled: false,
+  integratorFolders: [],
+  linkTarget: "section",
+  linkHeading: "Verwandte Notizen",
+  linkField: "related",
+  linkK: 5,
+  linkMinSim: 0.5,
   mcpEnabled: false,
   mcpPort: 8123,
   mcpToken: "",

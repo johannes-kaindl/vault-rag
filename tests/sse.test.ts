@@ -49,6 +49,18 @@ describe("parseSSE", () => {
   it("finishReason ist undefined, solange nur null-Werte kamen", () => {
     expect(parseSSE('data: {"choices":[{"delta":{"content":"a"},"finish_reason":null}]}\n').finishReason).toBeUndefined();
   });
+  // code-kit 0.5.0: Reasoning kommt je nach Server unter drei Feldnamen. Unser Chat liest den
+  // Reasoning-Kanal (ChatClient.stream → streamSSE), die Varianten erreichen also die Oberfläche.
+  it("liest reasoning (MLX) und thinking als Reasoning-Delta", () => {
+    const r = parseSSE('data: {"choices":[{"delta":{"reasoning":"a"}}]}\ndata: {"choices":[{"delta":{"thinking":"b"}}]}\n');
+    expect(r.reasoning).toEqual(["a", "b"]);
+    expect(r.content).toEqual([]);
+  });
+  it("fällt auf choices[0].message zurück, wenn delta fehlt", () => {
+    const r = parseSSE('data: {"choices":[{"message":{"content":"voll","reasoning_content":"den"}}]}\n');
+    expect(r.content).toEqual(["voll"]);
+    expect(r.reasoning).toEqual(["den"]);
+  });
 });
 
 describe("streamSSE (XHR)", () => {

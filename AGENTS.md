@@ -839,6 +839,13 @@ gar nicht bis in die Oberfläche schafft.
   wirklich `null` liefert). Gemessen 2026-09-04: zwei Läufe der Reindex-Race-Messung meldeten
   ein Loch als **widerlegt**, das tatsächlich existiert — der Test hatte nie etwas gemessen.
   Aufgefallen ist es nur an einer Gegenprobe, die grün sein MUSSTE und es nicht war.
+- **`tests/i18n/keys.test.ts` sieht auch Backtick-Literale: `t(\`integrator.reason.${code}\`)` wird als
+  unbekannter Key `integrator.reason.${code}` gemeldet.** Der Wächter matcht jedes Anführungszeichen
+  inklusive Backtick und kann die Interpolation nicht auflösen. Idiom im Repo (seit 2026-09-07,
+  `integrator_panel.ts`/`main.ts`): den Key erst in eine `const` bauen, dann `t(key)` — das ist kein
+  Literal mehr. **Preis:** die Vollständigkeit der dynamischen Keys bewacht dann kein Wächter mehr;
+  dafür steht in `tests/integrator_panel.test.ts` ein Test, der jeden erreichbaren Code gegen `EN`
+  hält (als Handliste — die `Record<Kind, true>`-Form wäre die bessere, s. Task).
 - **`fileManager.processFrontMatter` schreibt den ganzen Block neu** — Kommentare weg, Formatierung
   fremder Felder umgeschrieben (mailstone hat es 2026-08-30 an einem echten Postfach gemessen, aus
   `to: [adresse]` wurde eine Blockliste). Der Integrator schreibt Frontmatter deshalb **zeilenweise**

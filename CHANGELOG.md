@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.32.0] — 2026-09-07
+
 ### Added
 - **Integrator (Stufe 1): Verlinkungs-Vorschläge mit Review-Inbox** — sechster Tab in der Sidebar
   (opt-in, Einstellung „Integrator aktivieren"). Für eine Notiz holt das Plugin die inhaltlich

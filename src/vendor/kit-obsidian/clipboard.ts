@@ -1,5 +1,5 @@
-// ONE mechanical deviation from verbatim: kit-internal imports of the code-kit layer → ../kit/ (vendor layout); reproduce on every re-vendor, nothing else may differ.
 // vendored from obsidian-kit@0.31.0, src/obsidian/clipboard.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// ONE mechanical deviation from verbatim: kit-internal imports of the code-kit layer → ../kit/ (vendor layout); reproduce on every re-vendor, nothing else may differ.
 /** Zwischenablage **mit Quittung**: bindet `writeClipboard` aus `pure/clipboard` an Obsidians
  *  `Notice`. Der Kopiervorgang selbst steht vollständig dort — hier liegt nur die Entscheidung,
  *  wann welche Meldung erscheint. Wer gar keine Notice will (Quittung am Knopf, stiller

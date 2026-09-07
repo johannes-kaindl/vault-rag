@@ -10,7 +10,7 @@ import { chatRequestModel, rowModel, migrateEndpointList, applyEndpointEdit, typ
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
-import { effectiveSystemPrompt, migrateSystemPrompt, migrateGlobalModels, stripLegacyGlobalModels } from "./settings_core";
+import { effectiveSystemPrompt, migrateSystemPrompt, migrateGlobalModels, stripLegacyGlobalModels, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
 import { withTimeout } from "./vendor/kit/timeout";
 import { EmbeddingClient } from "./embedder";
@@ -88,6 +88,7 @@ export default class VaultRagPlugin extends Plugin {
   /** Zuletzt gemeldete Modell-Guard-Übersprünge — verhindert Notice-Spam, weil
    *  `embedderReady()` den Resolver bei jedem fehlgeschlagenen Ping erneut anwirft. */
   private lastSkipNotice = "";
+  private lastNoModelNotice = "";
   private smartApply: SmartApply | null = null;
   private templateRanker?: TemplateRanker;
   private liveIndexer!: LiveIndexer;
@@ -211,7 +212,11 @@ export default class VaultRagPlugin extends Plugin {
     this.settings.chatEndpoints = migrateGlobalModels(this.settings.chatEndpoints, loaded?.chatModel);
     // mergeSettings kopiert unbekannte Alt-Schlüssel aus data.json mit (Object.assign kennt keine
     // Schemagrenze) — ohne diesen Schritt liefe die Migration bei JEDEM Start erneut (Docblock).
+    const hadLegacyGlobalModels = LEGACY_GLOBAL_MODEL_KEYS.some((k) => k in this.settings);
     stripLegacyGlobalModels(this.settings);
+    // sonst bleiben die Alt-Schlüssel bis zum nächsten beliebigen Speichern in data.json — die
+    // Migration ist idempotent, aber die CHANGELOG-Zusage "entfernt" wäre bis dahin unwahr.
+    if (hadLegacyGlobalModels) await this.saveSettings();
     // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
     // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
     const e0 = this.settings.embeddingEndpoints[0] ?? { url: "" };
@@ -461,8 +466,13 @@ export default class VaultRagPlugin extends Plugin {
         // andere Zeilen-Bearbeitung auch.
         setModel: (m: string) => {
           const eps = this.settings.chatEndpoints;
-          const i = eps.indexOf(this.chatEndpointInUse);
-          if (i < 0) return;   // kein aktiver Endpunkt in der Liste (leere Liste/Platzhalter) — nichts zu schreiben
+          // Identität zuerst, URL als Fallback: zwischen dem Kit-Listeneditor-Ersatz des ganzen
+          // Arrays (opts.set(copies)) und dem nächsten reconnect() kann `chatEndpointInUse` auf
+          // ein Objekt zeigen, das in `eps` keine Referenzgleichheit mehr hat, obwohl seine URL
+          // noch in der Liste steht — sonst würde die Auswahl in genau diesem Fenster verworfen.
+          const byIdentity = eps.indexOf(this.chatEndpointInUse);
+          const i = byIdentity >= 0 ? byIdentity : eps.findIndex((e) => e.url === this.chatEndpointInUse.url);
+          if (i < 0) return;   // leere Liste / Platzhalter-Endpunkt: nichts, worauf die Wahl zeigen koennte
           const updated = applyEndpointEdit(eps, i, "model", m, false);
           this.settings.chatEndpoints = updated;
           this.chatEndpointInUse = updated[i] ?? this.chatEndpointInUse;
@@ -541,14 +551,25 @@ export default class VaultRagPlugin extends Plugin {
     // Modell-Guard: ein Kandidat mit fremdem Embedding-Modell darf den geladenen Index NICHT
     // bedienen (anderer Vektorraum, stille Vergiftung) — er wird übersprungen, nicht genutzt.
     const indexModel = this.index?.manifest.embedding_model;
-    const fits = (cfg: EndpointConfig): boolean =>
-      embeddingModelMatchesIndex(rowModel(cfg), indexModel);
+    // Ein Modell-leerer Kandidat ("" — neue Zeile, Endpunkt noch nie erreichbar) ist von `fits`
+    // ausgeschlossen: `embeddingModelMatchesIndex("", undefined)` ist true, ein solcher Kandidat
+    // dürfte sonst aktiv werden und würde bei einem Reindex `embedding_model: ""` stempeln — ab
+    // dann ist der Guard für JEDEN Kandidaten dauerhaft aus (leer matcht immer).
+    const fits = (cfg: EndpointConfig): boolean => {
+      const model = rowModel(cfg);
+      return model !== "" && embeddingModelMatchesIndex(model, indexModel);
+    };
     let active: EndpointConfig | null = null;
     const skipped: string[] = [];
+    const ohneModell: string[] = [];
     for (const candidate of this.settings.embeddingEndpoints) {
       const url = candidate.url?.trim();
       if (!url) continue;
       const model = rowModel(candidate);
+      if (model === "") {
+        ohneModell.push(url);
+        continue;
+      }
       if (!fits(candidate)) {
         skipped.push(`„${url}" (Modell ${model})`);
         continue;
@@ -559,7 +580,8 @@ export default class VaultRagPlugin extends Plugin {
       }
     }
     // Auch die Rückfall-Verdrahtung respektiert den Guard: lieber ein passender, gerade nicht
-    // erreichbarer Endpunkt als ein erreichbarer aus dem falschen Vektorraum.
+    // erreichbarer Endpunkt als ein erreichbarer aus dem falschen Vektorraum (und nie ein
+    // Endpunkt ohne Modell — `fits` schließt das bereits aus).
     const cfg = active ?? this.settings.embeddingEndpoints.find(fits) ?? this.settings.embeddingEndpoints[0] ?? { url: "" };
     this.activeEmbeddingEndpoint = active ? normalizeEndpoint(cfg.url) : null;
     const m = rowModel(cfg);
@@ -568,7 +590,7 @@ export default class VaultRagPlugin extends Plugin {
     // Die DURCHSETZUNG des Modell-Schutzes hängt nicht hier, sondern an der Schreiboperation
     // (LiveIndexer.persist → assertModelSafeToPersist, Wahrheit aus dem Container auf Platte).
     // Der Skip oben ist reine Prävention: ein unpassender Endpunkt wird gar nicht erst aktiv.
-    this.noticeSkippedEmbeddingEndpoints(skipped, indexModel);
+    this.noticeSkippedEmbeddingEndpoints(skipped, ohneModell, indexModel);
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m);
     if (this.index) this.liveIndexer.init(this.index);
     else if (this.indexHealthy) this.liveIndexer.markFresh();
@@ -577,13 +599,24 @@ export default class VaultRagPlugin extends Plugin {
 
   /** Klartext-Meldung für Endpunkte, die der Modell-Guard übersprungen hat — im Wortlaut, damit
    *  der Nutzer versteht, warum sein externer Anbieter nicht greift. Enthält NIE den Schlüssel.
-   *  Wiederholt sich nicht: erst wenn sich die Menge der Übersprungenen ändert, kommt sie wieder. */
-  private noticeSkippedEmbeddingEndpoints(skipped: string[], indexModel: string | undefined): void {
+   *  Wiederholt sich nicht: erst wenn sich die Menge der Übersprungenen ändert, kommt sie wieder.
+   *  Zwei getrennte Ursachen, zwei Signaturen: Modell-Mismatch (`skipped`) und noch-kein-Modell
+   *  (`ohneModell`) sind verschiedene Befunde und dürfen sich beim Vergleich nicht überdecken. */
+  private noticeSkippedEmbeddingEndpoints(skipped: string[], ohneModell: string[], indexModel: string | undefined): void {
     const signature = skipped.join("|");
-    if (signature === this.lastSkipNotice) return;
-    this.lastSkipNotice = signature;
-    if (!skipped.length) return;
-    new Notice(t("main.embeddingEndpointSkipped", skipped.join(", "), indexModel ?? t("main.unknown")), 10000);
+    if (signature !== this.lastSkipNotice) {
+      this.lastSkipNotice = signature;
+      if (skipped.length) {
+        new Notice(t("main.embeddingEndpointSkipped", skipped.join(", "), indexModel ?? t("main.unknown")), 10000);
+      }
+    }
+    const noModelSignature = ohneModell.join("|");
+    if (noModelSignature !== this.lastNoModelNotice) {
+      this.lastNoModelNotice = noModelSignature;
+      if (ohneModell.length) {
+        new Notice(t("main.embeddingEndpointNoModel", ohneModell.join(", ")), 10000);
+      }
+    }
   }
 
   /** Nutzertext für eine Schreib-Blockade — egal ob geworfen (`persist`) oder vorab entschieden

@@ -948,6 +948,9 @@ async function vorbereiten(cdp: Cdp, modell: string): Promise<void> {
   const eps = await cdp.evaluate<{ url: string; model?: string; apiKey?: string }[]>(
     `return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.chatEndpoints`);
   await setPluginSetting(cdp, PLUGIN_ID, "chatEndpoints", eps.map((e, i) => i === 0 ? { ...e, model: modell } : e));
+  // setPluginSetting speichert nur; chatEndpointInUse zeigt noch auf die alte Zeile — erst der
+  // Resolver haengt den Client an die neue Zeile (und damit an das neue Modell).
+  await cdp.evaluate(`await app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].resolveAndReconnectChat(); return true;`);
   console.log(`   Chat-Modell (Zeile 1): ${modell}`);
 
   const start = await cdp.evaluate<boolean>(`

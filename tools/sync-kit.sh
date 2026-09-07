@@ -33,7 +33,8 @@ for pair in "$KIT|$KIT_REF|KIT_DIR" "$CODEKIT|$CODEKIT_REF|CODEKIT_DIR"; do
   dir=$(printf '%s' "$pair" | cut -d'|' -f1)
   ref=$(printf '%s' "$pair" | cut -d'|' -f2)
   var=$(printf '%s' "$pair" | cut -d'|' -f3)
-  test -d "$dir/.git" || { echo "sync-kit: kein git-Repo unter $dir — $var setzen. Nichts geschrieben." >&2; exit 1; }
+  git -C "$dir" rev-parse --git-dir >/dev/null 2>&1 \
+    || { echo "sync-kit: kein git-Repo unter $dir — $var setzen. Nichts geschrieben." >&2; exit 1; }
   git -C "$dir" rev-parse --verify --quiet "$ref^{commit}" >/dev/null \
     || { echo "sync-kit: Ref '$ref' gibt es in $dir nicht. Nichts geschrieben." >&2; exit 1; }
 done
@@ -67,15 +68,22 @@ relayer() {
   sed -e 's|\(["'"'"']\)\.\./vendor/code-kit/pure/|\1../kit/|g' \
       -e 's|\(["'"'"']\)\.\./vendor/code-kit/web/|\1../kit/|g' \
       -e 's|\(["'"'"']\)\.\./pure/|\1../kit/|g' "$f" > "$f.tmp"
-  if cmp -s "$f" "$f.tmp"; then rm -f "$f.tmp"; return 0; fi
+  changed=1
+  cmp -s "$f" "$f.tmp" && changed=0
   mv "$f.tmp" "$f"
+  # Laeuft fuer JEDE relayerte Datei, nicht nur bei geaendertem sed-Treffer — sonst entginge
+  # dem Guard genau der Fall, dass sed nichts traf, aber ein Kit-interner Pfad trotzdem drinsteht.
   if grep -qE '\.\./(vendor/code-kit/(pure|web)|pure)/' "$f"; then
     echo "sync-kit: Kit-interner Importpfad in $f nicht umgeschrieben — Muster pruefen" >&2; exit 1
   fi
+  [ "$changed" = 1 ] || return 0
   for dep in $(sed -n 's|.*from ["'"'"']\.\./kit/\([A-Za-z0-9_/-]*\)["'"'"'].*|\1|p' "$f" | sort -u); do
     [ -f "src/vendor/kit/$dep.ts" ] || { echo "sync-kit: $f importiert ../kit/$dep, aber src/vendor/kit/$dep.ts fehlt — mitvendorieren" >&2; exit 1; }
   done
-  printf '%s\n' "// ONE mechanical deviation from verbatim: kit-internal imports of the code-kit layer → ../kit/ (vendor layout); reproduce on every re-vendor, nothing else may differ." | cat - "$f" > "$f.tmp"
+  # Herkunfts-Header bleibt Zeile 1 (VENDOR.json sagt das explizit zu); die Abweichungs-Notiz
+  # wird als Zeile 2 eingefuegt, nicht vorangestellt.
+  note="// ONE mechanical deviation from verbatim: kit-internal imports of the code-kit layer → ../kit/ (vendor layout); reproduce on every re-vendor, nothing else may differ."
+  { head -n 1 "$f"; printf '%s\n' "$note"; tail -n +2 "$f"; } > "$f.tmp"
   mv "$f.tmp" "$f"
 }
 

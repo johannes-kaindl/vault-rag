@@ -189,7 +189,7 @@ settings.ts       ⚠️ **Der Endpunkt-Zeilen-Editor kommt seit 2026-09-06 aus 
                   Zeilen sind `control`-Definitionen, `get/setControlValue` liest/schreibt sie
                   (mit Coercion + Seiteneffekten wie refresh/setStatusBarVisible). Dynamische
                   Zeilen (Endpoint-Listen — pro Zeile URL + maskiertes API-Schlüssel-Feld +
-                  Modell-Override als Dropdown, ein „Zuerst verwenden"-Knopf (ab Zeile 2, bewusst
+                  Modell als Dropdown, ein „Zuerst verwenden"-Knopf (ab Zeile 2, bewusst
                   nicht gezeichnet statt deaktiviert an Platz 1 — ein `setDisabled`-Tooltip bleibt in
                   Electron unsichtbar) verschiebt die Zeile per `moveEndpointToFront` an die Spitze,
                   eine `okit-ep-state`-Zeile zeigt pro Endpunkt seine `endpointRole` (aktiv/
@@ -338,7 +338,7 @@ Das Prä-0.18-Tripel (`notes.i8`/`paths.json`/`manifest.json`) wird beim ersten 
 
 **Zwei Ablagen seit 2026-07-27 (workspace-weite Konvention):** `src/vendor/kit/` hält die
 **obsidian-freien** Module — seit dem code-kit-Split (obsidian-kit 0.28.0) aus **zwei Quellen**:
-`callout.ts`/`frontmatter.ts` kommen weiterhin aus **obsidian-kit** (0.31.0), die restlichen zehn
+`callout.ts`/`frontmatter.ts` kommen weiterhin aus **obsidian-kit** (0.31.0), die restlichen dreizehn
 (`clipboard.ts`, `endpoint.ts`, `endpoint_config.ts`, `endpoint_diagnostics.ts`, `error_body.ts`,
 `i18n.ts`, `model-choice.ts`, `model-list-cache.ts`, `reasoning.ts`, `settings.ts`, `sse.ts`,
 `think.ts`, `timeout.ts`) aus **code-kit** (0.5.0), das die pure-Schicht seither führt.
@@ -351,7 +351,7 @@ Updates nur per Neu-Kopie über `tools/sync-kit.sh`.
 tragen eine `VENDOR.json` (vorher hatte nur `kit-obsidian/` eine, in `kit/` stand der Pin je Datei
 in Zeile 1 — sechs verschiedene Versionen nebeneinander). Drei Eigenschaften des Skripts sind
 load-bearing, nicht kosmetisch:
-- **Es liest über `git show $REF:<pfad>`, nicht aus dem Arbeitsstand des Nachbar-Repos.**
+- **Es liest über `git show <ref>:<pfad>`, nicht aus dem Arbeitsstand des Nachbar-Repos.**
   obsidian-kit läuft weiter: seit 0.28.0 sind 23 `pure/`-Module nach `code-kit` gezogen, darunter
   `error_body` und `clipboard`. Ein `cp` aus dem Kit-Arbeitsverzeichnis liefert je nach dessen HEAD
   etwas anderes — oder gar nichts.
@@ -389,7 +389,7 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (1035 Tests, 68 Files)
+npm test                          # vitest run     (1039 Tests, 67 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit
@@ -449,6 +449,11 @@ Kit-Feld `EndpointStatus.klartext` ist **hart deutscher Text**, unabhängig von 
 eingestellten Sprache. Dieses Repo hat eine eigene i18n-Schicht (`src/i18n/`), umgeht sie
 an dieser Stelle aber. Gemessen 2026-08-16 im Consumer-Sweep über alle Repos mit
 gevendortem `endpoint_diagnostics.ts`.
+
+**`applyEndpointEdit` existiert zweimal — lokal (`src/endpoint_config.ts`, vom Chat-Panel
+genutzt) und vendored (`src/vendor/kit/endpoint_config.ts`, vom Kit-Listeneditor). Heute
+byte-gleich (gemessen 2026-09-07); driften sie, editieren Chat-Panel und Einstellungsliste
+dieselbe Liste nach verschiedenen Regeln. Zusammenlegen ist Kit-Arbeit.**
 
 **Fix-Muster:** eigene Statusschlüssel statt des Kit-Klartexts — `statusKindKey(kind)`
 bildet die Statusklasse auf einen i18n-Schlüssel ab, das Wörterbuch führt EN und DE
@@ -623,7 +628,7 @@ gar nicht bis in die Oberfläche schafft.
   Vektoren erzeugt:** Notiz-Count, Dimension und CRC bleiben in Ordnung, nur die
   Ähnlichkeitssuche wird still schlechter — und nur ein vollständiger Neuaufbau (`reason="reindex"`)
   heilt es. **Vorbeugend:** `resolveAndReconnectEmbedder` überspringt jeden Endpunkt-Kandidaten,
-  dessen (Override-)Modell nicht zu `this.index.manifest.embedding_model` passt
+  dessen Modell nicht zu `this.index.manifest.embedding_model` passt
   (`embeddingModelMatchesIndex`, `index_guard.ts`) — auch in der Rückfall-Verdrahtung, die sonst
   einen erreichbaren, aber falschen Kandidaten aktiv geschaltet hätte; nur wenn **kein** Kandidat
   passt, gewinnt trotzdem der erste (bewusster Modellwechsel), mit Notice.

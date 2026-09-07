@@ -408,6 +408,17 @@ async function main(): Promise<void> {
     record("status() ist synchron und meldet einen Index",
       probe.statusIsSync === true && probe.status?.indexed === true && (probe.status?.noteCount ?? 0) > 0,
       `indexed=${String(probe.status?.indexed)} · ${probe.status?.noteCount ?? 0} Notizen`);
+    // Regressionsschutz für den Abnahme-Befund vom 2026-09-07: der Kit-Merge kopiert unbekannte
+    // Schlüssel aus data.json, die Migration lief deshalb bei jedem Start erneut und füllte ein
+    // bewusst geleertes Zeilen-Modell wieder auf. Die pure Hälfte (`stripLegacyGlobalModels`)
+    // ist unit-getestet; dass sie in `onload` an der richtigen Stelle läuft, sieht nur dieser Punkt.
+    const legacyKeys = await main.evaluate<string[]>(`
+      const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+      return ["embeddingModel","chatModel"].filter(k => k in p.settings);
+    `);
+    record("Keine Alt-Schlüssel des globalen Modells in den Einstellungen",
+      legacyKeys.length === 0,
+      legacyKeys.length === 0 ? "Alt-Schlüssel: keine" : `Alt-Schlüssel: ${legacyKeys.join(", ")}`);
     record("related() liefert Treffer für eine indexierte Notiz",
       probe.related?.ok === true && (probe.related.hits?.length ?? 0) > 0,
       `${probe.relatedPath ?? "(keine Notiz geprüft)"} → ${probe.related?.ok ? `${probe.related.hits?.length ?? 0} Treffer` : `reason=${String(probe.related?.reason)}`}`);

@@ -16,11 +16,9 @@ export interface VaultRagSettings {
   hideIndexFolder: boolean;
   exclude: string[];
   embeddingEndpoints: EndpointConfig[];
-  embeddingModel: string;
   showStatusBar: boolean;
   debounceMs: number;
   chatEndpoints: EndpointConfig[];
-  chatModel: string;
   chatK: number;
   contextCharBudget: number;
   chatTemperature: number;
@@ -112,11 +110,9 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   hideIndexFolder: true,
   exclude: ["Templates/", "Archive/"],
   embeddingEndpoints: [{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }],
-  embeddingModel: "qwen3-embedding:8b",
   showStatusBar: false,
   debounceMs: 3000,
   chatEndpoints: [{ url: "http://localhost:1234", model: "qwen3" }],
-  chatModel: "qwen3",
   chatK: 5,
   contextCharBudget: 12000,
   chatTemperature: 0.7,

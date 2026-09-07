@@ -11,7 +11,7 @@ import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import { effectiveModel, describeEndpointRole, endpointStatusText, endpointWarningText } from "./endpoint_config";
+import { rowModel, describeEndpointRole, endpointStatusText, endpointWarningText } from "./endpoint_config";
 import { buildEndpointList as buildKitEndpointList, type EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
 import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelChoice } from "./model_choice";
@@ -47,8 +47,8 @@ export interface VaultRagPluginHost extends Plugin {
   readonly indexEmbeddingModel: string | undefined;
   embedder: EmbeddingClient;
   chatClient: ChatClient;
-  /** Modell, das Chat-Anfragen tatsächlich mitschicken (Zeilen-Override des aktiven
-   *  Endpunkts vor `settings.chatModel`) — siehe main.ts. */
+  /** Modell, das Chat-Anfragen tatsächlich mitschicken (Zeilen-Modell des aktiven
+   *  Endpunkts — seit 0.31.0 die einzige Quelle) — siehe main.ts. */
   chatModelInUse: string;
   activeEmbeddingEndpoint: string | null;
   activeChatEndpoint: string | null;
@@ -296,7 +296,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private embeddingGroup(): SettingDefinitionGroup {
     return { type: "group", heading: t("settings.embedding.group"), items: [
       { name: t("settings.embeddingEndpoints.label"), desc: "", render: this.renderEmbeddingEndpoints },
-      { name: t("settings.embeddingModel.name"), desc: t("settings.embeddingModel.desc"), render: this.renderEmbeddingModel },
       { name: t("settings.embeddingStatus.name"), desc: "", render: this.renderEmbeddingStatus },
       { name: t("settings.embedding.debounce.name"), desc: t("settings.embedding.debounce.desc"),
         control: { type: "slider", key: "debounceMs", min: 500, max: 10000, step: 500,
@@ -355,7 +354,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private chatGroup(): SettingDefinitionGroup {
     return { type: "group", heading: t("settings.chat.group"), items: [
       { name: t("settings.chatEndpoints.label"), desc: "", render: this.renderChatEndpoints },
-      { name: t("settings.chatModel.name"), desc: t("settings.chatModel.desc"), render: this.renderChatModel },
       { name: t("settings.modelDetails.name"), desc: "", render: this.renderModelDetails },
       { name: t("settings.capabilities.name"), desc: "", render: this.renderCapsRow },
       { name: t("settings.chat.contextNotes.name"), desc: t("settings.chat.contextNotes.desc"),
@@ -425,41 +423,12 @@ export class VaultRagSettingTab extends PluginSettingTab {
       get: () => this.plugin.settings.embeddingEndpoints,
       set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
       active: () => this.plugin.activeEmbeddingEndpoint,
-      clientFor: (cfg) => new EmbeddingClient(cfg.url, effectiveModel(cfg, this.plugin.settings.embeddingModel), cfg.apiKey),
-      globalModel: () => this.plugin.settings.embeddingModel,
-      modelFits: (cfg) => embeddingModelMatchesIndex(
-        effectiveModel(cfg, this.plugin.settings.embeddingModel),
-        this.plugin.indexEmbeddingModel,
-      ),
+      clientFor: (cfg) => new EmbeddingClient(cfg.url, rowModel(cfg), cfg.apiKey),
+      modelFits: (cfg) => embeddingModelMatchesIndex(rowModel(cfg), this.plugin.indexEmbeddingModel),
       save: () => this.plugin.saveSettings(),
       reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
       rerender: () => this.refreshUi(),
       presets: ENDPOINT_PRESETS,
-    });
-  };
-
-  /** render-Hatch: Embedding-Modell. Zeichnet über den gemeinsamen Picker. */
-  private renderEmbeddingModel = (setting: Setting): void => {
-    const host = settingBodyHost(setting);
-    const s = new Setting(host).setName(t("settings.embeddingModel.name")).setDesc(t("settings.embeddingModel.desc"));
-    const key = this.plugin.activeEmbeddingEndpoint ?? "";
-    const gen = this.modelCache.generation();
-    void this.modelCache.load(key, this.plugin.embedder).then(({ models, reachable }) => {
-      if (gen !== this.modelCache.generation()) return;   // verspätete Antwort — Zeile ist tot
-      this.renderModelPicker({
-        setting: s,
-        choice: resolveModelChoice({
-          reachable, models, current: this.plugin.settings.embeddingModel, allowEmpty: false,
-        }),
-        ariaLabel: t("settings.embeddingModel.name"),
-        placeholder: "qwen3-embedding:8b",   // i18n-exempt: Modellname-Beispiel, sprachneutral
-        onPick: (v: string) => {
-          this.plugin.settings.embeddingModel = v;
-          void this.plugin.saveSettings();
-          void this.plugin.resolveAndReconnectEmbedder();
-        },
-        onRefresh: () => { this.modelCache.invalidate(key); this.refreshUi(); },
-      });
     });
   };
 
@@ -647,8 +616,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       get: () => this.plugin.settings.chatEndpoints,
       set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
       active: () => this.plugin.activeChatEndpoint,
-      clientFor: (cfg) => new ChatClient(cfg.url, effectiveModel(cfg, this.plugin.settings.chatModel), cfg.apiKey),
-      globalModel: () => this.plugin.settings.chatModel,
+      clientFor: (cfg) => new ChatClient(cfg.url, rowModel(cfg), cfg.apiKey),
       // KEIN modelFits: an einem Chat-Endpunkt haengt kein Index, ein Modellwechsel ist dort
       // folgenlos. Der Kit-Vertrag liest das Fehlen als „passt immer".
       save: () => this.plugin.saveSettings(),
@@ -658,55 +626,23 @@ export class VaultRagSettingTab extends PluginSettingTab {
     });
   };
 
-  /** render-Hatch: Chat-Modell. Löst zusätzlich showInfo/showCaps aus — die schreiben in
-   *  infoValue/lastCaps, gelesen von den render-Hatches Modelldetails/Fähigkeiten
-   *  (Cross-Referenz über Render-State, kein direkter Aufruf). */
-  private renderChatModel = (setting: Setting): void => {
-    const host = settingBodyHost(setting);
-    const s = new Setting(host).setName(t("settings.chatModel.name")).setDesc(t("settings.chatModel.desc"));
-    const key = this.plugin.activeChatEndpoint ?? "";
-    const gen = this.modelCache.generation();
-    void this.modelCache.load(key, this.plugin.chatClient).then(({ models, reachable }) => {
-      // Modelldetails/Fähigkeiten sind eigene Zeilen und laut Plan unabhängig von der
-      // Modell-Auswahl-Zeile selbst — sie laufen deshalb VOR dem Generations-Guard, sonst
-      // blieben beide Zeilen bei einer verworfenen Generation leer statt sich zu befüllen.
-      this.showInfo(this.plugin.settings.chatModel);
-      this.showCaps(this.plugin.settings.chatModel);
-      if (gen !== this.modelCache.generation()) return;
-      this.renderModelPicker({
-        setting: s,
-        choice: resolveModelChoice({
-          reachable, models, current: this.plugin.settings.chatModel, allowEmpty: false,
-        }),
-        ariaLabel: t("settings.chatModel.name"),
-        placeholder: "qwen3",   // i18n-exempt: Modellname-Beispiel, sprachneutral
-        onPick: (v: string) => {
-          this.plugin.settings.chatModel = v;
-          void this.plugin.saveSettings();
-          void this.plugin.resolveAndReconnectChat();
-          this.showInfo(v);
-          this.showCaps(v);
-        },
-        onRefresh: () => { this.modelCache.invalidate(key); this.refreshUi(); },
-      });
-    });
-  };
-
-  /** render-Hatch: Modelldetails-Zeile. Setzt infoValue, das showInfo() (aus renderChatModel)
-   *  asynchron befüllt. */
+  /** render-Hatch: Modelldetails-Zeile. Befüllt sich selbst über showInfo() mit dem Modell,
+   *  das eine echte Anfrage bekäme (chatModelInUse) — seit 0.31.0 gibt es keine Chat-Modell-
+   *  Zeile mehr, die das anstieß; eine Modelländerung in der Endpunkt-Zeile löst über deren
+   *  `rerender` einen Neuaufbau aus und damit diesen Hatch. */
   private renderModelDetails = (setting: Setting): void => {
     const host = settingBodyHost(setting);
     const s = new Setting(host).setName(t("settings.modelDetails.name"));
     this.infoValue = s.controlEl.createSpan({ cls: "vault-rag-info-value", text: t("settings.loadingPlaceholder") });
+    this.showInfo(this.plugin.chatModelInUse);
   };
 
-  /** render-Hatch: Fähigkeiten-Zeile. Setzt capSetting, das showCaps() (renderChatModel) und
-   *  runThinkingTest() bei einer Caps-Upgrade re-rendern. */
   private renderCapsRow = (setting: Setting): void => {
     const host = settingBodyHost(setting);
     const s = new Setting(host).setName(t("settings.capabilities.name"));
     this.capSetting = s;
     this.renderCaps(s, this.lastCaps);
+    this.showCaps(this.plugin.chatModelInUse);
   };
 
   /** render-Hatch: Kontext-Budget-Slider. Bleibt render-Hatch (nicht deklarativ), weil die
@@ -779,9 +715,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  deklarativ). Ohne Button-Disable-Handling — Rückmeldung nur noch über Notice. Bei
    *  bestätigtem Thinking-Nachweis: Caps hochstufen + Fähigkeiten-Zeile neu zeichnen. */
   private async runThinkingTest(): Promise<void> {
-    // Getestet wird das Modell, das eine echte Anfrage bekäme — bei aktivem Endpunkt mit
-    // Zeilen-Override ist das nicht `settings.chatModel`, und ein Test gegen den anderen
-    // Namen liefe ins Leere („Endpoint nicht erreichbar" statt eines Thinking-Befunds).
+    // Getestet wird das Modell, das eine echte Anfrage bekäme (chatModelInUse) — ein Test
+    // gegen einen anderen Namen liefe ins Leere („Endpoint nicht erreichbar" statt eines
+    // Thinking-Befunds).
     const model = this.plugin.chatModelInUse;
     if (isAlwaysOnThinker(model)) { new Notice(t("settings.thinkerAlwaysOn")); return; }
     try {
@@ -835,8 +771,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
       ariaAdd: t("settings.endpointRow.ariaAdd", label),
       ariaApiKey: (url: string) => t("settings.endpoint.keyAria", url),
       ariaModel: (url: string) => t("settings.endpoint.modelAria", url),
-      emptyModelLabel: (globalModel: string) =>
-        t("settings.endpoint.emptyModelLabel", globalModel || t("settings.endpoint.notSet")),
       // Der Kit-Picker liefert einen sprachfreien Schlüssel statt eines fertigen Satzes —
       // dieselbe Regel, nach der unsere eigenen Diagnose-Funktionen Codes liefern.
       modelHint: (key) => key === "unreachable" ? t("modelChoice.hintUnreachable")

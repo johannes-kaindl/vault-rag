@@ -6,11 +6,11 @@ import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
-import { chatRequestModel, effectiveModel, migrateEndpointList, type EndpointConfig } from "./endpoint_config";
+import { chatRequestModel, rowModel, migrateEndpointList, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
-import { effectiveSystemPrompt, migrateSystemPrompt } from "./settings_core";
+import { effectiveSystemPrompt, migrateSystemPrompt, migrateGlobalModels } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
 import { withTimeout } from "./vendor/kit/timeout";
 import { EmbeddingClient } from "./embedder";
@@ -189,6 +189,7 @@ export default class VaultRagPlugin extends Plugin {
     const loaded = await this.loadData() as (Omit<Partial<VaultRagSettings>, "embeddingEndpoints" | "chatEndpoints"> & {
       embeddingEndpoint?: string; chatEndpoint?: string;
       embeddingEndpoints?: (string | EndpointConfig)[]; chatEndpoints?: (string | EndpointConfig)[];
+      embeddingModel?: string; chatModel?: string;
     }) | null;
     this.settings = mergeSettings(DEFAULT_SETTINGS, loaded as Partial<VaultRagSettings> | null);
     // Migration: der Prä-0.26-Chat-System-Prompt war hart deutsch und wurde beim ersten
@@ -203,11 +204,16 @@ export default class VaultRagPlugin extends Plugin {
     // in die Modul-Defaults.
     if (!this.settings.embeddingEndpoints.length) this.settings.embeddingEndpoints = DEFAULT_SETTINGS.embeddingEndpoints.map(c => ({ ...c }));
     if (!this.settings.chatEndpoints.length) this.settings.chatEndpoints = DEFAULT_SETTINGS.chatEndpoints.map(c => ({ ...c }));
+    // Migration (0.31.0): das globale Modellfeld ist entfallen — der alte Wert wandert in jede
+    // Zeile ohne eigenes Modell. Läuft NACH dem Default-Fallback, damit ein leeres data.json
+    // die Default-Zeile (die ihr Modell schon trägt) nicht überschreibt.
+    this.settings.embeddingEndpoints = migrateGlobalModels(this.settings.embeddingEndpoints, loaded?.embeddingModel);
+    this.settings.chatEndpoints = migrateGlobalModels(this.settings.chatEndpoints, loaded?.chatModel);
     // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
     // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
     const e0 = this.settings.embeddingEndpoints[0] ?? { url: "" };
     const c0 = this.settings.chatEndpoints[0] ?? { url: "" };
-    this.embeddingModelInUse = effectiveModel(e0, this.settings.embeddingModel);
+    this.embeddingModelInUse = rowModel(e0);
     this.embedder = new EmbeddingClient(e0.url, this.embeddingModelInUse, e0.apiKey);
     this.chatEndpointInUse = c0;
     this.chatClient = new ChatClient(c0.url, this.chatModelInUse, c0.apiKey);
@@ -440,8 +446,10 @@ export default class VaultRagPlugin extends Plugin {
         copyText: (text: string) => { void copyToClipboard(text, { copiedMessage: t("main.copied"), failedMessage: t("main.copyFailed") }); },
         ping: () => this.chatReady(),
         listModels: () => this.chatClient.listModels(),
-        getModel: () => this.settings.chatModel,
-        setModel: (m: string) => { this.settings.chatModel = m; void this.saveSettings(); },
+        getModel: () => this.chatModelInUse,
+        // Kein globales Feld mehr: eine Auswahl aus diesem Dropdown schreibt direkt in die
+        // Zeile des aktiven Chat-Endpunkts (dieselbe Config-Instanz wie in settings.chatEndpoints).
+        setModel: (m: string) => { this.chatEndpointInUse.model = m; void this.saveSettings(); },
         inputPosition: () => this.settings.chatInputPosition,
         getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
         embed: async (q) => {
@@ -474,7 +482,7 @@ export default class VaultRagPlugin extends Plugin {
         },
         listModels: () => this.chatClient.listModels(),
         ping: () => this.chatReady(),
-        getModel: () => this.settings.smartApplyModel || this.settings.chatModel,
+        getModel: () => this.smartApplyModelInUse,
         setModel: (m: string) => { this.settings.smartApplyModel = m; void this.saveSettings(); },
         rankTemplates: (notePath: string): Promise<TemplateRank[]> => this.templateRanker!.rank(notePath),
         getSuppress: () => this.settings.smartApplySuppressThinking,
@@ -516,13 +524,13 @@ export default class VaultRagPlugin extends Plugin {
     // bedienen (anderer Vektorraum, stille Vergiftung) — er wird übersprungen, nicht genutzt.
     const indexModel = this.index?.manifest.embedding_model;
     const fits = (cfg: EndpointConfig): boolean =>
-      embeddingModelMatchesIndex(effectiveModel(cfg, this.settings.embeddingModel), indexModel);
+      embeddingModelMatchesIndex(rowModel(cfg), indexModel);
     let active: EndpointConfig | null = null;
     const skipped: string[] = [];
     for (const candidate of this.settings.embeddingEndpoints) {
       const url = candidate.url?.trim();
       if (!url) continue;
-      const model = effectiveModel(candidate, this.settings.embeddingModel);
+      const model = rowModel(candidate);
       if (!fits(candidate)) {
         skipped.push(`„${url}" (Modell ${model})`);
         continue;
@@ -536,7 +544,7 @@ export default class VaultRagPlugin extends Plugin {
     // erreichbarer Endpunkt als ein erreichbarer aus dem falschen Vektorraum.
     const cfg = active ?? this.settings.embeddingEndpoints.find(fits) ?? this.settings.embeddingEndpoints[0] ?? { url: "" };
     this.activeEmbeddingEndpoint = active ? normalizeEndpoint(cfg.url) : null;
-    const m = effectiveModel(cfg, this.settings.embeddingModel);
+    const m = rowModel(cfg);
     this.embeddingModelInUse = m;
     this.embedder = new EmbeddingClient(cfg.url, m, cfg.apiKey);
     // Die DURCHSETZUNG des Modell-Schutzes hängt nicht hier, sondern an der Schreiboperation
@@ -581,7 +589,7 @@ export default class VaultRagPlugin extends Plugin {
     for (const candidate of this.settings.chatEndpoints) {
       const url = candidate.url?.trim();
       if (!url) continue;
-      if (await new ChatClient(url, effectiveModel(candidate, this.settings.chatModel), candidate.apiKey).ping()) {
+      if (await new ChatClient(url, rowModel(candidate), candidate.apiKey).ping()) {
         active = candidate;
         break;
       }
@@ -598,15 +606,12 @@ export default class VaultRagPlugin extends Plugin {
    *  Modellname raus (HTTP 400 ohne erkennbare Ursache). Getter statt Feld: eine Modellauswahl
    *  im Dropdown wirkt so sofort, ohne Re-Resolve. */
   get chatModelInUse(): string {
-    return chatRequestModel(this.chatEndpointInUse, "", this.settings.chatModel);
+    return chatRequestModel(this.chatEndpointInUse);
   }
 
-  /** Wie `chatModelInUse`, nur mit Smart Applys eigenem Modellfeld als Zwischenstufe:
-   *  `smartApplyModel` gilt gegenüber dem globalen Chat-Modell, unterliegt aber dem
-   *  Zeilen-Override des aktiven Endpunkts (dessen Modellnamen sind die einzigen, die dort
-   *  garantiert existieren). */
+  /** `smartApplyModel` schlägt das Zeilen-Modell (E1); Preis siehe `chatRequestModel`. */
   private get smartApplyModelInUse(): string {
-    return chatRequestModel(this.chatEndpointInUse, this.settings.smartApplyModel, this.settings.chatModel);
+    return chatRequestModel(this.chatEndpointInUse, this.settings.smartApplyModel);
   }
 
   /** Embedding-Modell des geladenen Index — für den Modell-Guard der Einstellungs-UI.

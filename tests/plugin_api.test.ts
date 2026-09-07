@@ -189,4 +189,8 @@ describe("Plugin-API — Integrator", () => {
   it("apiVersion bleibt 1 — Felder kamen dazu, die Form blieb", () => {
     expect(api().apiVersion).toBe(1);
   });
+  it("proposeLinks liefert not-indexed als Wert, nie als Ausnahme", async () => {
+    const r = await api({}, () => false, port({ propose: async () => ({ kind: "not-indexed" }) })).proposeLinks("weg.md");
+    expect(r).toEqual({ ok: false, reason: "not-indexed" });
+  });
 });

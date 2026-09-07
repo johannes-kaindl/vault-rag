@@ -251,7 +251,11 @@ export default class VaultRagPlugin extends Plugin {
       () => this.embeddingProgress.reindex !== null,
       {
         enabled: () => this.settings.integratorEnabled,
-        propose: async (p) => proposeLinks(p, await this.app.vault.adapter.read(p), this.proposeDeps()),
+        propose: async (p) => {
+          let text: string;
+          try { text = await this.app.vault.adapter.read(p); } catch { return { kind: "not-indexed" }; }
+          return proposeLinks(p, text, this.proposeDeps());
+        },
         apply: (p, tgt) => this.applyLinkNow(p, tgt),
       },
     );

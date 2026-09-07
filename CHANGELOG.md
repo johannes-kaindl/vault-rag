@@ -14,6 +14,9 @@ All notable changes to this project are documented here. The format follows
   Endpunkt, der ihn meldet — „globales Modell plus Override je Zeile" war dieselbe Information
   an zwei Orten mit einer Vorrangregel obendrauf. Die Endpunkt-Beschreibung und die Doku sagen
   nicht mehr „leer heißt globales Modell".
+  - Die alten Schlüssel werden nach der Migration aus den Einstellungen entfernt; sonst liefe
+    sie bei jedem Start erneut und füllte ein bewusst geleertes Zeilen-Modell wieder auf (am
+    laufenden Plugin gemessen).
 - **Vendor-Schicht auf code-kit 0.5.0 / obsidian-kit 0.31.0** (vorher obsidian-kit 0.27.0). Acht
   der 15 pure-Module gibt es in obsidian-kit nicht mehr, `tools/sync-kit.sh` liest sie jetzt
   direkt aus code-kit. Was uns davon erreicht: der Chat versteht Reasoning-Deltas auch unter

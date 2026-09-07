@@ -263,9 +263,11 @@ plugin_api.ts     Öffentlicher Vertrag für ANDERE Obsidian-Plugins, hängt als
 settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings (embeddingEndpoints/
                   chatEndpoints als EndpointConfig[]) · DEFAULT_SETTINGS · migrateGlobalModels
                   (Prä-0.31-Altwert der entfallenen globalen Modell-Felder in die Zeilen, die noch
-                  kein eigenes Modell tragen — Zeilen mit Modell bleiben unberührt) — die
-                  Endpunkt-Helfer liegen in endpoint_config.ts und werden von dort importiert,
-                  nicht hier durchgereicht. Vom MCP-Server direkt importiert.
+                  kein eigenes Modell tragen — Zeilen mit Modell bleiben unberührt) ·
+                  `stripLegacyGlobalModels` räumt die Alt-Schlüssel nach der Migration, sonst
+                  liefe sie bei jedem Start erneut — die Endpunkt-Helfer liegen in
+                  endpoint_config.ts und werden von dort importiert, nicht hier durchgereicht.
+                  Vom MCP-Server direkt importiert.
 mcp/              In-Plugin HTTP-MCP-Server (Loopback, `/mcp`, StreamableHTTP): `http_server.ts` ·
                   `register_tools.ts` · `tools.ts` (dünner Adapter über RetrievalFacade) · `auth.ts`.
                   Kein Node-Adapter/kein stdio mehr.

@@ -799,38 +799,62 @@ async function main(): Promise<void> {
       skipped("Die nach oben geholte Zeile trägt keinen Prioritäts-Knopf mehr", grund);
     }
 
-    // --- 7. Rolle folgt dem Modell-Override --------------------------------
+    // --- 7. Rolle folgt dem Zeilen-Modell -----------------------------------
     // Regressionsschutz für eine Fehlerklasse, die zweimal auftrat: die Zustandszeile ist
     // ein Schnappschuss. Ein Modell-Commit ändert die Rolle (`skipped-model`), löst aber
     // bewusst kein Neuzeichnen aus — ohne Nachziehen behauptet die Zeile weiter, der
-    // Endpunkt stünde nur hinten an, während der Guard ihn längst überspringt.
-    const overrideRow = withState.find(r => r.listIndex === 0 && r.modelValue);
-    if (overrideRow) {
-      const original = overrideRow.modelValue as string;
-      const rowIndex = overrideRow.index;
-      const setModel = async (value: string): Promise<string | null> => {
-        await settings!.evaluate(`
-          const row = [...document.querySelectorAll(".okit-ep-row")][${rowIndex}];
-          const sel = row.querySelector("select");
-          if (!sel) throw new Error("Kein Modell-Dropdown in der Zeile");
-          sel.value = ${JSON.stringify("__V__")};
-          sel.dispatchEvent(new Event("change"));
-          await new Promise(r => setTimeout(r, 4000));
-        `.replace("__V__", value));
-        const rows2 = await readRowsSettled();
-        return rows2[rowIndex]?.state ?? null;
-      };
-      const withoutOverride = await setModel("");
-      const withOverride = await setModel(original);
-      record(
-        "Rolle folgt dem Modell-Override ohne Tab-Neuaufbau",
-        // Gegen das Woerterbuch der LAUFENDEN Oberflaeche, nicht gegen festes Deutsch — dieselbe
-        // Fehlerklasse wie der Sprachbefund vom 2026-08-30 (drei falsch-rote Zustandstexte).
-        withoutOverride !== withOverride && withOverride === L.skippedModel,
-        `ohne Override „${withoutOverride}" · mit Override „${withOverride}"`,
-      );
+    // Endpunkt stünde nur hinten an, während der Guard ihn längst überspringt. Seit jede
+    // Zeile ihr Modell traegt (kein globalModel/allowEmpty mehr, siehe endpoint-list),
+    // wird nicht mehr ein Override entfernt, sondern auf ein ANDERES gelistetes Modell
+    // gewechselt — dieselbe Bauart, nur ohne die inzwischen nicht mehr existierende
+    // Leer-Option im Dropdown.
+    const modelRow = withState.find(r => r.listIndex === 0 && r.modelValue);
+    if (modelRow) {
+      const original = modelRow.modelValue as string;
+      const rowIndex = modelRow.index;
+      const options = await settings!.evaluate<string[]>(`
+        const row = [...document.querySelectorAll(".okit-ep-row")][${rowIndex}];
+        const sel = row.querySelector("select");
+        return sel ? [...sel.options].map(o => o.value) : [];
+      `);
+      const other = options.find(v => v && v !== original);
+      if (other === undefined) {
+        skipped("Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau", "Endpunkt listet nur ein Modell — kein Wechsel möglich");
+      } else {
+        const setModel = async (value: string): Promise<string | null> => {
+          await settings!.evaluate(`
+            const row = [...document.querySelectorAll(".okit-ep-row")][${rowIndex}];
+            const sel = row.querySelector("select");
+            if (!sel) throw new Error("Kein Modell-Dropdown in der Zeile");
+            sel.value = ${JSON.stringify("__V__")};
+            sel.dispatchEvent(new Event("change"));
+            await new Promise(r => setTimeout(r, 4000));
+          `.replace("__V__", value));
+          const rows2 = await readRowsSettled();
+          return rows2[rowIndex]?.state ?? null;
+        };
+        let withOther: string | null = null;
+        let withOriginal: string | null = null;
+        try {
+          withOther = await setModel(other);
+          withOriginal = await setModel(original);
+        } finally {
+          // Zeile IMMER auf das Original zurückstellen, auch wenn ein setModel oben wirft —
+          // sonst hinterlässt ein fehlgeschlagener Lauf einen fremden Modellnamen in der
+          // Konfiguration des Nutzers.
+          const rows3 = await readRowsSettled();
+          if (rows3[rowIndex]?.modelValue !== original) await setModel(original);
+        }
+        record(
+          "Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau",
+          // Gegen das Woerterbuch der LAUFENDEN Oberflaeche, nicht gegen festes Deutsch — dieselbe
+          // Fehlerklasse wie der Sprachbefund vom 2026-08-30 (drei falsch-rote Zustandstexte).
+          withOther === L.skippedModel && withOriginal !== L.skippedModel,
+          `mit fremdem Modell „${withOther}" · zurück „${withOriginal}"`,
+        );
+      }
     } else {
-      skipped("Rolle folgt dem Modell-Override ohne Tab-Neuaufbau", "kein Embedding-Endpunkt mit Override konfiguriert");
+      skipped("Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau", "kein Embedding-Endpunkt mit Modell konfiguriert");
     }
 
     // --- 7b. llm-lab-Meldestrecke (KONSUMENTEN-Seite) -----------------------

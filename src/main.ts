@@ -10,7 +10,7 @@ import { chatRequestModel, rowModel, migrateEndpointList, applyEndpointEdit, typ
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
-import { effectiveSystemPrompt, migrateSystemPrompt, migrateGlobalModels } from "./settings_core";
+import { effectiveSystemPrompt, migrateSystemPrompt, migrateGlobalModels, stripLegacyGlobalModels } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
 import { withTimeout } from "./vendor/kit/timeout";
 import { EmbeddingClient } from "./embedder";
@@ -209,6 +209,9 @@ export default class VaultRagPlugin extends Plugin {
     // die Default-Zeile (die ihr Modell schon trägt) nicht überschreibt.
     this.settings.embeddingEndpoints = migrateGlobalModels(this.settings.embeddingEndpoints, loaded?.embeddingModel);
     this.settings.chatEndpoints = migrateGlobalModels(this.settings.chatEndpoints, loaded?.chatModel);
+    // mergeSettings kopiert unbekannte Alt-Schlüssel aus data.json mit (Object.assign kennt keine
+    // Schemagrenze) — ohne diesen Schritt liefe die Migration bei JEDEM Start erneut (Docblock).
+    stripLegacyGlobalModels(this.settings);
     // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
     // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
     const e0 = this.settings.embeddingEndpoints[0] ?? { url: "" };

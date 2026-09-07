@@ -103,6 +103,17 @@ export function migrateGlobalModels(eps: EndpointConfig[], legacyGlobal: string 
   return eps.map(e => (e.model?.trim() ? { ...e } : { ...e, model: global }));
 }
 
+/** Prä-0.31-Schlüssel, die `mergeSettings` aus einer alten data.json mitkopiert (Object.assign
+ *  kennt keine Schemagrenze). Nach `migrateGlobalModels` gehören sie weg — sonst liefe die
+ *  Migration bei JEDEM Start erneut und füllte ein bewusst geleertes Zeilen-Modell still wieder
+ *  aus dem Altwert. Gemessen 2026-09-07 am laufenden Plugin. */
+export const LEGACY_GLOBAL_MODEL_KEYS = ["embeddingModel", "chatModel"] as const;
+export function stripLegacyGlobalModels<T extends object>(settings: T): T {
+  const s = settings as Record<string, unknown>;
+  for (const k of LEGACY_GLOBAL_MODEL_KEYS) delete s[k];
+  return settings;
+}
+
 export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
   minSim: 0.3,

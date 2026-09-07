@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { splitExcludePaths, normalizeTemplateDir, DEFAULT_SETTINGS, migrateGlobalModels } from "../src/settings_core";
+import { splitExcludePaths, normalizeTemplateDir, DEFAULT_SETTINGS, migrateGlobalModels, stripLegacyGlobalModels } from "../src/settings_core";
+import { mergeSettings } from "../src/vendor/kit/settings";
 
 describe("DEFAULT_SETTINGS Endpunkte", () => {
   it("Default-Endpunkte tragen ihr Modell in der Zeile (E2: Erstinstallation wie vorher)", () => {
@@ -30,6 +31,24 @@ describe("migrateGlobalModels — Prä-0.31 globales Modellfeld in die Zeilen zi
   it("gemischte Liste: nur die leeren Zeilen werden gefüllt", () => {
     expect(migrateGlobalModels([{ url: "a" }, { url: "b", model: "x" }, { url: "c", apiKey: "k" }], "g"))
       .toEqual([{ url: "a", model: "g" }, { url: "b", model: "x" }, { url: "c", apiKey: "k", model: "g" }]);
+  });
+});
+
+describe("stripLegacyGlobalModels — Alt-Schlüssel raus, sonst liefe die Migration bei jedem Start erneut", () => {
+  it("entfernt genau embeddingModel/chatModel, behält andere Felder", () => {
+    const obj = { k: 20, embeddingModel: "alt-embed", chatModel: "alt-chat" };
+    expect(stripLegacyGlobalModels(obj)).toEqual({ k: 20 });
+  });
+
+  it("ein Objekt ohne die Alt-Schlüssel bleibt unverändert", () => {
+    const obj = { k: 20 };
+    expect(stripLegacyGlobalModels(obj)).toEqual({ k: 20 });
+  });
+
+  it("Ende-zu-Ende: mergeSettings kopiert den Alt-Schlüssel, stripLegacyGlobalModels räumt ihn wieder weg", () => {
+    const merged = stripLegacyGlobalModels(mergeSettings(DEFAULT_SETTINGS, { chatModel: "alt", k: 9 } as Partial<typeof DEFAULT_SETTINGS>));
+    expect("chatModel" in merged).toBe(false);
+    expect(merged.k).toBe(9);
   });
 });
 

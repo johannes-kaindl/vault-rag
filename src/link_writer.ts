@@ -63,3 +63,84 @@ export function appendSectionLink(text: string, heading: string, path: string): 
   lines.splice(insertAt, 0, `- ${link}`);
   return { ok: true, changed: true, content: lines.join(eol) };
 }
+
+// readFm/scanEntries-Semantik uebernommen aus mailstone/src/core/merge/merge.ts, 2026-09-07
+// (dort setFrontmatterField; hier auf "einen Listeneintrag anhaengen" zugeschnitten).
+// Warum zeilenweise statt fileManager.processFrontMatter: die API liest den Block als YAML und
+// schreibt ihn KOMPLETT neu — Kommentare weg, Formatierung fremder Felder umgeschrieben
+// (mailstone, gemessen 2026-08-30). Hier bleibt jede nicht betroffene Zeile byte-identisch.
+const FM_RE = /^(---\r?\n)([\s\S]*?)(\r?\n---[ \t]*\r?\n?)/;
+const KEY_RE = /^([A-Za-z0-9_][\w .-]*?):[ \t]*(.*)$/;
+const CONT_RE = /^([ \t]|-[ \t])/;
+const ITEM_RE = /^([ \t]*)-[ \t]+(.*)$/;
+
+interface FmEntry { start: number; end: number; rest: string }
+
+function scanEntries(lines: string[]): Map<string, FmEntry> {
+  const out = new Map<string, FmEntry>();
+  let i = 0;
+  while (i < lines.length) {
+    const kv = KEY_RE.exec(lines[i] ?? "");
+    if (!kv) { i++; continue; }
+    let j = i + 1;
+    while (j < lines.length && CONT_RE.test(lines[j] ?? "")) j++;
+    const key = (kv[1] ?? "").trim();
+    if (!out.has(key)) out.set(key, { start: i, end: j, rest: (kv[2] ?? "").trim() });
+    i = j;
+  }
+  return out;
+}
+
+function unquoteItem(raw: string): string {
+  const s = raw.trim();
+  if (s.length >= 2 && ((s[0] === '"' && s.endsWith('"')) || (s[0] === "'" && s.endsWith("'")))) return s.slice(1, -1);
+  return s;
+}
+
+function quoteLike(sample: string, value: string): string {
+  const s = sample.trim();
+  if (s.startsWith("'")) return `'${value.replace(/'/g, "''")}'`;
+  return `"${value.replace(/"/g, '\\"')}"`;
+}
+
+export function appendFrontmatterLink(text: string, field: string, path: string): WriteResult {
+  const link = wikilinkFor(path);
+  if (link === null) return { ok: false, reason: "unlinkable" };
+  const m = FM_RE.exec(text);
+  if (!m) {
+    if (text.startsWith("---")) return { ok: false, reason: "frontmatter-unparseable" };
+    const eol = eolOf(text);
+    return { ok: true, changed: true, content: `---${eol}${field}:${eol}  - "${link}"${eol}---${eol}${text}` };
+  }
+  const open = m[1] ?? "", raw = m[2] ?? "", close = m[3] ?? "";
+  const eol = eolOf(open + raw);
+  const body = text.slice(m[0].length);
+  const lines = raw.split(/\r?\n/);
+  const entry = scanEntries(lines).get(field);
+  const rebuild = (ls: string[]): WriteResult => ({ ok: true, changed: true, content: `${open}${ls.join(eol)}${close}${body}` });
+
+  if (!entry) return rebuild([...lines, `${field}:`, `  - "${link}"`]);
+  const { start, end, rest } = entry;
+  if (/^[|>]/.test(rest)) return { ok: false, reason: "block-scalar" };
+
+  if (rest.startsWith("[") && rest.endsWith("]")) {
+    const inner = rest.slice(1, -1).trim();
+    if (inner === "") return rebuild([...lines.slice(0, start), `${field}:`, `  - "${link}"`, ...lines.slice(end)]);
+    if (containsLink(inner, path)) return { ok: true, content: text, changed: false };
+    const sample = inner.split(",").pop() ?? "";
+    return rebuild([...lines.slice(0, start), `${field}: [${inner}, ${quoteLike(sample, link)}]`, ...lines.slice(end)]);
+  }
+  if (rest !== "") return { ok: false, reason: "not-a-list" };
+
+  const items = lines.slice(start + 1, end);
+  if (items.length === 0) return rebuild([...lines.slice(0, start), `${field}:`, `  - "${link}"`, ...lines.slice(end)]);
+  if (items.some(l => containsLink(unquoteItem((ITEM_RE.exec(l)?.[2]) ?? ""), path))) return { ok: true, content: text, changed: false };
+  let indent = "  ", sample = '"';
+  for (const l of items) {
+    const im = ITEM_RE.exec(l);
+    if (!im) continue;
+    indent = im[1] ?? indent;
+    if ((im[2] ?? "").trim() !== "") sample = im[2] ?? sample;
+  }
+  return rebuild([...lines.slice(0, end), `${indent}- ${quoteLike(sample, link)}`, ...lines.slice(end)]);
+}

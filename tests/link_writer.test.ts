@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { wikilinkFor, linkTargetOf, containsLink, appendSectionLink } from "../src/link_writer";
+import { wikilinkFor, linkTargetOf, containsLink, appendSectionLink, appendFrontmatterLink } from "../src/link_writer";
 
 describe("wikilinkFor", () => {
   it("bildet [[pfad|basename]] ohne .md", () => {
@@ -52,5 +52,64 @@ describe("appendSectionLink", () => {
   });
   it("meldet unlinkable statt zu schreiben", () => {
     expect(appendSectionLink("A", "H", "a#b.md")).toEqual({ ok: false, reason: "unlinkable" });
+  });
+});
+
+const L = '"[[Notes/B|B]]"';
+describe("appendFrontmatterLink", () => {
+  it("Schlüssel fehlt → Blockliste als letzte Zeilen vor dem schließenden ---", () => {
+    const r = appendFrontmatterLink("---\ntitle: A\n---\nBody\n", "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe(`---\ntitle: A\nrelated:\n  - ${L}\n---\nBody\n`);
+  });
+  it("related: [] → Blockliste mit einem Eintrag", () => {
+    const r = appendFrontmatterLink("---\nrelated: []\ntags: [x]\n---\n", "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe(`---\nrelated:\n  - ${L}\ntags: [x]\n---\n`);
+  });
+  it("related: ohne Fortsetzung → Blockliste mit einem Eintrag", () => {
+    const r = appendFrontmatterLink("---\nrelated:\ntags: [x]\n---\n", "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe(`---\nrelated:\n  - ${L}\ntags: [x]\n---\n`);
+  });
+  it("Inline-Liste bleibt inline, Eintrag angehängt", () => {
+    const r = appendFrontmatterLink("---\nrelated: ['[[a]]', '[[b]]']\n---\n", "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe("---\nrelated: ['[[a]]', '[[b]]', '[[Notes/B|B]]']\n---\n");
+  });
+  it("Blockliste: gleiche Einrückung und Quote-Form wie die letzte nicht-leere Zeile", () => {
+    const r = appendFrontmatterLink("---\nrelated:\n  - '[[a]]'\n  - \ntags: [x]\n---\n", "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe("---\nrelated:\n  - '[[a]]'\n  - \n  - '[[Notes/B|B]]'\ntags: [x]\n---\n");
+  });
+  it("Blockliste auf Spalte 0 bleibt auf Spalte 0", () => {
+    const r = appendFrontmatterLink("---\nrelated:\n- \"[[a]]\"\n---\n", "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe(`---\nrelated:\n- "[[a]]"\n- ${L}\n---\n`);
+  });
+  it("Ziel schon enthalten (mit Alias) → unverändert", () => {
+    const text = "---\nrelated:\n  - \"[[Notes/B|Bee]]\"\n---\n";
+    expect(appendFrontmatterLink(text, "related", "Notes/B.md")).toEqual({ ok: true, content: text, changed: false });
+  });
+  it("Block-Skalar am Schlüssel → block-scalar", () => {
+    expect(appendFrontmatterLink("---\nrelated: >-\n  bla\n---\n", "related", "Notes/B.md")).toEqual({ ok: false, reason: "block-scalar" });
+  });
+  it("Skalar am Schlüssel → not-a-list", () => {
+    expect(appendFrontmatterLink("---\nrelated: foo\n---\n", "related", "Notes/B.md")).toEqual({ ok: false, reason: "not-a-list" });
+  });
+  it("kein Frontmatter → neuer Block vor dem Text", () => {
+    const r = appendFrontmatterLink("Body\n", "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe(`---\nrelated:\n  - ${L}\n---\nBody\n`);
+  });
+  it("--- ohne Abschluss → frontmatter-unparseable", () => {
+    expect(appendFrontmatterLink("---\nrelated: []\nBody", "related", "Notes/B.md")).toEqual({ ok: false, reason: "frontmatter-unparseable" });
+  });
+  it("fremde Zeilen bleiben byteweise, auch ein Block-Skalar an ANDEREM Schlüssel", () => {
+    const text = "---\ntitle: A\nfokus: >-\n  erste Zeile\n  zweite   Zeile\nrelated: []\nnested:\n  a: 1\n---\nBody\n";
+    const r = appendFrontmatterLink(text, "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe(`---\ntitle: A\nfokus: >-\n  erste Zeile\n  zweite   Zeile\nrelated:\n  - ${L}\nnested:\n  a: 1\n---\nBody\n`);
+  });
+  it("erhält CRLF", () => {
+    const r = appendFrontmatterLink("---\r\nrelated: []\r\n---\r\nB\r\n", "related", "Notes/B.md");
+    expect(r.ok && r.content).toBe(`---\r\nrelated:\r\n  - ${L}\r\n---\r\nB\r\n`);
+  });
+  it("idempotent über beide Fälle (fehlend → vorhanden → unverändert)", () => {
+    const a = appendFrontmatterLink("---\ntitle: A\n---\n", "related", "Notes/B.md");
+    const b = appendFrontmatterLink(a.ok ? a.content : "", "related", "Notes/B.md");
+    expect(b).toEqual({ ok: true, content: a.ok ? a.content : "", changed: false });
   });
 });

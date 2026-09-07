@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createVaultRetrievalApi, VAULT_RETRIEVAL_API_VERSION } from "../src/plugin_api";
+import type { IntegratorPort } from "../src/plugin_api";
 import { RetrievalFacade } from "../src/retrieval_facade";
 import { parseIndex, VaultIndex } from "../src/index";
 
@@ -9,8 +10,21 @@ function idx(): VaultIndex {
   return parseIndex(m, ["a.md", "b.md", "c.md"], bytes.buffer);
 }
 
+function port(over: Partial<IntegratorPort> = {}): IntegratorPort {
+  return {
+    enabled: () => true,
+    propose: async () => ({ kind: "proposal", proposal: { notePath: "a.md", noteHash: 1, createdAt: 1, stale: false, links: [{ path: "b.md", score: 0.5 }] } }),
+    apply: async () => ({ ok: true, changed: true }),
+    ...over,
+  };
+}
+
 /** Baut die API über eine Facade mit Test-Anschlüssen. `over` überschreibt einzelne Deps. */
-function api(over: Record<string, unknown> = {}, reindexing: () => boolean = () => false) {
+function api(
+  over: Record<string, unknown> = {},
+  reindexing: () => boolean = () => false,
+  integ?: IntegratorPort,
+) {
   const deps = {
     getIndex: () => idx(),
     embedderReady: async () => true,
@@ -19,7 +33,7 @@ function api(over: Record<string, unknown> = {}, reindexing: () => boolean = () 
     readVault: async (r: string) => `INHALT ${r}`,
     ...over,
   } as ConstructorParameters<typeof RetrievalFacade>[0];
-  return createVaultRetrievalApi(new RetrievalFacade(deps), deps.getIndex, reindexing);
+  return createVaultRetrievalApi(new RetrievalFacade(deps), deps.getIndex, reindexing, integ ?? port());
 }
 
 describe("Plugin-API — Vertrag", () => {
@@ -157,5 +171,22 @@ describe("Plugin-API — laufender Reindex", () => {
     expect(a.status().reindexing).toBe(false);
     laeuft = true;
     expect(a.status().reindexing).toBe(true);
+  });
+});
+
+describe("Plugin-API — Integrator", () => {
+  it("proposeLinks liefert Treffer als ApiHit", async () => {
+    expect(await api().proposeLinks("a.md")).toEqual({ ok: true, links: [{ path: "b.md", score: 0.5 }] });
+  });
+  it("proposeLinks reicht Codes durch, disabled zuerst", async () => {
+    expect(await api({}, () => false, port({ enabled: () => false })).proposeLinks("a.md")).toEqual({ ok: false, reason: "disabled" });
+    expect(await api({}, () => false, port({ propose: async () => ({ kind: "nothing-new" }) })).proposeLinks("a.md")).toEqual({ ok: false, reason: "nothing-new" });
+  });
+  it("applyLink reicht das Ergebnis durch", async () => {
+    expect(await api().applyLink("a.md", "b.md")).toEqual({ ok: true, changed: true });
+    expect(await api({}, () => false, port({ enabled: () => false })).applyLink("a.md", "b.md")).toEqual({ ok: false, reason: "disabled" });
+  });
+  it("apiVersion bleibt 1 — Felder kamen dazu, die Form blieb", () => {
+    expect(api().apiVersion).toBe(1);
   });
 });

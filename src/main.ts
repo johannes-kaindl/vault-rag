@@ -249,6 +249,11 @@ export default class VaultRagPlugin extends Plugin {
       this.facade,
       () => this.index,
       () => this.embeddingProgress.reindex !== null,
+      {
+        enabled: () => this.settings.integratorEnabled,
+        propose: async (p) => proposeLinks(p, await this.app.vault.adapter.read(p), this.proposeDeps()),
+        apply: (p, tgt) => this.applyLinkNow(p, tgt),
+      },
     );
 
     this.addSettingTab(new VaultRagSettingTab(this.app, this));

@@ -1,5 +1,6 @@
 import { VaultIndex } from "./index";
 import { RetrievalFacade } from "./retrieval_facade";
+import type { ProposeResult } from "./integrator";
 
 /** Version des öffentlichen Vertrags. Wird bei jeder brechenden Änderung erhöht;
  *  Konsumenten prüfen sie, bevor sie sich auf die Form der Rückgaben verlassen. */
@@ -54,6 +55,19 @@ export interface ApiOverrides {
   minSim?: number;
 }
 
+export type ApiLinkResult =
+  | { ok: true; links: ApiHit[] }
+  | { ok: false; reason: "no-index" | "not-indexed" | "nothing-new" | "disabled" };
+export type ApiApplyResult = { ok: true; changed: boolean } | { ok: false; reason: string };
+
+/** Anschluss an den Integrator (main.ts). `propose` rechnet nur — es legt NICHTS in die Inbox,
+ *  der Aufrufer entscheidet (Spec §8). */
+export interface IntegratorPort {
+  enabled(): boolean;
+  propose(path: string): Promise<ProposeResult>;
+  apply(path: string, target: string): Promise<ApiApplyResult>;
+}
+
 /** Vertrag, den vault-rag anderen Obsidian-Plugins als `plugin.api` anbietet.
  *  Zugriff: `app.plugins.plugins["vault-retrieval"]?.api` (defensiv lesen — das Plugin
  *  kann fehlen oder deaktiviert sein). */
@@ -65,6 +79,10 @@ export interface VaultRetrievalApi {
   search(query: string, opts?: ApiOverrides): Promise<ApiResult>;
   /** Notizpfad → verwandte Notizen. Rein offline aus dem Index, kein Netz, auch mobil. */
   related(path: string, opts?: ApiOverrides): Promise<ApiResult>;
+  /** Verlinkungs-Kandidaten fuer eine Notiz — rein aus dem Index, legt nichts in die Inbox. */
+  proposeLinks(path: string): Promise<ApiLinkResult>;
+  /** Schreibt EINEN Wikilink im eingestellten Modus, sofort und ohne Hash-Guard. */
+  applyLink(path: string, target: string): Promise<ApiApplyResult>;
 }
 
 /** Dünner Adapter über die geteilte RetrievalFacade — dasselbe Muster wie `mcp/tools.ts`.
@@ -75,6 +93,7 @@ export function createVaultRetrievalApi(
   facade: RetrievalFacade,
   getIndex: () => VaultIndex | null,
   isReindexing: () => boolean,
+  integrator: IntegratorPort,
 ): VaultRetrievalApi {
   return {
     apiVersion: VAULT_RETRIEVAL_API_VERSION,
@@ -97,6 +116,18 @@ export function createVaultRetrievalApi(
 
     async related(path, opts) {
       return toApiResult(facade.related(path, pick(opts)));
+    },
+
+    async proposeLinks(path) {
+      if (!integrator.enabled()) return { ok: false, reason: "disabled" };
+      const r = await integrator.propose(path);
+      if (r.kind === "proposal") return { ok: true, links: r.proposal.links.map(l => ({ path: l.path, score: l.score })) };
+      return { ok: false, reason: r.kind };
+    },
+
+    async applyLink(path, target) {
+      if (!integrator.enabled()) return { ok: false, reason: "disabled" };
+      return integrator.apply(path, target);
     },
   };
 }

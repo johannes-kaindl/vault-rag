@@ -7,6 +7,19 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Das Modell steht nur noch in der Endpunkt-Zeile.** Die globalen Felder „Embedding-Modell"
+  und „Chat-Modell" sind entfallen; beim ersten Start nach dem Update wandert der alte Wert in
+  jede Zeile, die noch kein eigenes Modell trägt (Zeilen mit Modell bleiben, wie sie sind).
+  Grund ist die Kit-Entscheidung aus obsidian-kit 0.29.0: ein Modellname existiert nur auf dem
+  Endpunkt, der ihn meldet — „globales Modell plus Override je Zeile" war dieselbe Information
+  an zwei Orten mit einer Vorrangregel obendrauf. Die Endpunkt-Beschreibung und die Doku sagen
+  nicht mehr „leer heißt globales Modell".
+- **Vendor-Schicht auf code-kit 0.5.0 / obsidian-kit 0.31.0** (vorher obsidian-kit 0.27.0). Acht
+  der 15 pure-Module gibt es in obsidian-kit nicht mehr, `tools/sync-kit.sh` liest sie jetzt
+  direkt aus code-kit. Was uns davon erreicht: der Chat versteht Reasoning-Deltas auch unter
+  `reasoning` (MLX) und `thinking`, und Server, die trotz `stream: true` ganze Nachrichten
+  schicken, liefern nicht mehr stumm nichts. Das lokale `model_choice.ts` ist gegen die
+  Kit-Fassung getauscht (die ohnehin seit dem Endpunkt-Editor im Baum lag).
 - **Der Endpunkt-Zeilen-Editor kommt jetzt aus dem Kit** statt aus einer lokalen Kopie. Das
   Modul `obsidian/endpoint-list.ts` ist am 2026-08-08 als „Umzug aus vault-rag" ins Kit gezogen —
   dieses Repo hat seine eigene Extraktion danach anderthalb Monate nicht zurückadoptiert und die
@@ -42,6 +55,14 @@ All notable changes to this project are documented here. The format follows
   nähere Griff. Der generische Text nannte nur „Max-Tokens erhöhen" — wer dem folgte, drehte am
   Budget, und das Modell dachte es beim nächsten Mal wieder auf. Wie `output-truncated` ein
   reiner Begleit-Befund: er geht nie in `hardOk` ein.
+
+### Fixed
+- **Das Smart-Apply-Modell war still wirkungslos, sobald die Chat-Zeile ein Modell trug** —
+  und das tat sie in jedem Setup mit Zeilen-Override. Die Vorrangregel (Zeile schlägt Feature)
+  stammte aus der Zeit, als das globale Feld die Basis war; gemessen 2026-09-07 an einem echten
+  Vault lief Smart Apply auf dem Zeilen-Modell, während die Einstellung ein anderes zeigte. Jetzt
+  gewinnt das Feature-Feld. Der Preis ist benannt: kennt ein Fallback-Endpunkt den Namen nicht,
+  scheitert Smart Apply laut in seiner Fehlerbox, statt still auf ein anderes Modell zu wechseln.
 
 
 ## [0.30.0] — 2026-09-05

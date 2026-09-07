@@ -869,7 +869,7 @@ async function main(): Promise<void> {
       const warmEp = await main.evaluate<{ url: string; model: string; apiKey?: string } | null>(`
         const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
         const ep = (p.chatEndpointInUse && p.chatEndpointInUse.url) ? p.chatEndpointInUse : (p.settings.chatEndpoints || [])[0];
-        return ep ? { url: ep.url, model: ep.model || p.settings.chatModel, apiKey: ep.apiKey } : null;
+        return ep ? { url: ep.url, model: ep.model || "", apiKey: ep.apiKey } : null;
       `);
       const warmStart = Date.now();
       let warm = "kein Chat-Endpunkt konfiguriert";

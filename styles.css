@@ -142,6 +142,11 @@
 .vault-rag-sa-mode-btn:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
 .vault-rag-sa-mode-btn.is-active { color: var(--text-on-accent); background: var(--interactive-accent); border-color: var(--interactive-accent); font-weight: 600; }
 .vault-rag-sa-mode-btn.is-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+/* Anwenden/Stop: dieselbe Sperr-Grammatik wie die Modus-Knoepfe. Ohne diese Regel traegt der
+ * Knopf nur die Klasse — und Obsidians Theme rendert `.is-disabled` auf <button> nicht
+ * (gemessen 2026-09-11, Gegenprobe-Task): gesperrt sah exakt aus wie aktiv. Form + Cursor,
+ * nicht nur Farbe (Rot-Gruen-Schwaeche). */
+.vault-rag-sa-run.is-disabled, .vault-rag-sa-stop.is-disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
 /* Audit-Trail-Toggle (Task 10) */
 .vault-rag-sa-audit { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
 .vault-rag-sa-audit-check { cursor: pointer; }

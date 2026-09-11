@@ -83,6 +83,7 @@ also die Eintrittskarte — auch für Port 9333.
 
 | Datum | Version / Commit | Obsidian | Ergebnis | Gegenprobe |
 |---|---|---|---|---|
+| 2026-09-11 | Arbeitsbaum nach 0.32.0 (Gegenproben-Task: `is-disabled` am Anwenden-Knopf sichtbar machen, Smart Apply im Fixture an, neuer Prüfpunkt 7d), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | 1.14.0 | **44/44 grün · 0 übersprungen** (43 + 7d). Mit Smart Apply im Fixture zählt der Hub jetzt sechs Tabs; der Integrator-Punkt misst die Liste, nicht die Zahl, und blieb grün | **ja** — CSS-Regel entfernt, Plugin per disable/enable neu geladen: `opacity 0.7 · pointer-events auto` → die `pointer-events`-Hälfte des Punkts wäre rot. ⚠️ Der erste Anlauf der Gegenprobe war ungültig: `enablePlugin` auf ein aktives Plugin ist ein No-op, die alte CSS lief weiter und die Probe sah grün aus |
 | 2026-09-07 | Branch `feat/integrator` (Integrator Stufe 1: Verlinkung mit Review-Inbox — sechs neue Prüfpunkte 7c), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | 1.14.0 | **43/43 grün · 0 übersprungen** (37 bisherige + 6 neue; ein bisheriger Punkt umbenannt: „Fläche ist auf status/search/related begrenzt" → „…/proposeLinks/applyLink begrenzt", weil die API zwei Flächen dazubekommt). Lauf 1 war 42/43 — rot war **der Treiber**: „Tab ist der sechste Tab" hatte die Sechs hart verdrahtet, im Fixture ist Smart Apply aus, also fünf Tabs; jetzt Tab-Liste gegen Panel-Liste. Lauf 2 43/43, Lauf 3 Gegenprobe, Lauf 4 43/43 mit identischer Prüfpunktmenge (Namen gediffed) | **ja** — Idempotenz-Guard in `appendSectionLink` temporär entfernt (Lauf 3): **42/43**, genau „Zweites Anwenden … byte-identisch" rot („changed=true · Bytes VERSCHIEDEN"), kein anderer Punkt fiel mit |
 | 2026-09-07 | Branch `feat/kit-buendel` (Kit-Bündel: Vendor code-kit 0.5.0 / obsidian-kit 0.31.0, Modell je Endpunkt, Smart-Apply-Vorrang), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | 1.14.0 | Baseline vor dem Umbau **35/35 grün · 1 übersprungen**; nach dem Umbau **36/36 grün · 0 übersprungen** — Prüfpunktmenge bis auf einen Namen identisch: „Rolle folgt dem Modell-Override" (dauerhaft übersprungen, weil die Leer-Option des Dropdowns entfallen ist) wurde zu „Rolle folgt dem Zeilen-Modell" und läuft jetzt. Dazwischen ein Abnahme-Befund, den kein Prüfpunkt sah: die Alt-Schlüssel `embeddingModel`/`chatModel` blieben in `data.json` (der Kit-Merge kopiert unbekannte Schlüssel), die Migration lief bei jedem Start erneut — gefunden per CDP-Probe auf `Object.keys(p.settings)`, behoben, jetzt Prüfpunkt | **ja** — E1 am laufenden Plugin: `smartApplyModelInUse` folgt dem Feature-Feld, `chatModelInUse` der Zeile (CDP-Probe, Wert gesetzt und zurückgesetzt) |
 | 2026-09-04 | `5551f4b` (Stempel-Waechter + Reindex-Race-Fix), Staging-Vault `vault-rag` auf **Zweitinstanz** Port 9333 | **1.14.0** | **34/34 gruen · 1 uebersprungen** (Modell-Override, wie immer). Erster Lauf war 33/34 — der Umbruch-Punkt rot mit „560px (ist 300px) · 240px (ist 300px)“: zweimal dieselbe Breite, also eine Mutation, die nie ankam. Ursache im TREIBER, nicht im Plugin — `pollUntil` kehrt beim ersten truthy Wert zurueck, und `TAB_ROWS` lieferte immer ein Objekt, der Poll mass also den Zustand vor `setSize`. Mit Breiten-Guard gruen (`8c44c1b`). | **ja, zweifach** — (a) isoliert nachgemessen: 560px zu 1 Zeile, 240px zu 2 Zeilen, das Plugin war also durchgehend korrekt; (b) der neue Waechter am laufenden System: vor einer Aenderung **0** verdaechtige Notizen, nach einem `vault.append` auf EINE Notiz **genau diese eine** |
@@ -93,6 +94,26 @@ also die Eintrittskarte — auch für Port 9333.
 | 2026-08-23 | `a4d0130` (Branch `fix/backlog-kleinfixes`, vor Merge) | 1.13.7 | **20/20** (derselbe Punkt übersprungen) | Parität zum Lauf davor — der Treiber ist unverändert, geändert hat sich nur der Prüfling |
 | 2026-08-23 | `0d49ab0` (vor Merge 0.26.0) | 1.13.7 | **20/20** (1 Punkt übersprungen: kein Embedding-Endpunkt mit Modell-Override konfiguriert) | keine — Treiber unverändert seit dem Lauf, der ihn eingeführt hat |
 | 2026-08-18 | Migration auf die zentrale CDP-Brücke | 1.13.7 | 18/18 | — |
+
+### 2026-09-11 — Zwei Gegenproben am laufenden Obsidian (Task vom 2026-08-23)
+
+Beide Punkte per CDP auf der Zweitinstanz gemessen, Skript im Session-Scratchpad, Ergebnis hier.
+
+1. **Einstellungen auf und zu lässt `data.json` unberührt.** mtime vor Öffnen, nach Öffnen des
+   Plugin-Tabs (2,5 s), nach Schließen: dreimal `06:51:06.829` — kein Write. Gegenprobe zur
+   Gegenprobe: den Regler „Kontext-Budget" per `input`/`change` von 12.000 auf 13.000 bewegt →
+   mtime springt (`06:55:22` → `06:56:12`), Rücksetzen schreibt erneut. Der Regler ist im DOM nicht
+   über `max=32000` zu finden — das Maximum ist modellabhängig (hier 1.049.000); gefunden über den
+   `setting-item-name`. ✅ `297c5c2` hält.
+2. **Der gesperrte „Auf aktive Notiz anwenden"-Knopf las sich NICHT als gesperrt.** Klasse
+   `is-disabled` stand (Unit-Test pinnt sie), Computed Style aber `opacity 1 · cursor default ·
+   pointer-events auto · derselbe Hintergrund` — der Screenshot zeigte gesperrt und aktiv identisch,
+   während „Transformativ" daneben (eigene Regel) korrekt gedimmt war. **Obsidians Theme kennt
+   `.is-disabled` auf `<button>` nicht.** Fix: `aria-disabled` am Run- und Stop-Knopf (Obsidians
+   eigene CSS dimmt darauf schon auf 0.7) plus eigene Regel wie bei den Modus-Knöpfen (0.5,
+   `not-allowed`, `pointer-events: none`). Form + Cursor, nicht Farbe. Prüfpunkt 7d misst den
+   Computed Style, nicht die Klasse — eine Klasse ohne Regel ist eine Zusage ohne Wirkung.
+3. Der dritte Punkt (denkendes Modell, `reasoning-consumed-budget`) war am 2026-09-06 erledigt.
 
 ### 2026-09-07 — Integrator: sechs Prüfpunkte, ein Treiber-Befund, eine Gegenprobe
 

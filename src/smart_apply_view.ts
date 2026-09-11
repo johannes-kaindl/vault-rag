@@ -214,10 +214,16 @@ export class SmartApplyPanel implements HubPanel {
     const canRun = !running && this.selectedTemplate !== "";
     const runBtn = row2.createEl("button", { cls: "vault-rag-sa-run mod-cta", text: t("smartApply.runLabel") });
     runBtn.toggleClass("is-disabled", !canRun);
+    // Die Klasse allein reicht nicht: Obsidians Theme kennt fuer <button> kein `.is-disabled`
+    // (gemessen 2026-09-11 auf 1.14.0 — opacity 1, cursor default, derselbe Hintergrund wie
+    // aktiv). Sichtbar wird die Sperre erst ueber die eigene Regel in styles.css; fuer
+    // Screenreader traegt der Knopf zusaetzlich aria-disabled.
+    runBtn.setAttribute("aria-disabled", String(!canRun));
     runBtn.addEventListener("click", () => { if (canRun) void this.start(); });
 
     const stopBtn = row2.createEl("button", { cls: "vault-rag-sa-stop", text: t("smartApply.stop") });
     stopBtn.toggleClass("is-disabled", !running);
+    stopBtn.setAttribute("aria-disabled", String(!running));
     stopBtn.addEventListener("click", () => this.deps.abort());
 
     this.renderModeControl(header);

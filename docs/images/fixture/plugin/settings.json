@@ -27,5 +27,6 @@
   ],
   "linkTarget": "section",
   "linkHeading": "Verwandte Notizen",
-  "linkField": "related"
+  "linkField": "related",
+  "smartApplyEnabled": true
 }

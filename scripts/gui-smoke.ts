@@ -307,6 +307,8 @@ async function main(): Promise<void> {
   // Der Integrator-Abschnitt schreibt in zwei Fixture-Notizen und in integrator.json. Beides wird
   // im finally zurueckgesetzt, damit ein zweiter Lauf ohne `--setup` dieselbe Lage vorfindet.
   let integratorRestore: { plain: string; rel: string } | null = null;
+  // 7d setzt den Vorlagen-Ordner ins Leere, damit der Anwenden-Knopf gesperrt ist; im finally zurueck.
+  let templateDirRestore: string | null = null;
   // Das Lab-Stub haengt im Renderer und muss auch nach einem Abbruch mitten im Lauf weg —
   // sonst glaubt ein spaeter installiertes echtes Lab, es sei bereits registriert.
   let labStubbed = false;
@@ -1195,6 +1197,47 @@ async function main(): Promise<void> {
         offDone ? `Antwort kam, ${offTrace.added} neue Zeilen` : "Antwort blieb aus — Abwesenheit der Zeile beweist hier NICHTS");
     }
 
+    // --- 7d. Smart Apply: der gesperrte Anwenden-Knopf LIEST sich als gesperrt --------------
+    // Gegenprobe-Task vom 2026-08-23, gemessen 2026-09-11: die Klasse `is-disabled` stand am Knopf
+    // (ein Unit-Test pinnt sie), aber Obsidians Theme rendert sie auf <button> nicht — opacity 1,
+    // cursor default, derselbe Hintergrund wie aktiv. Ein Screenshot zeigte gesperrt und aktiv
+    // identisch. Deshalb misst dieser Punkt den COMPUTED STYLE, nicht die Klasse: eine Klasse ohne
+    // Regel ist eine Zusage ohne Wirkung. Hergestellt wird der Zustand ueber einen Vorlagen-Ordner,
+    // den es nicht gibt (Rangliste leer → keine Vorlage gewaehlt → canRun false).
+    {
+      const saPre = await main.evaluate<{ enabled: boolean; templateDir: string }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        return { enabled: !!p.settings.smartApplyEnabled, templateDir: p.settings.templateDir };
+      `);
+      if (!saPre.enabled) {
+        skipped("Gesperrter Anwenden-Knopf ist sichtbar gesperrt (nicht nur per Klasse)", "smartApplyEnabled ist aus — Fixture-Einstellungen nicht geladen?");
+      } else {
+        templateDirRestore = saPre.templateDir;
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.templateDir = "Nix/"; await p.saveSettings(); p.refreshSmartApplyRanking();
+          await app.workspace.openLinkText("Notes/Integrator plain.md", "", false);
+          await app.commands.executeCommandById("vault-retrieval:smart-apply-active-note");
+        `);
+        const sa = await pollUntil<{ opacity: string; cursor: string; pe: string; aria: string | null }>(main, `
+          const btn = document.querySelector(".vault-rag-sa-run.is-disabled");
+          if (!btn) return null;
+          const cs = getComputedStyle(btn);
+          return { opacity: cs.opacity, cursor: cs.cursor, pe: cs.pointerEvents, aria: btn.getAttribute("aria-disabled") };
+        `, 15000, 500);
+        // Form UND Cursor, nicht Farbe: opacity < 1 ist die sichtbare Haelfte, pointer-events none die
+        // bedienbare, aria-disabled die fuer Screenreader. Alle drei muessen stehen.
+        record("Gesperrter Anwenden-Knopf ist sichtbar gesperrt (nicht nur per Klasse)",
+          sa !== null && Number(sa.opacity) < 1 && sa.pe === "none" && sa.aria === "true",
+          sa ? `opacity ${sa.opacity} · cursor ${sa.cursor} · pointer-events ${sa.pe} · aria-disabled ${sa.aria}` : "kein .vault-rag-sa-run.is-disabled im DOM");
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.templateDir = ${JSON.stringify(saPre.templateDir)}; await p.saveSettings(); p.refreshSmartApplyRanking();
+        `);
+        templateDirRestore = null;
+      }
+    }
+
     // --- 7c. Integrator: Vorschlag → Annehmen → Idempotenz → Ablehnen → Frontmatter ---
     // Spec 2026-09-07 §10. Misst die VERDRAHTUNG (main.ts) am laufenden Plugin: dass ein
     // Vorschlag entsteht, dass Annehmen wirklich in die Datei schreibt, dass ein zweites Anwenden
@@ -1458,6 +1501,12 @@ async function main(): Promise<void> {
       `.replace("__PATH__", healRestore.indexPath).replace("__ENDPOINTS__", JSON.stringify(healRestore.savedEndpoints)))
         .catch(() => { console.log("  ! Index/Endpunkte konnten nicht zurückgeschrieben werden — Auto-Heal-Kaskade oder „Index-Backup wiederherstellen“ holt den Index zurück"); });
       console.log("\n  Index-Datei und Embedding-Endpunkte wiederhergestellt.");
+    }
+    if (templateDirRestore !== null) {
+      await main.evaluate(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        p.settings.templateDir = ${JSON.stringify(templateDirRestore)}; await p.saveSettings(); p.refreshSmartApplyRanking();
+      `).catch(() => { console.log("  ! templateDir konnte nicht zurückgeschrieben werden"); });
     }
     if (integratorRestore) {
       await main.evaluate(`

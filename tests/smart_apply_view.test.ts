@@ -138,6 +138,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     const { container } = mkPanel({ rankTemplates: vi.fn(async () => []) });
     await flush();
     expect(hasClass(first(container, "vault-rag-sa-run"), "is-disabled")).toBe(true);
+    expect(first(container, "vault-rag-sa-run").getAttribute("aria-disabled")).toBe("true");
   });
 
   it("Run-Klick ohne feststehende Vorlage startet keinen Bau", async () => {
@@ -151,6 +152,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     const { container } = mkPanel();
     await flush();
     expect(hasClass(first(container, "vault-rag-sa-run"), "is-disabled")).toBe(false);
+    expect(first(container, "vault-rag-sa-run").getAttribute("aria-disabled")).toBe("false");
   });
 
   // Step 1 — Header immer sichtbar

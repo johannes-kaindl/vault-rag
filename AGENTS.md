@@ -846,6 +846,17 @@ gar nicht bis in die Oberfläche schafft.
   Literal mehr. **Preis:** die Vollständigkeit der dynamischen Keys bewacht dann kein Wächter mehr;
   dafür steht in `tests/integrator_panel.test.ts` ein Test, der jeden erreichbaren Code gegen `EN`
   hält (als Handliste — die `Record<Kind, true>`-Form wäre die bessere, s. Task).
+- **Obsidians Theme rendert `.is-disabled` auf `<button>` NICHT — die Klasse allein sperrt nur den
+  Code, nicht den Blick.** Gemessen 2026-09-11 (1.14.0, Gegenproben-Task): der Anwenden-Knopf von
+  Smart Apply trug `is-disabled` (Unit-Test pinnt die Klasse) und hatte Computed Style `opacity 1 ·
+  cursor default · pointer-events auto`, gesperrt sah im Screenshot exakt aus wie aktiv. Was das
+  Theme kennt, ist **`aria-disabled="true"`** (dimmt von selbst auf 0.7); die volle Sperr-Grammatik
+  (0.5, `not-allowed`, `pointer-events: none`) kommt aus der eigenen Regel in `styles.css`, wie bei
+  den Modus-Knöpfen. Regel für neue Knöpfe: `toggleClass("is-disabled")` **plus** `aria-disabled`
+  **plus** eine Regel für die Klasse — und der Beleg ist der Computed Style (Smoke-Punkt 7d), nie die
+  Klasse. ⚠️ Beim Messen: `enablePlugin` auf ein aktives Plugin ist ein **No-op** — wer CSS neu laden
+  will, braucht `disablePlugin` + `enablePlugin`, sonst misst er den alten Stand und die Gegenprobe
+  sieht grün aus.
 - **`fileManager.processFrontMatter` schreibt den ganzen Block neu** — Kommentare weg, Formatierung
   fremder Felder umgeschrieben (mailstone hat es 2026-08-30 an einem echten Postfach gemessen, aus
   `to: [adresse]` wurde eine Blockliste). Der Integrator schreibt Frontmatter deshalb **zeilenweise**

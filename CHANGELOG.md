@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Smart Apply: der gesperrte Knopf „Auf aktive Notiz anwenden" liest sich jetzt als gesperrt.**
+  Bisher trug er nur die Klasse `is-disabled`, die Obsidians Theme auf Knöpfen nicht rendert — er
+  sah aus wie aktiv (am laufenden Obsidian 1.14.0 gemessen, Screenshot identisch). Jetzt
+  `aria-disabled` plus eigene Regel (gedimmt, Cursor „nicht erlaubt", keine Klicks), dieselbe
+  Sperr-Grammatik wie die Modus-Knöpfe. Gilt auch für „Stop". Der GUI-Smoke misst den sichtbaren
+  Zustand, nicht die Klasse.
+
 ## [0.32.0] — 2026-09-07
 
 ### Added

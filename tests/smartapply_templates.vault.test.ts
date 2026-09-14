@@ -19,7 +19,6 @@ import { t } from "../src/vendor/kit/i18n";
 // Deshalb eine Kandidatenliste statt eines Pfades. Sie überlebt genau diese Umbenennung; jeder
 // weitere Vault-Umzug braucht entweder einen Eintrag hier oder den ENV-Override.
 const TPL_KANDIDATEN = [
-  "/Users/Shared/10_ObsidianVaults/Pallas/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply",
   join(homedir(), "Documents/Pallas/50_Ressourcen/20_System/03-Vorlagen/70_SmartApply"),
 ];
 const TPL_DIR = process.env.PALLAS_SMARTAPPLY_DIR ?? TPL_KANDIDATEN.find(existsSync) ?? TPL_KANDIDATEN[0];

@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Kit-Pin 0.31.0 → 0.35.0** (code-kit 0.5.0 → 0.6.0) — keine funktionalen Änderungen an den
+  bestehenden Vendor-Modulen, nur der Stempel.
+- **Smart Apply (laufende Karte) und Umformatieren-Vorschau nutzen jetzt den Streaming-
+  Antwortbereich aus dem Kit** (`buildStreamArea`, UI-STANDARD §8). Verhaltenswechsel:
+  - Der Gedankenblock von Smart Apply bleibt weiterhin während des Streams offen; der laufende
+    Roh-Stream (Protokoll-JSON des Modells) ist jetzt **immer sichtbar** statt hinter einem
+    zugeklappten „Roh-Stream"-Element — der Kit-Bereich kennt keine zweite, unabhängig klappbare
+    Fläche neben dem Gedankenblock.
+  - Die Umformatieren-Vorschau ist jetzt **ein** Rollbereich (das Modal) statt drei verschachtelter
+    (Modal + zwei eigene `overflow: auto`-Felder); der Ergebnisbereich rollt über das Modal mit
+    (Quicktask von Johannes).
+  - Neu im Umformatieren-Fenster: Kopieren-Knopf für das Ergebnis, Ergebnis- und Original-Text
+    explizit markierbar.
+
 ### Fixed
 - **Smart Apply: der gesperrte Knopf „Auf aktive Notiz anwenden" liest sich jetzt als gesperrt.**
   Bisher trug er nur die Klasse `is-disabled`, die Obsidians Theme auf Knöpfen nicht rendert — er

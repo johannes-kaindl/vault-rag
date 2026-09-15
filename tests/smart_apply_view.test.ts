@@ -264,8 +264,8 @@ describe("SmartApplyPanel — Cockpit", () => {
     await flush();
   });
 
-  // Step 5 — onToken / onReasoning append
-  it("onToken/onReasoning hängen Live-Text in Roh-Stream-pre bzw. 💭-details an", async () => {
+  // Step 5 — onToken / onReasoning append (Kit-Streaming-Bereich, obsidian-kit@0.35.0)
+  it("onToken/onReasoning hängen Live-Text im Kit-Streaming-Bereich (Tail bzw. Gedankenblock) an", async () => {
     let tok: (t: string) => void = () => {};
     let rsn: (t: string) => void = () => {};
     const build = vi.fn((_path: string, _templatePath: string, _mode: string, onToken: (t: string) => void, onReasoning: (t: string) => void) =>
@@ -275,8 +275,8 @@ describe("SmartApplyPanel — Cockpit", () => {
     await flush(2);
     tok("## Inhalt\n"); tok("alt");
     rsn("denke nach…");
-    expect(first(container, "vault-rag-sa-stream").textContent).toBe("## Inhalt\nalt");
-    expect(first(container, "vault-rag-sa-reasoning-body").textContent).toContain("denke nach");
+    expect(first(container, "okit-stream-tail").textContent).toBe("## Inhalt\nalt");
+    expect(first(container, "okit-stream-reasoning").textContent).toContain("denke nach");
   });
 
   // Step 6 — build resolve → diff

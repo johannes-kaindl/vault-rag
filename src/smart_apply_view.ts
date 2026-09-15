@@ -7,6 +7,7 @@ import type { TemplateRank } from "./template_ranker";
 import { isAlwaysOnThinker } from "./vendor/kit/reasoning";
 import type { HubPanel, TabId } from "./hub_panel";
 import type { ApplyMode } from "./note_restructurer";
+import { buildStreamArea, type StreamArea } from "./vendor/kit-obsidian/stream-area";
 
 // Re-export for consumers (e.g. tests) that import from this module
 export type { ApplyProposal, ApplyResult, SectionDiff } from "./smart_apply";
@@ -78,11 +79,11 @@ export class SmartApplyPanel implements HubPanel {
   private errorText = "";
   private templateHint = "";
 
-  // Live stream buffers (the running body re-uses these on re-render)
+  // Live stream buffers (die laufende Karte haengt auf diesen — Streaming-Antwortbereich
+  // aus dem Kit, s. renderRunning()).
   private streamText = "";
   private reasoningText = "";
-  private streamPaneEl: HTMLElement | null = null;
-  private reasoningBodyEl: HTMLElement | null = null;
+  private streamArea: StreamArea | null = null;
   private elapsedEl: HTMLElement | null = null;
 
   // Header refs
@@ -159,8 +160,7 @@ export class SmartApplyPanel implements HubPanel {
     const c = this.container;
     c.empty();
     // Re-build resets transient element refs (no leaks across re-renders).
-    this.streamPaneEl = null;
-    this.reasoningBodyEl = null;
+    this.streamArea = null;
     this.elapsedEl = null;
     this.renderHeader(c);
     const body = c.createDiv({ cls: "vault-rag-sa-body" });
@@ -417,27 +417,32 @@ export class SmartApplyPanel implements HubPanel {
     this.elapsedEl = wrap.createDiv({ cls: "vault-rag-sa-elapsed" });
     this.elapsedEl.setText(t("smartApply.working", "0.0"));
 
-    const det = wrap.createEl("details", { cls: "vault-rag-sa-reasoning" });
-    det.open = true;
-    det.createEl("summary", { cls: "vault-rag-sa-reasoning-sum", text: t("smartApply.thinkingSummary") });
-    this.reasoningBodyEl = det.createDiv({ cls: "vault-rag-sa-reasoning-body" });
-    this.reasoningBodyEl.setText(this.reasoningText);
-
-    const stream = wrap.createEl("details", { cls: "vault-rag-sa-stream-wrap" });
-    stream.open = false;
-    stream.createEl("summary", { cls: "vault-rag-sa-stream-sum", text: t("smartApply.rawStream") });
-    this.streamPaneEl = stream.createEl("pre", { cls: "vault-rag-sa-stream" });
-    this.streamPaneEl.setText(this.streamText);
+    // Streaming-Antwortbereich aus dem Kit (§8, obsidian-kit@0.35.0). Voll-Rerender-Bauart:
+    // renderRunning() baut den Bereich EINMAL je Lauf (state wechselt genau einmal auf
+    // "running", s. runBuild), onToken/onReasoning haengen per setTail/appendReasoning an
+    // dieselbe Instanz an, statt jeden Chunk neu zu rendern.
+    // Verhaltenswechsel zum Eigenbau: der Gedankenblock steht waehrend des Streams offen
+    // (vorher auch schon so), der Roh-Stream (Protokoll-JSON des Modells, kein Markdown)
+    // ist jetzt IMMER sichtbar statt hinter einem zugeklappten Details-Element — der Kit-
+    // Bereich kennt keine zweite, unabhaengig klappbare Flaeche neben dem Gedankenblock.
+    this.streamArea = buildStreamArea(wrap, {
+      strings: { reasoning: t("smartApply.thinkingSummary") },
+      cls: "vault-rag-sa-running-stream",
+      reasoningOpen: true,
+    });
+    if (this.reasoningText !== "") this.streamArea.setReasoning(this.reasoningText);
+    this.streamArea.setTail(this.streamText);
   }
 
   private onToken(chunk: string): void {
     this.streamText += chunk;
-    if (this.streamPaneEl) this.streamPaneEl.setText(this.streamText);
+    this.streamArea?.setTail(this.streamText);
+    this.streamArea?.followTail();
   }
 
   private onReasoning(chunk: string): void {
     this.reasoningText += chunk;
-    if (this.reasoningBodyEl) this.reasoningBodyEl.setText(this.reasoningText);
+    this.streamArea?.appendReasoning(chunk);
   }
 
   // ── Body: diff ────────────────────────────────────────────────────────────────

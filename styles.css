@@ -157,9 +157,11 @@
 .vault-rag-sa-reasoning { font-size: 12px; margin: 2px 0; }
 .vault-rag-sa-reasoning-sum { color: var(--text-muted); cursor: pointer; }
 .vault-rag-sa-reasoning-body { color: var(--text-faint); white-space: pre-wrap; font-style: italic; padding: 4px 0 4px 12px; border-left: 2px solid var(--background-modifier-border); }
-.vault-rag-sa-stream-wrap { font-size: 11px; }
-.vault-rag-sa-stream-sum { color: var(--text-muted); cursor: pointer; font-size: 11px; }
-.vault-rag-sa-stream { font-size: 11px; color: var(--text-faint); white-space: pre-wrap; max-height: 160px; overflow-y: auto; background: var(--background-secondary); border-radius: 6px; padding: 6px; margin: 0; }
+/* Laufende Karte: Streaming-Antwortbereich aus dem Kit (s. .okit-stream weiter oben).
+   Eigene Deckelhoehe, sonst waechst der Roh-Stream waehrend eines langen Laufs unbegrenzt —
+   dieselbe Kappung wie vorher (Gedanken 12em per Kit-Default, Roh-Stream 160px). */
+.vault-rag-sa-running-stream .okit-stream-body { max-height: 220px; }
+.vault-rag-sa-running-stream .okit-stream-tail { color: var(--text-faint); font-size: var(--font-ui-smaller); }
 /* Smart Apply v2 — Diff-Gate (semantische 3-Ebenen-Ansicht) */
 .vault-rag-sa-diff { display: flex; flex-direction: column; gap: 12px; font-size: var(--font-ui-small); }
 .vault-rag-sa-section-title { font-size: var(--font-ui-smaller); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin-bottom: 4px; }

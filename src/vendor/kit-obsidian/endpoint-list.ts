@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.31.0, src/obsidian/endpoint-list.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.35.0, src/obsidian/endpoint-list.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // ONE mechanical deviation from verbatim: kit-internal imports of the code-kit layer → ../kit/ (vendor layout); reproduce on every re-vendor, nothing else may differ.
 /* Geordneter Endpunkt-Fallback-Listen-Editor: eine Setting-Zeile je Endpunkt (URL ·
  * Schlüssel · Modell-Override · „zuerst verwenden" · entfernen) plus Adder-Zeile,
@@ -209,6 +209,18 @@ export function buildEndpointList(opts: EndpointListOptions): void {
         // „Modelle abrufen", Tab-Reload), da dieser Commit bewusst kein rerender() auslöst.
         opts.cache.invalidate(normalizeEndpoint(updated[i].url));
       }
+      // Ein URL-Commit setzt oder entfernt den Bezug zu (mindestens) einer URL — die alte UND
+      // die neue, denn beide koennen bereits eine (moeglicherweise laengst veraltete) Liste im
+      // Cache tragen: die alte, weil ihr Eintrag jetzt verwaist; die neue, weil genau diese URL
+      // schon einmal (unter einem anderen Eintrag) geladen wurde, z. B. nach Loeschen +
+      // Neuanlage derselben Adresse (gemeldet von image-to-markdown, 2026-09-12). Ohne beide
+      // Invalidierungen zeigt das Dropdown die Liste von VOR der Mutation weiter an.
+      if (field === "url") {
+        const oldUrl = before[i]?.url;
+        if (oldUrl) opts.cache.invalidate(normalizeEndpoint(oldUrl));
+        const newUrl = value.trim();
+        if (newUrl) opts.cache.invalidate(normalizeEndpoint(newUrl));
+      }
       opts.set(updated);
       const chain = opts.save().then(() => opts.reconnect());
       // Das Modell-Override entscheidet mit über die Rolle der Zeile (`skipped-model`).
@@ -300,6 +312,9 @@ export function buildEndpointList(opts: EndpointListOptions): void {
         .setTooltip(opts.strings.remove)
         .onClick(() => {
           lockRows();
+          // Geht an commit() vorbei (kein blur-Feld) — die Invalidierung muss deshalb hier
+          // selbst passieren, sonst ueberlebt die Modell-Liste dieser URL ihren Eintrag.
+          opts.cache.invalidate(normalizeEndpoint(cfg.url));
           opts.set(applyEndpointEdit(opts.get(), i, "url", "", false));
           void opts.save()
             .then(() => opts.reconnect())
@@ -371,6 +386,9 @@ export function buildEndpointList(opts: EndpointListOptions): void {
         const cur = opts.get();
         if (cur.some(c => c.url === preset.url)) return;   // schon in der Liste — kein Duplikat anhängen
         lockRows();
+        // Geht an commit() vorbei — dieselbe URL kann von einem zuvor geloeschten Eintrag noch
+        // eine (veraltete) Liste im Cache tragen.
+        opts.cache.invalidate(normalizeEndpoint(preset.url));
         opts.set(applyEndpointEdit(cur, cur.length, "url", preset.url, true));
         void opts.save()
           .then(() => opts.reconnect())

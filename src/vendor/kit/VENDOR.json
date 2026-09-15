@@ -1,6 +1,6 @@
 {
   "source": "code-kit + obsidian-kit",
-  "code-kit": { "version": "0.5.0", "sha": "efcd456", "vendored": "pure: endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error_body.ts, i18n.ts, model-choice.ts, model-list-cache.ts, reasoning.ts, settings.ts, sse.ts, timeout.ts, think.ts (aus pure/think-splitter.ts); web: clipboard.ts" },
-  "obsidian-kit": { "version": "0.31.0", "sha": "c558d91", "vendored": "pure: callout.ts, frontmatter.ts" },
+  "code-kit": { "version": "0.6.0", "sha": "918ed85", "vendored": "pure: endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error_body.ts, i18n.ts, model-choice.ts, model-list-cache.ts, reasoning.ts, settings.ts, sse.ts, timeout.ts, think.ts (aus pure/think-splitter.ts); web: clipboard.ts" },
+  "obsidian-kit": { "version": "0.35.0", "sha": "e7e3e19", "vendored": "pure: callout.ts, frontmatter.ts" },
   "note": "Verbatim snapshots (plus Herkunfts-Header in Zeile 1). Der Ordner heisst historisch 'kit'; die pure-Schicht kommt seit dem code-kit-Split aus code-kit, nur callout/frontmatter noch aus obsidian-kit. Never hand-edit. Re-vendor via tools/sync-kit.sh."
 }

@@ -17,14 +17,14 @@
 # Zweiter Lauf darf keinen Diff erzeugen — deshalb steht in VENDOR.json KEIN Datum.
 set -e
 KIT="${KIT_DIR:-../obsidian-kit}"
-KIT_REF="${KIT_REF:-0.31.0}"
-CODEKIT="${CODEKIT_DIR:-../../code-kit}"
-CODEKIT_REF="${CODEKIT_REF:-0.5.0}"
+KIT_REF="${KIT_REF:-0.35.0}"
+CODEKIT="${CODEKIT_DIR:-"$HOME/Projects/jkaindl/libs/code-kit"}"
+CODEKIT_REF="${CODEKIT_REF:-0.6.0}"
 
 CK_PURE="endpoint endpoint_config endpoint_diagnostics error_body i18n model-choice model-list-cache reasoning settings sse timeout"
 CK_WEB="clipboard"
 KIT_PURE="callout frontmatter"
-KIT_OBSIDIAN="clipboard collapsible confirm endpoint-list folder-suggest hub model-picker settings_walker"
+KIT_OBSIDIAN="clipboard collapsible confirm endpoint-list folder-suggest hub model-picker settings_walker stream-area"
 # Ausnahme: pure/think-splitter.ts heisst hier think.ts (Konsumenten importieren "./vendor/kit/think").
 
 # --- Vorbedingungen, ALLE vor dem ersten Schreibvorgang (ein Abbruch mitten im Lauf hinterliesse

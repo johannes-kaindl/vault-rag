@@ -281,6 +281,35 @@
 .okit-hub-panel { height: 100%; overflow: auto; }
 .okit-hub-panel.is-hidden { display: none; }
 
+/* ── Streaming-Antwortbereich — uebernommen aus obsidian-kit@0.35.0 (STREAM_AREA_CSS,
+   src/obsidian/stream-area.ts). Das Kit injiziert kein CSS; diese Kopie ist die
+   Consumer-Haelfte des Moduls (buildStreamArea in smart_apply_view.ts und
+   reformat_preview_modal.ts). */
+.okit-stream { display: flex; flex-direction: column; min-height: 0; gap: var(--size-4-2); }
+.okit-stream-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  font-size: var(--font-ui-small); line-height: var(--line-height-normal);
+}
+/* Rollt der Wirt selbst (scrollEl != Body), ist der Body KEIN eigener Scroll-Container. */
+.okit-stream--host-scroll .okit-stream-body { flex: 0 0 auto; min-height: auto; overflow-y: visible; }
+.okit-stream-block > :first-child { margin-top: 0; }
+.okit-stream-block > :last-child { margin-bottom: 0; }
+.okit-stream-tail { white-space: pre-wrap; color: var(--text-muted); }
+.okit-stream-status {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: var(--size-4-1);
+  font-size: var(--font-ui-smaller); color: var(--text-muted);
+}
+.okit-stream-reasoning {
+  flex: 0 0 auto;
+  font-size: var(--font-ui-smaller); color: var(--text-muted);
+}
+.okit-stream-reasoning > summary { cursor: var(--cursor); color: var(--text-faint); }
+.okit-stream-reasoning > pre {
+  max-height: 12em; overflow-y: auto; white-space: pre-wrap;
+  background: var(--background-secondary); padding: var(--size-4-2);
+}
+
 .vault-rag-mcp-snippet {
   white-space: pre-wrap;
   word-break: break-all;
@@ -310,27 +339,32 @@
 .okit-collapsible-body { padding-top: var(--size-4-2); }
 .okit-collapsible-body.is-collapsed { display: none; }
 
+/* Ein Rollbereich statt drei: vorher trugen Modal, Original-Feld UND Ergebnis-Feld je
+   ein eigenes `overflow: auto` — zwei Teilfenster in einem Hauptfenster. Das Modal ist
+   jetzt die einzige Ebene (Quicktask d, Johannes 2026-09-15); der Streaming-Bereich
+   des Ergebnisses (`buildStreamArea` mit `scrollEl: contentEl`) schaltet seinen eigenen
+   Scroll ueber `.okit-stream--host-scroll` ab, s. `.vault-rag-reformat-stream` unten. */
+.vault-rag-reformat-modal { max-height: 80vh; overflow-y: auto; }
 .vault-rag-reformat-original,
 .vault-rag-reformat-result {
-  max-height: 40vh;
-  overflow: auto;
   white-space: pre-wrap;
   background: var(--background-secondary);
   padding: var(--size-4-2);
   border-radius: var(--radius-s);
+  user-select: text;
 }
 .vault-rag-reformat-label {
   font-weight: var(--font-semibold);
   margin-bottom: var(--size-2-1);
 }
-/* Abschneide-Hinweis unter dem Ergebnis. Leer, solange es nichts zu melden gibt —
-   :empty haelt dann auch den Abstand aus dem Layout. */
-.vault-rag-reformat-notice {
+/* Abschneide-Hinweis (Statuszeile des Kit-Streaming-Bereichs). Leer, solange es nichts zu
+   melden gibt — :empty haelt dann auch den Abstand aus dem Layout. */
+.vault-rag-reformat-stream .okit-stream-status {
   margin-top: var(--size-2-2);
   color: var(--text-warning);
   font-size: var(--font-ui-smaller);
 }
-.vault-rag-reformat-notice:empty { display: none; }
+.vault-rag-reformat-stream .okit-stream-status:empty { display: none; }
 
 .vault-rag-reformat-instruction {
   width: 100%;

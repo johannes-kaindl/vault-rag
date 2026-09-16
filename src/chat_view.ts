@@ -1,4 +1,4 @@
-import { setIcon } from "obsidian";
+import { setIcon, setTooltip } from "obsidian";
 import { ChatSession } from "./chat_session";
 import { ContextPanel, ContextPanelDeps } from "./context_panel";
 import { isAlwaysOnThinker } from "./vendor/kit/reasoning";
@@ -126,15 +126,21 @@ export class ChatPanel implements HubPanel {
     const el = this.thinkToggleEl; if (!el) return;
     const always = isAlwaysOnThinker(this.deps.getModel());
     const suppressed = this.deps.getSuppress();
+    const on = always || !suppressed;
     el.empty();
+    // "brain-off" ist kein gueltiger Lucide-Name im Obsidian-Bundle (rendert still nichts,
+    // gemessen 2026-09-16 per CDP) — "brain-cog" existiert (Dach-Abgleich mit koda-agent,
+    // dieselbe Zweitinstanz-Verifikation). Kriterium (a) traegt zusaetzlich der Text-Kanal.
     const icon = el.createSpan({ cls: "vault-rag-chat-think-icon" });
-    setIcon(icon, "brain");
+    setIcon(icon, on ? "brain" : "brain-cog");
     el.createSpan({ cls: "vault-rag-chat-think-label", text: always ? t("panel.chat.thinkAlways") : suppressed ? t("panel.chat.thinkOff") : t("panel.chat.thinkOn") });
-    el.setAttribute("aria-label", always
+    setTooltip(el, always
       ? t("panel.chat.thinkAlwaysAria")
       : suppressed ? t("panel.chat.thinkOffAria") : t("panel.chat.thinkOnAria"));
+    el.setAttribute("aria-pressed", String(on));
     el.toggleClass("is-disabled", always);
     el.toggleClass("is-off", !always && suppressed);
+    (el as HTMLButtonElement).disabled = always;
   }
 
   async refreshStatus(): Promise<void> {

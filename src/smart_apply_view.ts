@@ -1,4 +1,4 @@
-import { setIcon, Notice } from "obsidian";
+import { setIcon, setTooltip, Notice } from "obsidian";
 import { t } from "./vendor/kit/i18n";
 import type { FmValue, FmChange, FmRow, Confidence } from "./frontmatter";
 import type { ApplyProposal, ApplyResult, ApplySelection } from "./smart_apply";
@@ -302,18 +302,24 @@ export class SmartApplyPanel implements HubPanel {
     const el = this.thinkEl; if (!el) return;
     const always = isAlwaysOnThinker(this.deps.getModel());
     const suppressed = this.deps.getSuppress();
+    const on = always || !suppressed;
     el.empty();
+    // "brain-off" ist kein gueltiger Lucide-Name im Obsidian-Bundle (rendert still nichts,
+    // gemessen 2026-09-16 per CDP) — "brain-cog" existiert (Dach-Abgleich mit koda-agent,
+    // dieselbe Zweitinstanz-Verifikation). Kriterium (a) traegt zusaetzlich der Text-Kanal.
     const icon = el.createSpan({ cls: "vault-rag-sa-think-icon" });
-    setIcon(icon, "brain");
+    setIcon(icon, on ? "brain" : "brain-cog");
     el.createSpan({
       cls: "vault-rag-sa-think-label",
       text: always ? t("smartApply.thinkAlwaysOn") : suppressed ? t("smartApply.thinkOff") : t("smartApply.thinkOn"),
     });
-    el.setAttribute("aria-label", always
+    setTooltip(el, always
       ? t("smartApply.thinkAriaAlways")
       : suppressed ? t("smartApply.thinkAriaOff") : t("smartApply.thinkAriaOn"));
+    el.setAttribute("aria-pressed", String(on));
     el.toggleClass("is-disabled", always);
     el.toggleClass("is-off", !always && suppressed);
+    (el as HTMLButtonElement).disabled = always;
   }
 
   private async refreshModels(): Promise<void> {

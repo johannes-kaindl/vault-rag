@@ -238,4 +238,27 @@ describe("ChatPanel", () => {
     toggle.click();
     expect(setSuppress).toHaveBeenCalledWith(true);
   });
+  it("Thinking-Toggle zeigt den Zustand über Icon UND aria-pressed (UI-STANDARD §8)", async () => {
+    const { container } = await mkPanel({ getSuppress: () => false });
+    const toggle = all(container, "vault-rag-chat-think-toggle")[0];
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(all(toggle, "vault-rag-chat-think-icon")[0].getAttribute("data-icon")).toBe("brain");
+    expect(all(toggle, "vault-rag-chat-think-label")[0].textContent).toContain("on");
+  });
+  it("Thinking-Toggle: ausgeschaltet zeigt brain-cog UND aria-pressed=false", async () => {
+    // "brain-off" existiert nicht im Obsidian-Bundle (rendert leer, gemessen 2026-09-16) —
+    // "brain-cog" ist das verifiziert existierende zweite Glied.
+    const { container } = await mkPanel({ getSuppress: () => true });
+    const toggle = all(container, "vault-rag-chat-think-toggle")[0];
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(all(toggle, "vault-rag-chat-think-icon")[0].getAttribute("data-icon")).toBe("brain-cog");
+    expect(all(toggle, "vault-rag-chat-think-label")[0].textContent).toContain("off");
+  });
+  it("Thinking-Toggle ist bei Always-On-Modell disabled, aria-pressed=true, mit Grund im Tooltip", async () => {
+    const { container } = await mkPanel({ getModel: () => "gpt-oss", getSuppress: () => false });
+    const toggle = all(container, "vault-rag-chat-think-toggle")[0];
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.getAttribute("aria-label")).toContain("cannot be switched off");
+  });
 });

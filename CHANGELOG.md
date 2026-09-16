@@ -20,6 +20,13 @@ All notable changes to this project are documented here. The format follows
     (Quicktask von Johannes).
   - Neu im Umformatieren-Fenster: Kopieren-Knopf für das Ergebnis, Ergebnis- und Original-Text
     explizit markierbar.
+- Thinking-Schalter zeigt seinen Zustand jetzt auch ohne Farbe (Icon, Beschriftung,
+  aria-pressed) — UI-STANDARD §8 „Zustands-Knopf (Toggle)". Betrifft den Toggle im
+  Chat-Panel und in Smart Apply: Icon wechselt `brain` ↔ `brain-cog`,
+  `aria-pressed="true|false"`, Tooltip (`setTooltip`) statt reinem `aria-label`, bei einem
+  Always-On-Modell zusätzlich nativ `disabled` mit Grund im Tooltip. `brain-off` (der
+  ursprünglich in §8 genannte Name) existiert nicht im Obsidian-Bundle und rendert leer
+  (gemessen 2026-09-16) — `brain-cog` ist das verifiziert existierende zweite Glied.
 
 ### Fixed
 - **Smart Apply: der gesperrte Knopf „Auf aktive Notiz anwenden" liest sich jetzt als gesperrt.**

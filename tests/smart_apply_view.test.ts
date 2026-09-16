@@ -181,6 +181,29 @@ describe("SmartApplyPanel — Cockpit", () => {
     first(container, "vault-rag-sa-think").click();
     expect(deps.setSuppress).toHaveBeenCalledWith(true);
   });
+  it("💭-Toggle zeigt den Zustand über Icon UND aria-pressed (UI-STANDARD §8)", () => {
+    const { container } = mkPanel({ getSuppress: vi.fn(() => false) });
+    const toggle = first(container, "vault-rag-sa-think");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(first(toggle, "vault-rag-sa-think-icon").getAttribute("data-icon")).toBe("brain");
+    expect(first(toggle, "vault-rag-sa-think-label").textContent).toBe("Thinking: on");
+  });
+  it("💭-Toggle: ausgeschaltet zeigt brain-cog UND aria-pressed=false", () => {
+    // "brain-off" existiert nicht im Obsidian-Bundle (rendert leer, gemessen 2026-09-16) —
+    // "brain-cog" ist das verifiziert existierende zweite Glied.
+    const { container } = mkPanel({ getSuppress: vi.fn(() => true) });
+    const toggle = first(container, "vault-rag-sa-think");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(first(toggle, "vault-rag-sa-think-icon").getAttribute("data-icon")).toBe("brain-cog");
+    expect(first(toggle, "vault-rag-sa-think-label").textContent).toBe("Thinking: off");
+  });
+  it("💭-Toggle ist bei Always-On-Modell disabled, aria-pressed=true, mit Grund im Tooltip", () => {
+    const { container } = mkPanel({ getModel: vi.fn(() => "gpt-oss"), getSuppress: vi.fn(() => false) });
+    const toggle = first(container, "vault-rag-sa-think");
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.getAttribute("aria-label")).toContain("cannot be turned off");
+  });
 
   it("Klick auf ein Modus-Segment setzt nur den Modus, startet KEINEN Run", async () => {
     const { container, deps } = mkPanel();

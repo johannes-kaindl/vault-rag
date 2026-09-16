@@ -1001,18 +1001,17 @@ kanonisch + GitHub-Mirror. Bewusste, begründete Abweichungen (comply-or-explain
 Deklaration nach `UI-STANDARD.md` §1a — von einem verbindlichen §8-Baustein abzuweichen ist
 erlaubt, stillschweigend abzuweichen nicht.
 
-- **`chat_view.ts` nutzt NICHT `buildStreamArea` (Kit-Baustein „Streaming-Antwortbereich", §8).**
-  Formgrund, kein Uniformitäts-Grund: `buildStreamArea` baut EINEN Bereich für EINE laufende
-  Antwort — `ChatPanel` rendert eine **Liste** von Nachrichten (`messages[]`), jede mit ihrem
-  eigenen Gedankenblock, mehrere davon können gleichzeitig auf der Seite stehen (History). Der
-  Kit-Baustein kennt keine Liste — ein Consumer, der ihn pro Nachricht neu aufbaut, verlöre den
-  gemeinsamen Scroll-Container und müsste die Listen-Semantik ohnehin selbst tragen.
-  Die reichere Scroll-Fassung (`atBottom`-Schwelle, dem Strom folgen, aber manuelles
-  Hochscrollen respektieren) STAMMT von hier (`src/chat_view.ts:203`, Referenz im Kit-Dateikopf
-  `stream-area.ts`) und bleibt hier lokal, weil der Bereich nicht adoptiert wird — sie ist kein
-  Rückstand, sondern die Quelle.
-  `gilt-solange:` `src/chat_view.ts` rendert `messages[]` in einer Schleife (kein einzelner
-  laufender Antwortbereich).
+- **stream-area** — Grund: `chat_view.ts` nutzt NICHT `buildStreamArea` (Kit-Baustein
+  „Streaming-Antwortbereich", §8). Formgrund, kein Uniformitäts-Grund: `buildStreamArea` baut
+  EINEN Bereich für EINE laufende Antwort — `ChatPanel` rendert eine **Liste** von Nachrichten
+  (`messages[]`), jede mit ihrem eigenen Gedankenblock, mehrere davon können gleichzeitig auf
+  der Seite stehen (History). Der Kit-Baustein kennt keine Liste — ein Consumer, der ihn pro
+  Nachricht neu aufbaut, verlöre den gemeinsamen Scroll-Container und müsste die
+  Listen-Semantik ohnehin selbst tragen. Die reichere Scroll-Fassung (`atBottom`-Schwelle, dem
+  Strom folgen, aber manuelles Hochscrollen respektieren) STAMMT von hier (`src/chat_view.ts:203`,
+  Referenz im Kit-Dateikopf `stream-area.ts`) und bleibt hier lokal, weil der Bereich nicht
+  adoptiert wird — sie ist kein Rückstand, sondern die Quelle.
+  — gilt-solange: `src/chat_view.ts` enthaelt-nicht `buildStreamArea`
 
 ## Dach-Kontext (obsidian-plugins)
 

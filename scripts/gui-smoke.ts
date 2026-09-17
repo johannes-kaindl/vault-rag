@@ -313,6 +313,32 @@ async function main(): Promise<void> {
   // sonst glaubt ein spaeter installiertes echtes Lab, es sei bereits registriert.
   let labStubbed = false;
 
+  // Ein Ctrl-C mitten im Lauf ueberspringt das `finally` unten NICHT im try/catch-Sinn, sondern
+  // beendet den Node-Prozess sofort — ohne eigenen Handler laueft das anhaengige `await` nie zu
+  // Ende, und der Stub bleibt im Renderer stehen (gemessen: naechster Lauf liest ihn als "echtes
+  // llm-lab installiert" und ueberspringt seinen ganzen Zweig, still, ~15 Pruefpunkte). Der
+  // Handler spiegelt nur DIESE eine Aufraeumzeile aus dem `finally` — die anderen Zustandssorten
+  // (Index-Backup, Endpunkt-Reihenfolge, Integrator-Fixtures, Vorlagen-Ordner) sind ein separater,
+  // noch offener Befund (Dach-Task „Kein GUI-Smoke-Treiber raeumt bei Ctrl-C auf").
+  let signalCleanupRunning = false;
+  const onAbortSignal = (signal: NodeJS.Signals) => {
+    if (signalCleanupRunning) return;
+    signalCleanupRunning = true;
+    void (async () => {
+      console.log(`\n\nAbbruch durch ${signal} — raeume den llm-lab-Stub auf...`);
+      if (labStubbed) {
+        await main.evaluate(`
+          delete app.plugins.plugins["llm-lab"];
+          delete window.__vaultRagLabSeen;
+          delete window.__vaultRagLabBaseline;
+        `).catch(() => { console.log("  ! llm-lab-Stub konnte nicht entfernt werden — Obsidian neu laden (Cmd+R)"); });
+      }
+      process.exit(130);
+    })();
+  };
+  process.on("SIGINT", onAbortSignal);
+  process.on("SIGTERM", onAbortSignal);
+
   try {
     // Chromium drosselt nicht-fokussierte Fenster — ohne bringToFront misst man Phantome.
     await main.send("Page.bringToFront");
@@ -899,7 +925,32 @@ async function main(): Promise<void> {
     //
     // Ist ein ECHTES Lab installiert, wird nichts eingehaengt: der Smoke darf dessen
     // Aufzeichnung nicht mit Testzeilen verunreinigen.
-    const labReal = await main.evaluate<boolean>(`return !!app.plugins.plugins["llm-lab"];`);
+    //
+    // Ein Objekt an diesem Slot ist aber NICHT automatisch ein echtes Lab — ein per Ctrl-C
+    // abgebrochener vorheriger Lauf laesst genau hier den eigenen Stub stehen (der
+    // SIGINT/SIGTERM-Handler oben faengt das fuer NEUE Abbrueche ab, ein Rest aus der Zeit VOR
+    // diesem Handler bzw. aus einem SIGKILL bleibt trotzdem moeglich). Ohne Unterscheidung liest
+    // `labReal` den eigenen Stub als "echtes Lab installiert" und ueberspringt seinen ganzen
+    // Zweig — still, ~15 Pruefpunkte (Dach-Task „Kein GUI-Smoke-Treiber raeumt bei Ctrl-C auf").
+    // Der Marker `__vaultRagSmokeStub` (gesetzt beim Einhaengen weiter unten) macht das laut.
+    const labInfo = await main.evaluate<{ present: boolean; ownStub: boolean }>(`
+      const p = app.plugins.plugins["llm-lab"];
+      return { present: !!p, ownStub: !!(p && p.__vaultRagSmokeStub) };
+    `);
+    const leftoverStub = labInfo.present && labInfo.ownStub;
+    record("Kein liegen gebliebener llm-lab-Stub aus einem abgebrochenen Lauf",
+      !leftoverStub,
+      leftoverStub
+        ? "eigener Stub im Renderer gefunden und entfernt — vermutlich Ctrl-C/Crash im vorigen Lauf vor dessen Aufraeumen; dieser Lauf faehrt normal weiter"
+        : "kein Stub-Rest im Renderer");
+    if (leftoverStub) {
+      await main.evaluate(`
+        delete app.plugins.plugins["llm-lab"];
+        delete window.__vaultRagLabSeen;
+        delete window.__vaultRagLabBaseline;
+      `);
+    }
+    const labReal = leftoverStub ? false : labInfo.present;
     if (labReal) {
       // EIN Skip-Eintrag je nicht gelaufenem Pruefpunkt, nicht einer fuer den Block: die Bilanz soll
       // sagen, wie viele Punkte fehlen, nicht wie viele Abschnitte. Am 2026-09-02 verbarg genau
@@ -954,6 +1005,7 @@ async function main(): Promise<void> {
       await main.evaluate(`
         window.__vaultRagLabSeen = [];
         app.plugins.plugins["llm-lab"] = {
+          __vaultRagSmokeStub: true,
           api: {
             apiVersion: 3,
             status: () => ({ apiVersion: 3, recording: true }),

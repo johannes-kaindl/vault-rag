@@ -1008,7 +1008,7 @@ erlaubt, stillschweigend abzuweichen nicht.
   der Seite stehen (History). Der Kit-Baustein kennt keine Liste — ein Consumer, der ihn pro
   Nachricht neu aufbaut, verlöre den gemeinsamen Scroll-Container und müsste die
   Listen-Semantik ohnehin selbst tragen. Die reichere Scroll-Fassung (`atBottom`-Schwelle, dem
-  Strom folgen, aber manuelles Hochscrollen respektieren) STAMMT von hier (`src/chat_view.ts:203`,
+  Strom folgen, aber manuelles Hochscrollen respektieren) STAMMT von hier (`src/chat_view.ts:209`,
   Referenz im Kit-Dateikopf `stream-area.ts`) und bleibt hier lokal, weil der Bereich nicht
   adoptiert wird — sie ist kein Rückstand, sondern die Quelle.
   — gilt-solange: `src/chat_view.ts` enthaelt-nicht `buildStreamArea`

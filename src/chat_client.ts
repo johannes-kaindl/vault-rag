@@ -1,7 +1,7 @@
 import { streamSSE } from "./sse";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
-import { suppressParams } from "./vendor/kit/reasoning";
+import { isAlwaysOnThinker, suppressParams } from "./vendor/kit/reasoning";
 import { httpJson, probeEndpoint } from "./http";
 import { authHeaders } from "./endpoint_config";
 import { EndpointStatus, extractModelIds } from "./vendor/kit/endpoint_diagnostics";
@@ -83,13 +83,14 @@ export class ChatClient {
     signal?: AbortSignal,
     opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number; trace?: { feature: string; app: unknown; contextPaths?: string[]; promptTemplate?: string } },
   ): Promise<{ content: string; reasoning: string; finishReason?: string }> {
+    const effectiveModel = opts?.model ?? this.model;
     const body = JSON.stringify({
-      model: opts?.model ?? this.model,
+      model: effectiveModel,
       messages,
       stream: true,
       ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
       ...(opts?.maxTokens != null ? { max_tokens: opts.maxTokens } : {}),
-      ...suppressParams(opts?.suppressThinking ?? false),
+      ...suppressParams((opts?.suppressThinking ?? false) && !isAlwaysOnThinker(effectiveModel)),
     });
     const started = Date.now();
     // ttftMs misst den ersten CONTENT-Token, nicht den ersten Token ueberhaupt: bei einem

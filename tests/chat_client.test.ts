@@ -102,6 +102,28 @@ describe("ChatClient", () => {
     const body = JSON.parse(xhr.body) as Record<string, unknown>;
     expect("reasoning_effort" in body).toBe(false);
   });
+  it("stream unterdrückt Thinking bei suppressThinking NICHT für gpt-oss (always-on, lehnt reasoning_effort ab)", async () => {
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://x", "m").stream(
+      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { model: "openai/gpt-oss-20b", suppressThinking: true });
+    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+    await p;
+    const body = JSON.parse(xhr.body) as Record<string, unknown>;
+    expect("reasoning_effort" in body).toBe(false);
+    expect("chat_template_kwargs" in body).toBe(false);
+    expect("reasoning_budget" in body).toBe(false);
+  });
+  it("stream unterdrückt Thinking bei suppressThinking weiterhin für ein Qwen-Modell", async () => {
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://x", "m").stream(
+      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { model: "qwen/qwen3.6-35b-a3b", suppressThinking: true });
+    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+    await p;
+    const body = JSON.parse(xhr.body) as { reasoning_effort: string; chat_template_kwargs: unknown; reasoning_budget: number };
+    expect(body.reasoning_effort).toBe("none");
+    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(body.reasoning_budget).toBe(0);
+  });
   it("stream schreibt max_tokens in den Body wenn maxTokens gesetzt", async () => {
     const xhr = installFakeXHR();
     const p = new ChatClient("http://x", "m").stream(

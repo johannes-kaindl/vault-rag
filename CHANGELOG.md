@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.33.0] — 2026-09-24
+
 ### Fixed
 - **`suppressThinking` unterdrückt Thinking nicht mehr bei gpt-oss/harmony-Modellen** (`chat_client.ts`).
   Diese Modelle lehnen `reasoning_effort`/`chat_template_kwargs`/`reasoning_budget` mit HTTP 400 ab,

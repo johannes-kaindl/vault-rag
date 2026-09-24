@@ -12,8 +12,15 @@ All notable changes to this project are documented here. The format follows
   statt sie als No-op zu ignorieren — der Request schlug also bisher fehl, sobald die Thinking-Abschaltung
   aktiv war. Guard `isAlwaysOnThinker(effectiveModel)` (bereits vendort) vor `suppressParams`, geprüft
   gegen den tatsächlich verwendeten Modellnamen (`opts.model ?? this.model`).
+- **Smart Apply: der gesperrte Knopf „Auf aktive Notiz anwenden" liest sich jetzt als gesperrt.**
+  Bisher trug er nur die Klasse `is-disabled`, die Obsidians Theme auf Knöpfen nicht rendert — er
+  sah aus wie aktiv (am laufenden Obsidian 1.14.0 gemessen, Screenshot identisch). Jetzt
+  `aria-disabled` plus eigene Regel (gedimmt, Cursor „nicht erlaubt", keine Klicks), dieselbe
+  Sperr-Grammatik wie die Modus-Knöpfe. Gilt auch für „Stop". Der GUI-Smoke misst den sichtbaren
+  Zustand, nicht die Klasse.
 
 ### Changed
+- `authorUrl` im Manifest zeigt wieder auf das GitHub-Profil (Store-Rückkehr).
 - **Kit-Pin 0.31.0 → 0.35.0** (code-kit 0.5.0 → 0.6.0) — keine funktionalen Änderungen an den
   bestehenden Vendor-Modulen, nur der Stempel.
 - **Smart Apply (laufende Karte) und Umformatieren-Vorschau nutzen jetzt den Streaming-
@@ -34,14 +41,6 @@ All notable changes to this project are documented here. The format follows
   Always-On-Modell zusätzlich nativ `disabled` mit Grund im Tooltip. `brain-off` (der
   ursprünglich in §8 genannte Name) existiert nicht im Obsidian-Bundle und rendert leer
   (gemessen 2026-09-16) — `brain-cog` ist das verifiziert existierende zweite Glied.
-
-### Fixed
-- **Smart Apply: der gesperrte Knopf „Auf aktive Notiz anwenden" liest sich jetzt als gesperrt.**
-  Bisher trug er nur die Klasse `is-disabled`, die Obsidians Theme auf Knöpfen nicht rendert — er
-  sah aus wie aktiv (am laufenden Obsidian 1.14.0 gemessen, Screenshot identisch). Jetzt
-  `aria-disabled` plus eigene Regel (gedimmt, Cursor „nicht erlaubt", keine Klicks), dieselbe
-  Sperr-Grammatik wie die Modus-Knöpfe. Gilt auch für „Stop". Der GUI-Smoke misst den sichtbaren
-  Zustand, nicht die Klasse.
 
 ## [0.32.0] — 2026-09-07
 

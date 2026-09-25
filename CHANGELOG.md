@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.34.0] — 2026-09-25
+
 ### Fixed
 - **Die Aufzeichnung im LLM Lab war still aus.** `lab_client.ts` prüfte `apiVersion === 3`, llm-lab liefert seit 2026-09-03 die 4 — `readLabApi` gab deshalb `null` zurück, und Chat, Smart Apply und Umformatieren meldeten nichts mehr. Jetzt auf 4 gehoben; jede Nutzer-Handlung (eine Chat-Nachricht, ein Smart-Apply-Lauf, eine Umformung) trägt eine frische `turnId`. Am laufenden Obsidian 1.14.2 gegen das echte llm-lab 0.6.0 gemessen: der Aufruf landet in dessen Trace mit `turnId`.
 

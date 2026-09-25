@@ -12,6 +12,7 @@ import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { rowModel, describeEndpointRole, endpointStatusText, endpointWarningText } from "./endpoint_config";
+import { buildEndpointSourceSection } from "./vendor/kit-obsidian/endpoint-source";
 import { buildEndpointList as buildKitEndpointList, type EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
 import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelHintKey } from "./vendor/kit/model-choice";
@@ -387,22 +388,33 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.ensureResolvedOnOpen();
     const host = settingBodyHost(setting);
     const embeddingLabel = t("settings.embeddingEndpoints.label");
-    buildKitEndpointList({
-      containerEl: host,
-      label: embeddingLabel,
-      desc: t("settings.embeddingEndpoints.desc"),
-      placeholder: "http://localhost:11434",   // i18n-exempt: URL-Beispiel, sprachneutral
-      strings: this.endpointStrings(embeddingLabel),
-      cache: this.modelCache,
-      get: () => this.plugin.settings.embeddingEndpoints,
-      set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
-      active: () => this.plugin.activeEmbeddingEndpoint,
-      clientFor: (cfg) => new EmbeddingClient(cfg.url, rowModel(cfg), cfg.apiKey),
-      modelFits: (cfg) => embeddingModelMatchesIndex(rowModel(cfg), this.plugin.indexEmbeddingModel),
-      save: () => this.plugin.saveSettings(),
-      reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
+    // Manager da → Kit-Baustein (Wahl + Modell + Import); sonst die lokale Liste wie bisher.
+    buildEndpointSourceSection({
+      app: this.app, containerEl: host, capability: "embedding", caller: "vault-retrieval",
+      choice: () => this.plugin.settings.embeddingChoice,
+      setChoice: async (c) => { this.plugin.settings.embeddingChoice = c; await this.plugin.saveSettings(); await this.plugin.resolveAndReconnectEmbedder(); },
+      local: () => this.plugin.settings.embeddingEndpoints,
+      strings: this.sourceStrings("settings.source.managedDescEmbedding"),
       rerender: () => this.refreshUi(),
-      presets: ENDPOINT_PRESETS,
+      renderLocalList: () => {
+        buildKitEndpointList({
+          containerEl: host,
+          label: embeddingLabel,
+          desc: t("settings.embeddingEndpoints.desc"),
+          placeholder: "http://localhost:11434",   // i18n-exempt: URL-Beispiel, sprachneutral
+          strings: this.endpointStrings(embeddingLabel),
+          cache: this.modelCache,
+          get: () => this.plugin.settings.embeddingEndpoints,
+          set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
+          active: () => this.plugin.activeEmbeddingEndpoint,
+          clientFor: (cfg) => new EmbeddingClient(cfg.url, rowModel(cfg), cfg.apiKey),
+          modelFits: (cfg) => embeddingModelMatchesIndex(rowModel(cfg), this.plugin.indexEmbeddingModel),
+          save: () => this.plugin.saveSettings(),
+          reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
+          rerender: () => this.refreshUi(),
+          presets: ENDPOINT_PRESETS,
+        });
+      },
     });
   };
 
@@ -580,25 +592,51 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private renderChatEndpoints = (setting: Setting): void => {
     const host = settingBodyHost(setting);
     const chatLabel = t("settings.chatEndpoints.label");
-    buildKitEndpointList({
-      containerEl: host,
-      label: chatLabel,
-      desc: t("settings.chatEndpoints.desc"),
-      placeholder: "http://localhost:1234",   // i18n-exempt: URL-Beispiel, sprachneutral
-      strings: this.endpointStrings(chatLabel),
-      cache: this.modelCache,
-      get: () => this.plugin.settings.chatEndpoints,
-      set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
-      active: () => this.plugin.activeChatEndpoint,
-      clientFor: (cfg) => new ChatClient(cfg.url, rowModel(cfg), cfg.apiKey),
-      // KEIN modelFits: an einem Chat-Endpunkt haengt kein Index, ein Modellwechsel ist dort
-      // folgenlos. Der Kit-Vertrag liest das Fehlen als „passt immer".
-      save: () => this.plugin.saveSettings(),
-      reconnect: () => this.plugin.resolveAndReconnectChat(),
+    buildEndpointSourceSection({
+      app: this.app, containerEl: host, capability: "chat", caller: "vault-retrieval",
+      choice: () => this.plugin.settings.chatChoice,
+      setChoice: async (c) => { this.plugin.settings.chatChoice = c; await this.plugin.saveSettings(); await this.plugin.resolveAndReconnectChat(); },
+      local: () => this.plugin.settings.chatEndpoints,
+      strings: this.sourceStrings("settings.source.managedDescChat"),
       rerender: () => this.refreshUi(),
-      presets: ENDPOINT_PRESETS,
+      renderLocalList: () => {
+        buildKitEndpointList({
+          containerEl: host,
+          label: chatLabel,
+          desc: t("settings.chatEndpoints.desc"),
+          placeholder: "http://localhost:1234",   // i18n-exempt: URL-Beispiel, sprachneutral
+          strings: this.endpointStrings(chatLabel),
+          cache: this.modelCache,
+          get: () => this.plugin.settings.chatEndpoints,
+          set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
+          active: () => this.plugin.activeChatEndpoint,
+          clientFor: (cfg) => new ChatClient(cfg.url, rowModel(cfg), cfg.apiKey),
+          // KEIN modelFits: an einem Chat-Endpunkt haengt kein Index, ein Modellwechsel ist dort
+          // folgenlos. Der Kit-Vertrag liest das Fehlen als „passt immer".
+          save: () => this.plugin.saveSettings(),
+          reconnect: () => this.plugin.resolveAndReconnectChat(),
+          rerender: () => this.refreshUi(),
+          presets: ENDPOINT_PRESETS,
+        });
+      },
     });
   };
+
+  /** Texte des Kit-Bausteins „Endpunkte vom Manager". `managedDesc` unterscheidet sich je Rolle:
+   *  beim Embedding steht der Rand dabei, dass ein Modell-Mismatch den Endpunkt nur für die Suche
+   *  behält (Task „Kein Endpunkt als aktiv markiert, wenn keiner zum Index-Modell passt"). */
+  private sourceStrings(descKey: "settings.source.managedDescEmbedding" | "settings.source.managedDescChat") {
+    return {
+      managed: t("settings.source.managed"), managedDesc: t(descKey), openManager: t("settings.source.openManager"),
+      pickEndpoint: t("settings.source.pickEndpoint"), automatic: t("settings.source.automatic"), model: t("settings.source.model"),
+      importLocal: t("settings.source.importLocal"),
+      imported: (r: { added: string[]; merged: string[] }) => t("settings.source.imported", String(r.added.length), String(r.merged.length)),
+      importFailed: t("settings.source.importFailed"),
+      modelHint: (key: ModelHintKey) => this.modelHint(key),
+      savedSuffix: t("modelChoice.savedSuffix"), refreshModels: t("settings.button.fetchModels"),
+      saveFailed: t("settings.endpointSaveFailed"),
+    };
+  }
 
   /** render-Hatch: Modelldetails-Zeile. Befüllt sich selbst über showInfo() mit dem Modell,
    *  das eine echte Anfrage bekäme (chatModelInUse) — seit 0.31.0 gibt es keine Chat-Modell-

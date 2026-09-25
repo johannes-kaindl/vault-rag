@@ -6,6 +6,8 @@ import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
+import { findEndpointManager, onEndpointManagerChanged } from "./vendor/kit-obsidian/endpoint-source";
+import { resolveManagedChat, resolveManagedEmbedding } from "./managed_endpoint";
 import { chatRequestModel, rowModel, migrateEndpointList, applyEndpointEdit, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
@@ -225,6 +227,11 @@ export default class VaultRagPlugin extends Plugin {
     // sonst bleiben die Alt-Schlüssel bis zum nächsten beliebigen Speichern in data.json — die
     // Migration ist idempotent, aber die CHANGELOG-Zusage "entfernt" wäre bis dahin unwahr.
     if (hadLegacyGlobalModels) await this.saveSettings();
+    // Kopien statt der Default-Objekte: `chatChoice`/`embeddingChoice` werden nur ersetzt, nie
+    // mutiert — aber eine geteilte Referenz auf DEFAULT_SETTINGS ist genau die Falle, die die
+    // tiefe Kopie der Endpunkt-Listen oben schon benennt.
+    this.settings.embeddingChoice = { ...this.settings.embeddingChoice };
+    this.settings.chatChoice = { ...this.settings.chatChoice };
     // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
     // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
     const e0 = this.settings.embeddingEndpoints[0] ?? { url: "" };
@@ -377,6 +384,16 @@ export default class VaultRagPlugin extends Plugin {
     // Aktiven Endpoint aus den Fallback-Listen auflösen (erster erreichbarer gewinnt).
     void this.resolveAndReconnectEmbedder();
     void this.resolveAndReconnectChat();
+    // Der Manager kann jederzeit installiert, deaktiviert oder umkonfiguriert werden. Das Abo
+    // erst nach layout-ready: vorher lädt er womöglich noch nicht, und ein Abo ohne Manager ist
+    // für die ganze Sitzung ein No-op.
+    this.app.workspace.onLayoutReady(() => {
+      const off = onEndpointManagerChanged(this.app, () => {
+        void this.resolveAndReconnectEmbedder();
+        void this.resolveAndReconnectChat();
+      });
+      this.register(off);
+    });
 
     void this.startMcpServerIfEnabled();
     // Über denselben mcpOpChain wie start/restart, damit ein Unload mitten in einem
@@ -490,6 +507,14 @@ export default class VaultRagPlugin extends Plugin {
         // losgelöstes Objekt. Deshalb über Index + `applyEndpointEdit` (Kopie), wie jede
         // andere Zeilen-Bearbeitung auch.
         setModel: (m: string) => {
+          // Mit Manager gehört die Wahl in `chatChoice` (die Zeile im Speicher ist nur ein
+          // Abbild des Manager-Ergebnisses); die lokale Liste bleibt unberührt.
+          if (findEndpointManager(this.app)) {
+            this.settings.chatChoice = { ...this.settings.chatChoice, model: m || undefined };
+            this.chatEndpointInUse = { ...this.chatEndpointInUse, model: m };
+            void this.saveSettings();
+            return;
+          }
           const eps = this.settings.chatEndpoints;
           // Identität zuerst, URL als Fallback: zwischen dem Kit-Listeneditor-Ersatz des ganzen
           // Arrays (opts.set(copies)) und dem nächsten reconnect() kann `chatEndpointInUse` auf
@@ -603,27 +628,41 @@ export default class VaultRagPlugin extends Plugin {
     let active: EndpointConfig | null = null;
     const skipped: string[] = [];
     const ohneModell: string[] = [];
-    for (const candidate of this.settings.embeddingEndpoints) {
-      const url = candidate.url?.trim();
-      if (!url) continue;
-      const model = rowModel(candidate);
-      if (model === "") {
-        ohneModell.push(url);
-        continue;
+    let cfg: EndpointConfig;
+    const manager = findEndpointManager(this.app);
+    if (manager) {
+      // Der Manager entscheidet (Kit-Vertrag), die lokale Liste ist nur der Rückfall OHNE Manager.
+      // Der Modell-Guard gilt trotzdem: ein Endpunkt aus dem falschen Vektorraum wird nicht aktiv
+      // markiert (siehe `resolveManagedEmbedding`), bleibt aber für die Suche verdrahtet.
+      const res = await resolveManagedEmbedding(manager, this.settings.embeddingChoice, indexModel,
+        (c) => new EmbeddingClient(c.url, rowModel(c), c.apiKey).ping());
+      cfg = res.config ?? { url: "" };
+      if (res.active) active = cfg;
+      if (res.mismatch) skipped.push(`„${cfg.url}" (Modell ${rowModel(cfg)})`);
+      if (res.noModel && res.config) ohneModell.push(cfg.url);
+    } else {
+      for (const candidate of this.settings.embeddingEndpoints) {
+        const url = candidate.url?.trim();
+        if (!url) continue;
+        const model = rowModel(candidate);
+        if (model === "") {
+          ohneModell.push(url);
+          continue;
+        }
+        if (!fits(candidate)) {
+          skipped.push(`„${url}" (Modell ${model})`);
+          continue;
+        }
+        if (await new EmbeddingClient(url, model, candidate.apiKey).ping()) {
+          active = candidate;
+          break;
+        }
       }
-      if (!fits(candidate)) {
-        skipped.push(`„${url}" (Modell ${model})`);
-        continue;
-      }
-      if (await new EmbeddingClient(url, model, candidate.apiKey).ping()) {
-        active = candidate;
-        break;
-      }
+      // Auch die Rückfall-Verdrahtung respektiert den Guard: lieber ein passender, gerade nicht
+      // erreichbarer Endpunkt als ein erreichbarer aus dem falschen Vektorraum (und nie ein
+      // Endpunkt ohne Modell — `fits` schließt das bereits aus).
+      cfg = active ?? this.settings.embeddingEndpoints.find(fits) ?? this.settings.embeddingEndpoints[0] ?? { url: "" };
     }
-    // Auch die Rückfall-Verdrahtung respektiert den Guard: lieber ein passender, gerade nicht
-    // erreichbarer Endpunkt als ein erreichbarer aus dem falschen Vektorraum (und nie ein
-    // Endpunkt ohne Modell — `fits` schließt das bereits aus).
-    const cfg = active ?? this.settings.embeddingEndpoints.find(fits) ?? this.settings.embeddingEndpoints[0] ?? { url: "" };
     this.activeEmbeddingEndpoint = active ? normalizeEndpoint(cfg.url) : null;
     const m = rowModel(cfg);
     this.embeddingModelInUse = m;
@@ -678,15 +717,25 @@ export default class VaultRagPlugin extends Plugin {
    *  und chatClient darauf neu verdrahten. */
   async resolveAndReconnectChat(): Promise<void> {
     let active: EndpointConfig | null = null;
-    for (const candidate of this.settings.chatEndpoints) {
-      const url = candidate.url?.trim();
-      if (!url) continue;
-      if (await new ChatClient(url, rowModel(candidate), candidate.apiKey).ping()) {
-        active = candidate;
-        break;
+    let cfg: EndpointConfig;
+    const manager = findEndpointManager(this.app);
+    if (manager) {
+      // Manager-Vorrang; die Zeile trägt Schlüssel und Modell nur im Speicher (nie in data.json).
+      const res = await resolveManagedChat(manager, this.settings.chatChoice,
+        (c) => new ChatClient(c.url, rowModel(c), c.apiKey).ping());
+      cfg = res.config ?? { url: "" };
+      if (res.active) active = cfg;
+    } else {
+      for (const candidate of this.settings.chatEndpoints) {
+        const url = candidate.url?.trim();
+        if (!url) continue;
+        if (await new ChatClient(url, rowModel(candidate), candidate.apiKey).ping()) {
+          active = candidate;
+          break;
+        }
       }
+      cfg = active ?? this.settings.chatEndpoints[0] ?? { url: "" };
     }
-    const cfg = active ?? this.settings.chatEndpoints[0] ?? { url: "" };
     this.activeChatEndpoint = active ? normalizeEndpoint(cfg.url) : null;
     this.chatEndpointInUse = cfg;
     this.chatClient = new ChatClient(cfg.url, this.chatModelInUse, cfg.apiKey);

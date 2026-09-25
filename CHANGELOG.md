@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 - **Die Aufzeichnung im LLM Lab war still aus.** `lab_client.ts` prüfte `apiVersion === 3`, llm-lab liefert seit 2026-09-03 die 4 — `readLabApi` gab deshalb `null` zurück, und Chat, Smart Apply und Umformatieren meldeten nichts mehr. Jetzt auf 4 gehoben; jede Nutzer-Handlung (eine Chat-Nachricht, ein Smart-Apply-Lauf, eine Umformung) trägt eine frische `turnId`. Am laufenden Obsidian 1.14.2 gegen das echte llm-lab 0.6.0 gemessen: der Aufruf landet in dessen Trace mit `turnId`.
 
+### Changed
+- **Endpunkte kommen vom LLM Endpoint Manager, wenn er installiert ist** (Kit `endpoint-source`, Kit-Pin `obsidian-kit` 0.35.0 → 0.41.1, `code-kit` 0.6.0 → 0.7.0). Zwei Rollen, je ein Aufruf: `chat` für Chat, Smart Apply und Umformatieren, `embedding` für Suche und Index. **Sichtbare Folgen:** ist der Manager da, zeigen die Einstellungen statt der beiden Endpunkt-Listen den Manager-Baustein (Endpunkt wählen, Modell wählen, lokale Endpunkte in den Manager übernehmen); die Wahl steht in `chatChoice`/`embeddingChoice` in der `data.json`, Schlüssel und Manager-Modell werden nie gespeichert. Ohne Manager bleibt alles wie bisher (lokale Liste als Rückfall). Der Manager entscheidet auch über „kein Endpunkt" — es gibt dann keinen stillen Rückfall auf die lokale Liste. Ein Wechsel im Manager wird ohne Neustart übernommen.
+- **Der Modell-Guard gilt auch für den Manager-Endpunkt.** Passt das Modell des Embedding-Endpunkts nicht zum geladenen Index, wird er nicht als aktiv markiert, beantwortet aber weiter Suchanfragen; in den Index wird nichts geschrieben (Schreibschutz am Persist, wie bei der lokalen Liste). Ein Manager-Endpunkt ohne Modellnamen wird nie aktiv, damit ein Reindex nicht `embedding_model: ""` stempelt.
+- Die Kit-Änderungen des Pin-Sprungs sind für dieses Plugin additiv (Schlüssel-Hook und Zusatzzeile an der Endpunkt-Liste, `installTabRefreshOnOpen`, Sampling-Profile); Chat-Client und SSE-Transport bleiben unberührt.
+
 ## [0.33.0] — 2026-09-24
 
 ### Fixed

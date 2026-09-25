@@ -140,6 +140,7 @@ endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZI
                   Obsidian-frei. **Einzige öffentliche Fläche** — weder
                   settings.ts noch settings_core.ts reichen diese Helfer durch; Aufrufer
                   importieren direkt hier.
+managed_endpoint.ts  Obsidian-freie Endpunkt-Wahl über den LLM Endpoint Manager (Kit `endpoint-source`): `resolveManagedChat`/`resolveManagedEmbedding` liefern Zeile, `active` und beim Embedding `mismatch`/`noModel`. Nur der Manager-Pfad — ohne Manager läuft die lokale Liste in `main.ts` (`resolveAndReconnect*`), dort liegen ihre Regeln. Gesendet und gegen den Index geprüft wird die aufgelöste Schreibweise (`sentModel`), nie `config.model` des Managers (der trägt das Standardmodell und würde die Nutzerwahl überschreiben, lingotuner-Fund C1). Die Zeile trägt den Schlüssel nur im Speicher; `chatChoice`/`embeddingChoice` sind das einzige, was gespeichert wird.
 capabilities.ts   Reine Vision/Thinking-Erkennung, geschichtet L1 Metadaten (Ollama /api/show,
                   LM Studio /api/v1|v0) → L2 Name-Heuristik → L3 live-bestätigt (monotones Upgrade);
                   geteilter fetchCapabilities(baseUrl, model)-Probe-Helper.
@@ -380,6 +381,8 @@ Das Prä-0.18-Tripel (`notes.i8`/`paths.json`/`manifest.json`) wird beim ersten 
 (`clipboard.ts`, `collapsible.ts`, `confirm.ts`, `endpoint-list.ts`, `folder-suggest.ts`, `hub.ts`,
 `model-picker.ts`, `settings_walker.ts`). Beide sind **verbatim-Snapshots — nie von Hand editieren**,
 Updates nur per Neu-Kopie über `tools/sync-kit.sh`.
+
+**Stand des Pins seit 2026-09-25 (Welle 8): `obsidian-kit` 0.41.1 und `code-kit` 0.7.0** — die Versionsangaben in den Absätzen hier sind älter, maßgeblich ist die `VENDOR.json` im jeweiligen Ordner. Neu dazu kamen `endpoint-source` (pure in `kit/`, Obsidian-Baustein in `kit-obsidian/`) und `sampling-profiles`; `endpoint-source` trägt einen Querimport auf die code-kit-Schicht, den `sync-kit.sh` per `relayer_pure` auf `./` umschreibt (zweite mechanische Abweichung von verbatim, Vorbild `lingotuner`).
 
 **Seit 2026-08-27 macht das `tools/sync-kit.sh`** statt einer Handkopie, und beide Verzeichnisse
 tragen eine `VENDOR.json` (vorher hatte nur `kit-obsidian/` eine, in `kit/` stand der Pin je Datei

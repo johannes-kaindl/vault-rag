@@ -1,6 +1,7 @@
 import type { ApplyMode } from "./note_restructurer";
 import type { EndpointConfig } from "./endpoint_config";
 import { t as uebersetze } from "./vendor/kit/i18n";
+import type { EndpointChoice } from "./vendor/kit/endpoint-source";
 
 /** Obsidian-freie Settings-Wahrheit: Interface, Defaults, Endpoint-Migration.
  *  Von settings.ts (Plugin-UI) re-exportiert und vom MCP-Server (src/mcp/) direkt
@@ -16,9 +17,13 @@ export interface VaultRagSettings {
   hideIndexFolder: boolean;
   exclude: string[];
   embeddingEndpoints: EndpointConfig[];
+  /** Wahl gegenueber dem LLM Endpoint Manager (Endpunkt-ID + Modell); leer = automatisch.
+   *  Gilt nur, solange der Manager installiert ist — die lokale Liste bleibt der Rueckfall. */
+  embeddingChoice: EndpointChoice;
   showStatusBar: boolean;
   debounceMs: number;
   chatEndpoints: EndpointConfig[];
+  chatChoice: EndpointChoice;
   chatK: number;
   contextCharBudget: number;
   chatTemperature: number;
@@ -131,9 +136,11 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   hideIndexFolder: true,
   exclude: ["Templates/", "Archive/"],
   embeddingEndpoints: [{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }],
+  embeddingChoice: {},
   showStatusBar: false,
   debounceMs: 3000,
   chatEndpoints: [{ url: "http://localhost:1234", model: "qwen3" }],
+  chatChoice: {},
   chatK: 5,
   contextCharBudget: 12000,
   chatTemperature: 0.7,

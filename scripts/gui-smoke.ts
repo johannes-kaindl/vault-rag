@@ -1447,6 +1447,121 @@ async function main(): Promise<void> {
       }
     }
 
+    // --- 9. Endpunkte vom LLM Endpoint Manager (Welle 8) --------------------
+    // Ein FAKE-Manager (findEndpointManager prueft nur die Form, nicht die Herkunft) traegt fuer
+    // BEIDE Rollen einen Endpunkt. `config.model` ist absichtlich gesetzt und gleich dem
+    // defaultModel — der echte Manager tut das (lingotuner-Fund C1): wer `config.model` statt des
+    // aufgeloesten Modells uebernimmt, ueberschreibt die Nutzerwahl. Der Embedding-Endpunkt traegt
+    // ein FREMDES Modell: das ist der Rand aus der Task „Kein Endpunkt als aktiv markiert, wenn
+    // keiner zum Index-Modell passt" — der Modell-Guard muss auch fuer den Manager-Endpunkt gelten.
+    // Der lokale Endpunkt der Fixture ist erreichbar; der Manager-Endpunkt zeigt bewusst auf
+    // dieselbe URL, unterscheidbar bleibt er ueber Modell und Schluessel (nie ueber die URL).
+    const MGR = "llm-endpoint-manager";
+    const MGR_MODEL = "w8-manager-modell";
+    const MGR_EMB_MODEL = "w8-fremdes-embedding-modell";
+    const mgrPre = await main.evaluate<{ ok: boolean; reason?: string }>(`
+      const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+      if (!p.settings.chatEndpoints[0]?.url || !p.settings.embeddingEndpoints[0]?.url) return { ok: false, reason: "keine lokalen Endpunkte in der Fixture" };
+      if (app.plugins.plugins[${JSON.stringify(MGR)}]) return { ok: false, reason: "ein echter Endpoint Manager ist installiert — der Smoke haengt keinen Fake daneben" };
+      return { ok: true };
+    `);
+    const MGR_PUNKTE = [
+      "Manager da: Chat-Endpunkt und Standardmodell kommen vom Manager, der Schlüssel bleibt im Speicher",
+      "Manager da: die Nutzerwahl (chatChoice.model) schlägt Standardmodell und config.model",
+      "Manager da: ein Embedding-Endpunkt mit fremdem Modell wird nicht aktiv markiert (Modell-Guard)",
+      "Manager da: die Einstellungen zeigen den Manager-Baustein statt der lokalen Listen",
+      "Manager weg: beide Rollen fallen auf die lokale Liste zurück",
+      "Der Manager-Weg schreibt weder Schlüssel noch Manager-Modell in data.json",
+    ];
+    if (!mgrPre.ok) {
+      for (const n of MGR_PUNKTE) skipped(n, mgrPre.reason ?? "Voraussetzung fehlt");
+    } else {
+      const mgrLocal = await main.evaluate<{ chatUrl: string; embUrl: string; chatModel: string }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        return { chatUrl: p.settings.chatEndpoints[0].url, embUrl: p.settings.embeddingEndpoints[0].url, chatModel: p.settings.chatEndpoints[0].model || "" };
+      `);
+      try {
+        const m1 = await main.evaluate<Record<string, unknown>>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          window.__vrMgrCalls = [];
+          const ep = (cap, url, model) => ({ id: "w8-" + cap, label: "w8-" + cap, config: { url, model, apiKey: "w8-schluessel" }, defaultModel: model });
+          const epChat = ep("chat", ${JSON.stringify(mgrLocal.chatUrl)}, ${JSON.stringify(MGR_MODEL)});
+          const epEmb = ep("embedding", ${JSON.stringify(mgrLocal.embUrl)}, ${JSON.stringify(MGR_EMB_MODEL)});
+          app.plugins.plugins[${JSON.stringify(MGR)}] = { api: {
+            version: 1, list: () => [], get: () => null,
+            resolve: async (cap, o) => { window.__vrMgrCalls.push(cap + ":" + (o && o.caller)); return cap === "embedding" ? epEmb : epChat; },
+            materialize: async () => ({ error: "not-found" }), models: async () => [],
+            importEndpoints: async () => ({ added: [], merged: [], skipped: [] }), on: () => () => {},
+          } };
+          await p.resolveAndReconnectChat();
+          await p.resolveAndReconnectEmbedder();
+          return {
+            key: p.chatEndpointInUse.apiKey, model: p.chatModelInUse, active: p.activeChatEndpoint,
+            calls: window.__vrMgrCalls.join(","),
+            embModel: p.embeddingModelInUse, embActive: p.activeEmbeddingEndpoint,
+          };
+        `);
+        record(MGR_PUNKTE[0]!,
+          m1.key === "w8-schluessel" && m1.model === MGR_MODEL && String(m1.calls).includes("chat:vault-retrieval"),
+          `Modell ${String(m1.model)} · Schlüssel ${m1.key === "w8-schluessel" ? "vom Manager" : String(m1.key)} · Aufrufe ${String(m1.calls)}`);
+
+        const m2 = await main.evaluate<Record<string, unknown>>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.chatChoice = { model: "w8-gewaehltes-modell" };
+          await p.resolveAndReconnectChat();
+          return { model: p.chatModelInUse };
+        `);
+        record(MGR_PUNKTE[1]!, m2.model === "w8-gewaehltes-modell", `Modell ${String(m2.model)} (Standard ${MGR_MODEL})`);
+
+        record(MGR_PUNKTE[2]!,
+          m1.embActive === null && m1.embModel === MGR_EMB_MODEL,
+          `active=${String(m1.embActive)} · Embedding-Modell ${String(m1.embModel)} (Index trägt ein anderes)`);
+
+        // Die Einstellungen leben seit 1.13 in einem eigenen Target: oeffnen im Hauptfenster,
+        // lesen dort (im Hauptfenster ist `app.setting.containerEl` leer).
+        await main.evaluate(`app.setting.close();`);
+        await openSettings(main);
+        const mgrSettings = await attachTo("settings", port, vault);
+        let m4 = { managed: false, rows: -1 };
+        if (mgrSettings) {
+          try {
+            m4 = await mgrSettings.evaluate<{ managed: boolean; rows: number }>(`
+              const body = document.body.textContent || "";
+              return { managed: /LLM Endpoint Manager/.test(body), rows: document.querySelectorAll(".okit-ep-row").length };
+            `);
+          } finally { mgrSettings.close(); }
+        }
+        await main.evaluate(`app.setting.close();`);
+        record(MGR_PUNKTE[3]!, m4.managed && m4.rows === 0, `Manager-Text ${m4.managed ? "da" : "fehlt"} · ${m4.rows} lokale Endpunkt-Zeilen`);
+
+        const disk = await main.evaluate<string>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          await p.saveSettings();
+          return await app.vault.adapter.read(app.vault.configDir + "/plugins/" + ${JSON.stringify(PLUGIN_ID)} + "/data.json");
+        `);
+        const leak = disk.includes("w8-schluessel") || disk.includes(MGR_MODEL) || disk.includes(MGR_EMB_MODEL);
+        record(MGR_PUNKTE[5]!, !leak, leak ? "Manager-Schlüssel oder -Modell steht in data.json" : "data.json trägt nur die Nutzerwahl (chatChoice) und die lokalen Listen");
+      } finally {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          delete app.plugins.plugins[${JSON.stringify(MGR)}];
+          delete window.__vrMgrCalls;
+          p.settings.chatChoice = {}; p.settings.embeddingChoice = {};
+          await p.saveSettings();
+        `);
+      }
+      const m5 = await main.evaluate<Record<string, unknown>>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        await p.resolveAndReconnectChat();
+        await p.resolveAndReconnectEmbedder();
+        return { model: p.chatModelInUse, key: p.chatEndpointInUse.apiKey || "", emb: p.embeddingModelInUse };
+      `);
+      record(MGR_PUNKTE[4]!,
+        m5.model === mgrLocal.chatModel && m5.key !== "w8-schluessel" && m5.emb !== MGR_EMB_MODEL,
+        `Chat-Modell ${String(m5.model)} · Embedding-Modell ${String(m5.emb)}`);
+    }
+
+
     // --- 8. Auto-Heal-Kaskade: defekter Container ohne Endpunkt ------------
     // Der einzige Prüfpunkt, der die VERDRAHTUNG misst statt der Entscheidung. `planAutoHeal`
     // ist unit-getestet — der Bug von 2026-08-14 lag aber in `attemptAutoHeal`: die

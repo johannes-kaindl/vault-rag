@@ -113,6 +113,7 @@
  * das ist die gewollte Meldung. Was ihr fehlt, wird DORT ergänzt, nicht hier nachgebaut.
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
 
@@ -144,7 +145,17 @@ const INTEGRATOR_PRUEFPUNKTE = [
   "Abgelehntes Ziel kommt beim Neuberechnen nicht wieder",
   "Frontmatter-Modus: related: [] wird zur Blockliste, Rest byte-identisch",
 ];
+/** Liest eine `<NAME> = <Zahl>`-Konstante aus einer Quelldatei; null, wenn Datei oder Konstante fehlt. */
+function readConstant(file: string, name: string): number | null {
+  if (!existsSync(file)) return null;
+  const m = new RegExp(`${name}\\s*=\\s*(\\d+)`).exec(readFileSync(file, "utf8"));
+  return m ? Number(m[1]) : null;
+}
+const CLIENT_LAB_FILE = join(cwd(), "src/lab_client.ts");
+const REAL_LAB_FILE = join(cwd(), "../llm-lab/src/plugin_api.ts");
+
 const LAB_PRUEFPUNKTE = [
+  "Der Lab-Client spricht dieselbe apiVersion wie das echte llm-lab",
   "Ein Chat über die Oberfläche meldet sich beim Lab",
   "Die Chat-Zeile trägt ttftMs und latencyMs",
   "Die Chat-Zeile trägt eine turnId (apiVersion 4)",
@@ -996,8 +1007,15 @@ async function main(): Promise<void> {
       }
       console.log(`  (Chat-Endpunkt aufgewärmt: ${warm} nach ${Math.round((Date.now() - warmStart) / 1000)} s)`);
 
+      const clientLabVersion = readConstant(CLIENT_LAB_FILE, "SUPPORTED_API_VERSION");
+      if (clientLabVersion === null) throw new Error("SUPPORTED_API_VERSION nicht in src/lab_client.ts gefunden — der Stub braucht sie");
       labStubbed = true;   // fuers finally
-      // Die apiVersion hier ist eine VERTRAGSKOPIE — genau wie `lab_client.ts`s eigene
+      // Herkunft der apiVersion: der Stub liest sie aus `src/lab_client.ts` (SUPPORTED_API_VERSION),
+      // trägt also KEINE eigene Kopie mehr. Damit ist er per Bauart so alt wie der Client und kann
+      // einen Bump nicht sehen — das leistet der Punkt „Der Lab-Client spricht dieselbe apiVersion
+      // wie das echte llm-lab", der llm-labs Konstante aus dessen Quelltext gegenliest.
+      // (Bis 2026-09-25 stand hier eine handgepflegte Zahl; der Rest dieses Absatzes ist die
+      // Vorgeschichte.) Die apiVersion war eine VERTRAGSKOPIE — genau wie `lab_client.ts`s eigene
       // SUPPORTED_API_VERSION traegt sie den Stand von llm-labs LLM_LAB_API_VERSION
       // (src/plugin_api.ts) manuell nach und muss bei jedem Bump dort mitziehen. Aktueller
       // Stand: 4 (seit dem Bump vom 2026-09-03, hier nachgezogen 2026-09-25 — bis dahin
@@ -1010,8 +1028,8 @@ async function main(): Promise<void> {
         app.plugins.plugins["llm-lab"] = {
           __vaultRagSmokeStub: true,
           api: {
-            apiVersion: 4,
-            status: () => ({ apiVersion: 4, recording: true }),
+            apiVersion: ${clientLabVersion},
+            status: () => ({ apiVersion: ${clientLabVersion}, recording: true }),
             log: (input) => { window.__vaultRagLabSeen.push(input); return "smoke-" + window.__vaultRagLabSeen.length; },
           },
         };
@@ -1078,6 +1096,18 @@ async function main(): Promise<void> {
       const turnIdChat = (chatTrace.last as { turnId?: unknown } | null)?.turnId;
       record("Die Chat-Zeile trägt eine turnId (apiVersion 4)",
         typeof turnIdChat === "string" && turnIdChat.length > 0, `turnId=${String(turnIdChat)}`);
+
+      // Stub und Client sind gleich alt (der Stub liest die Version aus dem Client). Ob der Client
+      // noch zum ECHTEN llm-lab passt, sagt nur dessen Quelltext — fehlt er, ist das „nichts
+      // gemessen", nicht grün.
+      const realLabVersion = readConstant(REAL_LAB_FILE, "LLM_LAB_API_VERSION");
+      if (realLabVersion === null) {
+        skipped("Der Lab-Client spricht dieselbe apiVersion wie das echte llm-lab",
+          "llm-lab-Quelltext nicht gefunden (../llm-lab/src/plugin_api.ts) — nichts gemessen");
+      } else {
+        record("Der Lab-Client spricht dieselbe apiVersion wie das echte llm-lab",
+          realLabVersion === clientLabVersion, `Client ${clientLabVersion} · llm-lab ${realLabVersion}`);
+      }
 
       // Die zweite Haelfte der Lab-Zusage: WAS als Kontext mitging, nicht nur DASS gemeldet wurde.
       // Verglichen wird gegen das, was der Nutzer SIEHT (die Chips), nicht gegen eine zweite

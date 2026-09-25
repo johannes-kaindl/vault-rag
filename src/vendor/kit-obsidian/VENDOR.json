@@ -1,7 +1,7 @@
 {
   "source": "obsidian-kit",
-  "version": "0.35.0",
-  "sha": "e7e3e19",
-  "vendored": "clipboard.ts, collapsible.ts, confirm.ts, endpoint-list.ts, folder-suggest.ts, hub.ts, model-picker.ts, settings_walker.ts, stream-area.ts",
+  "version": "0.41.1",
+  "sha": "f9439c8",
+  "vendored": "clipboard.ts, collapsible.ts, confirm.ts, endpoint-list.ts, endpoint-source.ts, folder-suggest.ts, hub.ts, model-picker.ts, settings_walker.ts, stream-area.ts",
   "note": "Verbatim snapshot von obsidian-kit/src/obsidian (plus Herkunfts-Header). Module mit Kit-internem Import der code-kit-Schicht tragen EINE mechanische Abweichung: der Import zeigt auf ../kit/ (Vendor-Layout). Never hand-edit. Re-vendor via tools/sync-kit.sh."
 }

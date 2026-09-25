@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.35.0, src/obsidian/hub.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.41.1, src/obsidian/hub.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { setIcon } from "obsidian";
 
 /**

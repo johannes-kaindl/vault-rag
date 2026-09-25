@@ -17,14 +17,14 @@
 # Zweiter Lauf darf keinen Diff erzeugen — deshalb steht in VENDOR.json KEIN Datum.
 set -e
 KIT="${KIT_DIR:-../obsidian-kit}"
-KIT_REF="${KIT_REF:-0.35.0}"
+KIT_REF="${KIT_REF:-0.41.1}"
 CODEKIT="${CODEKIT_DIR:-"$HOME/Projects/jkaindl/libs/code-kit"}"
-CODEKIT_REF="${CODEKIT_REF:-0.6.0}"
+CODEKIT_REF="${CODEKIT_REF:-0.7.0}"
 
-CK_PURE="endpoint endpoint_config endpoint_diagnostics error_body i18n model-choice model-list-cache reasoning settings sse timeout"
+CK_PURE="endpoint endpoint_config endpoint_diagnostics error_body i18n model-choice model-list-cache reasoning sampling-profiles settings sse timeout"
 CK_WEB="clipboard"
-KIT_PURE="callout frontmatter"
-KIT_OBSIDIAN="clipboard collapsible confirm endpoint-list folder-suggest hub model-picker settings_walker stream-area"
+KIT_PURE="callout endpoint-source frontmatter"
+KIT_OBSIDIAN="clipboard collapsible confirm endpoint-list endpoint-source folder-suggest hub model-picker settings_walker stream-area"
 # Ausnahme: pure/think-splitter.ts heisst hier think.ts (Konsumenten importieren "./vendor/kit/think").
 
 # --- Vorbedingungen, ALLE vor dem ersten Schreibvorgang (ein Abbruch mitten im Lauf hinterliesse
@@ -87,10 +87,33 @@ relayer() {
   mv "$f.tmp" "$f"
 }
 
+# Zweite Fallgruppe (Vorbild lingotuner/tools/sync-kit.sh): ein pure-Modul aus obsidian-kit, das selbst
+# auf die code-kit-Schicht zeigt (endpoint-source -> endpoint_config, sampling-profiles). Beide Seiten
+# liegen hier flach in src/vendor/kit/, der Zielpfad ist also ./ und nicht ../kit/.
+relayer_pure() {
+  f=$1
+  sed -e 's|\(["'"'"']\)\.\./vendor/code-kit/pure/|\1./|g' \
+      -e 's|\(["'"'"']\)\.\./vendor/code-kit/web/|\1./|g' "$f" > "$f.tmp"
+  if cmp -s "$f" "$f.tmp"; then rm -f "$f.tmp"; return 0; fi
+  mv "$f.tmp" "$f"
+  if grep -qE '\.\./vendor/code-kit/' "$f"; then
+    echo "sync-kit: unaufgeloester Kit-Querimport in $f — Muster pruefen" >&2; exit 1
+  fi
+  for dep in $(sed -n 's|.*from ["'"'"']\./\([A-Za-z0-9_/-]*\)["'"'"'].*|\1|p' "$f" | sort -u); do
+    [ -f "src/vendor/kit/$dep.ts" ] || { echo "sync-kit: $f importiert ./$dep, aber src/vendor/kit/$dep.ts fehlt — mitvendorieren" >&2; exit 1; }
+  done
+  note="// ONE mechanical deviation from verbatim: kit-internal import (../vendor/code-kit/{pure,web}/) → ./ (flat vendor layout, sibling module in src/vendor/kit/); reproduce on every re-vendor, nothing else may differ."
+  { head -n 1 "$f"; printf '%s\n' "$note"; tail -n +2 "$f"; } > "$f.tmp"
+  mv "$f.tmp" "$f"
+}
+
 for m in $CK_PURE; do copy "$CODEKIT" "$CODEKIT_REF" code-kit "src/ts/pure/$m.ts" "src/vendor/kit/$m.ts"; done
 copy "$CODEKIT" "$CODEKIT_REF" code-kit "src/ts/pure/think-splitter.ts" "src/vendor/kit/think.ts"
 for m in $CK_WEB; do copy "$CODEKIT" "$CODEKIT_REF" code-kit "src/ts/web/$m.ts" "src/vendor/kit/$m.ts"; done
-for m in $KIT_PURE; do copy "$KIT" "$KIT_REF" obsidian-kit "src/pure/$m.ts" "src/vendor/kit/$m.ts"; done
+for m in $KIT_PURE; do
+  copy "$KIT" "$KIT_REF" obsidian-kit "src/pure/$m.ts" "src/vendor/kit/$m.ts"
+  case "$m" in endpoint-source) relayer_pure "src/vendor/kit/$m.ts" ;; esac
+done
 for m in $KIT_OBSIDIAN; do
   copy "$KIT" "$KIT_REF" obsidian-kit "src/obsidian/$m.ts" "src/vendor/kit-obsidian/$m.ts"
   relayer "src/vendor/kit-obsidian/$m.ts"

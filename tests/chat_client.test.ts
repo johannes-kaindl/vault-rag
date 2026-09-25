@@ -144,7 +144,7 @@ describe("ChatClient", () => {
   });
   describe("llm-lab trace", () => {
     function fakeLabApp(log: (input: any) => unknown): unknown {
-      return { plugins: { plugins: { "llm-lab": { api: { apiVersion: 3, status: () => ({ apiVersion: 3, recording: true }), log } } } } };
+      return { plugins: { plugins: { "llm-lab": { api: { apiVersion: 4, status: () => ({ apiVersion: 4, recording: true }), log } } } } };
     }
 
     it("ein werfendes log() darf den aufgeloesten Wert nicht veraendern", async () => {
@@ -160,6 +160,30 @@ describe("ChatClient", () => {
       ]);
       await expect(p).resolves.toEqual({ content: "Hallo", reasoning: "" });
       expect(content).toEqual(["Hal", "lo"]);
+    });
+
+    it("reicht die turnId der Nutzer-Handlung unveraendert ans Lab", async () => {
+      const xhr = installFakeXHR();
+      let seen: any;
+      const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
+      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
+        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
+        { trace: { feature: "chat", app, turnId: "turn-1" } });
+      xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+      await p;
+      expect(seen.turnId).toBe("turn-1");
+    });
+
+    it("ohne turnId bleibt das Feld weg statt undefined zu tragen", async () => {
+      const xhr = installFakeXHR();
+      let seen: any;
+      const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
+      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
+        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
+        { trace: { feature: "chat", app } });
+      xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+      await p;
+      expect("turnId" in seen).toBe(false);
     });
 
     it("HTTP-500 rejected wie zuvor UND meldet dem Lab error + leeren content", async () => {

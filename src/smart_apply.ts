@@ -32,6 +32,7 @@ import {
 } from "./note_restructurer";
 import type { ChatClient } from "./chat_client";
 import { t } from "./vendor/kit/i18n";
+import { newTurnId } from "./lab_client";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -262,7 +263,7 @@ export class SmartApply {
       // Beispiele im Prompt (Step 6, buildRestructurePrompt) stammen aus der Vorlage, nicht
       // nur aus der Notiz — wer seinen Vorlagen-Ordner ausschliesst, soll dessen Inhalt nicht
       // trotzdem aufgezeichnet bekommen.
-      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens, trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath], ...(promptTemplate ? { promptTemplate } : {}) } },
+      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens, trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath], turnId: newTurnId(), ...(promptTemplate ? { promptTemplate } : {}) } },
     );
 
     // Ins Token-Budget gelaufen: das erklaert einen anschliessenden Fehlschlag und nennt die

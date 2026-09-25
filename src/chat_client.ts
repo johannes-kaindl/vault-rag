@@ -81,7 +81,7 @@ export class ChatClient {
     onContent: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
-    opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number; trace?: { feature: string; app: unknown; contextPaths?: string[]; promptTemplate?: string } },
+    opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number; trace?: { feature: string; app: unknown; contextPaths?: string[]; promptTemplate?: string; turnId?: string } },
   ): Promise<{ content: string; reasoning: string; finishReason?: string }> {
     const effectiveModel = opts?.model ?? this.model;
     const body = JSON.stringify({
@@ -136,7 +136,7 @@ export class ChatClient {
    *  `log()` ist synchron und darf nie werfen — ein `try` steht trotzdem hier, weil ein
    *  fremdes Plugin nicht unser Vertrauen verdient, nur weil es unsere Signatur erfuellt. */
   private reportToLab(
-    opts: { model?: string; trace?: { feature: string; app: unknown; contextPaths?: string[]; promptTemplate?: string } } | undefined,
+    opts: { model?: string; trace?: { feature: string; app: unknown; contextPaths?: string[]; promptTemplate?: string; turnId?: string } } | undefined,
     messages: ChatMessage[],
     result: { content: string; reasoning?: string; finishReason?: string; errorRaw?: unknown },
     started: number,
@@ -156,6 +156,7 @@ export class ChatClient {
         ...(this.apiKey ? { secrets: [this.apiKey] } : {}),
         ...(opts.trace.contextPaths?.length ? { contextPaths: opts.trace.contextPaths } : {}),
         ...(opts.trace.promptTemplate ? { promptTemplate: opts.trace.promptTemplate } : {}),
+        ...(opts.trace.turnId ? { turnId: opts.trace.turnId } : {}),
         ...rest,
         ...(errorRaw !== undefined ? { error: describeError(errorRaw) } : {}),
       });

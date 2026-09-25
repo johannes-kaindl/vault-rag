@@ -2,6 +2,7 @@ import { ChatClient, ChatMessage } from "./chat_client";
 import { ContextResult } from "./context_source";
 import { chatErrorMessage } from "./chat_error";
 import { t } from "./vendor/kit/i18n";
+import { newTurnId } from "./lab_client";
 
 export interface ChatSessionDeps {
   client: () => ChatClient;
@@ -56,7 +57,7 @@ export class ChatSession {
         c => { assistant.content += c; onToken(c); },
         r => { assistant.reasoning = (assistant.reasoning ?? "") + r; onToken(r); },
         this.controller.signal,
-        { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: preamble } },
+        { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: preamble, turnId: newTurnId() } },
       );
       assistant.content = result.content;
       assistant.reasoning = result.reasoning || undefined;

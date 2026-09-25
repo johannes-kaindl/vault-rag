@@ -111,12 +111,21 @@ describe("ChatSession", () => {
     const assistantTurn = captured.find((m: any) => m.role === "assistant");
     expect(assistantTurn.content).toBe("Antwort");
   });
+  it("jede Nachricht traegt ihre eigene turnId — eine Nutzer-Handlung, eine id", async () => {
+    const ids: string[] = [];
+    const stream = async (_m: any, _c: any, _r: any, _sig: any, o: any) => { ids.push(o.trace.turnId); return { content: "ok", reasoning: "" }; };
+    const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", params: () => ({ model: "mx", temperature: 0.9, suppressThinking: false }), app: () => ({}) });
+    await s.send("eins", [], () => {});
+    await s.send("zwei", [], () => {});
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).not.toBe(ids[1]);
+  });
   it("stream bekommt model+temperature aus params() als opts", async () => {
     let opts: any;
     const stream = async (_m: any, _c: any, _r: any, _sig: any, o: any) => { opts = o; return { content: "ok", reasoning: "" }; };
     const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", params: () => ({ model: "mx", temperature: 0.9, suppressThinking: false }), app: () => ({}) });
     await s.send("frage", [], () => {});
-    expect(opts).toEqual({ model: "mx", temperature: 0.9, suppressThinking: false, trace: { feature: "chat", app: {}, contextPaths: [], promptTemplate: "SYS" } });
+    expect(opts).toEqual({ model: "mx", temperature: 0.9, suppressThinking: false, trace: { feature: "chat", app: {}, contextPaths: [], promptTemplate: "SYS", turnId: expect.any(String) } });
   });
   it("meldet als promptTemplate nur das systemPreamble — nicht die System-Message mit Kontext", async () => {
     let opts: unknown;

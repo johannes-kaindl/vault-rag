@@ -18,6 +18,7 @@ import { LiveIndexer } from "./live_indexer";
 import { PendingQueue } from "./pending_queue";
 import { SearchPanel, VIEW_TYPE_SEARCH, SearchResult } from "./search_view";
 import { ChatClient } from "./chat_client";
+import { newTurnId } from "./lab_client";
 import { buildContext } from "./context_source";
 import { pickNote } from "./note_picker";
 import { ChatSession } from "./chat_session";
@@ -958,7 +959,7 @@ export default class VaultRagPlugin extends Plugin {
           temperature: 0.2,
           suppressThinking: true,
           maxTokens: REFORMAT_MAX_TOKENS,
-          trace: { feature: `reformat:${def.id}`, app: this.app, contextPaths: [cap.path], promptTemplate: def.promptTemplate() },
+          trace: { feature: `reformat:${def.id}`, app: this.app, contextPaths: [cap.path], promptTemplate: def.promptTemplate(), turnId: newTurnId() },
         })
         .then(r => ({ text: r.content, finishReason: r.finishReason })),
       onApply: (result) => {

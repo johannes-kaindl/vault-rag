@@ -147,6 +147,7 @@ const INTEGRATOR_PRUEFPUNKTE = [
 const LAB_PRUEFPUNKTE = [
   "Ein Chat über die Oberfläche meldet sich beim Lab",
   "Die Chat-Zeile trägt ttftMs und latencyMs",
+  "Die Chat-Zeile trägt eine turnId (apiVersion 4)",
   "Die Chat-Zeile trägt die Kontext-Pfade, die das Panel zeigt",
   "Die Endpunkt-Probe meldet sich unter eigenem feature (damit das Lab sie ausschließen kann)",
   "Reformat meldet sich mit der Transform-ID im feature",
@@ -999,7 +1000,9 @@ async function main(): Promise<void> {
       // Die apiVersion hier ist eine VERTRAGSKOPIE — genau wie `lab_client.ts`s eigene
       // SUPPORTED_API_VERSION traegt sie den Stand von llm-labs LLM_LAB_API_VERSION
       // (src/plugin_api.ts) manuell nach und muss bei jedem Bump dort mitziehen. Aktueller
-      // Stand: 3 (seit dem Bump vom 2026-08-30). Vorher 2 (431c23c).
+      // Stand: 4 (seit dem Bump vom 2026-09-03, hier nachgezogen 2026-09-25 — bis dahin
+      // stand hier 3, und weil Stub und Client dieselbe Zahl trugen, lief der Punkt grün,
+      // waehrend das echte llm-lab (4) den Client ausgesperrt haette). Vorher 3 (2026-08-30), 2 (431c23c).
       // Ein veralteter Wert hier faellt `readLabApi()`s strikten Vergleich
       // durch und laesst den Stub aussehen, als waere kein llm-lab installiert.
       await main.evaluate(`
@@ -1007,8 +1010,8 @@ async function main(): Promise<void> {
         app.plugins.plugins["llm-lab"] = {
           __vaultRagSmokeStub: true,
           api: {
-            apiVersion: 3,
-            status: () => ({ apiVersion: 3, recording: true }),
+            apiVersion: 4,
+            status: () => ({ apiVersion: 4, recording: true }),
             log: (input) => { window.__vaultRagLabSeen.push(input); return "smoke-" + window.__vaultRagLabSeen.length; },
           },
         };
@@ -1070,6 +1073,11 @@ async function main(): Promise<void> {
       record("Die Chat-Zeile trägt ttftMs und latencyMs",
         typeof ct?.ttftMs === "number" && typeof ct?.latencyMs === "number" && (ct.ttftMs ?? 0) <= (ct.latencyMs ?? 0),
         `ttftMs=${String(ct?.ttftMs)} · latencyMs=${String(ct?.latencyMs)}`);
+
+      // apiVersion 4: eine Nutzer-Handlung, eine turnId. Der Chat ist hier genau eine Handlung.
+      const turnIdChat = (chatTrace.last as { turnId?: unknown } | null)?.turnId;
+      record("Die Chat-Zeile trägt eine turnId (apiVersion 4)",
+        typeof turnIdChat === "string" && turnIdChat.length > 0, `turnId=${String(turnIdChat)}`);
 
       // Die zweite Haelfte der Lab-Zusage: WAS als Kontext mitging, nicht nur DASS gemeldet wurde.
       // Verglichen wird gegen das, was der Nutzer SIEHT (die Chips), nicht gegen eine zweite

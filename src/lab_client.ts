@@ -1,9 +1,10 @@
-// uebernommen aus koda-agent/src/obsidian/retrieval.ts, 2026-08-22
+// uebernommen aus koda-agent/src/obsidian/retrieval.ts, 2026-08-22 (Defensiv-Lese-Bauplan);
+// apiVersion 4 (turnId) nachgezogen 2026-09-25 nach obsidian-transmute/src/obsidian/lab.ts
 /** Liest llm-labs oeffentliche API defensiv aus dem Plugin-Register.
  *
  *  Bewusst bei JEDEM Aufruf statt einmal beim Laden: das Lab kann zur Laufzeit
  *  aktiviert oder deaktiviert werden, und der Zugriff ist nur ein Objekt-Lookup. */
-const SUPPORTED_API_VERSION = 3;
+const SUPPORTED_API_VERSION = 4;
 const PLUGIN_ID = "llm-lab";
 
 export interface LabLogInput {
@@ -25,6 +26,15 @@ export interface LabLogInput {
   /** apiVersion 3: der stabile Anteil des System-Prompts (ohne Retrieval-Kontext,
    *  ohne Nutzereingabe). Grundlage des Prompt-Fassungsvergleichs im Lab. */
   promptTemplate?: string;
+  /** apiVersion 4: klammert mehrere Aufrufe, die zu EINER Nutzer-Handlung gehoeren. Hier ist
+   *  jede Handlung genau ein Aufruf — eine Nachricht, ein Lauf, eine Umformung —, die id
+   *  ist also je Handlung frisch (`newTurnId`). */
+  turnId?: string;
+}
+
+/** Frische id fuer eine Nutzer-Handlung; ein Aufrufer vergibt sie EINMAL je Handlung. */
+export function newTurnId(): string {
+  return crypto.randomUUID();
 }
 
 export interface LabApi {

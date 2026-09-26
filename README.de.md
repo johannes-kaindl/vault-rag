@@ -112,7 +112,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 | Ähnlichkeit / Top-k | Retrieval-Schwellen | `0.3` · `20` |
 | Ausschluss-Pfade | Pfade, die nicht indiziert werden (Dot-Ordner immer) | `Templates/`, `Archive/` |
 | Fortschritt in Statusleiste | Zeigt den Embedding-Fortschritt; beim Reindex automatisch eingeblendet | aus |
-| Verzögerung | Wie lange nach dem Speichern neu eingebettet wird | `3000` ms |
+| Debounce | Wie lange nach dem Speichern neu eingebettet wird | `3000` ms |
 | Smart Apply | Standardmäßig aus; aktiviert Tab, Befehl und Template-Einstellungen | aus |
 | Kontext-Budget | Maximale Zeichenzahl als Kontext (Obergrenze folgt dem Modellfenster) | `12000` |
 | Denken unterdrücken | Default für neue Chats; zusätzlich pro Chat umschaltbar | aus |

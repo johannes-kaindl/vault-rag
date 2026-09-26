@@ -249,11 +249,11 @@ describe("getSettingDefinitions – Struktur", () => {
       .filter((i: any) => i.control).map((i: any) => i.control.key);
   }
 
-  it("liefert nur Groups auf oberster Ebene", () => {
+  it("liefert Groups auf oberster Ebene — bis auf die Hilfe-Zeile als erstes Element", () => {
     const { tab } = makeTab();
     const defs = tab.getSettingDefinitions() as any[];
     expect(defs.length).toBeGreaterThan(0);
-    for (const d of defs) expect(d.type).toBe("group");
+    for (const d of defs.slice(1)) expect(d.type).toBe("group");
   });
 
   it("jeder Control-Key existiert in DEFAULT_SETTINGS und round-trippt", async () => {
@@ -416,5 +416,58 @@ describe("settings render hatches i18n", () => {
     expect(src).not.toMatch(/from "\.\/model_choice"/);
     expect(src).not.toMatch(/private renderModelPicker/);
     expect(src).toMatch(/from "\.\/vendor\/kit-obsidian\/model-picker"/);
+  });
+});
+
+// UI-STANDARD §8 „Hilfe-Zeile (Settings)": erstes Element, „Open documentation" auf den Doku-Index
+// und ein bug-Knopf auf die Issues. Unter Obsidian >= 1.13 zaehlt nur diese Liste — display()
+// wird nie gerufen —, deshalb ist die Reihenfolge hier zu pruefen, nicht im Fallback.
+describe("getSettingDefinitions – Hilfe-Zeile", () => {
+  const DOCS = "https://github.com/johannes-kaindl/vault-rag/blob/main/docs/README.md";
+  const ISSUES = "https://github.com/johannes-kaindl/vault-rag/issues";
+
+  it("steht als ERSTES Element, vor jeder Gruppe", () => {
+    const { tab } = makeTab();
+    const first = (tab.getSettingDefinitions() as any[])[0];
+    expect(first.type).toBeUndefined();
+    expect(first.items).toBeUndefined();
+    expect(first.name).toBe("Help");
+    expect(typeof first.render).toBe("function");
+  });
+
+  it("oeffnet mit dem Text-Knopf den Doku-Index und mit dem bug-Knopf die Issues", () => {
+    const opened: string[] = [];
+    vi.stubGlobal("window", { open: (url: string) => { opened.push(url); } });
+    try {
+      const { tab } = makeTab();
+      const first = (tab.getSettingDefinitions() as any[])[0];
+      // Aufzeichnender Setting-Double: der Repo-Mock verwirft Knopf-Texte und Klick-Handler.
+      const rec: { text?: string; icon?: string; tip?: string; docsClick?: () => void; bugClick?: () => void } = {};
+      const setting: any = {
+        setName() { return setting; },
+        setDesc() { return setting; },
+        addButton(cb: (b: any) => void) {
+          const b = { setButtonText(t: string) { rec.text = t; return b; }, onClick(f: () => void) { rec.docsClick = f; return b; } };
+          cb(b); return setting;
+        },
+        addExtraButton(cb: (b: any) => void) {
+          const b = {
+            setIcon(i: string) { rec.icon = i; return b; },
+            setTooltip(t: string) { rec.tip = t; return b; },
+            onClick(f: () => void) { rec.bugClick = f; return b; },
+          };
+          cb(b); return setting;
+        },
+      };
+      first.render(setting);
+      expect(rec.text).toBe("Open documentation");
+      expect(rec.icon).toBe("bug");
+      expect(rec.tip).toBe("Report an issue");
+      rec.docsClick?.();
+      rec.bugClick?.();
+      expect(opened).toEqual([DOCS, ISSUES]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

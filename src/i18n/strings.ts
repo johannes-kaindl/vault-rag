@@ -3,6 +3,10 @@ import { defineStrings } from "../vendor/kit/i18n";
 export const EN = {
   // settings.ts
   "settings.recentNoteCount": "{0} notes",
+  "settings.help.name": "Help",
+  "settings.help.desc": "Getting started, how-tos and troubleshooting",
+  "settings.help.openDocs": "Open documentation",
+  "settings.help.reportIssue": "Report an issue",
   "settings.embeddingStatus.name": "Embedding status",
   "settings.embeddingEndpoints.label": "Embedding endpoints",
   "settings.embeddingEndpoints.desc": "Per line: address · API key · model. Endpoints are tried in order, the first reachable one is used. Local servers (Ollama/MLX/LM Studio) need no key; pick the model from the list once the server is running. For hosted providers, fill in both.",
@@ -529,6 +533,10 @@ export const EN = {
 
 export const DE = {
   "settings.recentNoteCount": "{0} Notizen",
+  "settings.help.name": "Hilfe",
+  "settings.help.desc": "Erste Schritte, Anleitungen und Fehlersuche",
+  "settings.help.openDocs": "Dokumentation öffnen",
+  "settings.help.reportIssue": "Problem melden",
   "settings.embeddingStatus.name": "Embedding-Status",
   "settings.embeddingEndpoints.label": "Embedding-Endpunkte",
   "settings.embeddingEndpoints.desc": "Pro Zeile: Adresse · API-Schlüssel · Modell. Die Endpunkte werden der Reihe nach probiert, der erste erreichbare wird genutzt. Lokale Server (Ollama/MLX/LM Studio) brauchen keinen Schlüssel; das Modell aus der Liste wählen, sobald der Server läuft. Für gehostete Anbieter beides eintragen.",

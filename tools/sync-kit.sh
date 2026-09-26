@@ -18,6 +18,9 @@
 set -e
 KIT="${KIT_DIR:-../obsidian-kit}"
 KIT_REF="${KIT_REF:-0.41.1}"
+# Eigener Pin, Absicht: help-setting.ts (Hilfe-Zeile, UI-STANDARD §8) kam mit Kit 0.43.0 und haengt an
+# keinem anderen Modul — die uebrigen Module behalten ihren Pin (Vorlage: epub-exporter 877eb2c).
+KIT_HELP_REF="${KIT_HELP_REF:-0.43.0}"
 CODEKIT="${CODEKIT_DIR:-"$HOME/Projects/jkaindl/libs/code-kit"}"
 CODEKIT_REF="${CODEKIT_REF:-0.7.0}"
 
@@ -29,7 +32,7 @@ KIT_OBSIDIAN="clipboard collapsible confirm endpoint-list endpoint-source folder
 
 # --- Vorbedingungen, ALLE vor dem ersten Schreibvorgang (ein Abbruch mitten im Lauf hinterliesse
 #     eine halb aktualisierte Vendor-Schicht — so am 2026-08-30 mit KIT_REF=0.28.0 passiert).
-for pair in "$KIT|$KIT_REF|KIT_DIR" "$CODEKIT|$CODEKIT_REF|CODEKIT_DIR"; do
+for pair in "$KIT|$KIT_REF|KIT_DIR" "$KIT|$KIT_HELP_REF|KIT_DIR" "$CODEKIT|$CODEKIT_REF|CODEKIT_DIR"; do
   dir=$(printf '%s' "$pair" | cut -d'|' -f1)
   ref=$(printf '%s' "$pair" | cut -d'|' -f2)
   var=$(printf '%s' "$pair" | cut -d'|' -f3)
@@ -43,9 +46,11 @@ for m in $CK_PURE think-splitter; do git -C "$CODEKIT" cat-file -e "$CODEKIT_REF
 for m in $CK_WEB; do git -C "$CODEKIT" cat-file -e "$CODEKIT_REF:src/ts/web/$m.ts" 2>/dev/null || fehlend="$fehlend code-kit:src/ts/web/$m.ts"; done
 for m in $KIT_PURE; do git -C "$KIT" cat-file -e "$KIT_REF:src/pure/$m.ts" 2>/dev/null || fehlend="$fehlend obsidian-kit:src/pure/$m.ts"; done
 for m in $KIT_OBSIDIAN; do git -C "$KIT" cat-file -e "$KIT_REF:src/obsidian/$m.ts" 2>/dev/null || fehlend="$fehlend obsidian-kit:src/obsidian/$m.ts"; done
+git -C "$KIT" cat-file -e "$KIT_HELP_REF:src/obsidian/help-setting.ts" 2>/dev/null || fehlend="$fehlend obsidian-kit@$KIT_HELP_REF:src/obsidian/help-setting.ts"
 if [ -n "$fehlend" ]; then echo "sync-kit: fehlende Quellen —$fehlend. Nichts geschrieben." >&2; exit 1; fi
 
 KIT_SHA=$(git -C "$KIT" rev-parse --short "$KIT_REF^{commit}")
+HELP_SHA=$(git -C "$KIT" rev-parse --short "$KIT_HELP_REF^{commit}")
 CK_SHA=$(git -C "$CODEKIT" rev-parse --short "$CODEKIT_REF^{commit}")
 mkdir -p src/vendor/kit src/vendor/kit-obsidian
 
@@ -118,6 +123,7 @@ for m in $KIT_OBSIDIAN; do
   copy "$KIT" "$KIT_REF" obsidian-kit "src/obsidian/$m.ts" "src/vendor/kit-obsidian/$m.ts"
   relayer "src/vendor/kit-obsidian/$m.ts"
 done
+copy "$KIT" "$KIT_HELP_REF" obsidian-kit "src/obsidian/help-setting.ts" "src/vendor/kit-obsidian/help-setting.ts"
 
 liste() { l=""; for m in "$@"; do [ -z "$l" ] && l="$m.ts" || l="$l, $m.ts"; done; printf '%s' "$l"; }
 cat > src/vendor/kit/VENDOR.json <<JSON
@@ -133,7 +139,7 @@ cat > src/vendor/kit-obsidian/VENDOR.json <<JSON
   "source": "obsidian-kit",
   "version": "$KIT_REF",
   "sha": "$KIT_SHA",
-  "vendored": "$(liste $KIT_OBSIDIAN)",
+  "vendored": "$(liste $KIT_OBSIDIAN), help-setting.ts (Kit $KIT_HELP_REF, $HELP_SHA)",
   "note": "Verbatim snapshot von obsidian-kit/src/obsidian (plus Herkunfts-Header). Module mit Kit-internem Import der code-kit-Schicht tragen EINE mechanische Abweichung: der Import zeigt auf ../kit/ (Vendor-Layout). Never hand-edit. Re-vendor via tools/sync-kit.sh."
 }
 JSON

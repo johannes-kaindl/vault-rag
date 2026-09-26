@@ -113,12 +113,13 @@
  * das ist die gewollte Meldung. Was ihr fehlt, wird DORT ergänzt, nicht hier nachgebaut.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
 
 import { Cdp, attachTo, pollUntil } from "../../tools/obsidian-cdp/cdp.js";
 import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
+import { capture } from "../../tools/obsidian-cdp/shot.js";
 import { EN, DE } from "../src/i18n/strings";
 
 const PLUGIN_ID = "vault-retrieval";
@@ -682,6 +683,20 @@ async function main(): Promise<void> {
     settings = await attachTo("settings", port, vault);
     if (!settings) throw new Error(`Kein Einstellungen-Fenster auf Port ${port} gefunden — hat sich die Seite geöffnet?`);
     await settings.send("Page.bringToFront");
+    // Hilfe-Zeile (UI-STANDARD §8): erste gezeichnete Zeile im Tab, mit Text-Knopf und bug-Icon.
+    // Geklickt wird nicht — ein Klick oeffnet den System-Browser; die URLs prueft der Unit-Test.
+    const hilfe = await settings.evaluate<{ name: string; knopf: boolean; bug: boolean } | null>(`
+      const c = document.querySelector(".vertical-tab-content");
+      const z = c && c.querySelector(".setting-item");
+      if (!z) return null;
+      const n = z.querySelector(".setting-item-name");
+      return { name: n ? n.textContent : "", knopf: Boolean(z.querySelector("button")), bug: Boolean(z.querySelector(".clickable-icon")) };
+    `);
+    record("Hilfe-Zeile ist die erste Zeile im Einstellungs-Tab",
+      hilfe !== null && /^(Help|Hilfe)$/.test(hilfe.name) && hilfe.knopf && hilfe.bug,
+      JSON.stringify(hilfe));
+    const shotDir = process.env.SMOKE_SHOT_DIR;
+    if (shotDir) writeFileSync(`${shotDir}/hilfe-zeile.png`, await capture(settings));
     // Auf abgeschlossene Proben warten: ein toter Endpunkt läuft in einen 5-s-Timeout,
     // ein zu früher Blick liest „prüfe…" und meldet einen Fehler, der keiner ist.
     const readRowsSettled = async (): Promise<Row[]> => {

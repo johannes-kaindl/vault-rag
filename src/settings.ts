@@ -9,6 +9,7 @@ import { ENDPOINT_PRESETS } from "./vendor/kit/endpoint_diagnostics";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
+import { githubHelpUrls, helpSettingDefinition } from "./vendor/kit-obsidian/help-setting";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import { rowModel, describeEndpointRole, endpointStatusText, endpointWarningText } from "./endpoint_config";
@@ -174,7 +175,18 @@ export class VaultRagSettingTab extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return [this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup(), this.integratorGroup()];
+    // Hilfe-Zeile (UI-STANDARD §8): ERSTES Element, keine Gruppe. Unter 1.13 ruft der Host display()
+    // nie; der Walker-Fallback zeichnet sie darunter von selbst.
+    const help = helpSettingDefinition({
+      ...githubHelpUrls("vault-rag"),
+      texts: {
+        name: t("settings.help.name"),
+        desc: t("settings.help.desc"),
+        openDocs: t("settings.help.openDocs"),
+        reportIssue: t("settings.help.reportIssue"),
+      },
+    });
+    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup(), this.integratorGroup()];
   }
 
   /** Einmal-pro-Öffnen die aktiven Endpunkte auflösen. An ein echtes Render-Signal (erster

@@ -17,18 +17,18 @@
 # Zweiter Lauf darf keinen Diff erzeugen — deshalb steht in VENDOR.json KEIN Datum.
 set -e
 KIT="${KIT_DIR:-../obsidian-kit}"
-KIT_REF="${KIT_REF:-0.41.1}"
+KIT_REF="${KIT_REF:-0.43.0}"
 # Eigener Pin, Absicht: help-setting.ts (Hilfe-Zeile, UI-STANDARD §8) kam mit Kit 0.43.0 und haengt an
 # keinem anderen Modul — die uebrigen Module behalten ihren Pin (Vorlage: epub-exporter 877eb2c).
 KIT_HELP_REF="${KIT_HELP_REF:-0.43.0}"
 CODEKIT="${CODEKIT_DIR:-"$HOME/Projects/jkaindl/libs/code-kit"}"
 CODEKIT_REF="${CODEKIT_REF:-0.7.0}"
 
-CK_PURE="endpoint endpoint_config endpoint_diagnostics error_body i18n model-choice model-list-cache reasoning sampling-profiles settings sse timeout"
+CK_PURE="endpoint endpoint_config endpoint_diagnostics error_body i18n model-choice model-list-cache reasoning sampling-profiles settings sse think-splitter timeout"
 CK_WEB="clipboard"
-KIT_PURE="callout endpoint-source frontmatter"
-KIT_OBSIDIAN="clipboard collapsible confirm endpoint-list endpoint-source folder-suggest hub model-picker settings_walker stream-area"
-# Ausnahme: pure/think-splitter.ts heisst hier think.ts (Konsumenten importieren "./vendor/kit/think").
+KIT_PURE="callout endpoint-source folder-hide frontmatter"
+KIT_OBSIDIAN="chat-client chat-transport clock lab-client clipboard collapsible confirm endpoint-list endpoint-source folder-hide folder-suggest hub model-picker settings_walker stream-area"
+# (think-splitter.ts heisst seit Welle 11 wieder wie im Kit — chat-client importiert ihn unter diesem Namen.)
 
 # --- Vorbedingungen, ALLE vor dem ersten Schreibvorgang (ein Abbruch mitten im Lauf hinterliesse
 #     eine halb aktualisierte Vendor-Schicht — so am 2026-08-30 mit KIT_REF=0.28.0 passiert).
@@ -42,7 +42,7 @@ for pair in "$KIT|$KIT_REF|KIT_DIR" "$KIT|$KIT_HELP_REF|KIT_DIR" "$CODEKIT|$CODE
     || { echo "sync-kit: Ref '$ref' gibt es in $dir nicht. Nichts geschrieben." >&2; exit 1; }
 done
 fehlend=""
-for m in $CK_PURE think-splitter; do git -C "$CODEKIT" cat-file -e "$CODEKIT_REF:src/ts/pure/$m.ts" 2>/dev/null || fehlend="$fehlend code-kit:src/ts/pure/$m.ts"; done
+for m in $CK_PURE; do git -C "$CODEKIT" cat-file -e "$CODEKIT_REF:src/ts/pure/$m.ts" 2>/dev/null || fehlend="$fehlend code-kit:src/ts/pure/$m.ts"; done
 for m in $CK_WEB; do git -C "$CODEKIT" cat-file -e "$CODEKIT_REF:src/ts/web/$m.ts" 2>/dev/null || fehlend="$fehlend code-kit:src/ts/web/$m.ts"; done
 for m in $KIT_PURE; do git -C "$KIT" cat-file -e "$KIT_REF:src/pure/$m.ts" 2>/dev/null || fehlend="$fehlend obsidian-kit:src/pure/$m.ts"; done
 for m in $KIT_OBSIDIAN; do git -C "$KIT" cat-file -e "$KIT_REF:src/obsidian/$m.ts" 2>/dev/null || fehlend="$fehlend obsidian-kit:src/obsidian/$m.ts"; done
@@ -113,7 +113,6 @@ relayer_pure() {
 }
 
 for m in $CK_PURE; do copy "$CODEKIT" "$CODEKIT_REF" code-kit "src/ts/pure/$m.ts" "src/vendor/kit/$m.ts"; done
-copy "$CODEKIT" "$CODEKIT_REF" code-kit "src/ts/pure/think-splitter.ts" "src/vendor/kit/think.ts"
 for m in $CK_WEB; do copy "$CODEKIT" "$CODEKIT_REF" code-kit "src/ts/web/$m.ts" "src/vendor/kit/$m.ts"; done
 for m in $KIT_PURE; do
   copy "$KIT" "$KIT_REF" obsidian-kit "src/pure/$m.ts" "src/vendor/kit/$m.ts"
@@ -129,7 +128,7 @@ liste() { l=""; for m in "$@"; do [ -z "$l" ] && l="$m.ts" || l="$l, $m.ts"; don
 cat > src/vendor/kit/VENDOR.json <<JSON
 {
   "source": "code-kit + obsidian-kit",
-  "code-kit": { "version": "$CODEKIT_REF", "sha": "$CK_SHA", "vendored": "pure: $(liste $CK_PURE), think.ts (aus pure/think-splitter.ts); web: $(liste $CK_WEB)" },
+  "code-kit": { "version": "$CODEKIT_REF", "sha": "$CK_SHA", "vendored": "pure: $(liste $CK_PURE); web: $(liste $CK_WEB)" },
   "obsidian-kit": { "version": "$KIT_REF", "sha": "$KIT_SHA", "vendored": "pure: $(liste $KIT_PURE)" },
   "note": "Verbatim snapshots (plus Herkunfts-Header in Zeile 1). Der Ordner heisst historisch 'kit'; die pure-Schicht kommt seit dem code-kit-Split aus code-kit, nur callout/frontmatter noch aus obsidian-kit. Never hand-edit. Re-vendor via tools/sync-kit.sh."
 }

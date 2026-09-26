@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.36.0] — 2026-09-26
+
 ### Changed
 - **Chat-Client und SSE-Transport kommen aus dem Kit** (`createChatClient`, obsidian-kit 0.43.0; die lokalen `sse.ts` und der Streaming-Teil von `chat_client.ts` entfallen). **Sichtbare Folgen:** es gibt erstmals eine Frist — ein Server, der 120 s schweigt, bricht ab (bis zum ersten Byte 600 s, weil LM Studio ein Modell beim ersten Aufruf lädt); der Chat zeigt dann „Seit … s keine Antwort vom Chat-LLM“ statt ewig zu hängen. Verweigert ein Server den Stream (Origin-Prüfung), wiederholt der Client einmal ohne Stream über `requestUrl`. Eine HTTP-200-Antwort mit Fehlerkörper ist jetzt ein Fehler mit der Servermeldung statt einer leeren Antwort. Der Abbruch-Listener bleibt nicht mehr am Signal hängen.
 - **`ttftMs` im LLM Lab misst das erste Byte** statt des ersten Content-Tokens — bei einem denkenden Modell ist der Wert damit früher als bisher.

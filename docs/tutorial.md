@@ -12,8 +12,7 @@ the embedding server is one you start yourself. (A hosted provider works too —
 **Time:** ~10 minutes of setup, plus one unattended indexing run (minutes to an hour, depending
 on vault size and hardware).
 
-> **Interface language:** the plugin's UI is currently German only. Exact strings you need to
-> type or click are given in `code` below.
+> **Interface language:** the UI follows Obsidian's language setting — English by default, German when Obsidian is set to German. Exact strings you need to type or click are given in `code` below, in English.
 
 ## Step 1 — Get an embedding server running
 
@@ -32,7 +31,7 @@ Any server that speaks the same API works — the model just has to produce embe
 
 ## Step 2 — Install and enable the plugin
 
-Install **Vault Retrieval** from **Settings → Community plugins → Browse**, then enable it.
+Install **Vault Retrieval** by one of the [install routes in the README](https://github.com/johannes-kaindl/vault-rag/blob/main/README.md#install), then enable it under **Settings → Community plugins**.
 
 ## Step 3 — Point the plugin at your endpoint
 
@@ -43,7 +42,7 @@ work, and you want to know that here rather than halfway through indexing.
 
 ## Step 4 — Build the index
 
-Open the command palette and run `Vault neu indizieren` ("reindex vault").
+Open the command palette and run `Reindex vault` (in German: `Vault neu indizieren`).
 
 The plugin reads every Markdown note, splits it into chunks, embeds them, averages each note's
 chunks into a single vector, and writes the result to `_vaultrag/` inside your vault. Progress

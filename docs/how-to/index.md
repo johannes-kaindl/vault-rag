@@ -3,7 +3,7 @@
 > **Diátaxis: How-to.** Task-oriented: how to accomplish a specific thing. Assumes you have a
 > working index — if not, start with the [Tutorial](../tutorial.md).
 
-> **Interface language:** the UI is currently German only. Exact strings are given in `code`.
+> **Interface language:** the UI follows Obsidian's language setting — English by default, German when Obsidian is set to German. Exact strings are given in `code`, in English.
 
 - [Set up grounded chat](#set-up-grounded-chat)
 - [Reformat a selection](#reformat-a-selection)
@@ -70,7 +70,7 @@ the result.
 ## Repair an index that lost notes
 
 If the index is missing notes — after a partial sync, an interrupted run, or a device that was
-offline for a while — run `Index vervollständigen (fehlende Notizen)`.
+offline for a while — run `Complete index (missing notes)`.
 
 This is a **delta** operation: it compares the vault against the index and embeds only what is
 absent. It does not touch existing vectors, and it is much faster than a full reindex. Empty

@@ -1,9 +1,5 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { streamSSE } from "../src/sse";
+import { describe, it, expect } from "vitest";
 import { parseSSE } from "../src/vendor/kit/sse";
-import { installFakeXHR } from "./fake_xhr";
-
-const init = { method: "POST", headers: {}, body: "" };
 
 describe("parseSSE", () => {
   it("extrahiert content-Deltas aus data-Zeilen", () => {
@@ -50,7 +46,7 @@ describe("parseSSE", () => {
     expect(parseSSE('data: {"choices":[{"delta":{"content":"a"},"finish_reason":null}]}\n').finishReason).toBeUndefined();
   });
   // code-kit 0.5.0: Reasoning kommt je nach Server unter drei Feldnamen. Unser Chat liest den
-  // Reasoning-Kanal (ChatClient.stream → streamSSE), die Varianten erreichen also die Oberfläche.
+  // Reasoning-Kanal (ChatClient.stream → Kit-Client), die Varianten erreichen also die Oberfläche.
   it("liest reasoning (MLX) und thinking als Reasoning-Delta", () => {
     const r = parseSSE('data: {"choices":[{"delta":{"reasoning":"a"}}]}\ndata: {"choices":[{"delta":{"thinking":"b"}}]}\n');
     expect(r.reasoning).toEqual(["a", "b"]);
@@ -60,88 +56,5 @@ describe("parseSSE", () => {
     const r = parseSSE('data: {"choices":[{"message":{"content":"voll","reasoning_content":"den"}}]}\n');
     expect(r.content).toEqual(["voll"]);
     expect(r.reasoning).toEqual(["den"]);
-  });
-});
-
-describe("streamSSE (XHR)", () => {
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("akkumuliert content + ruft onContent pro Delta", async () => {
-    const xhr = installFakeXHR();
-    const got: string[] = [];
-    const p = streamSSE("u", init, t => got.push(t), () => {});
-    xhr.feed([
-      'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
-      'data: {"choices":[{"delta":{"content":"lo"}}]}\n\ndata: [DONE]\n\n',
-    ]);
-    const r = await p;
-    expect(got).toEqual(["Hal", "lo"]);
-    expect(r.content).toBe("Hallo");
-    expect(r.reasoning).toBe("");
-  });
-
-  it("routet reasoning_content an onReasoning", async () => {
-    const xhr = installFakeXHR();
-    const reasoning: string[] = [];
-    const p = streamSSE("u", init, () => {}, t => reasoning.push(t));
-    xhr.feed([
-      'data: {"choices":[{"delta":{"reasoning_content":"den"}}]}\n\n',
-      'data: {"choices":[{"delta":{"content":"A"}}]}\n\ndata: [DONE]\n\n',
-    ]);
-    const r = await p;
-    expect(reasoning.join("")).toBe("den");
-    expect(r).toMatchObject({ content: "A", reasoning: "den" });
-  });
-
-  it("zieht inline <think> in den reasoning-Kanal", async () => {
-    const xhr = installFakeXHR();
-    const p = streamSSE("u", init, () => {}, () => {});
-    xhr.feed([
-      'data: {"choices":[{"delta":{"content":"<think>weil</think>"}}]}\n\n',
-      'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\ndata: [DONE]\n\n',
-    ]);
-    expect(await p).toMatchObject({ content: "Antwort", reasoning: "weil" });
-  });
-
-  it("verliert keinen Tag-Rest am Stream-Ende (flush)", async () => {
-    const xhr = installFakeXHR();
-    const p = streamSSE("u", init, () => {}, () => {});
-    xhr.feed(['data: {"choices":[{"delta":{"content":"Ende <"}}]}\n\ndata: [DONE]\n\n']);
-    expect((await p).content).toBe("Ende <");
-  });
-
-  it("liefert model aus dem ersten Chunk", async () => {
-    const xhr = installFakeXHR();
-    const p = streamSSE("u", init, () => {}, () => {});
-    xhr.feed(['data: {"model":"qwen2-vl","choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']);
-    expect((await p).model).toBe("qwen2-vl");
-  });
-
-  it("reicht finishReason durch — sonst ist eine Token-Limit-Truncation am Empfaenger unsichtbar", async () => {
-    const xhr = installFakeXHR();
-    const p = streamSSE("u", init, () => {}, () => {});
-    xhr.feed(['data: {"choices":[{"delta":{"content":"x"},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n']);
-    expect((await p).finishReason).toBe("length");
-  });
-
-  it("finishReason bleibt undefined, wenn der Server keinen sendet", async () => {
-    const xhr = installFakeXHR();
-    const p = streamSSE("u", init, () => {}, () => {});
-    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\ndata: [DONE]\n\n']);
-    expect((await p).finishReason).toBeUndefined();
-  });
-
-  it("wirft bei HTTP-Fehlerstatus", async () => {
-    const xhr = installFakeXHR();
-    const p = streamSSE("u", init, () => {}, () => {});
-    xhr.feed([""], 500);
-    await expect(p).rejects.toThrow("500");
-  });
-
-  it("trägt Status UND Fehlerbody — sonst ist die Ursache am Empfänger nicht mehr zu sehen", async () => {
-    const xhr = installFakeXHR();
-    const p = streamSSE("u", init, () => {}, () => {});
-    xhr.feed(['{"detail":"Not authenticated"}'], 401);
-    await expect(p).rejects.toMatchObject({ status: 401, body: '{"detail":"Not authenticated"}' });
   });
 });

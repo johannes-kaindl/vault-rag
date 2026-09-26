@@ -25,6 +25,17 @@ export class ChatHttpError extends Error {
   }
 }
 
+/** Der Server hat länger geschwiegen als die Frist des Kit-Clients (Idle-Timeout, bzw. bis zum
+ *  ersten Chunk). Neu seit Welle 11 — vorher gab es überhaupt keinen Timeout. Die Nachricht ist
+ *  schon übersetzt, weil dieser Fehler auch roh in Fehlerboxen landet (Reformat-Vorschau,
+ *  Smart Apply). */
+export class ChatTimeoutError extends Error {
+  constructor(readonly seconds: number) {
+    super(t("chatError.timeout", seconds));
+    this.name = "ChatTimeoutError";
+  }
+}
+
 const MAX_DETAIL = 200;
 
 /** Serverbegründung aus einem Rohbody: erst als JSON, sonst gekürzter Rohtext.
@@ -43,6 +54,7 @@ function withDetail(text: string, detail: string): string {
 
 /** EINE Wahrheit für den Fehlertext einer fehlgeschlagenen Chat-Anfrage. */
 export function chatErrorMessage(e: unknown): string {
+  if (e instanceof ChatTimeoutError) return e.message;
   if (e instanceof ChatHttpError) {
     const detail = serverDetail(e.body);
     if (e.status === 401 || e.status === 403) {

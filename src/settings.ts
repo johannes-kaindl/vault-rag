@@ -4,7 +4,8 @@ import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
 import { reasoningHappened, isAlwaysOnThinker } from "./vendor/kit/reasoning";
-import { normalizeIndexDir, isDotPath } from "./index_dir";
+import { isDotPath } from "./index_dir";
+import { normalizeFolder } from "./vendor/kit/folder-hide";
 import { ENDPOINT_PRESETS } from "./vendor/kit/endpoint_diagnostics";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
@@ -476,8 +477,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
         new FolderSuggest(this.app, t.inputEl).onSelect((path: string) => { typed = path; t.setValue(path); });
       })
       .addButton(b => b.setButtonText(t("settings.button.apply")).onClick(async () => {
-        const norm = normalizeIndexDir(typed);
-        if (norm === "" || norm === normalizeIndexDir(this.plugin.settings.indexDir)) return;
+        const norm = normalizeFolder(typed);
+        if (norm === "" || norm === normalizeFolder(this.plugin.settings.indexDir)) return;
         if (isDotPath(norm)) new Notice(t("settings.indexFolder.dotWarning"));
         b.setButtonText(t("settings.indexFolder.moving")); b.setDisabled(true);
         try {

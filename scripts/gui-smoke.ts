@@ -152,7 +152,7 @@ function readConstant(file: string, name: string): number | null {
   const m = new RegExp(`${name}\\s*=\\s*(\\d+)`).exec(readFileSync(file, "utf8"));
   return m ? Number(m[1]) : null;
 }
-const CLIENT_LAB_FILE = join(cwd(), "src/lab_client.ts");
+const CLIENT_LAB_FILE = join(cwd(), "src/vendor/kit-obsidian/lab-client.ts");
 const REAL_LAB_FILE = join(cwd(), "../llm-lab/src/plugin_api.ts");
 
 const LAB_PRUEFPUNKTE = [
@@ -1022,10 +1022,10 @@ async function main(): Promise<void> {
       }
       console.log(`  (Chat-Endpunkt aufgewärmt: ${warm} nach ${Math.round((Date.now() - warmStart) / 1000)} s)`);
 
-      const clientLabVersion = readConstant(CLIENT_LAB_FILE, "SUPPORTED_API_VERSION");
-      if (clientLabVersion === null) throw new Error("SUPPORTED_API_VERSION nicht in src/lab_client.ts gefunden — der Stub braucht sie");
+      const clientLabVersion = readConstant(CLIENT_LAB_FILE, "LAB_API_VERSION");
+      if (clientLabVersion === null) throw new Error("LAB_API_VERSION nicht in src/vendor/kit-obsidian/lab-client.ts gefunden — der Stub braucht sie");
       labStubbed = true;   // fuers finally
-      // Herkunft der apiVersion: der Stub liest sie aus `src/lab_client.ts` (SUPPORTED_API_VERSION),
+      // Herkunft der apiVersion: der Stub liest sie aus dem vendorten Kit-Client `src/vendor/kit-obsidian/lab-client.ts` (LAB_API_VERSION; seit Welle 11 — davor `src/lab_client.ts`),
       // trägt also KEINE eigene Kopie mehr. Damit ist er per Bauart so alt wie der Client und kann
       // einen Bump nicht sehen — das leistet der Punkt „Der Lab-Client spricht dieselbe apiVersion
       // wie das echte llm-lab", der llm-labs Konstante aus dessen Quelltext gegenliest.
@@ -1576,6 +1576,58 @@ async function main(): Promise<void> {
         `Chat-Modell ${String(m5.model)} · Embedding-Modell ${String(m5.emb)}`);
     }
 
+
+    // --- 7f. Index-Ordner ausblenden: Ziel ist das Hauptfenster, auch mit Pop-out ---------------
+    // Kit `folder-hide` (Welle 11). Die alte Bauart hing das Blatt an `activeDocument`; steht beim
+    // Laden ein Pop-out im Vordergrund, landet es dort statt beim Explorer (slide-deck 0.4.0 lud so
+    // gar nicht mehr). Der Punkt stellt genau diese Lage her: Pop-out öffnen, Plugin neu laden,
+    // nachsehen, WO das Blatt hängt. Vorbedingung, sonst „nichts gemessen“: `activeDocument` ist
+    // während der Messung tatsächlich das Pop-out — sonst unterschiede der Punkt beide Bauarten nicht.
+    const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch wenn beim Laden ein Pop-out aktiv ist";
+    const popSaved = await main.evaluate<boolean>(`
+      const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+      const was = p.settings.hideIndexFolder;
+      p.settings.hideIndexFolder = true; await p.saveSettings();
+      return was;
+    `);
+    try {
+      await main.evaluate(`
+        window.__vrPop = app.workspace.openPopoutLeaf();
+        await new Promise(r => setTimeout(r, 1500));
+        const w = window.__vrPop.view.containerEl.ownerDocument.defaultView;
+        w.focus();
+        await new Promise(r => setTimeout(r, 500));
+      `);
+      const popMeta = await main.evaluate<{ popIsActive: boolean; popIsOther: boolean }>(`
+        const popDoc = window.__vrPop.view.containerEl.ownerDocument;
+        return { popIsOther: popDoc !== app.workspace.rootSplit.doc, popIsActive: activeDocument === popDoc };
+      `);
+      await main.evaluate(`
+        await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+        await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+      `);
+      await pollUntil(main, `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]?.api?.status().indexed;`, 30_000, 500).catch(() => false);
+      const where = await main.evaluate<{ root: number; pop: number }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const needle = 'data-path=' + JSON.stringify(p.settings.indexDir);
+        const count = (d) => d.adoptedStyleSheets.filter(sh => [...sh.cssRules].some(r => r.cssText.includes(needle))).length;
+        const popDoc = window.__vrPop.view.containerEl.ownerDocument;
+        return { root: count(app.workspace.rootSplit.doc), pop: count(popDoc) };
+      `);
+      if (!popMeta.popIsOther || !popMeta.popIsActive) {
+        skipped(POPOUT_PUNKT, `Vorbedingung fehlt (Pop-out ≠ Hauptfenster: ${popMeta.popIsOther}, Pop-out ist activeDocument: ${popMeta.popIsActive}) — nichts gemessen`);
+      } else {
+        record(POPOUT_PUNKT, where.root === 1 && where.pop === 0,
+          `activeDocument war das Pop-out · Blatt im Hauptfenster: ${where.root} · im Pop-out: ${where.pop}`);
+      }
+    } finally {
+      await main.evaluate(`
+        try { window.__vrPop?.detach(); } catch {}
+        delete window.__vrPop;
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        p.settings.hideIndexFolder = ${JSON.stringify(popSaved)}; await p.saveSettings(); p.refreshIndexFolderHiding();
+      `).catch(() => { console.log("  ! Pop-out/hideIndexFolder konnten nicht zurückgesetzt werden"); });
+    }
 
     // --- 8. Auto-Heal-Kaskade: defekter Container ohne Endpunkt ------------
     // Der einzige Prüfpunkt, der die VERDRAHTUNG misst statt der Entscheidung. `planAutoHeal`

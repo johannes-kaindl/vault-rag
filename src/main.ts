@@ -31,7 +31,8 @@ import { extractType, templateFilesUnder, parseTemplate } from "./template_match
 import type { ApplyMode } from "./note_restructurer";
 import { TemplateRanker } from "./template_ranker";
 import type { TemplateRank } from "./template_ranker";
-import { buildHideCss, normalizeIndexDir } from "./index_dir";
+import { normalizeFolder } from "./vendor/kit/folder-hide";
+import { installFolderHide, type FolderHideHandle } from "./vendor/kit-obsidian/folder-hide";
 import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIRED_FILES, removeDirDeep } from "./index_migrate";
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
@@ -108,7 +109,7 @@ export default class VaultRagPlugin extends Plugin {
     reindex: null,
   };
   private statusBarEl: HTMLElement | null = null;
-  private hideStyleSheet: CSSStyleSheet | null = null;
+  private folderHide: FolderHideHandle | null = null;
   private isSwitchingIndexDir = false;
   private indexHealthy = true;
   /** Chunk-lose Notizen (leer / nur Frontmatter) — nie indexierbar, zählen nicht als fehlend.
@@ -778,25 +779,21 @@ export default class VaultRagPlugin extends Plugin {
     return this.chatClient.ping();
   }
 
-  /** CSS-Regel, die den Index-Ordner im Datei-Explorer aus-/einblendet. Idempotent.
-   *  Nutzt Constructable Stylesheets (kein <style>-Element — Lint-Regel no-forbidden-elements).
-   *  Diese API gibt es erst ab Safari/iOS 16.4 — auf älteren Mobile-WebViews still überspringen
-   *  (Ordner bleibt sichtbar, aber das Plugin lädt normal weiter; KEIN Crash). */
+  /** Blendet den Index-Ordner im Datei-Explorer aus bzw. ein (Kit `folder-hide`, Constructable
+   *  Stylesheet — kein <style>-Element, Lint-Regel no-forbidden-elements). Installiert wird einmal
+   *  nach `onLayoutReady`, danach nur noch `update`. Ziel ist seit Welle 11 das Dokument des
+   *  Hauptfensters (`rootSplit.doc`), nicht `activeDocument`: beim Laden kann `activeDocument` auf
+   *  ein wiederhergestelltes Pop-out zeigen (die Bauart, an der slide-deck 0.4.0 nicht mehr lud).
+   *  Ohne Constructable Stylesheets (Safari/iOS < 16.4) bleibt der Ordner sichtbar, das Plugin
+   *  lädt normal weiter. */
   refreshIndexFolderHiding(): void {
-    if (!("replaceSync" in CSSStyleSheet.prototype) || !("adoptedStyleSheets" in activeDocument)) return;
-    try {
-      if (!this.hideStyleSheet) {
-        this.hideStyleSheet = new CSSStyleSheet();
-        activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.hideStyleSheet];
-        this.register(() => {
-          activeDocument.adoptedStyleSheets = activeDocument.adoptedStyleSheets.filter(s => s !== this.hideStyleSheet);
-          this.hideStyleSheet = null;
-        });
-      }
-      this.hideStyleSheet.replaceSync(buildHideCss(this.settings.indexDir, this.settings.hideIndexFolder));
-    } catch (e) {
-      console.warn("vault-rag: Index-Ordner-Ausblenden auf dieser Plattform nicht unterstützt", e);
-    }
+    this.app.workspace.onLayoutReady(() => {
+      const { indexDir, hideIndexFolder } = this.settings;
+      if (this.folderHide) { this.folderHide.update(indexDir, hideIndexFolder); return; }
+      this.folderHide = installFolderHide(this.app.workspace.rootSplit.doc, indexDir, hideIndexFolder,
+        (e) => console.warn("vault-rag: Index-Ordner-Ausblenden auf dieser Plattform nicht unterstützt", e));
+      this.register(() => { this.folderHide?.remove(); this.folderHide = null; });
+    });
   }
 
   /**
@@ -805,8 +802,8 @@ export default class VaultRagPlugin extends Plugin {
    * Dateien enthält). Reihenfolge strikt B-vor-A (kein Datenverlust, vgl. Reindex-Lehre).
    */
   async changeIndexDir(newDir: string): Promise<void> {
-    const oldDir = normalizeIndexDir(this.settings.indexDir);
-    const target = normalizeIndexDir(newDir);
+    const oldDir = normalizeFolder(this.settings.indexDir);
+    const target = normalizeFolder(newDir);
     if (target === "" || target === oldDir) return;
     this.isSwitchingIndexDir = true;
     try {

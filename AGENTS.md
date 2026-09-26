@@ -28,8 +28,8 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
   `_SDD/2026-09-07-integrator-linking-design.md`).
 - **IMG→MD ausgegliedert (2026-06-21):** Bild-Transkription ist kein RAG → eigenständiges
   Plugin [`image-to-markdown`](https://git.jkaindl.de/jkaindl/vault-rag) (Schwester-Repo `../image-to-markdown`).
-  vault-rag bleibt der schlanke RAG-Kern. Der SSE-Transport (`sse.ts`/`think_splitter.ts`) ist in beide
-  Plugins kopiert, nicht geteilt.
+  vault-rag bleibt der schlanke RAG-Kern. Der Chat-Client (Streaming, Fristen, Fallback ohne Stream) kommt seit
+  Welle 11 aus dem Kit (`createChatClient`), nicht mehr aus einer Kopie in beiden Plugins.
 - **Offline-first & cross-device:** HyperForge exportiert beim Reindex einen note-level
   Matryoshka-256-int8-Mini-Index (~1,4 MB) nach `<vault>/_vaultrag/`. Das Plugin liest ihn und
   rechnet **Brute-Force-Cosinus lokal** — auf allen Geräten, auch auf dem iPhone.
@@ -59,9 +59,7 @@ siehe „Abweichungen"). Die vier Hub-Panels (`view.ts`/`search_view.ts`/`chat_v
 bzw. zusätzlich `Notice` (nur `smart_apply_view.ts`, Fehler-Feedback). `http.ts` kapselt Obsidians
 `requestUrl` (CORS-frei, mobil-tauglich) als einzigen Netz-Helfer — die
 Client-Module (`chat_client`, `embedder`, `capabilities`) sprechen nur `http.ts` an und bleiben damit
-obsidian-frei + in Node testbar. **Streaming:** `ChatClient.stream` → `streamSSE` (`sse.ts`) nutzt
-`XMLHttpRequest` (via `onprogress`), weil `requestUrl` nicht streamen kann und `fetch` von der
-obsidianmd-Lint-Regel gesperrt ist — XHR ist der erlaubte Streaming-Primitive. `main.ts` orchestriert:
+obsidian-frei + in Node testbar. **Streaming:** `ChatClient.stream` ruft seit Welle 11 den Kit-Client `createChatClient` (`vendor/kit-obsidian/chat-client.ts`) mit `xhrSseTransport` (`XMLHttpRequest` via `onprogress`, weil `requestUrl` nicht streamen kann und `fetch` von der obsidianmd-Lint-Regel gesperrt ist) und `requestUrlTransport` als Fallback ohne Stream. `main.ts` orchestriert:
 `file-Events → Debounce → embed → buildIndex → persist → refresh`.
 
 ### Modul-Layout (`src/`)
@@ -376,7 +374,7 @@ Das Prä-0.18-Tripel (`notes.i8`/`paths.json`/`manifest.json`) wird beim ersten 
 `callout.ts`/`frontmatter.ts` kommen weiterhin aus **obsidian-kit** (0.31.0), die restlichen dreizehn
 (`clipboard.ts`, `endpoint.ts`, `endpoint_config.ts`, `endpoint_diagnostics.ts`, `error_body.ts`,
 `i18n.ts`, `model-choice.ts`, `model-list-cache.ts`, `reasoning.ts`, `settings.ts`, `sse.ts`,
-`think.ts`, `timeout.ts`) aus **code-kit** (0.5.0), das die pure-Schicht seither führt.
+`think-splitter.ts` (bis Welle 11 lokal `think.ts`), `timeout.ts`) aus **code-kit** (0.5.0), das die pure-Schicht seither führt.
 `src/vendor/kit-obsidian/` hält die **obsidian-gekoppelten** Module, alle aus obsidian-kit 0.31.0
 (`clipboard.ts`, `collapsible.ts`, `confirm.ts`, `endpoint-list.ts`, `folder-suggest.ts`, `hub.ts`,
 `model-picker.ts`, `settings_walker.ts`). Beide sind **verbatim-Snapshots — nie von Hand editieren**,
@@ -772,10 +770,10 @@ gar nicht bis in die Oberfläche schafft.
   Fehler schluckte; **ein `catch`, der einen FS-Fehler verwirft, ohne ihn zu loggen, ist hier
   verboten.** Fallstrick bei der Diagnose: eine `fs.rmdir`-Probe in Node ist **kein** Beleg — sie
   prüft nicht den Weg, den Obsidian tatsächlich geht (genau daran ist die erste Analyse gescheitert).
-- **Index-Ordner-Hide ist rein kosmetisch (CSS):** `buildHideCss` (`index_dir.ts`) erzeugt eine
+- **Index-Ordner-Hide ist rein kosmetisch (CSS):** `buildHideCss` (Kit `folder-hide`, bis Welle 11 lokal in `index_dir.ts`) erzeugt eine
   `display:none`-Regel auf `.nav-folder-title[data-path=…]`, injiziert via Constructable Stylesheet
   (`adoptedStyleSheets`) — `createEl("style")`/`<style>`-Elemente sind von der Lint-Regel
-  `no-forbidden-elements` gesperrt. `refreshIndexFolderHiding` (`main.ts`) feature-detektet die API
+  `no-forbidden-elements` gesperrt. `refreshIndexFolderHiding` (`main.ts`, `installFolderHide` auf `rootSplit.doc` statt `activeDocument`) feature-detektet die API
   (erst iOS/Safari 16.4+) und überspringt sie still auf älteren WebViews (Ordner bleibt sichtbar,
   kein Crash). `data-path` ist internes Obsidian-Markup — bricht es, taucht der Ordner nur wieder auf
   (kein Datenverlust).
@@ -787,8 +785,9 @@ gar nicht bis in die Oberfläche schafft.
 - **MCP-Server läuft in-Plugin (HTTP)** statt als separater stdio-CLI: desktop-only via
   `Platform.isMobile`-Gate, Loopback (`127.0.0.1`) + Bearer-Token, läuft nur solange Obsidian
   offen ist (kein eigenständiger Prozess); Spec `docs/superpowers/specs/2026-07-09-mcp-server-design.md`.
+- **Der Chat-Client ist seit Welle 11 der Kit-Client, `ChatClient.stream` bleibt die lokale Fassade.** Sie baut nur `params` (Temperatur, `max_tokens`, `suppressParams`) und übersetzt das Kit-`kind` zurück in die Fehler, die die Aufrufer kennen: `http`/`overflow` → `ChatHttpError`, `timeout` → `ChatTimeoutError`, `aborted` → `AbortError`, sonst der Netzfehlertext; „abgeschnitten ohne Text“ (`kind: "truncated"`) bleibt ein Ergebnis mit `finishReason: "length"`, kein Wurf. Fristen: Idle 120 s, bis zum ersten Chunk 600 s (LM Studio lädt ein Modell beim ersten Aufruf und sendet dabei nichts); vorher gab es gar keine. Nach einem Netzfehler des XHR wiederholt der Client einmal ohne Stream über `requestUrl` und bleibt dabei — je Instanz, und `main.ts` baut die Instanz beim Endpunktwechsel neu. `ttftMs` im Lab-Log ist jetzt die Zeit bis zum ersten Byte, auch Reasoning. Lokal bleibt vom Lab nur `newTurnId`; der Smoke-Stub liest die `apiVersion` aus dem vendorten `lab-client.ts`.
 - **Ein Endpunkt-API-Schlüssel muss an ALLE fünf Netzwege**, nicht nur den Chat-/Embed-POST:
-  Probe (`probeEndpoint`/`.probe()`/`.ping()`), `listModels`, `embed`/Chat-POST, `streamSSE`
+  Probe (`probeEndpoint`/`.probe()`/`.ping()`), `listModels`, `embed`/Chat-POST, der Kit-Chat-Client
   (Chat-Streaming) und `fetchCapabilities`. Alle gehen über `authHeaders(apiKey)`
   (`endpoint_config.ts`) — fehlt der Schlüssel an der **Probe**, gilt der Endpunkt nie als
   erreichbar und `resolveAndReconnectEmbedder`/`resolveAndReconnectChat` überspringen ihn
@@ -813,7 +812,7 @@ gar nicht bis in die Oberfläche schafft.
   (`main.ts`) prüft daher Editor-Identität **und** `getMode() === "source"` **und** `file.path`.
 - **`finish_reason` ist die EINZIGE Stelle, an der ein Token-Limit-Abbruch von einer schlechten
   Antwort zu unterscheiden ist** — und die Unterscheidung darf nicht zum Blocker werden.
-  `parseSSE` (`src/vendor/kit/sse.ts`, obsidian-kit#0.3.0) liest es, `streamSSE` und
+  `parseSSE` (`src/vendor/kit/sse.ts`, obsidian-kit#0.3.0) liest es, der Kit-Chat-Client und
   `ChatClient.stream` reichen es durch. Wer es unterwegs fallen lässt, macht aus einem
   „dein Budget war zu klein" wieder ein „das Modell hat Unsinn geliefert" — genau die
   Fehldiagnose, die bis 2026-08-21 im Repo stand (Vendor-Pin hing auf 0.2.0, das

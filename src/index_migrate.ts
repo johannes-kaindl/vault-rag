@@ -1,5 +1,5 @@
 import { VaultAdapter } from "./index";
-import { normalizeIndexDir } from "./index_dir";
+import { normalizeFolder } from "./vendor/kit/folder-hide";
 import { CONTAINER_FILE } from "./index_container";
 
 const INDEX_BINARY_FILES = [CONTAINER_FILE, "notes.i8"];
@@ -19,8 +19,8 @@ const LEGACY_REQUIRED_FILES = ["notes.i8", "paths.json", "manifest.json"];
  * kein In-Memory-Risiko. Fehlende Dateien werden still übersprungen.
  */
 export async function migrateIndex(adapter: VaultAdapter, from: string, to: string): Promise<void> {
-  const src = normalizeIndexDir(from);
-  const dst = normalizeIndexDir(to);
+  const src = normalizeFolder(from);
+  const dst = normalizeFolder(to);
   if (dst === "" || src === dst) return;
   await adapter.mkdir(dst);
   for (const f of INDEX_BINARY_FILES) {

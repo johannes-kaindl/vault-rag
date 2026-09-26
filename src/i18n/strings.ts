@@ -127,8 +127,9 @@ export const EN = {
   "chatError.serverError": "Server error at the chat endpoint (HTTP {0}).",
   "chatError.rejected": "Request rejected (HTTP {0}).",
   "chatError.unreachable": "Chat LLM unreachable — server down, wrong address, or network/VPN not connected.",
+  "chatError.timeout": "No answer from the chat LLM for {0} s — it may still be loading the model or is stuck. Try again.",
 
-  // sse.ts (streamSSE — reaches reformatPreview.error / the Smart Apply error box raw)
+  // chat_client.ts (Kit-Client, Netzfehler — reaches reformatPreview.error / the Smart Apply error box raw)
   "sse.networkError": "Chat network error",
 
   // chat_session.ts (assistant.error — rendered verbatim by chat_view.ts)
@@ -656,8 +657,9 @@ export const DE = {
   "chatError.serverError": "Server-Fehler am Chat-Endpunkt (HTTP {0}).",
   "chatError.rejected": "Anfrage abgelehnt (HTTP {0}).",
   "chatError.unreachable": "Chat-LLM nicht erreichbar — Server aus, Adresse falsch oder Netz/VPN nicht verbunden.",
+  "chatError.timeout": "Seit {0} s keine Antwort vom Chat-LLM — es lädt das Modell vielleicht noch oder hängt. Später erneut versuchen.",
 
-  // sse.ts (streamSSE — landet roh in reformatPreview.error / der Smart-Apply-Fehlerbox)
+  // chat_client.ts (Kit-Client, Netzfehler — landet roh in reformatPreview.error / der Smart-Apply-Fehlerbox)
   "sse.networkError": "Chat-Netzwerkfehler",
 
   // chat_session.ts (assistant.error — wird von chat_view.ts unverändert gerendert)

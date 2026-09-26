@@ -1,11 +1,14 @@
-import { streamSSE } from "./sse";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
 import { isAlwaysOnThinker, suppressParams } from "./vendor/kit/reasoning";
 import { httpJson, probeEndpoint } from "./http";
 import { authHeaders } from "./endpoint_config";
 import { EndpointStatus, extractModelIds } from "./vendor/kit/endpoint_diagnostics";
-import { readLabApi } from "./lab_client";
+import { readLabApi } from "./vendor/kit-obsidian/lab-client";
+import { createChatClient, type ChatClient as KitChatClient, type ChatResult } from "./vendor/kit-obsidian/chat-client";
+import { requestUrlTransport, xhrSseTransport } from "./vendor/kit-obsidian/chat-transport";
+import { ChatHttpError, ChatTimeoutError } from "./chat_error";
+import { t } from "./vendor/kit/i18n";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
 
@@ -27,8 +30,22 @@ function describeError(e: unknown): string {
   try { return JSON.stringify(e); } catch { return "unknown error"; }
 }
 
+/** Fristen des Kit-Clients. Vor Welle 11 gab es keine. Der Idle-Timeout misst Stille, nicht Dauer;
+ *  bis zum ersten Chunk gilt mehr, weil LM Studio ein Modell beim ersten Aufruf erst lädt
+ *  (JIT, Minuten) und dabei nichts sendet. */
+const IDLE_TIMEOUT_MS = 120_000;
+const FIRST_CHUNK_TIMEOUT_MS = 600_000;
+
 export class ChatClient {
   private endpoint: string;
+  /** Ein Kit-Client je Instanz, und eine Instanz gehört zu EINEM Endpunkt (main.ts baut sie beim
+   *  Endpunktwechsel neu): die Weigerung eines Servers, den XHR-Stream zu beantworten, hängt am Client. */
+  private readonly kit: KitChatClient = createChatClient({
+    transport: xhrSseTransport,
+    fallbackTransport: requestUrlTransport,
+    idleTimeoutMs: IDLE_TIMEOUT_MS,
+    firstChunkTimeoutMs: FIRST_CHUNK_TIMEOUT_MS,
+  });
   constructor(endpoint: string, private model: string, private apiKey?: string) {
     this.endpoint = normalizeEndpoint(endpoint);
   }
@@ -84,51 +101,62 @@ export class ChatClient {
     opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number; trace?: { feature: string; app: unknown; contextPaths?: string[]; promptTemplate?: string; turnId?: string } },
   ): Promise<{ content: string; reasoning: string; finishReason?: string }> {
     const effectiveModel = opts?.model ?? this.model;
-    const body = JSON.stringify({
-      model: effectiveModel,
-      messages,
-      stream: true,
+    // Die Sampling-Werte gehören dem Plugin, nicht dem Kit-Client (Kit-Vertrag `params`).
+    const params = {
       ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
       ...(opts?.maxTokens != null ? { max_tokens: opts.maxTokens } : {}),
       ...suppressParams((opts?.suppressThinking ?? false) && !isAlwaysOnThinker(effectiveModel)),
+    };
+    const res = await this.kit.complete({
+      endpoint: { url: this.endpoint, ...(this.apiKey ? { apiKey: this.apiKey } : {}) },
+      model: effectiveModel,
+      messages,
+      params,
+      ...(signal ? { signal } : {}),
+      onToken: onContent,
+      onReasoning,
     });
-    const started = Date.now();
-    // ttftMs misst den ersten CONTENT-Token, nicht den ersten Token ueberhaupt: bei einem
-    // denkenden Modell, das zuerst reasoning streamt, liegt der Wert entsprechend spaeter als
-    // das erste Byte auf der Leitung. Bewusst so — es ist der nutzersichtbare erste Token —,
-    // aber llm-lab dokumentiert das Feld als „time to first token"; die Abweichung gehoert
-    // hierher geschrieben statt spaeter entdeckt zu werden.
-    let firstToken: number | undefined;
-    // Mitgeschrieben fuer den FEHLERPFAD: `streamSSE` wirft bei Abbruch/Netzfehler und verwirft
-    // dabei sein Akkumulat. Genau dieser Teiltext ist der Debug-Wert ("das Modell hat bis zum
-    // Abbruch Quelltext produziert statt zu antworten") — ohne Puffer meldete der catch-Zweig
-    // content:"" und die Zusage darunter war nur halb eingeloest.
-    let seenContent = "";
-    let seenReasoning = "";
-    const timedContent = (tk: string): void => {
-      firstToken ??= Date.now();
-      seenContent += tk;
-      onContent(tk);
-    };
-    const seenOnReasoning = (tk: string): void => {
-      seenReasoning += tk;
-      onReasoning(tk);
-    };
-    try {
-      const { content, reasoning, finishReason } = await streamSSE(
-        `${this.endpoint}/v1/chat/completions`,
-        { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(this.apiKey) }, body },
-        timedContent, seenOnReasoning, signal,
-      );
-      this.reportToLab(opts, messages, { content, reasoning, finishReason }, started, firstToken);
-      return { content, reasoning, finishReason };
-    } catch (e) {
-      // Auch der gescheiterte Lauf wird gemeldet — er ist der interessante Debug-Fall. Der rohe
-      // Fehler bleibt bis in den guarded Block unangetastet: ein String(e) mit werfendem
-      // toString darf den echten Fehler nicht durch einen TypeError ersetzen — und ohne
-      // konfigurierten `trace` laeuft String(e) hier gar nicht erst (Guard lebt im Callee).
-      this.reportToLab(opts, messages, { content: seenContent, reasoning: seenReasoning, errorRaw: e }, started, firstToken);
-      throw e;
+    // ttftMs = Zeit bis zum ERSTEN BYTE (auch Reasoning). Bis 0.35 war es der erste Content-Token —
+    // Verhaltenswechsel im Lab-Log (Kit 0.42.0, `chat-client` § Telemetrie).
+    const started = res.timing.startedAt;
+    const ttft = res.timing.firstChunkAt !== undefined ? res.timing.firstChunkAt - started : undefined;
+    const latency = res.timing.endedAt - started;
+
+    if (res.ok || res.kind === "truncated") {
+      // „Abgeschnitten OHNE Text“ war hier immer ein Ergebnis mit finishReason "length" (der
+      // Aufrufer zeigt den Hinweis); der Kit-Client nennt den Fall einen Fehler, wir geben ihn
+      // unverändert als Ergebnis weiter.
+      const out = res.ok
+        ? { content: res.content, reasoning: res.reasoning, ...(res.finishReason !== undefined ? { finishReason: res.finishReason } : {}) }
+        : { content: res.partial, reasoning: res.reasoning, finishReason: "length" };
+      this.reportToLab(opts, messages, out, latency, ttft);
+      return out;
+    }
+
+    // Auch der gescheiterte Lauf wird gemeldet — er ist der interessante Debug-Fall, samt Teiltext.
+    const err = this.failure(res);
+    this.reportToLab(opts, messages, { content: res.partial, reasoning: res.reasoning, errorRaw: err }, latency, ttft);
+    throw err;
+  }
+
+  /** Kit-`kind` → der Fehler, den die Aufrufer schon kennen: `ChatHttpError` (Status + Rohbody, die
+   *  Anzeige übersetzt sie in `chat_error.ts`), `AbortError`, `ChatTimeoutError`, sonst der
+   *  übersetzte Netzfehlertext. `detail` (Servermeldung) bleibt im Body bzw. im Lab-Log. */
+  private failure(res: Extract<ChatResult, { ok: false }>): Error {
+    switch (res.kind) {
+      case "http":
+      case "overflow":
+        return new ChatHttpError(res.status ?? 0, res.body ?? res.detail);
+      case "aborted": {
+        const e = new Error("Aborted");
+        e.name = "AbortError";
+        return e;
+      }
+      case "timeout":
+        return new ChatTimeoutError(
+          (res.timing.firstChunkAt === undefined ? FIRST_CHUNK_TIMEOUT_MS : IDLE_TIMEOUT_MS) / 1000);
+      default:
+        return new Error(t("sse.networkError"));
     }
   }
 
@@ -139,8 +167,8 @@ export class ChatClient {
     opts: { model?: string; trace?: { feature: string; app: unknown; contextPaths?: string[]; promptTemplate?: string; turnId?: string } } | undefined,
     messages: ChatMessage[],
     result: { content: string; reasoning?: string; finishReason?: string; errorRaw?: unknown },
-    started: number,
-    firstToken?: number,
+    latencyMs: number,
+    ttftMs?: number,
   ): void {
     if (!opts?.trace) return;
     try {
@@ -151,8 +179,8 @@ export class ChatClient {
         model: opts.model ?? this.model,
         endpointUrl: this.endpoint,
         messages,
-        latencyMs: Date.now() - started,
-        ...(firstToken ? { ttftMs: firstToken - started } : {}),
+        latencyMs,
+        ...(ttftMs !== undefined ? { ttftMs } : {}),
         ...(this.apiKey ? { secrets: [this.apiKey] } : {}),
         ...(opts.trace.contextPaths?.length ? { contextPaths: opts.trace.contextPaths } : {}),
         ...(opts.trace.promptTemplate ? { promptTemplate: opts.trace.promptTemplate } : {}),

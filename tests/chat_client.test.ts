@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import "../src/i18n/strings";
 import { ChatClient } from "../src/chat_client";
+import { ChatHttpError, ChatTimeoutError, chatErrorMessage } from "../src/chat_error";
 import { requestUrl } from "obsidian";
 import { installFakeXHR } from "./fake_xhr";
 
@@ -308,6 +310,92 @@ describe("ChatClient", () => {
       expect(s.kind).toBe("refused");
       expect(s.klartext).toContain("Port");
     });
+  });
+});
+
+describe("ChatClient über den Kit-Client (Welle 11)", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.mocked(requestUrl).mockReset(); });
+  const msgs = [{ role: "user" as const, content: "hi" }];
+  const chunk = (c: string): string => `data: {"choices":[{"delta":{"content":"${c}"}}]}\n\n`;
+
+  it("Stille nach dem ersten Chunk bricht nach der Idle-Frist ab (vorher: gar kein Timeout)", async () => {
+    vi.useFakeTimers();
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {});
+    const caught = p.catch((e: unknown) => e);
+    xhr.progress([chunk("a")]);
+    await vi.advanceTimersByTimeAsync(119_000);
+    xhr.progress([chunk("b")]); // Lebenszeichen setzt die Frist zurück
+    await vi.advanceTimersByTimeAsync(119_000);
+    await vi.advanceTimersByTimeAsync(2_000);
+    const e = await caught;
+    expect(e).toBeInstanceOf(ChatTimeoutError);
+    expect(chatErrorMessage(e)).toMatch(/120/);
+  });
+
+  it("bis zum ersten Chunk gilt eine längere Frist (ein JIT-ladendes Modell braucht Minuten)", async () => {
+    vi.useFakeTimers();
+    installFakeXHR();
+    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {});
+    let state = "offen";
+    p.then(() => { state = "erfüllt"; }, () => { state = "abgelehnt"; });
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(state).toBe("offen");
+    await vi.advanceTimersByTimeAsync(301_000);
+    expect(state).toBe("abgelehnt");
+  });
+
+  it("HTTP 200 mit Fehlerkörper ist ein Fehler, kein leerer Erfolg (vorher: content \"\")", async () => {
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {});
+    xhr.feed(['{"error":{"message":"model not loaded"}}'], 200);
+    const e = await p.catch((err: unknown) => err);
+    expect(e).toBeInstanceOf(ChatHttpError);
+    expect(chatErrorMessage(e)).toContain("model not loaded");
+  });
+
+  it("abgeschnitten OHNE Text bleibt ein Ergebnis mit finishReason length — kein Wurf, wie zuvor", async () => {
+    const xhr = installFakeXHR();
+    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {});
+    xhr.feed(['data: {"choices":[{"delta":{"reasoning_content":"denke"},"finish_reason":"length"}]}\n\n' + DONE]);
+    expect(await p).toEqual({ content: "", reasoning: "denke", finishReason: "length" });
+  });
+
+  it("weist der Server den XHR ab, wiederholt der Client ohne Stream über requestUrl und bleibt dabei", async () => {
+    const xhr = installFakeXHR();
+    vi.mocked(requestUrl).mockResolvedValue({ status: 200, text: JSON.stringify({ choices: [{ message: { content: "Antwort" }, finish_reason: "stop" }] }) } as never);
+    const c = new ChatClient("http://x", "m");
+    const p = c.stream(msgs, () => {}, () => {});
+    xhr.error();
+    expect(await p).toEqual({ content: "Antwort", reasoning: "", finishReason: "stop" });
+    const first = JSON.parse(vi.mocked(requestUrl).mock.calls[0]![0].body as string) as { stream: boolean };
+    expect(first.stream).toBe(false);
+    expect(await c.stream(msgs, () => {}, () => {})).toEqual({ content: "Antwort", reasoning: "", finishReason: "stop" });
+    expect(vi.mocked(requestUrl)).toHaveBeenCalledTimes(2);
+  });
+
+  it("ein Netzfehler ohne Fallback-Erfolg wirft weiter den übersetzten Netzfehlertext", async () => {
+    const xhr = installFakeXHR();
+    vi.mocked(requestUrl).mockRejectedValue(new Error("offline"));
+    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {});
+    xhr.error();
+    await expect(p).rejects.toThrow(/Chat network error|Chat-Netzwerkfehler/);
+  });
+
+  it("ttftMs misst das erste BYTE, auch wenn es Reasoning ist (Verhaltenswechsel, vorher erster Content-Token)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const xhr = installFakeXHR();
+    let seen: any;
+    const app = { plugins: { plugins: { "llm-lab": { api: { apiVersion: 4, status: () => ({ apiVersion: 4, recording: true }), log: (i: unknown) => { seen = i; return "id"; } } } } } };
+    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {}, undefined, { trace: { feature: "chat", app } });
+    await vi.advanceTimersByTimeAsync(1_000);
+    xhr.progress(['data: {"choices":[{"delta":{"reasoning_content":"denke"}}]}\n\n']);
+    await vi.advanceTimersByTimeAsync(2_000);
+    xhr.feed([chunk("A") + DONE]);
+    await p;
+    expect(seen.ttftMs).toBe(1_000);
+    expect(seen.latencyMs).toBe(3_000);
   });
 });
 

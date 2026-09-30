@@ -65,10 +65,10 @@ describe("ChatClient", () => {
     xhr.feed(['data: {"choices":[{"delta":{"content":"Ende <"}}]}\n\n' + DONE]);
     expect((await p).content).toBe("Ende <");
   });
-  it("stream schickt model+temperature aus opts im Body", async () => {
+  it("stream schickt model und die fertigen params aus opts im Body", async () => {
     const xhr = installFakeXHR();
     const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { model: "m2", temperature: 0.2 });
+      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { model: "m2", params: { temperature: 0.2 } });
     xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
     await p;
     const body = JSON.parse(xhr.body) as { model: string; temperature: number };
@@ -85,57 +85,63 @@ describe("ChatClient", () => {
     expect(body.model).toBe("qwen3");
     expect("temperature" in body).toBe(false);
   });
-  it("stream mischt Suppress-Params in den Body wenn suppressThinking", async () => {
+  it("stream schickt ALLE params unverändert in den Body — entschieden wird im Plugin, nicht im Client", async () => {
     const xhr = installFakeXHR();
+    const params = { temperature: 0.4, top_p: 0.95, top_k: 20, reasoning_effort: "none", max_tokens: 512 };
     const p = new ChatClient("http://x", "m").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { suppressThinking: true });
+      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { params });
     xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
     await p;
-    const body = JSON.parse(xhr.body) as { reasoning_effort: string; chat_template_kwargs: unknown; reasoning_budget: number };
-    expect(body.reasoning_effort).toBe("none");
-    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
-    expect(body.reasoning_budget).toBe(0);
+    const body = JSON.parse(xhr.body) as Record<string, unknown>;
+    expect(body).toMatchObject(params);
   });
-  it("stream ohne suppressThinking sendet keine Suppress-Keys", async () => {
+  it("stream ohne params sendet keine Sampling-Keys (auch keine Suppress-Keys mehr)", async () => {
     const xhr = installFakeXHR();
     const p = new ChatClient("http://x", "m").stream([{ role: "user", content: "hi" }], () => {}, () => {});
     xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
     await p;
     const body = JSON.parse(xhr.body) as Record<string, unknown>;
-    expect("reasoning_effort" in body).toBe(false);
+    for (const k of ["reasoning_effort", "chat_template_kwargs", "reasoning_budget", "temperature", "max_tokens"]) {
+      expect(k in body, k).toBe(false);
+    }
   });
-  it("stream unterdrückt Thinking bei suppressThinking NICHT für gpt-oss (always-on, lehnt reasoning_effort ab)", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://x", "m").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { model: "openai/gpt-oss-20b", suppressThinking: true });
-    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-    await p;
-    const body = JSON.parse(xhr.body) as Record<string, unknown>;
-    expect("reasoning_effort" in body).toBe(false);
-    expect("chat_template_kwargs" in body).toBe(false);
-    expect("reasoning_budget" in body).toBe(false);
+  describe("check (Antwort gegen das Profil)", () => {
+    it("meldet „Denken trotz aus“, wenn Reasoning zurückkommt, obwohl die Stufe off war", async () => {
+      const xhr = installFakeXHR();
+      const report = vi.fn();
+      const p = new ChatClient("http://x", "m").stream(
+        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
+        { check: { family: "qwen3.6", thinking: "off", report } });
+      xhr.feed([
+        'data: {"choices":[{"delta":{"reasoning_content":"ich denke"}}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\n' + DONE,
+      ]);
+      await p;
+      expect(report).toHaveBeenCalledTimes(1);
+      const kinds = (report.mock.calls[0]?.[0] as { kind: string }[]).map(d => d.kind);
+      expect(kinds).toContain("thinking-despite-off");
+    });
+    it("meldet eine abgelehnte Anfrage (HTTP 400) als rejected und wirft weiter", async () => {
+      const xhr = installFakeXHR();
+      const report = vi.fn();
+      const p = new ChatClient("http://x", "m").stream(
+        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
+        { check: { family: null, thinking: "off", report } });
+      xhr.feed([], 400);
+      await expect(p).rejects.toThrow("400");
+      const kinds = (report.mock.calls[0]?.[0] as { kind: string }[]).map(d => d.kind);
+      expect(kinds).toContain("rejected");
+    });
+    it("ein werfendes report() reißt die Antwort nicht mit", async () => {
+      const xhr = installFakeXHR();
+      const p = new ChatClient("http://x", "m").stream(
+        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
+        { check: { family: null, thinking: "off", report: () => { throw new Error("kaputt"); } } });
+      xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
+      expect((await p).content).toBe("x");
+    });
   });
-  it("stream unterdrückt Thinking bei suppressThinking weiterhin für ein Qwen-Modell", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://x", "m").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { model: "qwen/qwen3.6-35b-a3b", suppressThinking: true });
-    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-    await p;
-    const body = JSON.parse(xhr.body) as { reasoning_effort: string; chat_template_kwargs: unknown; reasoning_budget: number };
-    expect(body.reasoning_effort).toBe("none");
-    expect(body.chat_template_kwargs).toEqual({ enable_thinking: false });
-    expect(body.reasoning_budget).toBe(0);
-  });
-  it("stream schreibt max_tokens in den Body wenn maxTokens gesetzt", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://x", "m").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { maxTokens: 512 });
-    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-    await p;
-    const body = JSON.parse(xhr.body) as Record<string, unknown>;
-    expect(body.max_tokens).toBe(512);
-  });
-  it("stream ohne maxTokens: kein max_tokens-Key im Body", async () => {
+  it("stream ohne params: kein max_tokens-Key im Body", async () => {
     const xhr = installFakeXHR();
     const p = new ChatClient("http://x", "m").stream(
       [{ role: "user", content: "hi" }], () => {}, () => {});

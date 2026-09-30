@@ -30,7 +30,7 @@ import {
   Assignment,
   ApplyMode,
 } from "./note_restructurer";
-import type { ChatClient } from "./chat_client";
+import type { ChatClient, RequestParams, ResponseCheck } from "./chat_client";
 import { t } from "./vendor/kit/i18n";
 import { newTurnId } from "./lab_client";
 
@@ -38,9 +38,12 @@ import { newTurnId } from "./lab_client";
 
 export interface SmartApplyParams {
   model: string;
-  temperature: number;
-  suppressThinking: boolean;
+  /** Fertige Sampling-Felder (Modus `structured`, gebaut in `request_profile.ts`). */
+  params: RequestParams;
+  /** Das Budget des PLUGINS (Einstellung) — Text der Budget-Befunde; gesendet wird `params.max_tokens`,
+   *  das das Kit auf die Reserve der Familie anheben kann. */
   maxTokens: number;
+  check?: ResponseCheck;
 }
 
 export interface SmartApplyDeps {
@@ -161,7 +164,7 @@ export class SmartApply {
   constructor(
     private deps: SmartApplyDeps,
     private client: () => ChatClient,
-    private params: () => SmartApplyParams = () => ({ model: '', temperature: 0, suppressThinking: false, maxTokens: 2048 }),
+    private params: () => SmartApplyParams = () => ({ model: '', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }),
   ) {}
 
   /** Aborts any in-flight propose() call. */
@@ -263,7 +266,7 @@ export class SmartApply {
       // Beispiele im Prompt (Step 6, buildRestructurePrompt) stammen aus der Vorlage, nicht
       // nur aus der Notiz — wer seinen Vorlagen-Ordner ausschliesst, soll dessen Inhalt nicht
       // trotzdem aufgezeichnet bekommen.
-      { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, maxTokens: p.maxTokens, trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath], turnId: newTurnId(), ...(promptTemplate ? { promptTemplate } : {}) } },
+      { model: p.model, params: p.params, ...(p.check ? { check: p.check } : {}), trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath], turnId: newTurnId(), ...(promptTemplate ? { promptTemplate } : {}) } },
     );
 
     // Ins Token-Budget gelaufen: das erklaert einen anschliessenden Fehlschlag und nennt die

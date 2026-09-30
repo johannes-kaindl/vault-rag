@@ -161,7 +161,6 @@ const LAB_PRUEFPUNKTE = [
   "Die Chat-Zeile trägt ttftMs und latencyMs",
   "Die Chat-Zeile trägt eine turnId (apiVersion 4)",
   "Die Chat-Zeile trägt die Kontext-Pfade, die das Panel zeigt",
-  "Die Endpunkt-Probe meldet sich unter eigenem feature (damit das Lab sie ausschließen kann)",
   "Reformat meldet sich mit der Transform-ID im feature",
   "Die Reformat-Vorschau ist nach dem Verwerfen geschlossen",
   "Ohne Lab läuft der Chat vollständig durch und meldet nichts",
@@ -489,9 +488,11 @@ async function main(): Promise<void> {
     // ist unit-getestet; dass sie in `onload` an der richtigen Stelle läuft, sieht nur dieser Punkt.
     const legacyKeys = await main.evaluate<string[]>(`
       const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-      return ["embeddingModel","chatModel"].filter(k => k in p.settings);
+      // Seit Welle 14 zaehlen die vier Sampling-Regler dazu (chatTemperature, suppressThinking,
+      // smartApplyTemperature, smartApplySuppressThinking): sie gehen in den Block request auf.
+      return ["embeddingModel","chatModel","chatTemperature","suppressThinking","smartApplyTemperature","smartApplySuppressThinking"].filter(k => k in p.settings);
     `);
-    record("Keine Alt-Schlüssel des globalen Modells in den Einstellungen",
+    record("Keine Alt-Schlüssel des globalen Modells und der Sampling-Regler in den Einstellungen",
       legacyKeys.length === 0,
       legacyKeys.length === 0 ? "Alt-Schlüssel: keine" : `Alt-Schlüssel: ${legacyKeys.join(", ")}`);
     record("related() liefert Treffer für eine indexierte Notiz",
@@ -1181,41 +1182,10 @@ async function main(): Promise<void> {
           ? `${panelChips.length} Chips · ${ctxListe.length} contextPaths${chipsGedeckt ? "" : ` — Chips: [${panelChips.join(", ")}] · Trace: [${ctxListe.join(", ")}]`}`
           : `keine Kontext-Chips in 30 s — ${ctxDiagnose}`);
 
-      // (2) Endpunkt-Probe: sie meldet sich unter EIGENEM feature. Nicht geprueft wird, ob das
-      // Lab sie ausschliesst — die Ausschlussliste ist llm-labs Zusage. Unsere ist, dass die
-      // Probe unterscheidbar ankommt; ohne das kann sie dort niemand ausschliessen.
-      const probeBefore = await main.evaluate<number>(`return window.__vaultRagLabSeen.length;`);
-      await main.evaluate(`
-        app.setting.open();
-        app.setting.openTabById(${JSON.stringify(PLUGIN_ID)});
-        await new Promise(r => setTimeout(r, 1200));
-        // Ueber die DEFINITION statt ueber einen Knopf im DOM: genau diese action ruft das
-        // Framework beim Klick auf, und sie ist unabhaengig von der gerenderten Oberflaeche
-        // (1.13 deklarativ vs. renderImperative auf 1.12).
-        const tab = app.setting.pluginTabs.find(t => t.id === ${JSON.stringify(PLUGIN_ID)});
-        const walk = (items) => items.flatMap(i => i.type === "group" ? walk(i.items || []) : [i]);
-        const withAction = walk(tab.getSettingDefinitions()).filter(i => typeof i.action === "function");
-        window.__vaultRagProbeCount = withAction.length;
-        for (const item of withAction) {
-          if (String(item.name || "").length) { /* nur zur Sicht */ }
-        }
-        const probe = withAction.find(i => /denk|think/i.test(String(i.name || "") + String(i.desc || "")));
-        window.__vaultRagProbeFound = !!probe;
-        if (probe) probe.action();
-      `);
-      const probeFound = await main.evaluate<boolean>(`return !!window.__vaultRagProbeFound;`);
-      if (!probeFound) {
-        skipped("Die Endpunkt-Probe meldet sich unter eigenem feature (damit das Lab sie ausschließen kann)", "Testknopf in den Einstellungen nicht gefunden");
-      } else {
-        await pollUntil(main, `return window.__vaultRagLabSeen.length > ${probeBefore};`, 180_000, 1_000).catch(() => false);
-        const probeTrace = await main.evaluate<{ features: string[] }>(`
-          return { features: window.__vaultRagLabSeen.slice(${probeBefore}).map(x => x.feature) };
-        `);
-        record("Die Endpunkt-Probe meldet sich unter eigenem feature (damit das Lab sie ausschließen kann)",
-          probeTrace.features.length > 0 && probeTrace.features.every(f => f === "settings-probe"),
-          probeTrace.features.length ? probeTrace.features.join(", ") : "keine Zeile — Probe lief nicht");
-      }
-      await main.evaluate(`app.setting.close();`);
+      // (2) Die Endpunkt-Probe „Thinking testen“ ist mit Welle 14 entfallen (Sampling-Profile:
+      // die Antwortpruefung und „Letzte Anfrage“ ersetzen sie) — der Punkt, der ihr feature
+      // `settings-probe` pruefte, hatte damit keinen Gegenstand mehr und ist gestrichen, nicht
+      // als „uebersprungen“ stehen geblieben (ein Skip ohne Gegenstand meldet nichts gemessen).
 
       // (3) Reformat: das feature traegt die Transform-ID. Ohne sie stehen alle Umformatierungen
       // als ein Topf in der Aufzeichnung, und "welcher Transform frisst mein Budget" ist nicht
@@ -1697,10 +1667,15 @@ async function main(): Promise<void> {
         try { return await fn(); } catch (e) { console.log(`  ! 7g ${label}: ${String(e)}`); throw e; }
       };
       const linkProbe = async (mode: "keep" | "destroy"): Promise<LinkProbe> => {
-        const started = await schritt(`${mode}: Aufbau und Klick`, () => main.evaluate<boolean>(`
-          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        // Aufbau in kleinen, beschrifteten Schritten: haengt einer, nennt die Meldung ihn — ein
+        // einziger langer evaluate sagte nur „Zeitueberschreitung" (Welle 14, intermittierend).
+        await schritt(`${mode}: Notiz anlegen`, () => main.evaluate(`
           let f = app.vault.getAbstractFileByPath(${JSON.stringify(W14_NOTE)});
           if (!f) f = await app.vault.create(${JSON.stringify(W14_NOTE)}, ${JSON.stringify(W14_TEXT)} + "\\n");
+          return !!f;
+        `));
+        const geoeffnet = await schritt(`${mode}: Notiz oeffnen und Auswahl setzen`, () => main.evaluate<boolean>(`
+          const f = app.vault.getAbstractFileByPath(${JSON.stringify(W14_NOTE)});
           // Neuer Tab im HAUPTfenster statt getLeaf(false): nach 7f kann das aktive Blatt in
           // einem geschlossenen Pop-out haengen, und openFile kehrt dann nie zurueck.
           const leaf = app.workspace.getLeaf("tab");
@@ -1711,11 +1686,16 @@ async function main(): Promise<void> {
           const ed = app.workspace.activeEditor?.editor;
           if (!ed) return false;
           ed.setSelection({ line: 0, ch: 0 }, { line: 0, ch: ed.getLine(0).length });
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           p.captureSelection();
           // Das Panel zieht seinen Zustand im Normalbetrieb ueber das entprellte selectionchange
           // nach; ein per API gesetzter Bereich loest das nicht zuverlaessig aus, der Knopf
           // bliebe gesperrt und der Klick liefe ins Leere (Welle 14).
           p.reformatPanel?.refresh();
+          return true;
+        `));
+        await schritt(`${mode}: Stub setzen`, () => main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           window.__w14Sent = null;
           window.__w14OwnStream = Object.prototype.hasOwnProperty.call(p.chatClient, "stream") ? p.chatClient.stream : null;
           p.chatClient.stream = async (messages, onToken) => {
@@ -1727,7 +1707,10 @@ async function main(): Promise<void> {
             onToken(out);
             return { content: out, finishReason: "stop" };
           };
-          await app.commands.executeCommandById("vault-retrieval:open-reformat");
+          return true;
+        `));
+        const started = geoeffnet && await schritt(`${mode}: Panel oeffnen und Knopf klicken`, () => main.evaluate<boolean>(`
+          app.commands.executeCommandById("vault-retrieval:open-reformat");
           await new Promise(r => setTimeout(r, 800));
           const nodes = [...document.querySelectorAll(".vault-rag-reformat-group-title, .vault-rag-reformat-btn")];
           let titles = 0; const llm = [];
@@ -1839,6 +1822,265 @@ async function main(): Promise<void> {
           const f = app.vault.getAbstractFileByPath(${JSON.stringify(W14_NOTE2)});
           if (f) await app.vault.delete(f);
         `).catch(() => console.log(`  ! ${W14_NOTE2} konnte nicht gelöscht werden`));
+      }
+    }
+
+    // --- 7i. Anfrage-Profile (Welle 14) ---------------------------------------------------------
+    // Die Werte, die das Plugin sendet, kommen aus der Kit-Tabelle `sampling-profiles`; dieser
+    // Abschnitt prueft die VERDRAHTUNG am laufenden Plugin: dass der Einstellungs-Abschnitt
+    // „Anfrage“ aufklappt und nach einer Bearbeitung OFFEN bleibt (Screenshot-Fund des Pilots
+    // lingotuner: der Smoke sah ihn nicht, weil kein Punkt zwei Edits nacheinander fuhr), dass der
+    // Chat-Knopf und die Stufenwahl die Einstellung schreiben, und — der eigentliche Beleg — dass
+    // der gesendete Body die Modus-Temperatur traegt. Den Body greift ein Haken auf
+    // XMLHttpRequest.prototype.send ab und bricht die Anfrage ab: kein Modell wird geladen.
+    {
+      const W7I = {
+        n1: "Anfrage-Abschnitt: klappt auf und zeigt Familie, Backend und die drei Modi",
+        n2: "Anfrage-Abschnitt: eine Überschreibung setzen und zurücksetzen — der Abschnitt bleibt dabei offen",
+        n3: "Chat: der Denk-Knopf schaltet die Stufe um (Text, aria-pressed und gespeicherte Stufe stimmen überein)",
+        n4: "Chat: die Stufenwahl zeigt ein Dropdown und speichert die gewählte Stufe",
+        chat: "Gesendeter Body: der Chat (grounded) trägt die Modus-Temperatur 0,4",
+        reformat: "Gesendeter Body: Umformatieren (transform) trägt die Modus-Temperatur 0,2 und ein Budget",
+        smart: "Gesendeter Body: Smart Apply (structured) trägt die Modus-Temperatur 0,1 und das Plugin-Budget",
+      };
+      const title = W["request.title"] ?? "";
+      let st: Cdp | null = null;
+      try {
+        await requireVisible(main);
+        await openSettings(main);
+        st = await attachTo("settings", port, vault);
+        if (!st) throw new Error("kein Einstellungen-Fenster");
+        // Den Abschnitt aufklappen und den Zustand aus dem DOM lesen, nicht aus dem Plugin.
+        const readSection = async (): Promise<{ found: boolean; open: boolean; text: string; modes: number }> => st!.evaluate(`
+          const sec = [...document.querySelectorAll(".okit-collapsible")].find(s => (s.querySelector(".okit-collapsible-header")?.textContent || "").includes(${JSON.stringify(title)}));
+          if (!sec) return { found: false, open: false, text: "", modes: 0 };
+          return { found: true, open: !sec.classList.contains("is-collapsed"), text: sec.textContent || "", modes: sec.querySelectorAll(".setting-item-heading").length };
+        `);
+        await st.send("Page.bringToFront");
+        await st.evaluate(`
+          const sec = [...document.querySelectorAll(".okit-collapsible")].find(s => (s.querySelector(".okit-collapsible-header")?.textContent || "").includes(${JSON.stringify(title)}));
+          if (sec && sec.classList.contains("is-collapsed")) sec.querySelector(".okit-collapsible-header").click();
+          await new Promise(r => setTimeout(r, 500));
+          return true;
+        `);
+        const n1 = await readSection();
+        const headPrefix = (W["request.head"] ?? "").split("{0}")[0] ?? "";
+        const modeNames = ["grounded", "structured", "transform"].map((m) => (W as Record<string, string | undefined>)[`request.mode.${m}`] ?? m);
+        record(W7I.n1, n1.found && n1.open && n1.text.includes(headPrefix) && modeNames.every((m) => n1.text.includes(m)),
+          `gefunden: ${n1.found} · offen: ${n1.open} · Kopfzeile: ${n1.text.includes(headPrefix)} · Modi: ${modeNames.filter((m) => n1.text.includes(m)).join(", ")}`);
+
+        // N2: Temperatur im ERSTEN Modus (grounded) setzen, dann zuruecksetzen.
+        const setOverride = await st.evaluate<boolean>(`
+          const sec = [...document.querySelectorAll(".okit-collapsible")].find(s => (s.querySelector(".okit-collapsible-header")?.textContent || "").includes(${JSON.stringify(title)}));
+          const input = sec?.querySelector('input[data-field="temperature"]');
+          if (!input || input.disabled) return false;
+          input.value = "0.9";
+          input.dispatchEvent(new Event("blur"));
+          await new Promise(r => setTimeout(r, 900));
+          return true;
+        `);
+        const afterSet = await main.evaluate<{ overrides: unknown; family: string | null }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          return { overrides: p.settings.request.overrides.grounded ?? null, family: p.requestSectionState().family };
+        `);
+        const n2a = await readSection();
+        const gesetzt = JSON.stringify(afterSet.overrides).includes('"temperature":0.9');
+        await st.evaluate(`
+          const sec = [...document.querySelectorAll(".okit-collapsible")].find(s => (s.querySelector(".okit-collapsible-header")?.textContent || "").includes(${JSON.stringify(title)}));
+          const row = sec?.querySelector('input[data-field="temperature"]')?.closest(".setting-item");
+          const btn = row?.querySelector(".extra-setting-button, .clickable-icon");
+          if (btn) btn.click();
+          await new Promise(r => setTimeout(r, 900));
+          return !!btn;
+        `);
+        const afterReset = await main.evaluate<unknown>(`
+          return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.request.overrides.grounded ?? null;
+        `);
+        const n2b = await readSection();
+        record(W7I.n2, setOverride && gesetzt && n2a.open && afterReset === null && n2b.open,
+          `gesetzt: ${gesetzt} (Familie ${String(afterSet.family)}) · nach dem Setzen offen: ${n2a.open} · nach dem Zurücksetzen gelöscht: ${afterReset === null} · offen: ${n2b.open}`);
+      } catch (e) {
+        skipped(W7I.n1, `Einstellungen nicht erreichbar: ${String(e)} — nichts gemessen`);
+        skipped(W7I.n2, `Einstellungen nicht erreichbar: ${String(e)} — nichts gemessen`);
+      } finally {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const r = structuredClone(p.settings.request); delete r.overrides.grounded; p.settings.request = r;
+          await p.saveSettings(); app.setting.close(); return true;
+        `).catch(() => console.log("  ! Anfrage-Überschreibung konnte nicht zurückgesetzt werden"));
+        st?.close();
+      }
+
+      // N3 + N4: Chat-Knopf und Stufenwahl.
+      const chatDom = `
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));`;
+      try {
+        const saved = await main.evaluate<unknown>(`return structuredClone(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.request);`);
+        const readKnopf = `
+          const k = document.querySelector(".vault-rag-chat-root .okit-thinking-toggle");
+          const pl = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          return k ? { pressed: k.getAttribute("aria-pressed"), text: k.textContent, stored: pl.settings.request.thinking.grounded ?? null } : null;`;
+        const v0 = await main.evaluate<{ pressed: string; text: string; stored: string | null } | null>(`${chatDom} ${readKnopf}`);
+        await main.evaluate(`document.querySelector(".vault-rag-chat-root .okit-thinking-toggle")?.click(); await new Promise(r => setTimeout(r, 500)); return true;`);
+        const v1 = await main.evaluate<{ pressed: string; text: string; stored: string | null } | null>(readKnopf);
+        await main.evaluate(`document.querySelector(".vault-rag-chat-root .okit-thinking-toggle")?.click(); await new Promise(r => setTimeout(r, 500)); return true;`);
+        const v2 = await main.evaluate<{ pressed: string; text: string; stored: string | null } | null>(readKnopf);
+        const umgeschaltet = !!v0 && !!v1 && !!v2 && v0.pressed !== v1.pressed && v2.pressed === v0.pressed
+          && v0.text !== v1.text && v1.stored !== v0.stored;
+        record(W7I.n3, umgeschaltet,
+          `Start ${v0?.pressed}/„${v0?.text}“/${String(v0?.stored)} → ${v1?.pressed}/„${v1?.text}“/${String(v1?.stored)} → zurück ${v2?.pressed}`);
+
+        // N4: Stufenwahl einschalten (die Einstellung, nicht der Knopf), Tab neu zeigen, Dropdown waehlen.
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          await p.saveRequestSettings({ ...structuredClone(p.settings.request), levelPickerInChat: true });
+          await p.openHub("related"); await new Promise(r => setTimeout(r, 300));
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
+          return true;`);
+        const n4 = await main.evaluate<{ hasSelect: boolean; buttonGone: boolean; stored: string | null }>(`
+          const sel = document.querySelector(".vault-rag-chat-root .okit-thinking-control select");
+          if (sel) { sel.value = "high"; sel.dispatchEvent(new Event("change")); }
+          await new Promise(r => setTimeout(r, 600));
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          return { hasSelect: !!sel, buttonGone: !document.querySelector(".vault-rag-chat-root .okit-thinking-toggle"), stored: p.settings.request.thinking.grounded ?? null };`);
+        record(W7I.n4, n4.hasSelect && n4.buttonGone && n4.stored === "high",
+          `Dropdown: ${n4.hasSelect} · Knopf weg: ${n4.buttonGone} · gespeichert: ${String(n4.stored)}`);
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          await p.saveRequestSettings(${JSON.stringify(saved)}); return true;`);
+      } catch (e) {
+        skipped(W7I.n3, `Chat-Panel nicht erreichbar: ${String(e)} — nichts gemessen`);
+        skipped(W7I.n4, `Chat-Panel nicht erreichbar: ${String(e)} — nichts gemessen`);
+      }
+
+      // Gesendeter Body. Haken auf XMLHttpRequest.prototype.send: die Anfrage wird gelesen und
+      // abgebrochen. `window.__w14Bodies` haelt die Bodies; im finally wird der Haken entfernt.
+      try {
+        await main.evaluate(`
+          window.__w14Bodies = [];
+          window.__w14Send = XMLHttpRequest.prototype.send;
+          XMLHttpRequest.prototype.send = function (body) {
+            try {
+              const j = JSON.parse(String(body));
+              if (j && Array.isArray(j.messages)) { window.__w14Bodies.push(j); this.abort(); return; }
+            } catch {}
+            return window.__w14Send.apply(this, arguments);
+          };
+          return true;`);
+        // Chat ueber die Oberflaeche.
+        await main.evaluate(`
+          ${chatDom}
+          const ta = document.querySelector(".vault-rag-chat-input");
+          document.querySelector(".vault-rag-chat-new")?.click();
+          ta.value = "Antworte mit einem Wort.";
+          ta.dispatchEvent(new Event("input", { bubbles: true }));
+          document.querySelector(".vault-rag-chat-send").click();
+          return true;`);
+        await pollUntil(main, `return window.__w14Bodies.length >= 1;`, 20_000, 250).catch(() => false);
+        const chatBody = await main.evaluate<Record<string, unknown> | null>(`return window.__w14Bodies[0] ?? null;`);
+        record(W7I.chat, chatBody !== null && chatBody.temperature === 0.4,
+          chatBody ? `temperature=${String(chatBody.temperature)} · Felder: ${Object.keys(chatBody).filter((k) => k !== "messages" && k !== "stream").join(", ")}` : "kein Body abgegriffen");
+        await main.evaluate(`document.querySelector(".vault-rag-chat-new")?.click(); return true;`);
+
+        // Umformatieren ueber den Panel-Knopf (wie 7g), Probe-Notiz im eigenen Tab.
+        const before = await main.evaluate<number>(`return window.__w14Bodies.length;`);
+        const started = await main.evaluate<boolean>(`
+          let f = app.vault.getAbstractFileByPath("w14-body-probe.md");
+          if (!f) f = await app.vault.create("w14-body-probe.md", "Ein kurzer Satz zum Umformen.\\n");
+          const leaf = app.workspace.getLeaf("tab"); window.__w14Leaf = leaf;
+          await leaf.openFile(f, { state: { mode: "source" } });
+          app.workspace.setActiveLeaf(leaf, { focus: true });
+          await new Promise(r => setTimeout(r, 600));
+          const ed = app.workspace.activeEditor?.editor; if (!ed) return false;
+          ed.setSelection({ line: 0, ch: 0 }, { line: 0, ch: ed.getLine(0).length });
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.captureSelection(); p.reformatPanel?.refresh();
+          app.commands.executeCommandById("vault-retrieval:open-reformat");
+          await new Promise(r => setTimeout(r, 800));
+          const nodes = [...document.querySelectorAll(".vault-rag-reformat-group-title, .vault-rag-reformat-btn")];
+          let titles = 0; const llm = [];
+          for (const n of nodes) {
+            if (n.classList.contains("vault-rag-reformat-group-title")) { titles++; continue; }
+            if (titles === 2 && !n.closest(".vault-rag-reformat-freetext")) llm.push(n);
+          }
+          const usable = llm.filter(b => !b.disabled);
+          if (!usable.length) return false;
+          usable[0].click();
+          return true;`);
+        if (!started) skipped(W7I.reformat, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
+        else {
+          await pollUntil(main, `return window.__w14Bodies.length > ${before};`, 20_000, 250).catch(() => false);
+          const rb = await main.evaluate<Record<string, unknown> | null>(`return window.__w14Bodies[${before}] ?? null;`);
+          record(W7I.reformat, rb !== null && rb.temperature === 0.2 && typeof rb.max_tokens === "number" && (rb.max_tokens as number) >= 4096,
+            rb ? `temperature=${String(rb.temperature)} · max_tokens=${String(rb.max_tokens)}` : "kein Body abgegriffen");
+        }
+        // Smart Apply: im Fixture aus — kurz einschalten (Plugin neu laden, das Panel entsteht beim
+        // Laden), einen Lauf anstossen, den Body greifen, alles zurueckstellen. Gelingt der Aufbau
+        // nicht, ist der Punkt „nichts gemessen“ (kein Skip ohne Grund).
+        const smartBefore = await main.evaluate<number>(`return window.__w14Bodies.length;`);
+        let smartBody: Record<string, unknown> | null = null;
+        let smartWhy = "";
+        try {
+          await main.evaluate(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            window.__w14SmartWas = !!p.settings.smartApplyEnabled;
+            p.settings.smartApplyEnabled = true; await p.saveSettings();
+            await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+            await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+            return true;`);
+          await pollUntil(main, `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]?.api?.status().indexed;`, 30_000, 500).catch(() => false);
+          const ok = await main.evaluate<boolean>(`
+            const f = app.vault.getMarkdownFiles().find(x => x.path.startsWith("Notes/") && x.stat.size > 200 && !x.path.startsWith("Notes/Integrator"));
+            if (!f) return false;
+            const leaf = app.workspace.getLeaf("tab"); window.__w14Leaf2 = leaf;
+            await leaf.openFile(f, { state: { mode: "source" } });
+            app.workspace.setActiveLeaf(leaf, { focus: true });
+            await new Promise(r => setTimeout(r, 800));
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            await p.openHub("smart-apply");
+            await new Promise(r => setTimeout(r, 2500));
+            const run = document.querySelector(".vault-rag-sa-run");
+            if (!run || run.disabled || run.classList.contains("is-disabled")) return false;
+            run.click();
+            return true;`);
+          if (!ok) smartWhy = "Lauf-Knopf nicht bedienbar (keine Vorlage/Notiz im Fixture?)";
+          else {
+            await pollUntil(main, `return window.__w14Bodies.length > ${smartBefore};`, 25_000, 250).catch(() => false);
+            smartBody = await main.evaluate<Record<string, unknown> | null>(`return window.__w14Bodies[${smartBefore}] ?? null;`);
+            if (!smartBody) smartWhy = "kein Body in 25 s abgegriffen";
+          }
+        } catch (e) {
+          smartWhy = String(e);
+        } finally {
+          await main.evaluate(`
+            document.querySelector(".vault-rag-sa-stop")?.click();
+            try { window.__w14Leaf2?.detach(); } catch {} delete window.__w14Leaf2;
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            p.settings.smartApplyEnabled = !!window.__w14SmartWas; delete window.__w14SmartWas;
+            await p.saveSettings();
+            await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+            await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+            return true;`).catch(() => console.log("  ! Smart Apply konnte nicht zurückgestellt werden"));
+          await pollUntil(main, `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]?.api?.status().indexed;`, 30_000, 500).catch(() => false);
+        }
+        if (smartBody) {
+          record(W7I.smart, smartBody.temperature === 0.1 && typeof smartBody.max_tokens === "number" && (smartBody.max_tokens as number) >= 4096,
+            `temperature=${String(smartBody.temperature)} · max_tokens=${String(smartBody.max_tokens)}`);
+        } else {
+          skipped(W7I.smart, `${smartWhy} — nichts gemessen`);
+        }
+      } finally {
+        await main.evaluate(`
+          if (window.__w14Send) XMLHttpRequest.prototype.send = window.__w14Send;
+          delete window.__w14Send; delete window.__w14Bodies;
+          const m = document.querySelector(".vault-rag-reformat-result")?.closest(".modal");
+          const d = m && [...m.querySelectorAll("button")].find(b => /verwerf|discard/i.test(b.textContent || ""));
+          if (d) d.click();
+          try { window.__w14Leaf?.detach(); } catch {} delete window.__w14Leaf;
+          const f = app.vault.getAbstractFileByPath("w14-body-probe.md");
+          if (f) await app.vault.delete(f);
+          return true;`).catch(() => console.log("  ! Body-Haken oder Probe-Notiz konnten nicht zurückgesetzt werden"));
       }
     }
 

@@ -115,7 +115,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 | Debounce | Wie lange nach dem Speichern neu eingebettet wird | `3000` ms |
 | Smart Apply | Standardmäßig aus; aktiviert Tab, Befehl und Template-Einstellungen | aus |
 | Kontext-Budget | Maximale Zeichenzahl als Kontext (Obergrenze folgt dem Modellfenster) | `12000` |
-| Denken unterdrücken | Default für neue Chats; zusätzlich pro Chat umschaltbar | aus |
+| Modell-Anfragen | Einklappbarer Abschnitt *Anfrage*: was je Modus (Chat, Smart Apply, Umformatieren) gesendet wird, Überschreibungen je Modellfamilie, Denkstufe, letzte Anfrage und Abweichungen; ersetzt die alten Regler für Temperatur und Denken | nach Modellfamilie |
 | Enter sendet | An: Enter sendet, Shift+Enter für Zeilenumbruch · Aus: umgekehrt | an |
 
 > **Endpunkt-Tipp:** die Basis-URL *ohne* abschließendes `/v1` eintragen — das Plugin hängt es an. Beide Formen werden akzeptiert.

@@ -33,7 +33,6 @@ describe("settings", () => {
   });
 
   it("hat Chat-Modell-UX-Defaults", () => {
-    expect(DEFAULT_SETTINGS.chatTemperature).toBe(0.7);
     expect(DEFAULT_SETTINGS.chatInputPosition).toBe("bottom");
     // Der Default ist LEER, nicht ein fertiger Satz: ein Satz hier wird auf Modul-Ebene
     // ausgewertet — vor setLang() — und friert die Antwortsprache des Modells ein. Der
@@ -43,14 +42,14 @@ describe("settings", () => {
   });
 
   it("hat UX-Politur-Defaults", () => {
-    expect(DEFAULT_SETTINGS.suppressThinking).toBe(false);
     expect(DEFAULT_SETTINGS.enterSends).toBe(true);
   });
 
   it("hat Smart-Apply-Defaults", () => {
     expect(DEFAULT_SETTINGS.smartApplyEnabled).toBe(false);
     expect(DEFAULT_SETTINGS.templateDir).toBe("Templates/");
-    expect(DEFAULT_SETTINGS.smartApplyTemperature).toBe(0);
+    // Sampling-Werte stehen nicht mehr in eigenen Feldern, sondern im Block `request` (Kit-Profile).
+    expect(DEFAULT_SETTINGS.request).toEqual({ overrides: {}, thinking: {}, lastOnLevel: {}, levelPickerInChat: false });
   });
 
   it("Default-Merge ergänzt fehlende Smart-Apply-Felder aus altem data.json (Backward-Compat)", () => {
@@ -68,7 +67,7 @@ describe("settings", () => {
     // die drei neuen Felder fehlen im alten data.json → fallen auf die Defaults zurück
     expect(merged.smartApplyEnabled).toBe(false);
     expect(merged.templateDir).toBe("Templates/");
-    expect(merged.smartApplyTemperature).toBe(0);
+    expect(merged.request).toEqual({ overrides: {}, thinking: {}, lastOnLevel: {}, levelPickerInChat: false });
   });
 
   it("Object.assign trägt ein Alt-chatModel durch; DEFAULT_SETTINGS kennt den Schlüssel nicht mehr — deshalb MUSS die Migration in onload vor dem ersten saveData laufen", () => {
@@ -81,28 +80,15 @@ describe("settings", () => {
 
   it("hat Smart-Apply-Dashboard-Defaults", () => {
     expect(DEFAULT_SETTINGS.smartApplyModel).toBe("");
-    // Seit 2026-09-06 unterdrueckt: Denken und Antwort teilen sich `smartApplyMaxTokens`,
-    // und ein Schema auszufuellen braucht keine Denkphase (Messung s. settings_core.test.ts).
-    expect(DEFAULT_SETTINGS.smartApplySuppressThinking).toBe(true);
+    // Das Budget bleibt Plugin-Wert; ob gedacht wird, entscheidet die Denk-Stufe im Modus
+    // `structured` (Kit-Tabelle: aus, Messung s. settings_core.test.ts).
     expect(DEFAULT_SETTINGS.smartApplyMaxTokens).toBe(4096);
   });
 
   it("Default-Merge ergänzt fehlende Dashboard-Felder (Backward-Compat)", () => {
     const merged = Object.assign({}, DEFAULT_SETTINGS, { smartApplyEnabled: true } as Partial<VaultRagSettings>);
     expect(merged.smartApplyModel).toBe("");
-    expect(merged.smartApplySuppressThinking).toBe(true);
     expect(merged.smartApplyMaxTokens).toBe(4096);
-  });
-
-  // Die Kehrseite desselben Merges, und der Grund, warum es zum Default-Wechsel bewusst KEINE
-  // Migration gibt: ein FEHLENDES Feld erbt den neuen Default (Test darueber), ein explizit
-  // gespeichertes `false` bleibt stehen. `data.json` haelt nur den Wert, nicht ob ihn jemand
-  // gesetzt hat — eine Migration koennte beide Faelle nicht unterscheiden und wuerde damit auch
-  // eine bewusste Nutzerentscheidung umdrehen. Fuer diesen Fall traegt der neue Befund
-  // `reasoning-consumed-budget` die Auskunft, statt sie stillschweigend zu erzwingen.
-  it("explizit gespeichertes false ueberlebt den Default-Wechsel", () => {
-    const merged = Object.assign({}, DEFAULT_SETTINGS, { smartApplySuppressThinking: false } as Partial<VaultRagSettings>);
-    expect(merged.smartApplySuppressThinking).toBe(false);
   });
 
   it("hideIndexFolder-Default ist true", () => {
@@ -141,8 +127,8 @@ describe("DEFAULT_SETTINGS Endpunkte", () => {
 
 const DECLARATIVE_KEYS = [
   "k","minSim","exclude","debounceMs","showStatusBar","hideIndexFolder",
-  "chatK","chatTemperature","chatSystemPrompt","chatInputPosition","suppressThinking","enterSends",
-  "smartApplyEnabled","templateDir","smartApplyTemperature","smartApplySuppressThinking",
+  "chatK","chatSystemPrompt","chatInputPosition","enterSends",
+  "smartApplyEnabled","templateDir",
   "smartApplyMaxTokens","smartApplyDefaultMode",
 ] as const;
 
@@ -157,6 +143,10 @@ function makeFakeHost() {
     // Endpoint-/Modell-/MCP-Methoden für render-Hatches (in Struktur-Tests nicht aufgerufen):
     resolveAndReconnectEmbedder: vi.fn().mockResolvedValue(undefined),
     resolveAndReconnectChat: vi.fn().mockResolvedValue(undefined),
+    // Abschnitt „Anfrage“ (render-Hatch): Familie/Backend des Endpunkts, Sitzung, Speichern
+    requestSectionState: () => ({ family: null, familySource: "none", backend: "unknown", backendSource: "none", model: "", sentModel: "" }),
+    requestSession: { recordRequest: () => {}, lastRequest: () => null, report: () => {}, deviations: () => [], clear: () => {} },
+    saveRequestSettings: vi.fn().mockResolvedValue(undefined),
     // Von renderImperative (display-Fallback) synchron aufgerufene render-Hatch-Methoden —
     // ungemockt würden sie beim Walk sofort werfen (undefined ist keine Funktion).
     embedderReady: vi.fn().mockResolvedValue(true),
@@ -318,17 +308,17 @@ describe("getSettingDefinitions – Struktur", () => {
     expect(typeof items[0].render).toBe("function");
   });
 
-  it("Chat-Gruppe: deklarative Keys + render-Hatches + Testen-Action", () => {
+  it("Chat-Gruppe: deklarative Keys + render-Hatches, keine Sampling-Regler mehr", () => {
     const { tab } = makeTab();
     const g = (tab.getSettingDefinitions() as any[]).find(d => d.heading === "Chat");
     expect(g).toBeTruthy();
     const items = g.items as any[];
     const keys = items.filter(i => i.control).map(i => i.control.key);
-    expect(keys).toEqual(["chatK", "chatTemperature", "chatSystemPrompt", "chatInputPosition", "suppressThinking", "enterSends"]);
+    expect(keys).toEqual(["chatK", "chatSystemPrompt", "chatInputPosition", "enterSends"]);
     // Endpunkte, Modelldetails, Fähigkeiten, Budget = 4 render-Hatches — kein globales Modellfeld mehr
     expect(items.filter(i => typeof i.render === "function").length).toBe(4);
-    // „Testen" als eigene Action-Zeile
-    expect(items.filter(i => typeof i.action === "function").length).toBe(1);
+    // Die Thinking-Test-Aktion ist entfallen: die Antwortpruefung und „Letzte Anfrage“ ersetzen sie
+    expect(items.filter(i => typeof i.action === "function").length).toBe(0);
   });
 
   it("Smart-Apply-Gruppe: deklarative Keys inkl. folder + 1 render-Hatch + empty-Hinweis", () => {
@@ -338,8 +328,7 @@ describe("getSettingDefinitions – Struktur", () => {
     const items = g.items as any[];
     const keys = items.filter(i => i.control).map(i => i.control.key);
     expect(keys).toEqual([
-      "smartApplyEnabled", "templateDir", "smartApplyTemperature",
-      "smartApplySuppressThinking", "smartApplyMaxTokens", "smartApplyDefaultMode",
+      "smartApplyEnabled", "templateDir", "smartApplyMaxTokens", "smartApplyDefaultMode",
     ]);
     expect(items.find(i => i.control?.key === "templateDir").control.type).toBe("folder");
     expect(items.filter(i => typeof i.render === "function").length).toBe(1); // Modell

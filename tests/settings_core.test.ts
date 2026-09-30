@@ -1,3 +1,4 @@
+import { thinkingFor } from "../src/vendor/kit/sampling-profiles";
 import { describe, it, expect } from "vitest";
 import { splitExcludePaths, normalizeTemplateDir, DEFAULT_SETTINGS, migrateGlobalModels, stripLegacyGlobalModels } from "../src/settings_core";
 import { mergeSettings } from "../src/vendor/kit/settings";
@@ -77,8 +78,8 @@ describe("Smart-Apply-Defaults", () => {
   // Smart Apply fuellt ein JSON-Schema aus; eine Denkphase davor bringt nichts und teilt sich
   // mit der Antwort dasselbe `maxTokens`. Gemessen 2026-08-23: 14.083 Zeichen Reasoning,
   // Antwort leer, 105,9 s ohne Ergebnis. Der Toggle existierte, er stand nur falsch herum.
-  it("Thinking ist fuer Smart Apply per Default unterdrueckt", () => {
-    expect(DEFAULT_SETTINGS.smartApplySuppressThinking).toBe(true);
+  it("Thinking ist fuer Smart Apply per Default aus — der Modus `structured` der Kit-Tabelle sagt es", () => {
+    expect(thinkingFor(DEFAULT_SETTINGS.request, "structured")).toBe("off");
   });
 });
 

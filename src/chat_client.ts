@@ -1,6 +1,6 @@
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
-import { isAlwaysOnThinker, suppressParams } from "./vendor/kit/reasoning";
+import { checkResponse, type Deviation, type FamilyId, type ResponseFacts, type ThinkingLevel } from "./vendor/kit/sampling-profiles";
 import { httpJson, probeEndpoint } from "./http";
 import { authHeaders } from "./endpoint_config";
 import { EndpointStatus, extractModelIds } from "./vendor/kit/endpoint_diagnostics";
@@ -11,6 +11,37 @@ import { ChatHttpError, ChatTimeoutError } from "./chat_error";
 import { t } from "./vendor/kit/i18n";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
+
+/** Was ueber die Antwort zu pruefen ist (`checkResponse`): die Familie und die Denk-Stufe, mit
+ *  der die Anfrage gebaut wurde, und wohin die Abweichungen gehen. */
+export interface ResponseCheck {
+  family: FamilyId | null;
+  thinking: ThinkingLevel;
+  report: (ds: Deviation[]) => void;
+}
+
+/** Sampling-Felder einer Anfrage, wie sie der Body traegt (`temperature`, `top_p`, `max_tokens`, ...). */
+export type RequestParams = Record<string, number | string>;
+
+/** Antwort oder Fehler des Kit-Clients als Tatsachen fuer `checkResponse`. `null`, wenn gar keine
+ *  Server-Antwort vorlag (Abbruch, Netzfehler, Frist) — dafuer hat die Pruefung keine Aussage. */
+function responseFactsOf(res: ChatResult): ResponseFacts | null {
+  if (res.ok) {
+    return {
+      status: 200, finishReason: res.finishReason ?? null, content: res.content, reasoning: res.reasoning,
+      ...(res.model !== undefined ? { responseModel: res.model } : {}),
+    };
+  }
+  switch (res.kind) {
+    case "truncated":
+      return { status: 200, finishReason: "length", content: res.partial, reasoning: res.reasoning };
+    case "http":
+    case "overflow":
+      return { status: res.status ?? 0, errorText: res.body ?? res.detail, content: "", reasoning: res.reasoning };
+    default:
+      return null;
+  }
+}
 
 export interface ModelInfo {
   id: string;
@@ -98,15 +129,12 @@ export class ChatClient {
     onContent: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
-    opts?: { model?: string; temperature?: number; suppressThinking?: boolean; maxTokens?: number; trace?: { feature: string; app: unknown; contextPaths?: string[]; promptTemplate?: string; turnId?: string } },
+    opts?: { model?: string; params?: RequestParams; check?: ResponseCheck; trace?: { feature: string; app: unknown; contextPaths?: string[]; promptTemplate?: string; turnId?: string } },
   ): Promise<{ content: string; reasoning: string; finishReason?: string }> {
     const effectiveModel = opts?.model ?? this.model;
-    // Die Sampling-Werte gehören dem Plugin, nicht dem Kit-Client (Kit-Vertrag `params`).
-    const params = {
-      ...(opts?.temperature != null ? { temperature: opts.temperature } : {}),
-      ...(opts?.maxTokens != null ? { max_tokens: opts.maxTokens } : {}),
-      ...suppressParams((opts?.suppressThinking ?? false) && !isAlwaysOnThinker(effectiveModel)),
-    };
+    // Die Sampling-Werte kommen fertig vom Aufrufer: `request_profile.ts` baut sie aus der
+    // Kit-Tabelle (Kit-Vertrag `params`). Hier wird nichts mehr entschieden.
+    const params: RequestParams = { ...(opts?.params ?? {}) };
     const res = await this.kit.complete({
       endpoint: { url: this.endpoint, ...(this.apiKey ? { apiKey: this.apiKey } : {}) },
       model: effectiveModel,
@@ -121,6 +149,14 @@ export class ChatClient {
     const started = res.timing.startedAt;
     const ttft = res.timing.firstChunkAt !== undefined ? res.timing.firstChunkAt - started : undefined;
     const latency = res.timing.endedAt - started;
+    // Abweichung zwischen Profil und Antwort (z. B. Denken trotz „aus“, HTTP 400): melden, nie
+    // werfen — die Pruefung darf eine Antwort nicht mitreissen.
+    if (opts?.check) {
+      try {
+        const facts = responseFactsOf(res);
+        if (facts) opts.check.report(checkResponse({ family: opts.check.family, thinking: opts.check.thinking }, facts));
+      } catch { /* siehe oben */ }
+    }
 
     if (res.ok || res.kind === "truncated") {
       // „Abgeschnitten OHNE Text“ war hier immer ein Ergebnis mit finishReason "length" (der

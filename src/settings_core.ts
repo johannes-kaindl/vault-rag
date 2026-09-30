@@ -1,3 +1,5 @@
+import type { RequestSettings } from "./vendor/kit/sampling-profiles";
+import { LEGACY_SAMPLING_KEYS } from "./request_profile";
 import type { ApplyMode } from "./note_restructurer";
 import type { EndpointConfig } from "./endpoint_config";
 import { t as uebersetze } from "./vendor/kit/i18n";
@@ -26,16 +28,14 @@ export interface VaultRagSettings {
   chatChoice: EndpointChoice;
   chatK: number;
   contextCharBudget: number;
-  chatTemperature: number;
   chatSystemPrompt: string;
   chatInputPosition: "bottom" | "top";
-  suppressThinking: boolean;
   enterSends: boolean;
   smartApplyEnabled: boolean;
   templateDir: string;
-  smartApplyTemperature: number;
   smartApplyModel: string;
-  smartApplySuppressThinking: boolean;
+  /** Budget des PLUGINS fuer Smart Apply (`max_tokens`); das Kit kann es auf die Reserve der
+   *  Familie anheben. Die uebrigen Sampling-Werte stehen in `request`. */
   smartApplyMaxTokens: number;
   smartApplyDefaultMode: ApplyMode;
   // Integrator (Spec 2026-09-07, §5)
@@ -53,6 +53,10 @@ export interface VaultRagSettings {
   mcpToken: string;
   /** Auf-/Zu-Zustand der Settings-Sektionen (key → collapsed). */
   uiCollapsed: Record<string, boolean>;
+  /** Anfrage-Profile (Kit `sampling-profiles`): Ueberschreibungen je Modus × Familie, Denk-Stufe
+   *  je Modus, Stufenwahl im Chat. Ersetzt die Regler `chatTemperature`, `suppressThinking`,
+   *  `smartApplyTemperature` und `smartApplySuppressThinking`. */
+  request: RequestSettings;
 }
 
 /**
@@ -129,6 +133,15 @@ export function stripLegacyGlobalModels<T extends object>(settings: T): T {
   return settings;
 }
 
+/** Entfernt die vier Alt-Regler aus den geladenen Einstellungen — `mergeSettings` kopiert sie aus
+ *  einer alten data.json mit (Object.assign kennt keine Schemagrenze), und nach
+ *  `migrateLegacySampling` haengen sie sonst bis zum naechsten Speichern herum. */
+export function stripLegacySampling<T extends object>(settings: T): T {
+  const s = settings as Record<string, unknown>;
+  for (const k of LEGACY_SAMPLING_KEYS) delete s[k];
+  return settings;
+}
+
 export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
   minSim: 0.3,
@@ -143,16 +156,12 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   chatChoice: {},
   chatK: 5,
   contextCharBudget: 12000,
-  chatTemperature: 0.7,
   chatSystemPrompt: "",
   chatInputPosition: "bottom",
-  suppressThinking: false,
   enterSends: true,
   smartApplyEnabled: false,
   templateDir: "Templates/",
-  smartApplyTemperature: 0,
   smartApplyModel: "",
-  smartApplySuppressThinking: true,
   smartApplyMaxTokens: 4096,
   smartApplyDefaultMode: "deterministisch",
   integratorEnabled: false,
@@ -166,6 +175,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   mcpPort: 8123,
   mcpToken: "",
   uiCollapsed: {},
+  request: { overrides: {}, thinking: {}, lastOnLevel: {}, levelPickerInChat: false },
 };
 
 /** Komma-getrennte Ausschluss-Pfade → getrimmte, leer-gefilterte Liste. */

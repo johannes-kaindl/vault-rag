@@ -8,11 +8,23 @@ import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupMo
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
 import { findEndpointManager, onEndpointManagerChanged } from "./vendor/kit-obsidian/endpoint-source";
 import { resolveManagedChat, resolveManagedEmbedding } from "./managed_endpoint";
+import { cachedProbe } from "./http";
+import { describeModel } from "./vendor/kit/endpoint-source";
+import { createRequestSession, type RequestSession } from "./vendor/kit-obsidian/request-session";
+import type { RequestSectionState } from "./vendor/kit-obsidian/request-section";
+import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
+import { sanitizeRequestSettings, thinkingFor, onLevelFor, type ModeId, type RequestSettings } from "./vendor/kit/sampling-profiles";
+import {
+  buildChatParams, buildSmartApplyParams, buildReformatParams, migrateLegacySampling, NO_SOURCE, MODE_CHAT, MODE_SMART_APPLY,
+  type BuiltRequest, type SourceFacts,
+} from "./request_profile";
+import { deviationNotice, requestText } from "./request_text";
+import type { RequestParams, ResponseCheck } from "./chat_client";
 import { chatRequestModel, rowModel, migrateEndpointList, applyEndpointEdit, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
-import { effectiveSystemPrompt, migrateSystemPrompt, migrateGlobalModels, stripLegacyGlobalModels, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
+import { effectiveSystemPrompt, migrateSystemPrompt, migrateGlobalModels, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
 import { withTimeout } from "./vendor/kit/timeout";
 import { EmbeddingClient } from "./embedder";
@@ -94,6 +106,12 @@ export default class VaultRagPlugin extends Plugin {
    *  Smart Apply bringt ein eigenes Modellfeld mit, und nur `chatRequestModel` kennt die
    *  Vorrangregel zwischen beidem. */
   private chatEndpointInUse: EndpointConfig = { url: "" };
+  /** Familie, Backend und gesendete Schreibweise des aktiven Chat-Endpunkts — Quelle der
+   *  Anfrage-Profile (Welle 14). Wird bei jedem Verdrahten neu bestimmt; `factsFor` passt die
+   *  Familie an ein abweichendes Modell an (Dropdown, Smart-Apply-Modell). */
+  private chatSource: SourceFacts = NO_SOURCE;
+  /** „Letzte Anfrage“ und beobachtete Abweichungen der Sitzung (Abschnitt „Anfrage“). */
+  readonly requestSession: RequestSession = createRequestSession({ message: (d) => deviationNotice(d) });
   /** Zuletzt gemeldete Modell-Guard-Übersprünge — verhindert Notice-Spam, weil
    *  `embedderReady()` den Resolver bei jedem fehlgeschlagenen Ping erneut anwirft. */
   private lastSkipNotice = "";
@@ -229,6 +247,18 @@ export default class VaultRagPlugin extends Plugin {
     // sonst bleiben die Alt-Schlüssel bis zum nächsten beliebigen Speichern in data.json — die
     // Migration ist idempotent, aber die CHANGELOG-Zusage "entfernt" wäre bis dahin unwahr.
     if (hadLegacyGlobalModels) await this.saveSettings();
+    // Anfrage-Profile: `request` feldweise pruefen (ungueltige Werte fallen auf das Profil und
+    // werden gemeldet, nie still verworfen), dann die vier Alt-Regler hineinziehen und entfernen.
+    const { settings: requestRaw, dropped } = sanitizeRequestSettings((loaded as { request?: unknown } | null)?.request);
+    const legacy = migrateLegacySampling(loaded ?? {}, requestRaw);
+    this.settings.request = legacy.request;
+    stripLegacySampling(this.settings);
+    if (dropped.length > 0) {
+      console.warn("vault-retrieval: ungueltige Anfrage-Einstellungen zurueckgesetzt:", dropped.join(", "));
+      new Notice(t("request.dropped", String(dropped.length)));
+    }
+    if (legacy.overridesCreated) new Notice(t("request.legacyOverride"));
+    if (legacy.touched || dropped.length > 0) await this.saveSettings();
     // Kopien statt der Default-Objekte: `chatChoice`/`embeddingChoice` werden nur ersetzt, nie
     // mutiert — aber eine geteilte Referenz auf DEFAULT_SETTINGS ist genau die Falle, die die
     // tiefe Kopie der Endpunkt-Listen oben schon benennt.
@@ -326,12 +356,11 @@ export default class VaultRagPlugin extends Plugin {
           app: () => this.app,
         },
         () => this.chatClient,
-        () => ({
-          model: this.smartApplyModelInUse,
-          temperature: this.settings.smartApplyTemperature,
-          suppressThinking: this.settings.smartApplySuppressThinking,
-          maxTokens: this.settings.smartApplyMaxTokens,
-        }),
+        () => {
+          const model = this.smartApplyModelInUse;
+          const maxTokens = this.settings.smartApplyMaxTokens;
+          return { model, maxTokens, ...this.requestFor(buildSmartApplyParams, model, maxTokens) };
+        },
       );
       this.templateRanker = new TemplateRanker({
         read: (p) => this.app.vault.adapter.read(p),
@@ -491,7 +520,7 @@ export default class VaultRagPlugin extends Plugin {
             budget: this.settings.contextCharBudget,
           }),
           systemPreamble: () => effectiveSystemPrompt(this.settings.chatSystemPrompt),
-          params: () => ({ model: this.chatModelInUse, temperature: this.settings.chatTemperature, suppressThinking: this.settings.suppressThinking }),
+          params: () => ({ model: this.chatModelInUse, ...this.requestFor(buildChatParams, this.chatModelInUse) }),
           app: () => this.app,
         }),
         openPath: this.openPath,
@@ -515,6 +544,8 @@ export default class VaultRagPlugin extends Plugin {
             this.settings.chatChoice = { ...this.settings.chatChoice, model: m || undefined };
             this.chatEndpointInUse = { ...this.chatEndpointInUse, model: m };
             void this.saveSettings();
+            // Familie (und Backend) der neuen Wahl kennt der Manager; der Re-Resolve holt sie.
+            void this.resolveAndReconnectChat();
             return;
           }
           const eps = this.settings.chatEndpoints;
@@ -543,8 +574,7 @@ export default class VaultRagPlugin extends Plugin {
         },
         pickNote: () => pickNote(this.app),
         autoK: this.settings.chatK,
-        getSuppress: () => this.settings.suppressThinking,
-        setSuppress: (v: boolean) => { this.settings.suppressThinking = v; void this.saveSettings(); },
+        thinking: this.thinkingDeps(MODE_CHAT, () => this.chatModelInUse),
         enterSends: () => this.settings.enterSends,
       }),
     ];
@@ -565,8 +595,7 @@ export default class VaultRagPlugin extends Plugin {
         getModel: () => this.smartApplyModelInUse,
         setModel: (m: string) => { this.settings.smartApplyModel = m; void this.saveSettings(); },
         rankTemplates: (notePath: string): Promise<TemplateRank[]> => this.templateRanker!.rank(notePath),
-        getSuppress: () => this.settings.smartApplySuppressThinking,
-        setSuppress: (v: boolean) => { this.settings.smartApplySuppressThinking = v; void this.saveSettings(); },
+        thinking: this.thinkingDeps(MODE_SMART_APPLY, () => this.smartApplyModelInUse),
         templateDefaultMode: (templatePath: string) => this.templateDefaultMode(templatePath),
       }));
     }
@@ -721,10 +750,12 @@ export default class VaultRagPlugin extends Plugin {
     let active: EndpointConfig | null = null;
     let cfg: EndpointConfig;
     const manager = findEndpointManager(this.app);
+    let managed: Awaited<ReturnType<typeof resolveManagedChat>> | null = null;
     if (manager) {
       // Manager-Vorrang; die Zeile trägt Schlüssel und Modell nur im Speicher (nie in data.json).
-      const res = await resolveManagedChat(manager, this.settings.chatChoice,
-        (c) => new ChatClient(c.url, rowModel(c), c.apiKey).ping());
+      const res = managed = await resolveManagedChat(manager, this.settings.chatChoice,
+        (c) => new ChatClient(c.url, rowModel(c), c.apiKey).ping(),
+        (c) => cachedProbe(normalizeEndpoint(c.url), rowModel(c)));
       cfg = res.config ?? { url: "" };
       if (res.active) active = cfg;
     } else {
@@ -741,6 +772,87 @@ export default class VaultRagPlugin extends Plugin {
     this.activeChatEndpoint = active ? normalizeEndpoint(cfg.url) : null;
     this.chatEndpointInUse = cfg;
     this.chatClient = new ChatClient(cfg.url, this.chatModelInUse, cfg.apiKey);
+    await this.refreshChatSource(managed?.source ?? null);
+  }
+
+  /** Bestimmt Familie und Backend des aktiven Chat-Endpunkts fuer die Anfrage-Profile. Mit Manager
+   *  kommen beide von dort (der Manager kennt die Familie eines Alias); ohne ihn wird die Familie
+   *  aus dem Namen geschaetzt und das Backend einmal je URL erkannt (30 s Cache, mit Frist). */
+  private async refreshChatSource(fromManager: SourceFacts | null): Promise<void> {
+    if (fromManager) { this.chatSource = fromManager; return; }
+    const cfg = this.chatEndpointInUse;
+    const model = this.chatModelInUse;
+    const d = describeModel(model, undefined);
+    const backend = cfg.url ? await cachedProbe(normalizeEndpoint(cfg.url), model) : null;
+    this.chatSource = {
+      family: d.family, familySource: d.familySource,
+      backend: backend ?? "unknown", backendSource: backend ? "probe" : "none",
+      model, sentModel: d.sentModel,
+    };
+  }
+
+  /** Die Quelle fuer eine Anfrage mit `model`: weicht es vom Modell des Endpunkts ab (Dropdown,
+   *  eigenes Smart-Apply-Modell), gilt die Familie DIESES Modells, nicht die des Endpunkts. */
+  private factsFor(model: string): SourceFacts {
+    const base = this.chatSource;
+    if (model === "" || model === base.sentModel || model === base.model) return base;
+    const d = describeModel(model, undefined);
+    return { ...base, family: d.family, familySource: d.familySource, model, sentModel: d.sentModel };
+  }
+
+  /** Fuer den Abschnitt „Anfrage“ in den Einstellungen. */
+  requestSectionState(): RequestSectionState {
+    const s = this.factsFor(this.chatModelInUse);
+    return {
+      family: s.family, familySource: s.familySource, backend: s.backend, backendSource: s.backendSource,
+      model: s.model, sentModel: s.sentModel, ...(s.defaultModel !== undefined ? { defaultModel: s.defaultModel } : {}),
+    };
+  }
+
+  async saveRequestSettings(next: RequestSettings): Promise<void> {
+    this.settings.request = next;
+    await this.saveSettings();
+  }
+
+  /** Sampling-Felder fuer EINE Aufrufstelle: baut sie aus der Kit-Tabelle (`request_profile.ts`),
+   *  merkt sie fuer „Letzte Anfrage“ und liefert die Antwortpruefung mit. Jede Aufrufstelle
+   *  nennt nur ihren Wrapper, ihr Modell und ihr Budget — entschieden wird nichts mehr vor Ort. */
+  private requestFor(
+    build: (src: SourceFacts, settings: RequestSettings, maxTokens?: number) => BuiltRequest,
+    model: string,
+    maxTokens?: number,
+  ): { params: RequestParams; check: ResponseCheck } {
+    const src = this.factsFor(model);
+    const built = build(src, this.settings.request, maxTokens);
+    this.requestSession.recordRequest(built.params);
+    return {
+      params: built.params,
+      check: { family: src.family, thinking: built.level, report: (ds) => this.requestSession.report(ds) },
+    };
+  }
+
+  /** Denk-Steuerung eines Panels (Kit `thinking-control`): Stufe und Einschalt-Stufe je Modus,
+   *  Speichern in `request`. Die Texte entstehen erst beim Zeichnen (`t()` im Aufruf), nie hier. */
+  private thinkingDeps(mode: ModeId, modelOf: () => string): Omit<ThinkingControlOptions, "containerEl"> {
+    return {
+      family: () => this.factsFor(modelOf()).family,
+      current: () => thinkingFor(this.settings.request, mode),
+      onLevel: () => onLevelFor(this.settings.request, mode),
+      setLevel: async (level) => {
+        const next = structuredClone(this.settings.request);
+        next.thinking[mode] = level;
+        if (level !== "off") next.lastOnLevel[mode] = level;
+        await this.saveRequestSettings(next);
+      },
+      levelPicker: () => this.settings.request.levelPickerInChat,
+      strings: {
+        button: (level, offNotPossible) => level === "off"
+          ? (offNotPossible ? t("think.button.offNotPossible", t("request.level.off")) : t("think.button.off"))
+          : t("think.button.on", requestText("request.level", level)),
+        level: (l) => requestText("request.level", l),
+        get pickerLabel() { return t("think.pickerLabel"); },
+      },
+    };
   }
 
   /** Modell, das eine Chat-Anfrage tatsächlich mitschickt. `ChatClient.stream` liest `opts.model`
@@ -1006,9 +1118,7 @@ export default class VaultRagPlugin extends Plugin {
       stream: (onToken, signal) => this.chatClient
         .stream(messages, onToken, () => {}, signal, {
           model: this.chatModelInUse,
-          temperature: 0.2,
-          suppressThinking: true,
-          maxTokens: REFORMAT_MAX_TOKENS,
+          ...this.requestFor(buildReformatParams, this.chatModelInUse, REFORMAT_MAX_TOKENS),
           trace: { feature: `reformat:${def.id}`, app: this.app, contextPaths: [cap.path], promptTemplate: def.promptTemplate(), turnId: newTurnId() },
         })
         .then(r => {

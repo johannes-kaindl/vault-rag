@@ -20,7 +20,6 @@
     }
   ],
   "indexDir": "_vaultrag",
-  "suppressThinking": true,
   "integratorEnabled": true,
   "integratorFolders": [
     "Notes/"

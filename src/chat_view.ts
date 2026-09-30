@@ -1,7 +1,7 @@
-import { setIcon, setTooltip } from "obsidian";
+import { setIcon } from "obsidian";
 import { ChatSession } from "./chat_session";
 import { ContextPanel, ContextPanelDeps } from "./context_panel";
-import { isAlwaysOnThinker } from "./vendor/kit/reasoning";
+import { buildThinkingControl, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import { HubPanel, TabId } from "./hub_panel";
 import { t } from "./vendor/kit/i18n";
 
@@ -17,8 +17,9 @@ export interface ChatViewDeps extends ContextPanelDeps {
   setModel: (m: string) => void;
   inputPosition: () => "bottom" | "top";
   autoK: number;
-  getSuppress: () => boolean;
-  setSuppress: (v: boolean) => void;
+  /** Denk-Steuerung (Kit `thinking-control`): Stufe je Modus `grounded`, Familie des aktiven Modells,
+   *  Speichern. Ersetzt den eigenen Suppress-Schalter. */
+  thinking: Omit<ThinkingControlOptions, "containerEl">;
   enterSends: () => boolean;
 }
 
@@ -33,7 +34,7 @@ export class ChatPanel implements HubPanel {
   private statusEl: HTMLElement | null = null;
   private modelSel: HTMLSelectElement | null = null;
   private inputEl: HTMLTextAreaElement | null = null;
-  private thinkToggleEl: HTMLElement | null = null;
+  private thinkCtl: { refresh(): void } | null = null;
   private sendBtn: HTMLElement | null = null;
   private timer: number | null = null;
   private debTimer: number | null = null;
@@ -53,12 +54,7 @@ export class ChatPanel implements HubPanel {
     const modelRow = c.createDiv({ cls: "vault-rag-chat-model-row" });
     this.modelSel = modelRow.createEl("select", { cls: "vault-rag-chat-model dropdown" });
     this.modelSel.addEventListener("change", () => { this.deps.setModel(this.modelSel?.value ?? ""); this.renderThinkToggle(); });
-    this.thinkToggleEl = modelRow.createEl("button", { cls: "vault-rag-chat-think-toggle clickable-icon" });
-    this.thinkToggleEl.addEventListener("click", () => {
-      if (isAlwaysOnThinker(this.deps.getModel())) return;   // nicht abschaltbar
-      this.deps.setSuppress(!this.deps.getSuppress());
-      this.renderThinkToggle();
-    });
+    this.thinkCtl = buildThinkingControl({ containerEl: modelRow.createDiv({ cls: "vault-rag-chat-think" }), ...this.deps.thinking });
 
     const buildMessages = (): void => {
       this.messagesEl = c.createDiv({ cls: "vault-rag-chat-messages" });
@@ -122,26 +118,8 @@ export class ChatPanel implements HubPanel {
     if (sends) { e.preventDefault(); void this.submit(); }
   }
 
-  private renderThinkToggle(): void {
-    const el = this.thinkToggleEl; if (!el) return;
-    const always = isAlwaysOnThinker(this.deps.getModel());
-    const suppressed = this.deps.getSuppress();
-    const on = always || !suppressed;
-    el.empty();
-    // "brain-off" ist kein gueltiger Lucide-Name im Obsidian-Bundle (rendert still nichts,
-    // gemessen 2026-09-16 per CDP) — "brain-cog" existiert (Dach-Abgleich mit koda-agent,
-    // dieselbe Zweitinstanz-Verifikation). Kriterium (a) traegt zusaetzlich der Text-Kanal.
-    const icon = el.createSpan({ cls: "vault-rag-chat-think-icon" });
-    setIcon(icon, on ? "brain" : "brain-cog");
-    el.createSpan({ cls: "vault-rag-chat-think-label", text: always ? t("panel.chat.thinkAlways") : suppressed ? t("panel.chat.thinkOff") : t("panel.chat.thinkOn") });
-    setTooltip(el, always
-      ? t("panel.chat.thinkAlwaysAria")
-      : suppressed ? t("panel.chat.thinkOffAria") : t("panel.chat.thinkOnAria"));
-    el.setAttribute("aria-pressed", String(on));
-    el.toggleClass("is-disabled", always);
-    el.toggleClass("is-off", !always && suppressed);
-    (el as HTMLButtonElement).disabled = always;
-  }
+  /** Nach einem Modellwechsel: die Familie (und damit „nicht abschaltbar“) kann sich geaendert haben. */
+  private renderThinkToggle(): void { this.thinkCtl?.refresh(); }
 
   async refreshStatus(): Promise<void> {
     const el = this.statusEl; if (!el) return;
@@ -236,6 +214,9 @@ export class ChatPanel implements HubPanel {
     }
     if (atBottom) el.scrollTop = el.scrollHeight;   // dem Stream folgen, aber manuelles Hochscrollen respektieren
   }
+
+  /** Tab wird sichtbar: Stufe und Stufenwahl koennen in den Einstellungen geaendert worden sein. */
+  onShow(): void { this.renderThinkToggle(); }
 
   destroy(): void {
     if (this.timer !== null) { window.clearInterval(this.timer); this.timer = null; }

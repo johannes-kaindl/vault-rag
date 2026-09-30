@@ -3,7 +3,12 @@ import type { SettingDefinitionItem, SettingDefinitionGroup } from "obsidian";
 import { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
-import { reasoningHappened, isAlwaysOnThinker } from "./vendor/kit/reasoning";
+import { buildRequestSection } from "./vendor/kit-obsidian/request-section";
+import { FAMILIES, BACKENDS, type BackendId, type FamilyId, type FieldExplain, type RequestSettings } from "./vendor/kit/sampling-profiles";
+import type { RequestSession } from "./vendor/kit-obsidian/request-session";
+import type { RequestSectionState } from "./vendor/kit-obsidian/request-section";
+import { PLUGIN_MODES } from "./request_profile";
+import { deviationDetail, requestText } from "./request_text";
 import { isDotPath } from "./index_dir";
 import { normalizeFolder } from "./vendor/kit/folder-hide";
 import { ENDPOINT_PRESETS } from "./vendor/kit/endpoint_diagnostics";
@@ -79,6 +84,11 @@ export interface VaultRagPluginHost extends Plugin {
   mcpStartError(): StartErrorReason | null;
   rotateMcpToken(): Promise<void>;
   mcpSelfCheck(): Promise<SelfCheckResult>;
+  /** Anfrage-Profile: Familie/Backend/Modell des aktiven Chat-Endpunkts, die Sitzung
+   *  („Letzte Anfrage“, Abweichungen) und das Speichern der Einstellungen. */
+  requestSectionState(): RequestSectionState;
+  readonly requestSession: RequestSession;
+  saveRequestSettings(next: RequestSettings): Promise<void>;
 }
 
 export class RestoreBackupModal extends Modal {
@@ -187,7 +197,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         reportIssue: t("settings.help.reportIssue"),
       },
     });
-    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup(), this.integratorGroup()];
+    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup(), this.requestGroup(), this.integratorGroup()];
   }
 
   /** Einmal-pro-Öffnen die aktiven Endpunkte auflösen. An ein echtes Render-Signal (erster
@@ -325,21 +335,89 @@ export class VaultRagSettingTab extends PluginSettingTab {
       { name: t("settings.chat.contextNotes.name"), desc: t("settings.chat.contextNotes.desc"),
         control: { type: "slider", key: "chatK", min: 1, max: 20, step: 1, displayFormat: (v: number) => String(v) } },
       { name: t("settings.chat.contextBudget.name"), desc: "", render: this.renderBudget },
-      { name: t("settings.chat.temperature.name"), desc: t("settings.chat.temperature.desc"),
-        control: { type: "slider", key: "chatTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
       { name: t("settings.chat.systemPrompt.name"), desc: t("settings.chat.systemPrompt.desc"),
         control: { type: "textarea", key: "chatSystemPrompt", rows: 8 } },
       { name: t("settings.chat.inputPosition.name"), desc: t("settings.chat.inputPosition.desc"),
         control: { type: "dropdown", key: "chatInputPosition", options: { bottom: t("settings.chat.inputPosition.optionBottom"), top: t("settings.chat.inputPosition.optionTop") } } },
-      { name: t("settings.chat.suppressThinking.name"),
-        desc: t("settings.chat.suppressThinking.desc"),
-        control: { type: "toggle", key: "suppressThinking" } },
-      { name: t("settings.chat.testThinking.name"), desc: t("settings.chat.testThinking.desc"),
-        action: () => { void this.runThinkingTest(); } },
       { name: t("settings.chat.enterSends.name"), desc: t("settings.chat.enterSends.desc"),
         control: { type: "toggle", key: "enterSends" } },
     ] };
   }
+
+  /** Anfrage-Profile (Kit `sampling-profiles`): was das Plugin je Aufrufstelle sendet. Ein
+   *  Abschnitt fuer alle drei Modi — Chat, Smart Apply, Umformatieren — statt je eines Reglers. */
+  private requestGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: t("settings.request.group"), items: [
+      { name: t("request.title"), desc: "", render: this.renderRequestSection },
+    ] };
+  }
+
+  private fieldStateText(e: FieldExplain): string {
+    const state = {
+      "sent-effective": "request.state.sentEffective",
+      "sent-unproven": "request.state.sentUnproven",
+      "not-sent-ignored": "request.state.notSentIgnored",
+      "not-sent-unsupported": "request.state.notSentUnsupported",
+      "not-sent-unknown-family": "request.state.notSentUnknownFamily",
+      "not-sent-no-value": "request.state.notSentNoValue",
+    }[e.state];
+    let text = t(state);
+    const note = e.note ? {
+      "raised-to-reserve": "request.note.raisedToReserve",
+      "raised-to-thinking-floor": "request.note.raisedToThinkingFloor",
+      "below-thinking-floor": "request.note.belowThinkingFloor",
+      "off-not-possible": "request.note.offNotPossible",
+    }[e.note] : undefined;
+    if (note) text += ` ${t(note)}`;
+    if (e.field === "top_p") text += t("request.top_p.hint");
+    return text;
+  }
+
+  /** Abschnitt „Anfrage“ des Kits. Formuliert nichts selbst: alle Texte kommen von hier, auch
+   *  Familie und Backend als ID (`unknown` uebersetzen wir, die `label`-Felder der Tabellen sind
+   *  englische Bezeichner, keine UI-Texte — Nachtrag 2 des Rezepts). `maxTokens` nennt das
+   *  Budget des Plugins je Modus: nur Smart Apply hat eine Einstellung dafuer. */
+  private renderRequestSection = (setting: Setting): void => {
+    const host = settingBodyHost(setting);
+    buildRequestSection({
+      containerEl: host,
+      modes: PLUGIN_MODES,
+      state: () => this.plugin.requestSectionState(),
+      settings: () => this.plugin.settings.request,
+      save: (next) => this.plugin.saveRequestSettings(next),
+      maxTokens: (mode) => mode === "structured" ? this.plugin.settings.smartApplyMaxTokens : undefined,
+      session: this.plugin.requestSession,
+      rerender: () => this.refreshUi(),
+      strings: {
+        title: t("request.title"),
+        head: (family, familySource, backend, backendSource) => {
+          const famLabel = family === "—" ? "—" : (FAMILIES[family as FamilyId]?.label ?? family);
+          const backLabel = backend === "unknown" ? t("request.backendSource.none") : (BACKENDS[backend as BackendId]?.label ?? backend);
+          return t("request.head", famLabel, requestText("request.familySource", familySource), backLabel, requestText("request.backendSource", backendSource));
+        },
+        unknownFamily: t("request.unknownFamily"),
+        jitWarning: (model, defaultModel) => t("request.jitWarning", model, defaultModel),
+        sentAs: (model) => t("request.sentAs", model),
+        modeHeading: (mode) => requestText("request.mode", mode),
+        fieldName: (field) => requestText("request.field", field),
+        fieldDesc: (e) => this.fieldStateText(e),
+        reset: t("request.reset"),
+        thinkingLevel: t("request.thinkingLevel"),
+        level: (l) => requestText("request.level", l),
+        levelPicker: t("request.levelPicker"),
+        levelPickerDesc: t("request.levelPickerDesc"),
+        dormant: (fam) => t("request.dormant", fam === "unknown" ? t("request.familySource.none") : (FAMILIES[fam]?.label ?? fam)),
+        deleteDormant: t("request.deleteDormant"),
+        lastRequest: t("request.lastRequest"),
+        lastRequestNone: t("request.lastRequestNone"),
+        copy: t("request.copy"),
+        copied: t("request.copied"),
+        deviationsOk: t("request.deviationsOk"),
+        deviationsWarn: (n) => t("request.deviationsWarn", String(n)),
+        deviation: (kind, count, detail) => `${deviationDetail(kind, detail)} (${count}×)`,
+      },
+    });
+  };
 
   /** Smart-Apply-Gruppe: fast vollständig deklarativ. „Verbindung" ist eine reine Info-Zeile
    *  (kein control/render/action — Smart Apply teilt sich den Chat-Endpoint, kein eigener nötig).
@@ -356,14 +434,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
       { name: t("settings.smartApply.templateDir.name"),
         desc: t("settings.smartApply.templateDir.desc"),
         control: { type: "folder", key: "templateDir", placeholder: "Templates/" } },   // i18n-exempt: Pfad-Beispiel, sprachneutral (Ordnername)
-      { name: t("settings.smartApply.temperature.name"),
-        desc: t("settings.smartApply.temperature.desc"),
-        control: { type: "slider", key: "smartApplyTemperature", min: 0, max: 2, step: 0.1, displayFormat: (v: number) => String(v) } },
       { name: t("settings.smartApplyModel.name"), desc: t("settings.smartApply.modelRow.desc"),
         render: this.renderSmartApplyModel },
-      { name: t("settings.smartApply.suppressThinking.name"),
-        desc: t("settings.smartApply.suppressThinking.desc"),
-        control: { type: "toggle", key: "smartApplySuppressThinking" } },
       { name: t("settings.smartApply.maxTokens.name"),
         desc: t("settings.smartApply.maxTokens.desc"),
         control: { type: "slider", key: "smartApplyMaxTokens", min: 512, max: 16384, step: 512, displayFormat: (v: number) => String(v) } },
@@ -738,32 +810,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
       });
     });
   };
-
-  /** Body des früheren „Testen“-Buttons aus buildThinking (das Toggle daneben ist jetzt
-   *  deklarativ). Ohne Button-Disable-Handling — Rückmeldung nur noch über Notice. Bei
-   *  bestätigtem Thinking-Nachweis: Caps hochstufen + Fähigkeiten-Zeile neu zeichnen. */
-  private async runThinkingTest(): Promise<void> {
-    // Getestet wird das Modell, das eine echte Anfrage bekäme (chatModelInUse) — ein Test
-    // gegen einen anderen Namen liefe ins Leere („Endpoint nicht erreichbar" statt eines
-    // Thinking-Befunds).
-    const model = this.plugin.chatModelInUse;
-    if (isAlwaysOnThinker(model)) { new Notice(t("settings.thinkerAlwaysOn")); return; }
-    try {
-      const res = await this.plugin.chatClient.stream(
-        [{ role: "user", content: t("settings.thinkingTest.prompt") }],
-        () => {}, () => {}, undefined,
-        { model, suppressThinking: true, trace: { feature: "settings-probe", app: this.app } });
-      const happened = reasoningHappened(res.content, res.reasoning);
-      new Notice(happened ? t("settings.thinkingDespiteOff") : t("settings.thinkingSuppressed"));
-      if (happened) {
-        // Live-Nachweis, dass das Modell denkt → Fähigkeiten-Zeile hochstufen.
-        this.lastCaps = { ...this.lastCaps, thinking: { support: "always", confidence: "confirmed" } };
-        if (this.capSetting) this.renderCaps(this.capSetting, this.lastCaps);
-      }
-    } catch {
-      new Notice(t("settings.chatEndpointUnreachable"));
-    }
-  }
 
   hide(): void {
     for (const id of this.pollIntervals) window.clearInterval(id);

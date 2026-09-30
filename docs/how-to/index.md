@@ -30,10 +30,7 @@ can remove one and re-ask to see the difference.
 
 **Enter behaviour** is configurable: by default Enter sends and Shift+Enter inserts a newline.
 
-**Thinking models:** if the model emits reasoning, it appears in a collapsible block above the
-answer and is never fed back into the conversation. To suppress it, turn on the thinking
-suppression setting — a built-in test tells you whether your model actually honours the hint,
-because not all of them do.
+**Thinking models:** if the model emits reasoning, it appears in a collapsible block above the answer and is never fed back into the conversation. The brain button next to the model switches thinking off or on for that tab (Settings → Model requests → Request lets you pick a level instead); if the model thinks although it was switched off, the **Request** section lists it under "deviations" and a notice tells you once per session.
 
 ## Reformat a selection
 

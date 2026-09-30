@@ -5,6 +5,8 @@ export function makeFakeEl(): any {
   const attrs: Record<string, string> = {};
   let _ownText = "";
   const el: any = {
+    // Wie ein echtes HTMLElement: `el.dataset.x = …` (Kit `request-section` setzt `inputEl.dataset.field`).
+    dataset: {} as Record<string, string>,
     children, empty: () => { children.length = 0; _ownText = ""; },
     createDiv: (o?: any) => { const c = makeFakeEl(); if (o?.cls) c.className = o.cls; if (o?.text) c.textContent = o.text; if (o?.attr) for (const k of Object.keys(o.attr)) c.setAttribute(k, o.attr[k]); children.push(c); return c; },
     createEl: (t: string, o?: any) => { const c = makeFakeEl(); c.tagName = t.toUpperCase(); if (o?.text) c.textContent = o.text; if (o?.cls) c.className = o.cls; if (o?.attr) for (const k of Object.keys(o.attr)) attrs[k] = String(o.attr[k]); children.push(c); return c; },
@@ -66,6 +68,7 @@ class FakeText {
   setValue() { return this; }
   getValue() { return ""; }
   onChange(_cb: (v: string) => void) { return this; }
+  setDisabled() { return this; }
 }
 class FakeDropdown {
   selectEl = makeFakeEl();

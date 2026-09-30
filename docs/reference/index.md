@@ -70,11 +70,19 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 | Chat endpoints / model | LLM used for chat, Smart Apply and LLM reformatting; each row may add its own API key and model (no model-guard here — chat has no index to protect) | `http://localhost:1234` · `qwen3` |
 | Context notes | How many retrieved notes are offered as context | `5` |
 | Context budget | Maximum characters of context; ceiling follows the model window | `12000` |
-| Temperature | Sampling temperature for chat | `0.7` |
 | System prompt | Grounding instruction sent with every conversation | see settings |
 | Input position | Composer above or below the transcript | bottom |
-| Suppress thinking | Default for new chats; also a per-chat toggle | off |
 | Enter sends | On: Enter sends, Shift+Enter newline · Off: reversed | on |
+
+### Model requests
+
+One collapsible section **Request** covers all three call sites: chat (*grounded*), Smart Apply (*structured*) and reformatting (*transform*). It shows what is sent per mode and whether it takes effect on your backend, takes overrides per mode × model family, and shows the last request and any deviations of the session. The values come from a shared table by model family and backend (LM Studio, Open WebUI, unknown); with an LLM Endpoint Manager the family of an alias comes from there, otherwise it is estimated from the name. A temperature or "suppress thinking" you had set in an older version was carried over into this section on the first start.
+
+| Setting | Effect | Default |
+|---|---|---|
+| Overrides | Own value for one field (temperature, top_p, top_k, min_p, presence_penalty, reasoning_effort, max_tokens) in one mode and for one family | none — the table decides |
+| Thinking level | Off · low · medium · high per mode; the chat and Smart Apply tabs carry a button for it | off |
+| Level picker in chat | Shows a dropdown with all four levels in the chat and Smart Apply tabs instead of the on/off button | off |
 
 ### Smart Apply *(opt-in)*
 
@@ -83,10 +91,8 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 | Enable Smart Apply | Adds the tab and the command | off |
 | Template folder | Where templates are read from | `Templates/` |
 | Model | Overrides the active chat endpoint's model for Smart Apply. If a fallback endpoint doesn't know the name, Smart Apply fails loudly | chat endpoint's model |
-| Smart Apply temperature | Sampling temperature | `0` |
 | Smart Apply max tokens | Output cap for a restructuring run | `4096` |
 | Smart Apply default mode | Deterministic (assign only) · Additive (infer + add); a third mode, transformative, is reserved and disabled in the panel | Deterministic |
-| Suppress thinking (Smart Apply) | Independent of the chat setting | off |
 
 ### MCP server *(desktop only)*
 

@@ -10,7 +10,30 @@ function all(el: any, cls: string): any[] {
   walk(el); return out;
 }
 
-async function mkPanel(opts: { send?: any; ping?: any; copyText?: any; listModels?: any; getModel?: any; setModel?: any; inputPosition?: any; getSuppress?: any; setSuppress?: any; enterSends?: any } = {}) {
+
+/** Denk-Steuerung-Mock (Kit `thinking-control`): Stufe, Familie und Speicherwirkung je Test einstellbar. */
+function mkThinking(over: Partial<{ level: string; family: string | null; onLevel: string; picker: boolean }> = {}) {
+  const state = { level: over.level ?? "low" };
+  return {
+    state,
+    deps: {
+      family: () => (over.family === undefined ? null : over.family),
+      current: () => state.level,
+      onLevel: () => over.onLevel ?? "low",
+      setLevel: vi.fn(async (l: string) => { state.level = l; }),
+      levelPicker: () => over.picker ?? false,
+      strings: {
+        button: (level: string, offNotPossible: boolean) => level === "off"
+          ? (offNotPossible ? `Thinking: ${level} (cannot fully turn off)` : "Thinking off")
+          : `Thinking: ${level}`,
+        level: (l: string) => l,
+        pickerLabel: "Thinking level",
+      },
+    },
+  };
+}
+
+async function mkPanel(opts: { send?: any; ping?: any; copyText?: any; listModels?: any; getModel?: any; setModel?: any; inputPosition?: any; thinking?: any; enterSends?: any } = {}) {
   const session: any = {
     messages: [],
     send: opts.send ?? vi.fn(async (q: string, _paths: string[], onToken: (t: string) => void) => {
@@ -30,8 +53,7 @@ async function mkPanel(opts: { send?: any; ping?: any; copyText?: any; listModel
     getModel: opts.getModel ?? (() => "qwen3"),
     setModel: opts.setModel ?? vi.fn(),
     inputPosition: opts.inputPosition ?? (() => "bottom"),
-    getSuppress: opts.getSuppress ?? (() => false),
-    setSuppress: opts.setSuppress ?? vi.fn(),
+    thinking: opts.thinking ?? mkThinking().deps,
     enterSends: opts.enterSends ?? (() => true),
     getActivePath: () => "aktiv.md",
     embed: async () => new Float32Array([1, 0]),
@@ -230,35 +252,53 @@ describe("ChatPanel", () => {
     (ta._listeners["keydown"] ?? []).forEach((cb: any) => cb(ev({ shiftKey: true })));
     expect(session.send).toHaveBeenCalled();
   });
-  it("Thinking-Toggle ruft setSuppress", async () => {
-    const setSuppress = vi.fn();
-    const { container } = await mkPanel({ setSuppress, getSuppress: () => false });
-    const toggle = all(container, "vault-rag-chat-think-toggle")[0];
-    expect(toggle).toBeTruthy();
-    toggle.click();
-    expect(setSuppress).toHaveBeenCalledWith(true);
+  it("Thinking-Toggle: Klick bei „an“ ruft setLevel(off), bei „aus“ setLevel(onLevel)", async () => {
+    const on = mkThinking({ level: "low" });
+    const a = await mkPanel({ thinking: on.deps });
+    all(a.container, "okit-thinking-toggle")[0].click();
+    expect(on.deps.setLevel).toHaveBeenCalledWith("off");
+    const off = mkThinking({ level: "off", onLevel: "medium" });
+    const b = await mkPanel({ thinking: off.deps });
+    all(b.container, "okit-thinking-toggle")[0].click();
+    expect(off.deps.setLevel).toHaveBeenCalledWith("medium");
   });
-  it("Thinking-Toggle zeigt den Zustand über Icon UND aria-pressed (UI-STANDARD §8)", async () => {
-    const { container } = await mkPanel({ getSuppress: () => false });
-    const toggle = all(container, "vault-rag-chat-think-toggle")[0];
+  it("Thinking-Toggle zeigt den Zustand über Icon, Text UND aria-pressed (UI-STANDARD §8)", async () => {
+    const { container } = await mkPanel({ thinking: mkThinking({ level: "low" }).deps });
+    const toggle = all(container, "okit-thinking-toggle")[0];
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    expect(all(toggle, "vault-rag-chat-think-icon")[0].getAttribute("data-icon")).toBe("brain");
-    expect(all(toggle, "vault-rag-chat-think-label")[0].textContent).toContain("on");
+    expect(toggle.children[0].getAttribute("data-icon")).toBe("brain-cog");
+    expect(toggle.textContent).toContain("Thinking: low");
   });
-  it("Thinking-Toggle: ausgeschaltet zeigt brain-cog UND aria-pressed=false", async () => {
-    // "brain-off" existiert nicht im Obsidian-Bundle (rendert leer, gemessen 2026-09-16) —
-    // "brain-cog" ist das verifiziert existierende zweite Glied.
-    const { container } = await mkPanel({ getSuppress: () => true });
-    const toggle = all(container, "vault-rag-chat-think-toggle")[0];
+  it("Thinking-Toggle: ausgeschaltet zeigt brain UND aria-pressed=false", async () => {
+    const { container } = await mkPanel({ thinking: mkThinking({ level: "off" }).deps });
+    const toggle = all(container, "okit-thinking-toggle")[0];
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
-    expect(all(toggle, "vault-rag-chat-think-icon")[0].getAttribute("data-icon")).toBe("brain-cog");
-    expect(all(toggle, "vault-rag-chat-think-label")[0].textContent).toContain("off");
+    expect(toggle.children[0].getAttribute("data-icon")).toBe("brain");
+    expect(toggle.textContent).toContain("Thinking off");
   });
-  it("Thinking-Toggle ist bei Always-On-Modell disabled, aria-pressed=true, mit Grund im Tooltip", async () => {
-    const { container } = await mkPanel({ getModel: () => "gpt-oss", getSuppress: () => false });
-    const toggle = all(container, "vault-rag-chat-think-toggle")[0];
-    expect(toggle.disabled).toBe(true);
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    expect(toggle.getAttribute("aria-label")).toContain("cannot be switched off");
+  it("Familie, die das Denken nicht abschalten kann (gpt-oss): der Text sagt es, der Knopf bleibt bedienbar", async () => {
+    const { container } = await mkPanel({ thinking: mkThinking({ level: "off", family: "gpt-oss" }).deps });
+    const toggle = all(container, "okit-thinking-toggle")[0];
+    expect(toggle.textContent).toContain("cannot fully turn off");
+  });
+  it("onShow zeichnet die Denk-Steuerung neu (die Stufe kann in den Einstellungen geändert worden sein)", async () => {
+    const t = mkThinking({ level: "off" });
+    const { panel, container } = await mkPanel({ thinking: t.deps });
+    expect(all(container, "okit-thinking-toggle")[0].textContent).toContain("Thinking off");
+    t.state.level = "medium";
+    panel.onShow();
+    expect(all(container, "okit-thinking-toggle")[0].textContent).toContain("Thinking: medium");
+  });
+  it("ein Modellwechsel zeichnet die Denk-Steuerung neu (die Familie kann sich geändert haben)", async () => {
+    let fam: string | null = null;
+    const t = mkThinking({ level: "off" });
+    t.deps.family = () => fam;
+    const { container } = await mkPanel({ thinking: t.deps, listModels: async () => ["a", "b"] });
+    expect(all(container, "okit-thinking-toggle")[0].textContent).toContain("Thinking off");
+    fam = "gpt-oss";
+    const sel = all(container, "vault-rag-chat-model")[0];
+    sel.value = "b";
+    (sel._listeners?.change ?? []).forEach((cb: any) => cb());
+    expect(all(container, "okit-thinking-toggle")[0].textContent).toContain("cannot fully turn off");
   });
 });

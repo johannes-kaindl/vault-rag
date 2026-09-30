@@ -1,10 +1,10 @@
-import { setIcon, setTooltip, Notice } from "obsidian";
+import { setIcon, Notice } from "obsidian";
 import { t } from "./vendor/kit/i18n";
 import type { FmValue, FmChange, FmRow, Confidence } from "./frontmatter";
 import type { ApplyProposal, ApplyResult, ApplySelection } from "./smart_apply";
 import { assembleProposedText, defaultSelection } from "./smart_apply";
 import type { TemplateRank } from "./template_ranker";
-import { isAlwaysOnThinker } from "./vendor/kit/reasoning";
+import { buildThinkingControl, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import type { HubPanel, TabId } from "./hub_panel";
 import type { ApplyMode } from "./note_restructurer";
 import { buildStreamArea, type StreamArea } from "./vendor/kit-obsidian/stream-area";
@@ -25,8 +25,8 @@ export interface SmartApplyViewDeps {
   getModel: () => string;
   setModel: (m: string) => void;
   rankTemplates: (notePath: string) => Promise<TemplateRank[]>;
-  getSuppress: () => boolean;
-  setSuppress: (v: boolean) => void;
+  /** Denk-Steuerung (Kit `thinking-control`), Modus `structured`. */
+  thinking: Omit<ThinkingControlOptions, "containerEl">;
   ping: () => Promise<boolean>;
   /** Liest+parst die Vorlage, liefert ihren defaultMode (Fallback: Settings-Default). */
   templateDefaultMode: (templatePath: string) => Promise<ApplyMode>;
@@ -89,7 +89,7 @@ export class SmartApplyPanel implements HubPanel {
   // Header refs
   private modelSel: HTMLSelectElement | null = null;
   private connEl: HTMLElement | null = null;
-  private thinkEl: HTMLElement | null = null;
+  private thinkCtl: { refresh(): void } | null = null;
 
   // Dropdown / connection cache — populated by refresh* methods, filled synchronously on every render
   private models: string[] = [];
@@ -131,6 +131,7 @@ export class SmartApplyPanel implements HubPanel {
   /** Tab wird sichtbar — kontextsensitiv: holt einen ausstehenden Recompute nach. */
   onShow(): void {
     this.visible = true;
+    this.renderThink();   // Stufe oder Stufenwahl koennen in den Einstellungen geaendert worden sein
     if (this.dirty) { this.scheduleRecompute(); this.dirty = false; }
   }
 
@@ -196,13 +197,7 @@ export class SmartApplyPanel implements HubPanel {
       this.renderThink();
     });
 
-    this.thinkEl = row1.createEl("button", { cls: "vault-rag-sa-think clickable-icon" });
-    this.thinkEl.addEventListener("click", () => {
-      if (isAlwaysOnThinker(this.deps.getModel())) return;   // nicht abschaltbar
-      this.deps.setSuppress(!this.deps.getSuppress());
-      this.renderThink();
-    });
-    this.renderThink();
+    this.thinkCtl = buildThinkingControl({ containerEl: row1.createDiv({ cls: "vault-rag-sa-think" }), ...this.deps.thinking });
 
     const row2 = header.createDiv({ cls: "vault-rag-sa-header-row" });
 
@@ -303,29 +298,7 @@ export class SmartApplyPanel implements HubPanel {
     }
   }
 
-  private renderThink(): void {
-    const el = this.thinkEl; if (!el) return;
-    const always = isAlwaysOnThinker(this.deps.getModel());
-    const suppressed = this.deps.getSuppress();
-    const on = always || !suppressed;
-    el.empty();
-    // "brain-off" ist kein gueltiger Lucide-Name im Obsidian-Bundle (rendert still nichts,
-    // gemessen 2026-09-16 per CDP) — "brain-cog" existiert (Dach-Abgleich mit koda-agent,
-    // dieselbe Zweitinstanz-Verifikation). Kriterium (a) traegt zusaetzlich der Text-Kanal.
-    const icon = el.createSpan({ cls: "vault-rag-sa-think-icon" });
-    setIcon(icon, on ? "brain" : "brain-cog");
-    el.createSpan({
-      cls: "vault-rag-sa-think-label",
-      text: always ? t("smartApply.thinkAlwaysOn") : suppressed ? t("smartApply.thinkOff") : t("smartApply.thinkOn"),
-    });
-    setTooltip(el, always
-      ? t("smartApply.thinkAriaAlways")
-      : suppressed ? t("smartApply.thinkAriaOff") : t("smartApply.thinkAriaOn"));
-    el.setAttribute("aria-pressed", String(on));
-    el.toggleClass("is-disabled", always);
-    el.toggleClass("is-off", !always && suppressed);
-    (el as HTMLButtonElement).disabled = always;
-  }
+  private renderThink(): void { this.thinkCtl?.refresh(); }
 
   private async refreshModels(): Promise<void> {
     const models = await this.deps.listModels();

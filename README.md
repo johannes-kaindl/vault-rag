@@ -115,7 +115,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 | Debounce | How long after a save the note is re-embedded | `3000` ms |
 | Smart Apply | Off by default; enabling it adds the tab, the command and the template settings | off |
 | Context budget | Max characters fed as context (ceiling follows the model window) | `12000` |
-| Suppress thinking | Default for new chats; also a per-chat toggle in the panel | off |
+| Model requests | Collapsible section *Request*: what is sent per mode (chat, Smart Apply, reformat), overrides per model family, thinking level, last request and deviations; replaces the old temperature and thinking switches | by model family |
 | Enter sends | On: Enter sends, Shift+Enter newlines · Off: reversed | on |
 
 > **Endpoint tip:** enter the base URL *without* a trailing `/v1` — the plugin appends it. Both forms are accepted.

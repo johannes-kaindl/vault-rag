@@ -83,6 +83,29 @@ function mkProposal(over: Partial<ApplyProposal> = {}): ApplyProposal {
   };
 }
 
+
+/** Denk-Steuerung-Mock (Kit `thinking-control`): Stufe, Familie und Speicherwirkung je Test einstellbar. */
+function mkThinking(over: Partial<{ level: string; family: string | null; onLevel: string; picker: boolean }> = {}) {
+  const state = { level: over.level ?? "low" };
+  return {
+    state,
+    deps: {
+      family: () => (over.family === undefined ? null : over.family),
+      current: () => state.level,
+      onLevel: () => over.onLevel ?? "low",
+      setLevel: vi.fn(async (l: string) => { state.level = l; }),
+      levelPicker: () => over.picker ?? false,
+      strings: {
+        button: (level: string, offNotPossible: boolean) => level === "off"
+          ? (offNotPossible ? `Thinking: ${level} (cannot fully turn off)` : "Thinking off")
+          : `Thinking: ${level}`,
+        level: (l: string) => l,
+        pickerLabel: "Thinking level",
+      },
+    },
+  };
+}
+
 function mkDeps(over: Partial<SmartApplyViewDeps> = {}): SmartApplyViewDeps {
   return {
     build: vi.fn(async (_notePath: string, _templatePath: string, _mode: ApplyMode, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
@@ -95,8 +118,7 @@ function mkDeps(over: Partial<SmartApplyViewDeps> = {}): SmartApplyViewDeps {
     getModel: vi.fn(() => "fast-model"),
     setModel: vi.fn(),
     rankTemplates: vi.fn(async (_notePath: string): Promise<TemplateRank[]> => ranksFixture()),
-    getSuppress: vi.fn(() => false),
-    setSuppress: vi.fn(),
+    thinking: mkThinking().deps as SmartApplyViewDeps["thinking"],
     ping: vi.fn(async () => true),
     templateDefaultMode: vi.fn(async (_templatePath: string): Promise<ApplyMode> => "deterministisch"),
     ...over,
@@ -176,33 +198,42 @@ describe("SmartApplyPanel — Cockpit", () => {
     expect(deps.setModel).toHaveBeenCalledWith("smart-model");
   });
 
-  it("💭-Toggle ruft setSuppress (toggelt getSuppress)", () => {
-    const { container, deps } = mkPanel({ getSuppress: vi.fn(() => false) });
-    first(container, "vault-rag-sa-think").click();
-    expect(deps.setSuppress).toHaveBeenCalledWith(true);
+  it("💭-Toggle: Klick bei „an“ ruft setLevel(off), bei „aus“ setLevel(onLevel)", () => {
+    const on = mkThinking({ level: "low" });
+    const a = mkPanel({ thinking: on.deps as SmartApplyViewDeps["thinking"] });
+    first(a.container, "okit-thinking-toggle").click();
+    expect(on.deps.setLevel).toHaveBeenCalledWith("off");
+    const off = mkThinking({ level: "off", onLevel: "medium" });
+    const b = mkPanel({ thinking: off.deps as SmartApplyViewDeps["thinking"] });
+    first(b.container, "okit-thinking-toggle").click();
+    expect(off.deps.setLevel).toHaveBeenCalledWith("medium");
   });
-  it("💭-Toggle zeigt den Zustand über Icon UND aria-pressed (UI-STANDARD §8)", () => {
-    const { container } = mkPanel({ getSuppress: vi.fn(() => false) });
-    const toggle = first(container, "vault-rag-sa-think");
+  it("💭-Toggle zeigt den Zustand über Icon, Text UND aria-pressed (UI-STANDARD §8)", () => {
+    const { container } = mkPanel({ thinking: mkThinking({ level: "low" }).deps as SmartApplyViewDeps["thinking"] });
+    const toggle = first(container, "okit-thinking-toggle");
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    expect(first(toggle, "vault-rag-sa-think-icon").getAttribute("data-icon")).toBe("brain");
-    expect(first(toggle, "vault-rag-sa-think-label").textContent).toBe("Thinking: on");
+    expect(toggle.children[0].getAttribute("data-icon")).toBe("brain-cog");
+    expect(toggle.textContent).toContain("Thinking: low");
   });
-  it("💭-Toggle: ausgeschaltet zeigt brain-cog UND aria-pressed=false", () => {
-    // "brain-off" existiert nicht im Obsidian-Bundle (rendert leer, gemessen 2026-09-16) —
-    // "brain-cog" ist das verifiziert existierende zweite Glied.
-    const { container } = mkPanel({ getSuppress: vi.fn(() => true) });
-    const toggle = first(container, "vault-rag-sa-think");
+  it("💭-Toggle: ausgeschaltet zeigt brain UND aria-pressed=false", () => {
+    const { container } = mkPanel({ thinking: mkThinking({ level: "off" }).deps as SmartApplyViewDeps["thinking"] });
+    const toggle = first(container, "okit-thinking-toggle");
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
-    expect(first(toggle, "vault-rag-sa-think-icon").getAttribute("data-icon")).toBe("brain-cog");
-    expect(first(toggle, "vault-rag-sa-think-label").textContent).toBe("Thinking: off");
+    expect(toggle.children[0].getAttribute("data-icon")).toBe("brain");
+    expect(toggle.textContent).toContain("Thinking off");
   });
-  it("💭-Toggle ist bei Always-On-Modell disabled, aria-pressed=true, mit Grund im Tooltip", () => {
-    const { container } = mkPanel({ getModel: vi.fn(() => "gpt-oss"), getSuppress: vi.fn(() => false) });
-    const toggle = first(container, "vault-rag-sa-think");
-    expect(toggle.disabled).toBe(true);
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    expect(toggle.getAttribute("aria-label")).toContain("cannot be turned off");
+  it("💭-Toggle: Familie ohne Abschaltmöglichkeit (gpt-oss) sagt es im Text", () => {
+    const { container } = mkPanel({ thinking: mkThinking({ level: "off", family: "gpt-oss" }).deps as SmartApplyViewDeps["thinking"] });
+    expect(first(container, "okit-thinking-toggle").textContent).toContain("cannot fully turn off");
+  });
+
+  it("💭-Toggle: onShow zeichnet neu (die Stufe kann in den Einstellungen geändert worden sein)", () => {
+    const t = mkThinking({ level: "off" });
+    const { container, panel } = mkPanel({ thinking: t.deps as SmartApplyViewDeps["thinking"] });
+    expect(first(container, "okit-thinking-toggle").textContent).toContain("Thinking off");
+    t.state.level = "high";
+    panel.onShow();
+    expect(first(container, "okit-thinking-toggle").textContent).toContain("Thinking: high");
   });
 
   it("Klick auf ein Modus-Segment setzt nur den Modus, startet KEINEN Run", async () => {

@@ -1,4 +1,4 @@
-import { ChatClient, ChatMessage } from "./chat_client";
+import { ChatClient, ChatMessage, type RequestParams, type ResponseCheck } from "./chat_client";
 import { ContextResult } from "./context_source";
 import { chatErrorMessage } from "./chat_error";
 import { t } from "./vendor/kit/i18n";
@@ -8,7 +8,9 @@ export interface ChatSessionDeps {
   client: () => ChatClient;
   assemble: (paths: string[]) => Promise<ContextResult>;
   systemPreamble: () => string;
-  params: () => { model: string; temperature: number; suppressThinking: boolean };
+  /** Modell und fertige Sampling-Felder (Modus `grounded`, gebaut in `request_profile.ts`); `check`
+   *  prueft die Antwort gegen das Profil. */
+  params: () => { model: string; params: RequestParams; check?: ResponseCheck };
   /** `app`-Referenz nur für das llm-lab-Tracing (`readLabApi`) — obsidian-frei gehalten,
    *  deshalb `unknown` statt eines `App`-Imports (siehe `lab_client.ts`). */
   app: () => unknown;
@@ -57,7 +59,7 @@ export class ChatSession {
         c => { assistant.content += c; onToken(c); },
         r => { assistant.reasoning = (assistant.reasoning ?? "") + r; onToken(r); },
         this.controller.signal,
-        { model: p.model, temperature: p.temperature, suppressThinking: p.suppressThinking, trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: preamble, turnId: newTurnId() } },
+        { model: p.model, params: p.params, ...(p.check ? { check: p.check } : {}), trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: preamble, turnId: newTurnId() } },
       );
       assistant.content = result.content;
       assistant.reasoning = result.reasoning || undefined;

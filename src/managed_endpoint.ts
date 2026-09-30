@@ -1,5 +1,7 @@
 import type { EndpointConfig } from "./endpoint_config";
 import { embeddingModelMatchesIndex } from "./index_guard";
+import type { SourceFacts } from "./request_profile";
+import type { BackendId } from "./vendor/kit/sampling-profiles";
 import {
   resolveEndpointSource, type ApiErrorCode, type EndpointChoice, type LlmEndpointManagerApi,
 } from "./vendor/kit/endpoint-source";
@@ -20,6 +22,9 @@ export interface ManagedChat {
   reason?: ApiErrorCode;
   /** erreichbar — nur dann gilt der Endpunkt als aktiv markiert. */
   active: boolean;
+  /** Familie und Backend fuer die Anfrage-Profile: vom Manager, wo er sie kennt (er kennt die
+   *  Familie eines Alias), sonst geschaetzt/erkannt. Fehlt bei „kein Endpunkt“. */
+  source?: SourceFacts;
 }
 
 /** Ein Manager-Ergebnis als Zeile im Format, das der Rest des Plugins kennt. Der Schluessel
@@ -33,12 +38,17 @@ export async function resolveManagedChat(
   manager: LlmEndpointManagerApi,
   choice: EndpointChoice,
   ping: (cfg: EndpointConfig) => Promise<boolean>,
+  backendOf?: (cfg: EndpointConfig) => Promise<BackendId | null>,
 ): Promise<ManagedChat> {
   const r = await resolveEndpointSource(
-    { manager, local: [], capability: "chat", choice, caller: CALLER }, ping);
+    { manager, local: [], capability: "chat", choice, caller: CALLER, ...(backendOf ? { backendOf } : {}) }, ping);
   if (!r.config) return { config: null, ...(r.reason ? { reason: r.reason } : {}), active: false };
   const config = asRow(r.config, r.sentModel, r.model);
-  return { config, ...(r.reason ? { reason: r.reason } : {}), active: await safePing(ping, config) };
+  const source: SourceFacts = {
+    family: r.family, familySource: r.familySource, backend: r.backend, backendSource: r.backendSource,
+    model: r.model, sentModel: r.sentModel, ...(r.defaultModel !== undefined ? { defaultModel: r.defaultModel } : {}),
+  };
+  return { config, ...(r.reason ? { reason: r.reason } : {}), active: await safePing(ping, config), source };
 }
 
 export interface ManagedEmbedding {

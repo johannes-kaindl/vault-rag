@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.37.0] — 2026-09-30
+
 ### Fixed
 
 - **Reformatting no longer destroys wikilinks.** Links, embeds, inline code and code blocks go to the model only as placeholders and are put back after the answer. The result's links are then counted against the original: if a link is missing, changed or new, "Apply" stays disabled and the status line says how many (copying the text stays possible). **Visible consequence:** the base prompt of every LLM transform gained a sentence about the placeholders, so llm-lab's prompt-version hash changes for all of them.

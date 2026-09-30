@@ -1226,7 +1226,9 @@ async function main(): Promise<void> {
           if (titles === 2 && !n.closest(".vault-rag-reformat-freetext")) llm.push(n);
         }
         window.__vaultRagRfButtons = llm.length;
-        const usable = llm.filter(b => !b.classList.contains("is-disabled"));
+        // Die Panel-Knoepfe sperrt das disabled-ATTRIBUT, nicht die Klasse is-disabled: die Klassen-
+        // pruefung liess gesperrte Knoepfe durch, der Klick lief dann still ins Leere (Welle 14).
+        const usable = llm.filter(b => !b.disabled);
         if (!usable.length) return false;
         usable[0].click();
         return true;

@@ -879,6 +879,8 @@ gar nicht bis in die Oberfläche schafft.
   Besonders heikel, weil mechanische Transforms **ohne Vorschau sofort** ersetzen. `renderTable`
   (`reformat_mechanical.ts`) escapet; ein Round-Trip-Test pinnt die Parse/Render-Symmetrie.
 
+- **Drei Fallen im GUI-Smoke-Treiber, alle in Welle 14 gemessen** (`scripts/gui-smoke.ts`): **(1) Ein Pop-out aus einem abgebrochenen Lauf (Punkt 7f) steht als `floating` in der persistierten `workspace.json` und wird beim nächsten Start zum Ziel von `attachTo`** — sein `document` trägt den Hub nicht, `.okit-hub-root` fehlt, fünf Punkte werden rot, obwohl das Plugin fehlerfrei ist (Hub-Mount-Task, Commit `cb16cec`; der Treiber schließt verwaiste Pop-outs jetzt vor dem Anhängen, und die Brücke bevorzugt das Hauptfenster). **(2) Die Panel-Knöpfe des Umformatieren-Tabs sperrt das `disabled`-Attribut, nicht die Klasse `is-disabled`** — eine Klassenprüfung lässt gesperrte Knöpfe durch, der Klick läuft still ins Leere. **(3) Das Panel zieht einen per API gesetzten Editor-Bereich nur über das entprellte `selectionchange` nach** — wer eine Auswahl per `setSelection` herstellt und danach klickt, ruft `p.reformatPanel.refresh()` selbst (sonst ist der Knopf noch gesperrt). Dazu: `getLeaf(false)` nach dem Schließen eines Fensters kann ein Blatt aus diesem Fenster liefern und `openFile` hängt — die Probe-Notizen öffnen in einem neuen Tab (`getLeaf("tab")`). Die Wurzel dahinter steht als Cockpit-Task: der Treiber baut den Staging-Vault nie aus dem Fixture (`buildVault`), Zustand aus abgebrochenen Läufen überlebt.
+
 ## Memory
 
 - **SDD-Artefakte (seit 2026-07-16): Cockpit, nicht Repo** — Specs/Plans/Task-Reports leben im

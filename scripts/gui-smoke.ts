@@ -298,6 +298,24 @@ async function main(): Promise<void> {
   console.log(`GUI-Smoke vault-retrieval — Obsidian auf Port ${port}\n`);
   // `attachTo` unterscheidet Haupt- und Einstellungen-Fenster an der Sache (nur das
   // Hauptfenster trägt einen Workspace), nicht am lokalisierten Titel.
+  // Vorstufe (Welle 14): Ein Pop-out aus einem abgebrochenen Lauf (Punkt 7f) steht in der
+  // persistierten workspace.json und wird beim naechsten Start zum Ziel von `attachTo` —
+  // dessen `document` traegt den Hub nicht („Hub mountet nicht", gemessen 2026-09-30). Darum:
+  // anhaengen, verwaiste Fenster schliessen, Verbindung loesen, neu anhaengen. `app` ist in
+  // jedem Fenster derselbe, das Schliessen funktioniert also von wo aus man gerade haengt.
+  const vorstufe = await attachTo("workspace", port, vault);
+  if (vorstufe) {
+    const closed = await vorstufe.evaluate<number>(`
+      const wins = [...(app.workspace.floatingSplit?.children ?? [])];
+      for (const w of wins) { try { w.win?.close(); } catch {} }
+      return wins.length;
+    `).catch(() => 0);
+    vorstufe.close();
+    if (closed > 0) {
+      console.log(`  (${closed} verwaistes Pop-out-Fenster geschlossen)`);
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
   const main = await attachTo("workspace", port, vault);
   if (!main) {
     throw new Error(
@@ -576,6 +594,11 @@ async function main(): Promise<void> {
     const hub = await main.evaluate<HubProbe>(`
       const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
       await p.openHub("related");
+      // Warten statt Sofortabfrage: die View baut ihren Inhalt in onOpen, das nach dem Reveal
+      // noch ausstehen kann.
+      for (let i = 0; i < 40 && !document.querySelector(".okit-hub-root"); i++) {
+        await new Promise(r => setTimeout(r, 250));
+      }
       const root = document.querySelector(".okit-hub-root");
       if (!root) return { present: false };
       const tabs = [...root.querySelectorAll(".okit-hub-tab")];
@@ -592,7 +615,7 @@ async function main(): Promise<void> {
         }),
       };
     `);
-    record("Hub rendert die Kit-Grammatik", hub.present, hub.present ? ".okit-hub-root vorhanden" : "kein .okit-hub-root — altes Bundle geladen?");
+    record("Hub rendert die Kit-Grammatik", hub.present, hub.present ? ".okit-hub-root vorhanden" : "kein .okit-hub-root im angehängten Fenster nach 10 s — hängt der Treiber an einem Pop-out (workspace.json → floating) oder ist das Plugin nicht aktiv?");
     record("Tab-Leiste ist eine ARIA-Tabliste", hub.tablist === "tablist", `role="${hub.tablist ?? "(fehlt)"}" · ${hub.count} Tabs`);
     record("Genau ein Tab ist als ausgewaehlt gemeldet", hub.selected === 1, `${hub.selected} von ${hub.count} mit aria-selected=true`);
     record("Roving tabindex: nur der aktive Tab ist tabbar", hub.focusable === 1, `${hub.focusable} von ${hub.count} tabbar`);
@@ -839,7 +862,16 @@ async function main(): Promise<void> {
       // zweite Liste verschieben jede Index-Rechnung.
       await settings.evaluate(`
         const wanted = ${JSON.stringify(beforeUrl)};
-        const rows = [...document.querySelectorAll(".okit-ep-row")];
+        // Dieselbe Listenzuordnung wie READ_ROWS (Eltern-Container in Reihenfolge des ersten
+        // Auftretens): dieselbe URL steht im Fixture in Embedding- UND Chat-Liste, die erste
+        // Treffer-Zeile war die Embedding-Zeile ohne Prioritäts-Knopf (Welle 14).
+        const parents = [];
+        const rows = [...document.querySelectorAll(".okit-ep-row")].filter(r => {
+          const p = r.parentElement;
+          let idx = parents.indexOf(p);
+          if (idx === -1) { parents.push(p); idx = parents.length - 1; }
+          return idx === ${second.listIndex};
+        });
         const target = rows.find(r => {
           const input = r.querySelector('input[type="text"]');
           return input && input.value === wanted;
@@ -1356,6 +1388,16 @@ async function main(): Promise<void> {
       // Die Tab-Zahl ist KEINE Konstante: Smart Apply ist im Fixture aus, also stehen fuenf Tabs in
       // der Leiste, mit Smart Apply sechs. Gemessen wird deshalb die Tab-LISTE gegen die Panel-Liste
       // des Hubs — Lauf 1 am 2026-09-07 war an einer hart verdrahteten Sechs rot, ohne Befund.
+      // Ausgangslage aus dem getrackten Fixture herstellen, nicht aus dem, was der Vault gerade
+      // traegt: ein abgebrochener Lauf laesst die Notizen veraendert zurueck, und die Sicherung
+      // unten wuerde diesen Stand als „Original" festschreiben (Welle 14: `related:` trug schon
+      // einen Eintrag, der Frontmatter-Punkt blieb dauerhaft rot).
+      const fixtureNote = (name: string) =>
+        readFileSync(join(cwd(), "docs", "images", "fixture", "notes", name), "utf8");
+      await main.evaluate(`
+        await app.vault.adapter.write(${JSON.stringify(PLAIN)}, ${JSON.stringify(fixtureNote(PLAIN))});
+        await app.vault.adapter.write(${JSON.stringify(REL)}, ${JSON.stringify(fixtureNote(REL))});
+      `);
       const intPre = await main.evaluate<{ enabled: boolean; tabs: string[]; panels: string[]; plain: string; rel: string }>(`
         const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
         const leaf = app.workspace.getLeavesOfType("vault-retrieval-hub")[0];
@@ -1624,6 +1666,9 @@ async function main(): Promise<void> {
       await main.evaluate(`
         try { window.__vrPop?.detach(); } catch {}
         delete window.__vrPop;
+        // Das Blatt zu loesen laesst bei einem leeren Fenster ein „Neuer Tab"-Pop-out stehen,
+        // das die naechste Sitzung aus workspace.json wiederherstellt (Welle 14).
+        for (const w of [...(app.workspace.floatingSplit?.children ?? [])]) { try { w.win?.close(); } catch {} }
         const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
         p.settings.hideIndexFolder = ${JSON.stringify(popSaved)}; await p.saveSettings(); p.refreshIndexFolderHiding();
       `).catch(() => { console.log("  ! Pop-out/hideIndexFolder konnten nicht zurückgesetzt werden"); });

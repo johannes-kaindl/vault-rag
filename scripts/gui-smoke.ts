@@ -117,7 +117,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
 
-import { Cdp, attachTo, pollUntil } from "../../tools/obsidian-cdp/cdp.js";
+import { Cdp, attachTo, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
 import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
 import { EN, DE } from "../src/i18n/strings";
@@ -1681,11 +1681,17 @@ async function main(): Promise<void> {
     // auf Bestellung. Gegenprobe: dasselbe mit unveraendertem Ergebnis laesst Anwenden frei.
     // Die Probe-Notiz wird angelegt und im finally geloescht, der Smoke veraendert keine Notiz.
     {
+      // 7f schliesst Fenster und holt das Hauptfenster nicht zurueck. Ist es danach verdeckt,
+      // feuern die Timer im Renderer nicht mehr, und ein `await setTimeout` in der Probe haengt
+      // ueber die 30-s-Frist der Bruecke (Welle 14: drei von sechs Laeufen).
+      const visVor = await main.evaluate<string>(`return document.visibilityState;`).catch(() => "unbekannt");
+      if (visVor !== "visible") console.log(`  (vor 7g: visibilityState=${visVor} — hole das Fenster nach vorn)`);
+      await requireVisible(main);
       const W14_NOTE = "w14-link-probe.md";
       const W14_TEXT = "Siehe [[Notes/Semantic search|Suche]] und `[[im Code]]` sowie ![[bild.png]] zum Vergleich.";
       const PUNKT_TREU = "Umformulieren: zum Modell gehen nur Platzhalter, ein Ergebnis mit allen Links bleibt anwendbar";
       const PUNKT_SPERRE = "Umformulieren: ein Ergebnis, das einen Wikilink zerstört, sperrt Anwenden und nennt den Grund";
-      type LinkProbe = { started: boolean; sentUser: string; applyDisabled: boolean | null; status: string; result: string };
+      type LinkProbe = { started: boolean; sentUser: string; applyDisabled: boolean | null; status: string; result: string; diag?: unknown };
       // Ein Timeout in der Bruecke nennt den Schritt nicht — hier wird er beschriftet.
       const schritt = async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
         try { return await fn(); } catch (e) { console.log(`  ! 7g ${label}: ${String(e)}`); throw e; }
@@ -1695,12 +1701,21 @@ async function main(): Promise<void> {
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           let f = app.vault.getAbstractFileByPath(${JSON.stringify(W14_NOTE)});
           if (!f) f = await app.vault.create(${JSON.stringify(W14_NOTE)}, ${JSON.stringify(W14_TEXT)} + "\\n");
-          await app.workspace.getLeaf(false).openFile(f, { state: { mode: "source" } });
+          // Neuer Tab im HAUPTfenster statt getLeaf(false): nach 7f kann das aktive Blatt in
+          // einem geschlossenen Pop-out haengen, und openFile kehrt dann nie zurueck.
+          const leaf = app.workspace.getLeaf("tab");
+          window.__w14Leaf = leaf;
+          await leaf.openFile(f, { state: { mode: "source" } });
+          app.workspace.setActiveLeaf(leaf, { focus: true });
           await new Promise(r => setTimeout(r, 600));
           const ed = app.workspace.activeEditor?.editor;
           if (!ed) return false;
           ed.setSelection({ line: 0, ch: 0 }, { line: 0, ch: ed.getLine(0).length });
           p.captureSelection();
+          // Das Panel zieht seinen Zustand im Normalbetrieb ueber das entprellte selectionchange
+          // nach; ein per API gesetzter Bereich loest das nicht zuverlaessig aus, der Knopf
+          // bliebe gesperrt und der Klick liefe ins Leere (Welle 14).
+          p.reformatPanel?.refresh();
           window.__w14Sent = null;
           window.__w14OwnStream = Object.prototype.hasOwnProperty.call(p.chatClient, "stream") ? p.chatClient.stream : null;
           p.chatClient.stream = async (messages, onToken) => {
@@ -1720,7 +1735,8 @@ async function main(): Promise<void> {
             if (n.classList.contains("vault-rag-reformat-group-title")) { titles++; continue; }
             if (titles === 2 && !n.closest(".vault-rag-reformat-freetext")) llm.push(n);
           }
-          const usable = llm.filter(b => !b.classList.contains("is-disabled"));
+          // Die Panel-Knoepfe sperrt das disabled-Attribut, nicht die Klasse is-disabled.
+          const usable = llm.filter(b => !b.disabled);
           if (!usable.length) return false;
           usable[0].click();
           return true;
@@ -1728,7 +1744,7 @@ async function main(): Promise<void> {
         if (!started) return { started, sentUser: "", applyDisabled: null, status: "", result: "" };
         await schritt(`${mode}: Warten auf den Stub`, () => pollUntil(main, `return window.__w14Sent !== null;`, 20_000, 250)).catch(() => false);
         await new Promise(r => setTimeout(r, 600));
-        const read = await schritt(`${mode}: Lesen`, () => main.evaluate<{ applyDisabled: boolean | null; status: string; result: string; sentUser: string }>(`
+        const read = await schritt(`${mode}: Lesen`, () => main.evaluate<{ applyDisabled: boolean | null; status: string; result: string; sentUser: string; diag: unknown }>(`
           const res = document.querySelector(".vault-rag-reformat-result");
           const modal = res && res.closest(".modal");
           const apply = modal ? [...modal.querySelectorAll("button")].find(b => b.classList.contains("mod-cta")) : null;
@@ -1737,6 +1753,11 @@ async function main(): Promise<void> {
             status: modal?.querySelector(".okit-stream-status")?.textContent ?? "",
             result: res?.textContent ?? "",
             sentUser: window.__w14Sent ?? "",
+            diag: {
+              notices: [...document.querySelectorAll(".notice")].map(n => (n.textContent || "").slice(0, 80)),
+              btns: [...document.querySelectorAll(".vault-rag-reformat-btn")].map(b => (b.textContent || "").trim() + (b.classList.contains("is-disabled") ? " [gesperrt]" : "")),
+              modal: !!modal,
+            },
           };
         `));
         // Aufraeumen: Vorschau im EIGENEN Modal verwerfen, Stub weg, Probe-Notiz loeschen.
@@ -1748,6 +1769,7 @@ async function main(): Promise<void> {
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           if (window.__w14OwnStream) p.chatClient.stream = window.__w14OwnStream; else delete p.chatClient.stream;
           delete window.__w14OwnStream; delete window.__w14Sent;
+          try { window.__w14Leaf?.detach(); } catch {} delete window.__w14Leaf;
         `).catch(() => console.log("  ! Reformat-Stub konnte nicht entfernt werden"));
         return { started, ...read };
       };
@@ -1762,7 +1784,7 @@ async function main(): Promise<void> {
           const nurPlatzhalter = !kept.sentUser.includes("[[") && !kept.sentUser.includes("`") && /ZQX\d+QXZ/.test(kept.sentUser);
           const linkWieder = kept.result.includes("[[Notes/Semantic search|Suche]]") && kept.result.includes("`[[im Code]]`") && kept.result.includes("![[bild.png]]");
           record(PUNKT_TREU, nurPlatzhalter && linkWieder && kept.applyDisabled === false && kept.status === "",
-            `Platzhalter gesendet: ${nurPlatzhalter} · Links im Ergebnis wieder da: ${linkWieder} · Anwenden gesperrt: ${kept.applyDisabled} · Status: „${kept.status}“`);
+            `Platzhalter gesendet: ${nurPlatzhalter} · Links im Ergebnis wieder da: ${linkWieder} · Anwenden gesperrt: ${kept.applyDisabled} · Status: „${kept.status}“` + (nurPlatzhalter && linkWieder ? "" : ` · ${JSON.stringify(kept.diag)}`));
           record(PUNKT_SPERRE, destroyed.applyDisabled === true && destroyed.status.startsWith(prefix) && prefix.length > 0,
             `Anwenden gesperrt: ${destroyed.applyDisabled} · Status: „${destroyed.status.slice(0, 90)}“`);
         }
@@ -1771,6 +1793,52 @@ async function main(): Promise<void> {
           const f = app.vault.getAbstractFileByPath(${JSON.stringify(W14_NOTE)});
           if (f) await app.vault.delete(f);
         `).catch(() => console.log(`  ! ${W14_NOTE} konnte nicht gelöscht werden`));
+      }
+    }
+
+    // --- 7h. Umformulieren: „Absatz-Umbrüche entfernen“ (Welle 14) -----------------------------
+    // Mechanisch und ohne Modell: der Knopf in der Gruppe „Sofort · offline“ ersetzt sofort.
+    // Gemessen wird am Editor-Inhalt, ob der Absatz zusammengezogen ist UND die Zeilen im
+    // Codeblock stehen geblieben sind — die Regel-Fassung der Vorlage (Regex ohne Zustand)
+    // zog genau diese Zeilen zusammen. Probe-Notiz wie in 7g: angelegt, im finally geloescht.
+    {
+      const W14_NOTE2 = "w14-breaks-probe.md";
+      const W14_VORHER = "Erste Zeile\nzweite Zeile\ndritte Zeile\n\n```\ncode a\ncode b\n```\n";
+      const W14_NACHHER = "Erste Zeile zweite Zeile dritte Zeile\n\n```\ncode a\ncode b\n```\n";
+      const PUNKT_UMBRUCH = "Umformulieren: „Absatz-Umbrüche entfernen“ zieht den Absatz zusammen und lässt den Codeblock stehen";
+      try {
+        const res = await main.evaluate<{ started: boolean; after: string; notices?: string[] }>(`
+          let f = app.vault.getAbstractFileByPath(${JSON.stringify(W14_NOTE2)});
+          if (!f) f = await app.vault.create(${JSON.stringify(W14_NOTE2)}, ${JSON.stringify(W14_VORHER)});
+          const leaf = app.workspace.getLeaf("tab");
+          window.__w14Leaf = leaf;
+          await leaf.openFile(f, { state: { mode: "source" } });
+          app.workspace.setActiveLeaf(leaf, { focus: true });
+          await new Promise(r => setTimeout(r, 600));
+          const ed = app.workspace.activeEditor?.editor;
+          if (!ed) return { started: false, after: "" };
+          const last = ed.lastLine();
+          ed.setSelection({ line: 0, ch: 0 }, { line: last, ch: ed.getLine(last).length });
+          const pl = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          pl.captureSelection();
+          pl.reformatPanel?.refresh();
+          await app.commands.executeCommandById("vault-retrieval:open-reformat");
+          await new Promise(r => setTimeout(r, 800));
+          const btn = [...document.querySelectorAll(".vault-rag-reformat-btn")]
+            .find(b => (b.textContent || "").trim() === ${JSON.stringify(W["transform.removeLineBreaks"])});
+          if (!btn || btn.disabled) return { started: false, after: "" };
+          btn.click();
+          await new Promise(r => setTimeout(r, 600));
+          return { started: true, after: ed.getValue(), notices: [...document.querySelectorAll(".notice")].map(n => (n.textContent || "").slice(0, 80)) };
+        `);
+        if (!res.started) skipped(PUNKT_UMBRUCH, "Knopf oder Auswahl nicht herstellbar — nichts gemessen");
+        else record(PUNKT_UMBRUCH, res.after === W14_NACHHER, `Notiz danach: ${JSON.stringify(res.after)}` + (res.after === W14_NACHHER ? "" : ` · Notices: ${JSON.stringify(res.notices)}`));
+      } finally {
+        await main.evaluate(`
+          try { window.__w14Leaf?.detach(); } catch {} delete window.__w14Leaf;
+          const f = app.vault.getAbstractFileByPath(${JSON.stringify(W14_NOTE2)});
+          if (f) await app.vault.delete(f);
+        `).catch(() => console.log(`  ! ${W14_NOTE2} konnte nicht gelöscht werden`));
       }
     }
 

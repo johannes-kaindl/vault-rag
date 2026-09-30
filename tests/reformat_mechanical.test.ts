@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { transposeTable, tableToList, splitSelectionAffix } from "../src/reformat_mechanical";
+import { transposeTable, tableToList, splitSelectionAffix, removeLineBreaks } from "../src/reformat_mechanical";
 import { TRANSFORMS } from "../src/reformat_transforms";
 
 describe("transposeTable", () => {
@@ -120,5 +120,51 @@ describe("splitSelectionAffix", () => {
       const { lead, core, trail } = splitSelectionAffix(text);
       expect(lead + core + trail).toBe(text);
     }
+  });
+});
+
+describe("removeLineBreaks", () => {
+  it("zieht weich umgebrochene Zeilen eines Absatzes zusammen", () => {
+    expect(removeLineBreaks("Dies ist ein\nlanger Satz, der\nhart umbrochen wurde.")).toBe("Dies ist ein langer Satz, der hart umbrochen wurde.");
+  });
+  it("lässt Leerzeilen (Absatzgrenzen) stehen", () => {
+    expect(removeLineBreaks("Erster\nAbsatz\n\nZweiter\nAbsatz")).toBe("Erster Absatz\n\nZweiter Absatz");
+  });
+  it("fasst Überschriften, Listen, Zitate, Tabellen und Trennlinien nicht an", () => {
+    const text = "# Titel\nText\nweiter\n- Punkt\n- Punkt zwei\n> Zitat\n> mehr\n| a | b |\n| - | - |\n---\nEnde\nzeile";
+    expect(removeLineBreaks(text)).toBe("# Titel\nText weiter\n- Punkt\n- Punkt zwei\n> Zitat\n> mehr\n| a | b |\n| - | - |\n---\nEnde zeile");
+  });
+  it("lässt Zeilen in Codeblöcken unberührt, auch zwischen den Zäunen", () => {
+    const text = "Vor\nText\n```ts\nconst a = 1;\nconst b = 2;\n```\nNach\nText";
+    expect(removeLineBreaks(text)).toBe("Vor Text\n```ts\nconst a = 1;\nconst b = 2;\n```\nNach Text");
+  });
+  it("Tilde-Zäune und ein Zaun ohne Ende schützen bis zum Schluss", () => {
+    expect(removeLineBreaks("a\nb\n~~~\nx\ny")).toBe("a b\n~~~\nx\ny");
+  });
+  it("lässt Zeilen in $$-Formelblöcken unberührt", () => {
+    expect(removeLineBreaks("a\nb\n$$\nx = 1\ny = 2\n$$\nc\nd")).toBe("a b\n$$\nx = 1\ny = 2\n$$\nc d");
+  });
+  it("respektiert harte Umbrüche (zwei Leerzeichen oder Backslash am Zeilenende)", () => {
+    expect(removeLineBreaks("Zeile eins  \nZeile zwei\nund drei")).toBe("Zeile eins  \nZeile zwei und drei");
+    expect(removeLineBreaks("Zeile eins\\\nZeile zwei\nund drei")).toBe("Zeile eins\\\nZeile zwei und drei");
+  });
+  it("fasst eingerückten Code und verschachtelte Listen nicht an", () => {
+    // nichts zusammenzuziehen → null (der Text bleibt, wie er ist)
+    expect(removeLineBreaks("Text\n    Code\n    mehr")).toBeNull();
+    expect(removeLineBreaks("- Eltern\n  - Kind\n  weiter")).toBeNull();
+    // neben einem echten Treffer bleibt der Code unberührt
+    expect(removeLineBreaks("a\nb\n    Code\n    mehr")).toBe("a b\n    Code\n    mehr");
+  });
+  it("null, wenn nichts zu tun ist (Struktur passt nicht)", () => {
+    expect(removeLineBreaks("Eine Zeile")).toBeNull();
+    expect(removeLineBreaks("a\n\nb")).toBeNull();
+    expect(removeLineBreaks("- a\n- b")).toBeNull();
+  });
+  it("ist idempotent", () => {
+    const once = removeLineBreaks("a\nb\n\nc\nd") ?? "";
+    expect(removeLineBreaks(once)).toBeNull();
+  });
+  it("lässt Wikilinks ganz", () => {
+    expect(removeLineBreaks("Siehe [[Notiz|Alias]]\nund `code`\nam Ende")).toBe("Siehe [[Notiz|Alias]] und `code` am Ende");
   });
 });

@@ -1,5 +1,5 @@
 import type { ChatMessage } from "./chat_client";
-import { transposeTable, tableToList } from "./reformat_mechanical";
+import { transposeTable, tableToList, removeLineBreaks } from "./reformat_mechanical";
 import { wrapCallout } from "./vendor/kit/callout";
 import { buildTransformMessages, transformPromptTemplate } from "./reformat_prompts";
 
@@ -29,6 +29,7 @@ export const TRANSFORMS: TransformDef[] = [
   { id: "transpose", labelKey: "transform.transpose", kind: "mechanical", run: transposeTable },
   { id: "table-to-list", labelKey: "transform.tableToList", kind: "mechanical", run: tableToList },
   { id: "wrap-callout", labelKey: "transform.wrapCallout", kind: "mechanical", run: (text) => wrapCallout("", text, "note") },
+  { id: "remove-line-breaks", labelKey: "transform.removeLineBreaks", kind: "mechanical", run: removeLineBreaks },
   { id: "to-list", labelKey: "transform.toList", kind: "llm", buildMessages: (text) => buildTransformMessages("to-list", text), promptTemplate: () => transformPromptTemplate("to-list") },
   { id: "to-prose", labelKey: "transform.toProse", kind: "llm", buildMessages: (text) => buildTransformMessages("to-prose", text), promptTemplate: () => transformPromptTemplate("to-prose") },
   { id: "to-table", labelKey: "transform.toTable", kind: "llm", buildMessages: (text) => buildTransformMessages("to-table", text), promptTemplate: () => transformPromptTemplate("to-table") },

@@ -264,6 +264,11 @@ export class SmartApplyPanel implements HubPanel {
       this.reassemble();
     });
     wrap.createSpan({ cls: "vault-rag-sa-audit-label", text: t("smartApply.provenance") });
+    // Erklaerung in Alltagssprache (UI-STANDARD §10): „Provenienz“ allein sagt nicht, was
+    // im Ergebnis passiert. Der Text haengt per aria-describedby am Schalter.
+    const desc = header.createDiv({ cls: "vault-rag-sa-audit-desc", text: t("smartApply.provenanceHelp") });
+    desc.id = "vault-rag-sa-audit-desc";
+    checkbox.setAttribute("aria-describedby", desc.id);
   }
 
   private renderRankList(header: HTMLElement): void {

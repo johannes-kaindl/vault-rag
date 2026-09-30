@@ -155,6 +155,7 @@
 .vault-rag-sa-audit { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
 .vault-rag-sa-audit-check { cursor: pointer; }
 .vault-rag-sa-audit-label { cursor: default; }
+.vault-rag-sa-audit-desc { font-size: var(--font-smallest); color: var(--text-muted); }
 .vault-rag-sa-idle { color: var(--text-muted); }
 .vault-rag-sa-template-hint { color: var(--text-muted); font-size: 12px; font-style: italic; margin-top: 4px; }
 .vault-rag-sa-elapsed { font-size: 11px; color: var(--text-accent); }

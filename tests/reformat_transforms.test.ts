@@ -7,7 +7,7 @@ describe("TRANSFORMS-Registry", () => {
   it("enthält die erwarteten v1-Transform-IDs", () => {
     const ids = TRANSFORMS.map(t => t.id).sort();
     expect(ids).toEqual([
-      "freetext", "table-to-list", "to-list", "to-mermaid", "to-prose", "to-table", "transpose", "wrap-callout",
+      "freetext", "remove-line-breaks", "table-to-list", "to-list", "to-mermaid", "to-prose", "to-table", "transpose", "wrap-callout",
     ].sort());
   });
   it("hat eindeutige IDs und nicht-leere Label-Keys", () => {
@@ -28,6 +28,11 @@ describe("TRANSFORMS-Registry", () => {
       ? t.run(["| A | B |", "| --- | --- |", "| 1 | 2 |"].join("\n"))
       : null;
     expect(out).toBe(["| A | 1 |", "| --- | --- |", "| B | 2 |"].join("\n"));
+  });
+  it("Absatz-Umbrüche entfernen läuft end-to-end über run() und steht in der mechanischen Gruppe", () => {
+    const d = TRANSFORMS.find(x => x.id === "remove-line-breaks");
+    expect(d?.kind).toBe("mechanical");
+    expect(d?.kind === "mechanical" ? d.run("a\nb") : null).toBe("a b");
   });
   it("markiert genau den Freitext-Eintrag als freetext", () => {
     const ft = TRANSFORMS.filter(t => t.kind === "llm" && t.freetext);

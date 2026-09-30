@@ -78,3 +78,52 @@ export function splitSelectionAffix(text: string): SelectionAffix {
   const core = text.slice(lead.length, text.length - trail.length);
   return { lead, core, trail };
 }
+
+// Die Block-Start-Marker stammen aus obsidian-transmute/src/core/presets/remove-newlines.ts
+// (uebernommen 2026-09-30): eine Zeile, die so beginnt, wird weder an die davor noch an die
+// danach gezogen. Dort als Regex ohne Zustand, hier zeilenweise MIT Fence-Zustand — die
+// Regex-Fassung kennt ihre Grenze selbst: Zeilen zwischen zwei Zaeunen wuerden zusammengezogen.
+const BLOCK_START = /^ {0,3}(?:#{1,6}\s|>|[-*+]\s|\d+[.)]\s|\||```|~~~|\$\$|([-*_])\1{2,}\s*$)/;
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+
+/** Zwei Leerzeichen oder ein Backslash am Zeilenende sind ein gewollter Umbruch. */
+function endsWithHardBreak(line: string): boolean {
+  return / {2,}$/.test(line) || line.endsWith("\\");
+}
+
+/** Fuehrt weich umgebrochene Zeilen eines Absatzes zu einer Zeile zusammen (ein Leerzeichen).
+ *  Unberuehrt bleiben: Leerzeilen (Absatzgrenzen), Ueberschriften, Listen, Zitate, Tabellen,
+ *  Trennlinien, eingerueckter Code, Zeilen in Codebloecken und `$$`-Formeln, harte Umbrueche.
+ *  Konservativ wie die Vorlage: eine Zeile mit Block-Start nimmt keine Folgezeile auf, auch
+ *  nicht die umgebrochene Fortsetzung eines Listenpunkts. null, wenn nichts zusammenzuziehen
+ *  war (Struktur passt nicht — dieselbe Zusage wie bei den anderen mechanischen Transforms). */
+export function removeLineBreaks(md: string): string | null {
+  const out: string[] = [];
+  let fence: string | null = null;
+  let changed = false;
+  let mergeable = false;
+  for (const line of md.split("\n")) {
+    if (fence !== null) {
+      out.push(line);
+      const t = line.trim();
+      if (fence === "$$" ? t === "$$" : (t.startsWith(fence) && /^[`~]+$/.test(t))) fence = null;
+      continue;
+    }
+    const open = FENCE_OPEN.exec(line);
+    if (open) { fence = open[1] ?? null; out.push(line); mergeable = false; continue; }
+    if (line.trim() === "$$") { fence = "$$"; out.push(line); mergeable = false; continue; }
+    if (line.trim() === "" || BLOCK_START.test(line) || /^(?: {4}|\t)/.test(line)) {
+      out.push(line);
+      mergeable = false;
+      continue;
+    }
+    if (mergeable) {
+      out[out.length - 1] = (out[out.length - 1] ?? "").trimEnd() + " " + line.trimStart();
+      changed = true;
+    } else {
+      out.push(line);
+    }
+    mergeable = !endsWithHardBreak(line);
+  }
+  return changed ? out.join("\n") : null;
+}

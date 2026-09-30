@@ -12,6 +12,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **New instant transform "Remove paragraph line breaks"** (Reformat, group "Instant · offline"): joins soft-wrapped lines of a paragraph into one line. Blank lines, headings, lists, quotes, tables, rules, indented code, `$$` formulas, hard line breaks (two trailing spaces or a backslash) and everything inside fenced code blocks stay untouched. Offline and deterministic, no model.
+- The Smart Apply option "Keep provenance" now explains itself: a short line below the switch says that it marks what the model added or inferred (`%%erschlossen: …%%` comment and the `smartapply_erschlossen` frontmatter field).
 - The GitHub release now also carries a ready-to-unpack `vault-retrieval.zip` (the plugin folder with `main.js`, `manifest.json` and `styles.css`) and a `checksums.sha256` file. For a manual install, download the zip and unpack it into `.obsidian/plugins/` instead of creating the folder and saving three files by hand.
 
 ### Changed

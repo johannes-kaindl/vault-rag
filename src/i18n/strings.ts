@@ -161,6 +161,7 @@ export const EN = {
   "smartApply.modeTransformative": "Transformative",
   "smartApply.stop": "Stop",
   "smartApply.provenance": "Keep provenance",
+  "smartApply.provenanceHelp": "Marks what the model added or inferred — as a %%erschlossen: …%% comment and in the frontmatter field smartapply_erschlossen — so you can review it later.",
   "smartApply.noTemplate": "No template detected — check the template folder in the settings.",
   "smartApply.offlineRanking": "offline — ranking unavailable, choose a template manually",
   "smartApply.rankFmType": "Frontmatter type",
@@ -301,6 +302,7 @@ export const EN = {
   // reformat_transforms.ts + picker
   "transform.transpose": "Transpose table",
   "transform.tableToList": "Table → list",
+  "transform.removeLineBreaks": "Remove paragraph line breaks",
   "transform.wrapCallout": "Wrap in callout",
   "transform.toList": "→ List / bullets",
   "transform.toProse": "→ Prose",
@@ -690,6 +692,7 @@ export const DE = {
   "smartApply.modeTransformative": "Transformativ",
   "smartApply.stop": "Stop",
   "smartApply.provenance": "Provenienz behalten",
+  "smartApply.provenanceHelp": "Markiert, was das Modell ergänzt oder erschlossen hat — als Kommentar %%erschlossen: …%% und im Frontmatter-Feld smartapply_erschlossen —, damit du es später prüfen kannst.",
   "smartApply.noTemplate": "Keine Vorlage erkannt — Vorlagen-Ordner in den Einstellungen prüfen.",
   "smartApply.offlineRanking": "offline — Ranking nicht verfügbar, Vorlage manuell wählen",
   "smartApply.rankFmType": "Frontmatter-Typ",
@@ -828,6 +831,7 @@ export const DE = {
   // reformat_transforms.ts + picker
   "transform.transpose": "Tabelle kippen",
   "transform.tableToList": "Tabelle → Liste",
+  "transform.removeLineBreaks": "Absatz-Umbrüche entfernen",
   "transform.wrapCallout": "In Callout einpacken",
   "transform.toList": "→ Liste / Stichpunkte",
   "transform.toProse": "→ Fließtext",

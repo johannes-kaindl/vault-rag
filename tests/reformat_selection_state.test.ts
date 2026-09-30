@@ -59,7 +59,7 @@ describe("isRangeStale", () => {
 describe("groupTransforms", () => {
   it("teilt die Registry nach kind und behält die Reihenfolge", () => {
     const g = groupTransforms(TRANSFORMS);
-    expect(g.mechanical.map(t => t.id)).toEqual(["transpose", "table-to-list", "wrap-callout"]);
+    expect(g.mechanical.map(t => t.id)).toEqual(["transpose", "table-to-list", "wrap-callout", "remove-line-breaks"]);
     expect(g.llm.map(t => t.id)).toEqual(["to-list", "to-prose", "to-table", "to-mermaid", "freetext"]);
   });
   it("lässt keinen Registry-Eintrag aus dem Panel fallen", () => {

@@ -2,6 +2,6 @@
   "source": "obsidian-kit",
   "version": "0.43.0",
   "sha": "bcd1805",
-  "vendored": "chat-client.ts (obsidian-kit@0.44.0, 127c3a8), chat-transport.ts, clock.ts, lab-client.ts, clipboard.ts, collapsible.ts, confirm.ts, endpoint-list.ts, endpoint-source.ts, folder-hide.ts, folder-suggest.ts, hub.ts, model-picker.ts, settings_walker.ts, stream-area.ts, help-setting.ts",
+  "vendored": "chat-client.ts (obsidian-kit@0.44.0, 127c3a8), chat-transport.ts, clock.ts, lab-client.ts, clipboard.ts, collapsible.ts, confirm.ts, endpoint-list.ts, endpoint-source.ts, folder-hide.ts, folder-suggest.ts, hub.ts, model-picker.ts, settings_walker.ts, stream-area.ts, help-setting.ts, request-section.ts, request-session.ts, thinking-control.ts",
   "note": "Verbatim snapshot von obsidian-kit/src/obsidian (plus Herkunfts-Header). Module mit Kit-internem Import der code-kit-Schicht tragen EINE mechanische Abweichung: der Import zeigt auf ../kit/ (Vendor-Layout). Never hand-edit. Pins in tools/kit-sync.json, re-vendor via tools/sync-kit.sh (zentrales kit-sync im Dach)."
 }

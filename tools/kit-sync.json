@@ -6,7 +6,7 @@
   "targets": [
     {
       "dir": "src/vendor/kit", "source": "code-kit", "from": "src/ts/pure",
-      "modules": ["endpoint", "endpoint_config", "endpoint_diagnostics", "error_body", "i18n", "model-choice", "model-list-cache", "reasoning", "sampling-profiles", "settings", { "name": "sse", "ref": "0.8.0" }, "think-splitter", "timeout"]
+      "modules": ["capabilities", "endpoint", "endpoint_config", "endpoint_diagnostics", "error_body", "i18n", "model-choice", "model-list-cache", "reasoning", "sampling-profiles", "settings", { "name": "sse", "ref": "0.8.0" }, "think-splitter", "timeout"]
     },
     {
       "dir": "src/vendor/kit", "source": "code-kit", "from": "src/ts/web",
@@ -19,7 +19,7 @@
     },
     {
       "dir": "src/vendor/kit-obsidian", "source": "obsidian-kit", "from": "src/obsidian",
-      "modules": [{ "name": "chat-client", "ref": "0.44.0" }, "chat-transport", "clock", "lab-client", "clipboard", "collapsible", "confirm", "endpoint-list", "endpoint-source", "folder-hide", "folder-suggest", "hub", "model-picker", "settings_walker", "stream-area", "help-setting"],
+      "modules": [{ "name": "chat-client", "ref": "0.44.0" }, "chat-transport", "clock", "lab-client", "clipboard", "collapsible", "confirm", "endpoint-list", "endpoint-source", "folder-hide", "folder-suggest", "hub", "model-picker", "settings_walker", "stream-area", "help-setting", "request-section", "request-session", "thinking-control"],
       "rewrite": [["../vendor/code-kit/pure/", "../kit/"], ["../vendor/code-kit/web/", "../kit/"], ["../pure/", "../kit/"]]
     }
   ]

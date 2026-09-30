@@ -1674,6 +1674,106 @@ async function main(): Promise<void> {
       `).catch(() => { console.log("  ! Pop-out/hideIndexFolder konnten nicht zurückgesetzt werden"); });
     }
 
+    // --- 7g. Umformulieren: Wikilink-Schutz (Welle 14) -----------------------------------------
+    // Zwei Haelften, und nur die zweite ist die Sicherung: zum Modell gehen statt Links/Code nur
+    // Platzhalter (Quote), und ein Ergebnis mit anderen Links sperrt „Anwenden“ (Zaehlung).
+    // Das Modell ist ein Stub auf `chatClient.stream` — ein echtes Modell zerstoert Links nicht
+    // auf Bestellung. Gegenprobe: dasselbe mit unveraendertem Ergebnis laesst Anwenden frei.
+    // Die Probe-Notiz wird angelegt und im finally geloescht, der Smoke veraendert keine Notiz.
+    {
+      const W14_NOTE = "w14-link-probe.md";
+      const W14_TEXT = "Siehe [[Notes/Semantic search|Suche]] und `[[im Code]]` sowie ![[bild.png]] zum Vergleich.";
+      const PUNKT_TREU = "Umformulieren: zum Modell gehen nur Platzhalter, ein Ergebnis mit allen Links bleibt anwendbar";
+      const PUNKT_SPERRE = "Umformulieren: ein Ergebnis, das einen Wikilink zerstört, sperrt Anwenden und nennt den Grund";
+      type LinkProbe = { started: boolean; sentUser: string; applyDisabled: boolean | null; status: string; result: string };
+      // Ein Timeout in der Bruecke nennt den Schritt nicht — hier wird er beschriftet.
+      const schritt = async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
+        try { return await fn(); } catch (e) { console.log(`  ! 7g ${label}: ${String(e)}`); throw e; }
+      };
+      const linkProbe = async (mode: "keep" | "destroy"): Promise<LinkProbe> => {
+        const started = await schritt(`${mode}: Aufbau und Klick`, () => main.evaluate<boolean>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          let f = app.vault.getAbstractFileByPath(${JSON.stringify(W14_NOTE)});
+          if (!f) f = await app.vault.create(${JSON.stringify(W14_NOTE)}, ${JSON.stringify(W14_TEXT)} + "\\n");
+          await app.workspace.getLeaf(false).openFile(f, { state: { mode: "source" } });
+          await new Promise(r => setTimeout(r, 600));
+          const ed = app.workspace.activeEditor?.editor;
+          if (!ed) return false;
+          ed.setSelection({ line: 0, ch: 0 }, { line: 0, ch: ed.getLine(0).length });
+          p.captureSelection();
+          window.__w14Sent = null;
+          window.__w14OwnStream = Object.prototype.hasOwnProperty.call(p.chatClient, "stream") ? p.chatClient.stream : null;
+          p.chatClient.stream = async (messages, onToken) => {
+            window.__w14Sent = messages[1].content;
+            // Stub: gibt die Platzhalter-Fassung zurueck; im Modus destroy faellt der ERSTE
+            // Platzhalter im Text weg (im Probetext der Link) und ein kaputter steht dort.
+            let out = messages[1].content;
+            if (${JSON.stringify(mode)} === "destroy") out = out.replace(/ZQX\\d+QXZ/, "[Suche]");
+            onToken(out);
+            return { content: out, finishReason: "stop" };
+          };
+          await app.commands.executeCommandById("vault-retrieval:open-reformat");
+          await new Promise(r => setTimeout(r, 800));
+          const nodes = [...document.querySelectorAll(".vault-rag-reformat-group-title, .vault-rag-reformat-btn")];
+          let titles = 0; const llm = [];
+          for (const n of nodes) {
+            if (n.classList.contains("vault-rag-reformat-group-title")) { titles++; continue; }
+            if (titles === 2 && !n.closest(".vault-rag-reformat-freetext")) llm.push(n);
+          }
+          const usable = llm.filter(b => !b.classList.contains("is-disabled"));
+          if (!usable.length) return false;
+          usable[0].click();
+          return true;
+        `));
+        if (!started) return { started, sentUser: "", applyDisabled: null, status: "", result: "" };
+        await schritt(`${mode}: Warten auf den Stub`, () => pollUntil(main, `return window.__w14Sent !== null;`, 20_000, 250)).catch(() => false);
+        await new Promise(r => setTimeout(r, 600));
+        const read = await schritt(`${mode}: Lesen`, () => main.evaluate<{ applyDisabled: boolean | null; status: string; result: string; sentUser: string }>(`
+          const res = document.querySelector(".vault-rag-reformat-result");
+          const modal = res && res.closest(".modal");
+          const apply = modal ? [...modal.querySelectorAll("button")].find(b => b.classList.contains("mod-cta")) : null;
+          return {
+            applyDisabled: apply ? !!apply.disabled : null,
+            status: modal?.querySelector(".okit-stream-status")?.textContent ?? "",
+            result: res?.textContent ?? "",
+            sentUser: window.__w14Sent ?? "",
+          };
+        `));
+        // Aufraeumen: Vorschau im EIGENEN Modal verwerfen, Stub weg, Probe-Notiz loeschen.
+        await main.evaluate(`
+          const marker = document.querySelector(".vault-rag-reformat-original, .vault-rag-reformat-result");
+          const eigenes = marker && marker.closest(".modal");
+          const discard = eigenes ? [...eigenes.querySelectorAll("button")].find(b => /verwerf|discard/i.test(b.textContent || "")) : null;
+          if (discard) discard.click();
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          if (window.__w14OwnStream) p.chatClient.stream = window.__w14OwnStream; else delete p.chatClient.stream;
+          delete window.__w14OwnStream; delete window.__w14Sent;
+        `).catch(() => console.log("  ! Reformat-Stub konnte nicht entfernt werden"));
+        return { started, ...read };
+      };
+      try {
+        const destroyed = await linkProbe("destroy");
+        const kept = await linkProbe("keep");
+        const prefix = W["reformatPreview.linksChanged"].split("{0}")[0] ?? "";
+        if (!destroyed.started || !kept.started) {
+          skipped(PUNKT_TREU, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
+          skipped(PUNKT_SPERRE, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
+        } else {
+          const nurPlatzhalter = !kept.sentUser.includes("[[") && !kept.sentUser.includes("`") && /ZQX\d+QXZ/.test(kept.sentUser);
+          const linkWieder = kept.result.includes("[[Notes/Semantic search|Suche]]") && kept.result.includes("`[[im Code]]`") && kept.result.includes("![[bild.png]]");
+          record(PUNKT_TREU, nurPlatzhalter && linkWieder && kept.applyDisabled === false && kept.status === "",
+            `Platzhalter gesendet: ${nurPlatzhalter} · Links im Ergebnis wieder da: ${linkWieder} · Anwenden gesperrt: ${kept.applyDisabled} · Status: „${kept.status}“`);
+          record(PUNKT_SPERRE, destroyed.applyDisabled === true && destroyed.status.startsWith(prefix) && prefix.length > 0,
+            `Anwenden gesperrt: ${destroyed.applyDisabled} · Status: „${destroyed.status.slice(0, 90)}“`);
+        }
+      } finally {
+        await main.evaluate(`
+          const f = app.vault.getAbstractFileByPath(${JSON.stringify(W14_NOTE)});
+          if (f) await app.vault.delete(f);
+        `).catch(() => console.log(`  ! ${W14_NOTE} konnte nicht gelöscht werden`));
+      }
+    }
+
     // --- 8. Auto-Heal-Kaskade: defekter Container ohne Endpunkt ------------
     // Der einzige Prüfpunkt, der die VERDRAHTUNG misst statt der Entscheidung. `planAutoHeal`
     // ist unit-getestet — der Bug von 2026-08-14 lag aber in `attemptAutoHeal`: die

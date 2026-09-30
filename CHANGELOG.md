@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reformatting no longer destroys wikilinks.** Links, embeds, inline code and code blocks go to the model only as placeholders and are put back after the answer. The result's links are then counted against the original: if a link is missing, changed or new, "Apply" stays disabled and the status line says how many (copying the text stays possible). **Visible consequence:** the base prompt of every LLM transform gained a sentence about the placeholders, so llm-lab's prompt-version hash changes for all of them.
+
 ### Added
 
 - The GitHub release now also carries a ready-to-unpack `vault-retrieval.zip` (the plugin folder with `main.js`, `manifest.json` and `styles.css`) and a `checksums.sha256` file. For a manual install, download the zip and unpack it into `.obsidian/plugins/` instead of creating the folder and saving three files by hand.

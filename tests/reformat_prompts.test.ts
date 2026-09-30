@@ -13,6 +13,14 @@ describe("buildTransformMessages", () => {
     expect(sys).toMatch(/keine.*(Fakten|Inhalte)/i);
     expect(sys).toMatch(/AUSSCHLIESSLICH/);
   });
+  it("System-Prompt verlangt, Platzhalter und Verknüpfungen unverändert zu lassen", () => {
+    for (const f of ["to-list", "to-prose", "to-table", "to-mermaid", "freetext"] as const) {
+      const sys = buildTransformMessages(f, "x", "a")[0].content;
+      expect(sys).toMatch(/ZQX\d+QXZ/);
+      expect(sys).toMatch(/unverändert/);
+      expect(sys).toMatch(/\[\[/);
+    }
+  });
   it("Mermaid-Format fordert einen ```mermaid-Codeblock", () => {
     const sys = buildTransformMessages("to-mermaid", "x")[0].content;
     expect(sys).toContain("```mermaid");

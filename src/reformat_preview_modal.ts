@@ -8,8 +8,10 @@ export interface ReformatPreviewOpts {
   /** Der markierte Ur-Text (nur Anzeige). */
   original: string;
   /** Startet einen Stream: ruft onToken je Token, resolved mit dem Volltext und dem
-   *  `finish_reason` des Servers, bricht bei signal ab. */
-  stream: (onToken: (t: string) => void, signal: AbortSignal) => Promise<{ text: string; finishReason?: string }>;
+   *  `finish_reason` des Servers, bricht bei signal ab. `blocked` ist ein fertiger Grund-Text,
+   *  wenn der Aufrufer das Ergebnis nicht anwendbar findet (Link-Zaehlung, Welle 14): dann
+   *  bleibt „Anwenden" gesperrt und die Statuszeile nennt den Grund. */
+  stream: (onToken: (t: string) => void, signal: AbortSignal) => Promise<{ text: string; finishReason?: string; blocked?: string }>;
   /** Wird bei „Anwenden" mit dem finalen Ergebnis aufgerufen. */
   onApply: (result: string) => void;
 }
@@ -108,8 +110,8 @@ export class ReformatPreviewModal extends Modal {
       this.area?.setTail(out.text);
       // Abgeschnitten ist nicht kaputt: der Text bleibt anwendbar, der Hinweis nennt nur den Grund.
       const key = truncationKey(out.finishReason);
-      this.area?.statusEl.setText(key ? t(key) : "");
-      this.applyBtn?.setDisabled(out.text.trim().length === 0);
+      this.area?.statusEl.setText(out.blocked ?? (key ? t(key) : ""));
+      this.applyBtn?.setDisabled(out.text.trim().length === 0 || out.blocked !== undefined);
       this.copyBtn?.setDisabled(out.text.trim().length === 0);
     } catch (e) {
       if (this.controller !== ctrl) return;

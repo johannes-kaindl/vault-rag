@@ -8,6 +8,7 @@ export const REFORMAT_MAX_TOKENS = 4096;
 const BASE = [
   "Du bist ein Markdown-Formatierungs-Assistent.",
   "Erfinde keine Fakten, füge keine neuen Inhalte hinzu und fasse nicht zusammen — strukturiere ausschließlich den gegebenen Text um.",
+  "Platzhalter der Form ZQX1QXZ stehen für geschützte Stellen (Verknüpfungen wie [[Notiz]], Einbettungen, Code): übernimm jeden Platzhalter unverändert und vollständig in den Text, ändere, übersetze oder entferne keinen und erfinde keine neuen. Schreibe Verknüpfungen nie um.",
   "Gib AUSSCHLIESSLICH das umformatierte Markdown zurück — keine Erklärung, kein einleitender Satz.",
 ].join(" ");
 

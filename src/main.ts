@@ -47,6 +47,7 @@ import type { TransformDef } from "./reformat_transforms";
 import { splitSelectionAffix } from "./reformat_mechanical";
 import { ReformatPreviewModal } from "./reformat_preview_modal";
 import { REFORMAT_MAX_TOKENS } from "./reformat_prompts";
+import { maskProtected, integrityProblem } from "./protect_markup";
 import { ReformatReadiness, readinessMessage, canRun, isRangeStale } from "./reformat_selection_state";
 import { ReformatPanel } from "./reformat_panel";
 import { mapStartError, describeStartError, classifySelfCheck, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
@@ -995,7 +996,10 @@ export default class VaultRagPlugin extends Plugin {
       if (typed == null) return;
       instr = typed;
     }
-    const messages = def.buildMessages(core, instr);
+    // Links, Einbettungen und Code gehen nur als Platzhalter zum Modell (Welle 14). Zurueck-
+    // gesetzt wird erst nach Streamende; die eigentliche Sicherung ist die Link-Zaehlung.
+    const prot = maskProtected(core);
+    const messages = def.buildMessages(prot.masked, instr);
 
     new ReformatPreviewModal(this.app, {
       original: core,
@@ -1007,7 +1011,15 @@ export default class VaultRagPlugin extends Plugin {
           maxTokens: REFORMAT_MAX_TOKENS,
           trace: { feature: `reformat:${def.id}`, app: this.app, contextPaths: [cap.path], promptTemplate: def.promptTemplate(), turnId: newTurnId() },
         })
-        .then(r => ({ text: r.content, finishReason: r.finishReason })),
+        .then(r => {
+          const back = prot.restore(r.content);
+          const problem = integrityProblem(core, back.text, back.lost);
+          return {
+            text: back.text,
+            finishReason: r.finishReason,
+            blocked: problem ? t("reformatPreview.linksChanged", problem.missing, problem.added, problem.lost) : undefined,
+          };
+        }),
       onApply: (result) => {
         // Erneut prüfen: zwischen Öffnen des Modals und „Anwenden" kann editiert worden sein.
         if (!this.captureIsLive(cap) || isRangeStale(cap.editor.getRange(cap.from, cap.to), cap.text)) {

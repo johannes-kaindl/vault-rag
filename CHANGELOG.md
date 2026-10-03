@@ -431,103 +431,102 @@ All notable changes to this project are documented here. The format follows
 ## [0.26.0] — 2026-08-23
 
 ### Fixed
-- **Eine Vorlage, deren Überschriften Smart Apply nicht sieht, wird als solche gemeldet — statt
-  als leeres Ergebnis.** Stehen die `##`-Überschriften einer Vorlage nicht je auf einer eigenen
-  Zeile, erkennt das Plugin keine einzige. Bisher lief der komplette Weg trotzdem durch: das
-  Modell wurde gefragt, und weil es keine Ziel-Überschrift gab, landete anschließend *jeder*
-  Block unter „übrig". Das Ergebnis las sich als „0 von 8 zugeordnet" und war von einem
-  Modell-Versagen nicht zu unterscheiden — es hat genau diese Fehldiagnose auch ausgelöst. Smart
-  Apply bricht jetzt vor der Anfrage ab, nennt die Vorlage als Ursache und den nötigen Handgriff,
-  und behauptet keine Zuordnung, die nie versucht wurde.
-- **Smart Apply weist das Modell in der Sprache der Oberfläche an.** Der Prompt, der die
-  Vorlage und die Notiz-Blöcke beschreibt, war fest deutsch gebaut — bis hinunter zu den
-  Platzhaltern im Antwortschema. Wer Obsidian auf Englisch fährt, ließ damit eine englische
-  Notiz nach einer deutschen Arbeitsanweisung aufräumen. Es ist dieselbe Stelle wie beim
-  Chat-Prompt: ein Text, der nicht in die Oberfläche geht, sondern ins Modell. Die
-  Konfidenz-Wörter, die das Modell zurückliefern soll, sind dabei bewusst Teil der
-  Übersetzung geblieben — sie werden ausgewertet, und ein englischer Prompt, der deutsche
-  Wörter verlangt, hätte jede Ergänzung still auf „niedrig" fallen lassen. Was in der Notiz
-  landet (die Auffang-Überschrift, die Provenienz-Marker), bleibt unverändert: es steht
-  bereits in bestehenden Notizen.
-- **Der Chat antwortet in der Sprache der Oberfläche, nicht mehr grundsätzlich auf Deutsch.**
-  Der ausgelieferte System-Prompt verlangte wörtlich „Antworte knapp und auf Deutsch." — wer
-  Obsidian auf Englisch fährt, stellte eine englische Frage und bekam eine deutsche Antwort. Der
-  Prompt wird jetzt erst bei der Anfrage aufgelöst und folgt der eingestellten Sprache. Ein selbst
-  geschriebener System-Prompt bleibt unangetastet; wer den alten Vorgabetext nie verändert hat,
-  findet das Feld künftig leer vor — leer heißt „die eingebaute Vorgabe gilt", und die
-  Feldbeschreibung sagt das jetzt auch.
+- **A template whose headings Smart Apply does not see is reported as such — instead of
+  as an empty result.** If the `##` headings of a template are not each on a line of their own,
+  the plugin recognises none at all. Until now the complete path ran through anyway: the
+  model was asked, and because there was no target heading, *every*
+  block ended up under "rest" afterwards. The result read as "0 of 8 assigned" and could not be
+  distinguished from a model failure — it even triggered exactly that misdiagnosis. Smart
+  Apply now aborts before the request, names the template as the cause and the necessary action,
+  and does not claim an assignment that was never attempted.
+- **Smart Apply instructs the model in the language of the interface.** The prompt that describes the
+  template and the note blocks was built in German throughout — down to the
+  placeholders in the answer schema. Whoever ran Obsidian in English thereby had an English
+  note tidied up following a German work instruction. It is the same spot as with the
+  chat prompt: a text that does not go into the interface but into the model. The
+  confidence words that the model is supposed to return deliberately remained part of the
+  translation — they are evaluated, and an English prompt that demands German
+  words would have let every addition silently fall to "low". What ends up in the note
+  (the catch-all heading, the provenance markers) stays unchanged: it already
+  stands in existing notes.
+- **The chat answers in the language of the interface, no longer always in German.**
+  The shipped system prompt demanded literally "Answer briefly and in German." — whoever ran
+  Obsidian in English asked an English question and got a German answer. The
+  prompt is now resolved only at request time and follows the configured language. A system prompt
+  written by yourself stays untouched; whoever never changed the old default text
+  will find the field empty from now on — empty means "the built-in default applies", and the
+  field description now says so, too.
 
 ### Added
-- **Die LLM-Aufrufe des Plugins können mitgeschrieben werden — wenn du das Plugin „LLM Lab"
-  installierst.** Vault Retrieval meldet Chat, Umformatieren und Smart Apply an dessen API, sobald
-  sie da ist; ohne das Nachbarplugin passiert nichts, und der Endpunkt-Testknopf ist ab Werk
-  ausgenommen. Ein einziger Einhängepunkt (`ChatClient.stream`) erfasst alle drei Wege, jeder
-  Aufruf trägt seine Feature-Kennung.
-- **Die README ist bebildert** (acht Screenshots: Verwandte Notizen, Suche, Chat, sichtbares
-  Denken, Umformatieren-Vorschau, Endpunkt-Rollen, Einstellungen und das Smart-Apply-Diff-Gate).
-  Aufgenommen werden sie reproduzierbar per `npm run shots` gegen ein laufendes Obsidian; der
-  Aufnahme-Vertrag steht in `docs/images/README.md`.
+- **The plugin's LLM calls can be recorded — if you install the plugin "LLM Lab".**
+  Vault Retrieval reports chat, reformatting and Smart Apply to its API as soon as
+  it is there; without the neighbour plugin nothing happens, and the endpoint test button is excluded
+  by default. A single hook point (`ChatClient.stream`) captures all three paths, and every
+  call carries its feature identifier.
+- **The README is illustrated** (eight screenshots: related notes, search, chat, visible
+  thinking, reformat preview, endpoint roles, settings and the Smart Apply diff gate).
+  They are recorded reproducibly via `npm run shots` against a running Obsidian; the
+  recording contract is in `docs/images/README.md`.
 
 ## [0.25.0] — 2026-08-21
 
 ### Fixed
-- **Eine ins Token-Limit gelaufene Antwort wird nicht mehr als inhaltlicher Fehler gemeldet.**
-  Wer mit Smart Apply in das selbst eingestellte Budget lief, las „LLM-Antwort enthält kein gültiges
-  Assignment-JSON" und suchte den Fehler beim Modell — während die Ursache
-  „Smart-Apply-Max-Tokens" heißt und eine Einstellung weiter oben in derselben Oberfläche steht.
-  Die Prüfliste nennt den Abbruch jetzt beim Namen und beziffert das erreichte Limit. Der Befund
-  begleitet nur einen echten Fehlschlag: eine abgeschnittene Antwort, die sich vollständig
-  verwerten lässt, bleibt fehlerfrei.
-- **Die Umformatieren-Vorschau weist auf ein abgeschnittenes Ergebnis hin**, statt es kommentarlos
-  kürzer anzuzeigen. Das Ergebnis bleibt anwendbar — der Hinweis erklärt nur, warum es endet, wo es
-  endet (das Token-Budget der Umformatierung ist fest verdrahtet und nicht einstellbar).
+- **A response that ran into the token limit is no longer reported as a content error.**
+  Whoever ran into the self-configured budget with Smart Apply read "LLM response does not contain a valid
+  assignment JSON" and looked for the error in the model — while the cause
+  is called "Smart Apply max tokens" and is a setting further up in the same interface.
+  The checklist now names the abort and quantifies the limit reached. The finding
+  accompanies only a real failure: a truncated response that can be fully
+  used stays error-free.
+- **The reformat preview points out a truncated result**, instead of showing it
+  silently shorter. The result remains applicable — the hint only explains why it ends where it
+  ends (the token budget of reformatting is hard-wired and not configurable).
 
 ### Changed
-- Der vendorte SSE-Parser steht wieder auf dem Kit-Stand mit `finish_reason` (obsidian-kit 0.3.0).
-  Ohne das Feld ist ein Abbruch am Token-Limit von einer inhaltlich unbrauchbaren Antwort nicht zu
-  unterscheiden — beides sieht am Empfänger identisch aus.
-- **Die Selbstheilung des Index hat erstmals einen Prüfpunkt, der ihre Wirkung misst.** Getestet war
-  bisher nur die Entscheidung, ob geheilt wird — der Fehler von August lag aber daneben, in der
-  Ausführung. Der neue GUI-Prüfpunkt stellt den Schadensfall gegen ein laufendes Obsidian wirklich
-  her und belegt, dass der Index ohne erreichbaren Endpunkt aus dem Backup zurückkommt.
+- The vendored SSE parser is back on the kit version with `finish_reason` (obsidian-kit 0.3.0).
+  Without the field, an abort at the token limit cannot be distinguished from a response that is
+  useless in content — both look identical at the receiver.
+- **The self-healing of the index now has a check that measures its effect for the first time.** Until now only
+  the decision whether to heal was tested — but the August error lay elsewhere, in the
+  execution. The new GUI check actually produces the damage case against a running Obsidian
+  and proves that the index comes back from the backup without a reachable endpoint.
 
 ## [0.24.0] — 2026-08-18
 
 ### Changed
-- **Diagnose-Meldungen folgen jetzt der Sprachwahl** (i18n Teil 3). Die Sprachschicht aus 0.21.0/
-  0.22.0 erfasste jeden Text, der *direkt* in eine Anzeige geschrieben wird. Entsteht ein Text
-  dagegen als **Rückgabewert** einer Funktion und wird erst später angezeigt, liegt dazwischen
-  keine Literalstelle mehr — für den automatischen Wächter unsichtbar. Betroffen war vor allem der
-  häufigste Fall überhaupt: wer die Oberfläche auf Englisch stellte, bekam bei **jedem** nicht
-  erreichbaren Endpunkt einen deutschen Tooltip. Dazu die Prüfliste unter einem Smart-Apply-Vorschlag
-  und die Meldung eines fehlgeschlagenen MCP-Server-Starts.
-- **Fehlermeldungen des MCP-Servers sind jetzt durchgängig englisch** — und bleiben es unabhängig
-  von der eingestellten Sprache. Sie werden von einem Agenten über den Loopback-Kanal gelesen, nicht
-  von einem Menschen in einer lokalisierten Oberfläche; sie an die UI-Sprache des Vaults zu koppeln
-  wäre falsch.
+- **Diagnostic messages now follow the language choice** (i18n part 3). The language layer from 0.21.0/
+  0.22.0 covered every text that is written *directly* into a display. If a text instead arises
+  as the **return value** of a function and is displayed only later, there is
+  no longer a literal spot in between — invisible to the automatic guard. This mainly affected
+  the most common case of all: whoever set the interface to English got a German tooltip
+  for **every** unreachable endpoint. In addition the checklist under a Smart Apply suggestion
+  and the message of a failed MCP server start.
+- **Error messages of the MCP server are now English throughout** — and stay so regardless
+  of the configured language. They are read by an agent via the loopback channel, not
+  by a human in a localised interface; coupling them to the UI language of the vault
+  would be wrong.
 
 ### Fixed
-- **Der Index wird jetzt auch dann automatisch aus einem Backup wiederhergestellt, wenn der
-  Embedding-Endpunkt nicht erreichbar ist.** Bisher prüfte die Selbstheilung zuerst den Endpunkt und
-  sah erst danach nach einem Backup — wer offline war (oder einen falsch eingetragenen Endpunkt
-  hatte), blieb dauerhaft bei „kein Index", obwohl die Sicherung lokal danebenlag und nur von Hand
-  eingespielt werden musste. Ein Backup zu übernehmen braucht kein Netz; nur das Nachtragen der
-  seither hinzugekommenen Notizen braucht es.
-- **Auf dem iPhone passiert dabei nichts.** Ein Gerät ohne eigenen Embedding-Endpunkt kann die
-  Lücke nie selbst schließen — und weil der Index-Ordner mitsynct, wäre der ältere Stand von dort an
-  alle Geräte zurückgewandert. Dort bleibt es deshalb beim Schreibschutz, und die Meldung sagt
-  jetzt, dass die Reparatur am Desktop passiert und per Sync ankommt.
-- **Die versprochene Nachbesserung findet jetzt wirklich statt.** Nach einer Wiederherstellung ohne
-  Endpunkt meldete das Plugin, die seither hinzugekommenen Notizen würden automatisch ergänzt,
-  sobald der Endpunkt antwortet — angestoßen wurde das aber nie. Diese Notizen landen jetzt in der
-  Warteschlange, die das Plugin ohnehin im Minutentakt abarbeitet.
-- **Ein wiederhergestellter Index trägt wieder den Namen des Modells, mit dem er gebaut wurde**,
-  statt den des gerade eingetragenen Endpunkts. Andernfalls konnte der Schutz, der das Vermischen
-  zweier Embedding-Modelle in einem Index verhindert, ihn beim nächsten Speichern nicht mehr
-  erkennen.
-- Die Meldung eines fehlgeschlagenen MCP-Server-Starts nannte den Grund doppelt
-  (`(boom): boom`) — sie zeigt ihn jetzt einmal.
-
+- **The index is now also restored automatically from a backup when the
+  embedding endpoint is not reachable.** Until now the self-healing first checked the endpoint and
+  only then looked for a backup — whoever was offline (or had a wrongly entered endpoint)
+  stayed permanently at "no index", although the backup lay locally next to it and only had to be
+  imported by hand. Adopting a backup needs no network; only adding the notes that have
+  come in since needs one.
+- **Nothing happens on the iPhone in the process.** A device without an embedding endpoint of its own can
+  never close the gap itself — and because the index folder syncs along, the older state would have travelled from there back to
+  all devices. There it therefore stays at write protection, and the message now says
+  that the repair happens on the desktop and arrives via sync.
+- **The promised follow-up now really takes place.** After a restore without an
+  endpoint, the plugin reported that the notes added since would be supplemented automatically
+  as soon as the endpoint answers — but that was never triggered. These notes now land in the
+  queue that the plugin works through every minute anyway.
+- **A restored index again carries the name of the model it was built with**,
+  instead of that of the currently entered endpoint. Otherwise the protection that prevents the mixing of
+  two embedding models in one index could no longer
+  recognise it at the next save.
+- The message of a failed MCP server start named the reason twice
+  (`(boom): boom`) — it now shows it once.
 
 ## [0.23.0] — 2026-08-13
 

@@ -531,83 +531,83 @@ All notable changes to this project are documented here. The format follows
 ## [0.23.0] — 2026-08-13
 
 ### Added
-- **Plugin-API für andere Obsidian-Plugins** (`app.plugins.plugins["vault-retrieval"]?.api`).
-  Retrieval war bisher nur im Plugin selbst und über den MCP-Server erreichbar — Nachbar-Plugins
-  mussten sich einen eigenen Embedding-Index bauen, um dasselbe zu können. Die neue Fläche ist
-  bewusst schmal: `apiVersion` (1), `status()` (synchron und netzfrei — für die Frage „kann ich
-  Retrieval überhaupt anbieten?"), `search(query)` und `related(path)`. Notiz-Lesen und rohe
-  Embedding-Vektoren sind ausdrücklich **nicht** enthalten: ein Plugin liest das Vault über
-  Obsidians eigene API, und Vektoren würden Aufrufer an Index-Dimension, Modell und Quantisierung
-  binden — genau die Interna, die dieses Plugin frei ändern können muss.
-  Erwartbare Zustände sind **Werte statt Ausnahmen** (`{ok:true,hits}` bzw. `{ok:false,reason}`
-  mit `reason` aus `"no-index"`/`"offline"`/`"not-indexed"`), und `reason` ist ein
-  maschinenlesbarer Code ohne übersetzten Text — ein fremdes Plugin kann unsere TypeScript-Typen
-  nicht importieren und muss den Diskriminator zur Laufzeit anfassen können. Die Ausschluss-Liste
-  aus den Einstellungen ist nicht überschreibbar (Nutzergrenze, kein Tuning-Parameter); Scores
-  kommen ungerundet zurück, die Darstellung entscheidet der Aufrufer.
-  Kein Zustimmungs-Tor: ein Plugin, das diese API aufrufen kann, läuft ohnehin mit vollem
-  Vault-Zugriff — ein Tor schützte nichts Reales und kostete nur Klickwege.
-  Neues Modul `src/plugin_api.ts` (obsidian-frei, dünner Adapter über die geteilte
-  `RetrievalFacade`, exakt nach dem Muster von `mcp/tools.ts`), 17 Tests. Dokumentiert in beiden
-  READMEs und unter `docs/reference/`.
+- **Plugin API for other Obsidian plugins** (`app.plugins.plugins["vault-retrieval"]?.api`).
+  Retrieval used to be reachable only inside the plugin itself and via the MCP server — neighbour plugins
+  had to build an embedding index of their own to do the same. The new surface is
+  deliberately narrow: `apiVersion` (1), `status()` (synchronous and network-free — for the question "can I
+  offer retrieval at all?"), `search(query)` and `related(path)`. Reading notes and raw
+  embedding vectors are explicitly **not** included: a plugin reads the vault via
+  Obsidian's own API, and vectors would bind callers to index dimension, model and quantisation
+  — exactly the internals that this plugin must be free to change.
+  Expected states are **values instead of exceptions** (`{ok:true,hits}` or `{ok:false,reason}`
+  with `reason` from `"no-index"`/`"offline"`/`"not-indexed"`), and `reason` is a
+  machine-readable code without translated text — a foreign plugin cannot import our TypeScript types
+  and must be able to touch the discriminator at runtime. The exclusion list
+  from the settings cannot be overridden (user boundary, not a tuning parameter); scores
+  come back unrounded, the caller decides on the presentation.
+  No consent gate: a plugin that can call this API already runs with full
+  vault access — a gate would protect nothing real and only cost clicks.
+  New module `src/plugin_api.ts` (obsidian-free, thin adapter over the shared
+  `RetrievalFacade`, exactly following the pattern of `mcp/tools.ts`), 17 tests. Documented in both
+  READMEs and under `docs/reference/`.
 
 ### Notes
-- Der Vertrag ist versioniert, aber jung: **Version 1 gilt als experimentell**, bis ein zweiter
-  Konsument seine Form bestätigt hat (erster ist `koda-agent`). Das Versionsfeld existiert von
-  Anfang an, weil es sich nachträglich nicht bruchfrei einführen ließe — die Stabilitätszusage
-  ist die teure Hälfte und kann später folgen.
-- `npm run smoke:gui` hat sechs neue Prüfpunkte, die die API über CDP im Renderer aufrufen —
-  also auf demselben Weg wie ein fremdes Plugin, nicht über internen Code. Einer davon bewacht
-  gezielt die Grenze: taucht `readNote` oder `embedQuery` in der Fläche auf, ist der Vertrag
-  aufgeweicht worden.
+- The contract is versioned, but young: **version 1 counts as experimental** until a second
+  consumer has confirmed its shape (the first is `koda-agent`). The version field exists from the
+  start because it could not be introduced afterwards without a break — the stability promise
+  is the expensive half and can follow later.
+- `npm run smoke:gui` has six new checks that call the API via CDP in the renderer —
+  that is, the same way a foreign plugin does, not via internal code. One of them guards
+  the boundary specifically: if `readNote` or `embedQuery` shows up in the surface, the contract
+  has been softened.
 
 ## [0.22.0] — 2026-08-09
 
 ### Added
-- **Englische Benutzeroberfläche für die reguläre Bedienoberfläche vollständig** (Panels,
-  Einstellungen, Befehle, Meldungen, Statusleiste, Fehlertexte). Die zweite Runde der
-  Sprachumstellung (siehe 0.21.0-Notiz) hebt die restlichen fest-deutschen Stellen auf die
-  Sprachschicht: Endpunkt-Zeilen und -Rollen, Backup-Verwaltung, Statusleiste,
-  Vervollständigen-Dialog, Chat-Fehlertexte, Smart-Apply-Panel (inkl. Block-Zählung), die
-  Umformatieren-Vorschau, das Kontext-Panel des Chats und die Client-Auswahl im MCP-Setup. Rund
-  250 Strings über 14 Dateien sind jetzt über `t()` geführt.
-- **Regressionsschutz für die Sprachschicht:** ein struktureller Wächter-Test
-  (`tests/i18n/no_german_ui.test.ts`) läuft über sämtliche `src/**/*.ts`-Dateien und meldet jede
-  Text-Senke (Setting-Name, Tooltip, Button-Text, `aria-label`, `text:`/`label:`-Property), die
-  ein String-Literal erreicht, ohne durch `t()` zu laufen — sprachunabhängig statt über eine
-  Wortliste, die morgen schon veraltet wäre (`tests/i18n/sink_guard.ts`, aus Task 7 dieses Slices).
+- **English user interface complete for the regular user interface** (panels,
+  settings, commands, messages, status bar, error texts). The second round of the
+  language switch (see the 0.21.0 note) lifts the remaining hard-coded German spots onto the
+  language layer: endpoint rows and roles, backup management, status bar,
+  complete dialog, chat error texts, Smart Apply panel (incl. block count), the
+  reformat preview, the context panel of the chat and the client selection in the MCP setup. Around
+  250 strings across 14 files are now routed through `t()`.
+- **Regression protection for the language layer:** a structural guard test
+  (`tests/i18n/no_german_ui.test.ts`) runs over all `src/**/*.ts` files and reports every
+  text sink (setting name, tooltip, button text, `aria-label`, `text:`/`label:` property) that
+  a string literal reaches without going through `t()` — language-independent instead of via a
+  word list that would be outdated tomorrow (`tests/i18n/sink_guard.ts`, from task 7 of this slice).
 
 ### Notes
-- Eine Handvoll fest-deutscher Diagnose-Strings bleibt erreichbar: Smart-Apply-Guard-Details
-  (`note_restructurer.ts`), Tooltips aus dem vendorten `endpoint_diagnostics.ts`, Fehlertexte aus
-  dem vendorten `frontmatter.ts` und die MCP-Start-Fehlermeldung — Folge-Slice.
-- Zwei bewusst deutsch gebliebene Stellen: die `Confidence`-Werte `hoch`/`mittel`/`niedrig` in
-  `src/frontmatter.ts` (Frontmatter-Daten echter Notizen, keine UI) und die MCP-Tool-Beschreibungen
-  in `src/mcp/register_tools.ts` (liest ein Agent, kein Mensch — gehören auf Englisch, aber in
-  einen eigenen, kleinen Commit außerhalb dieses Slices).
-- Die drei entfernten fest-deutschen `toLocaleString("de-DE")`-Aufrufe (Statusleiste) formatieren
-  Zahlen jetzt ohne erzwungenes Locale — die Tausendertrennung folgt damit dem **Betriebssystem**,
-  nicht der Obsidian-Oberflächensprache: ein deutsches Obsidian auf einer en-US-Maschine zeigt
-  `● 1,000` innerhalb deutscher Sätze. Kein Regressions-Bug, falls das später auffällt.
+- A handful of hard-coded German diagnostic strings remain reachable: Smart Apply guard details
+  (`note_restructurer.ts`), tooltips from the vendored `endpoint_diagnostics.ts`, error texts from
+  the vendored `frontmatter.ts` and the MCP start error message — follow-up slice.
+- Two spots deliberately stayed German: the `Confidence` values `hoch`/`mittel`/`niedrig` in
+  `src/frontmatter.ts` (frontmatter data of real notes, not UI) and the MCP tool descriptions
+  in `src/mcp/register_tools.ts` (read by an agent, not a human — they belong in English, but in
+  a small commit of their own outside this slice).
+- The three removed hard-coded German `toLocaleString("de-DE")` calls (status bar) now format
+  numbers without a forced locale — the thousands separator thus follows the **operating system**,
+  not the Obsidian interface language: a German Obsidian on an en-US machine shows
+  `● 1,000` within German sentences. Not a regression bug, should this be noticed later.
 
 ## [0.21.0] — 2026-08-07
 
 ### Added
-- **Englische Benutzeroberfläche — vault-rag spricht jetzt zwei Sprachen.** Bisher war die
-  gesamte Oberfläche fest deutsch, unabhängig von der Spracheinstellung in Obsidian. Jetzt
-  richtet sich das Plugin nach `Obsidian → Einstellungen → Über → Sprache`: **Englisch ist die
-  kanonische Fassung**, Deutsch wird ausgeliefert, jede andere Sprache fällt auf Englisch
-  zurück. Umgestellt sind die Einstellungen, alle Befehle der Befehlspalette, die Meldungen
-  (Notices) des Plugins sowie die Text-Bausteine für Index-Delta und Umformatieren-Bereitschaft.
+- **English user interface — vault-rag now speaks two languages.** Until now the
+  entire interface was hard-coded German, regardless of the language setting in Obsidian. Now
+  the plugin follows `Obsidian → Settings → About → Language`: **English is the
+  canonical version**, German is shipped, every other language falls back to English. Converted
+  are the settings, all commands of the command palette, the messages
+  (notices) of the plugin as well as the text building blocks for the index delta and reformat readiness.
 
 ### Changed
-- **Zahlen werden in der Sprache der Oberfläche formatiert** statt fest nach deutscher
-  Konvention — eine englische Oberfläche zeigt `1,234` statt `1.234`.
+- **Numbers are formatted in the language of the interface** instead of strictly following the German
+  convention — an English interface shows `1,234` instead of `1.234`.
 
 ### Notes
-- Die Sprachumstellung ist **noch nicht vollständig**: ein Teil der Einstellungs-Zeilen, die
-  Statusleiste sowie einige Zustandstexte im Smart-Apply-Bereich sind weiterhin fest deutsch.
-  Diese Reste folgen in einer zweiten Runde.
+- The language switch is **not yet complete**: some of the settings rows, the
+  status bar and some state texts in the Smart Apply area are still hard-coded German.
+  These remainders follow in a second round.
 
 ## [0.20.0] — 2026-08-05
 

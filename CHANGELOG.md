@@ -295,73 +295,73 @@ All notable changes to this project are documented here. The format follows
 ## [0.29.1] — 2026-09-03
 
 ### Changed
-- **GitHub-Ausstieg: beide READMEs zeigten ins Leere, alle acht Bilder waren tot.** Gemessen
-  2026-09-03: `github.com/johannes-kaindl` antwortet mit **404**, und damit auch jede der 16
-  `raw.githubusercontent.com`-Einbettungen — die READMEs waren nutzersichtbar kaputt, nicht nur
-  unvollständig verlinkt. Alle 39 GitHub-URLs zeigen jetzt auf Forgejo
-  (`raw/branch/main` für Bilder, `src/branch/main` für Dateien); jede ersetzte URL ist einzeln
-  auf 200 geprüft, nicht nur umgeschrieben.
-- **`authorUrl` → `https://jkaindl.de`.** Das Feld ist in Obsidians Plugin-Liste anklickbar und
-  zeigte auf ein aufgegebenes Profil. Die alte Regel („nie die eigene Domain") hatte den
-  Store-Review als Grund, und der findet für dieses Plugin nicht mehr statt.
-- **Installationsweg ersetzt: Plugin-Katalog statt Community-Verzeichnis.** Beide bisherigen
-  Wege waren tot — das Store-Listing ist verschwunden, und BRAT setzt den GitHub-Mirror voraus.
-  An ihrer Stelle steht der eigene Katalog über
-  [AnySource Sideloader](https://git.jkaindl.de/jkaindl/anysource-sideloader); der
-  BRAT-Abschnitt ist ersatzlos entfallen. Manueller Weg und Bau aus dem Quellcode bleiben.
+- **GitHub exit: both READMEs pointed nowhere, all eight images were dead.** Measured
+  2026-09-03: `github.com/johannes-kaindl` answers with **404**, and with it every one of the 16
+  `raw.githubusercontent.com` embeds — the READMEs were visibly broken for users, not merely
+  incompletely linked. All 39 GitHub URLs now point to Forgejo
+  (`raw/branch/main` for images, `src/branch/main` for files); every replaced URL has been
+  checked individually for 200, not just rewritten.
+- **`authorUrl` → `https://jkaindl.de`.** The field is clickable in Obsidian's plugin list and
+  pointed to an abandoned profile. The old rule ("never the own domain") had the
+  store review as its reason, and that no longer takes place for this plugin.
+- **Installation route replaced: plugin catalogue instead of the community directory.** Both previous
+  routes were dead — the store listing has disappeared, and BRAT requires the GitHub mirror.
+  In their place stands the own catalogue via
+  [AnySource Sideloader](https://git.jkaindl.de/jkaindl/anysource-sideloader); the
+  BRAT section is removed without replacement. The manual route and building from source remain.
 
 ### Removed
-- **CI-Badge aus beiden READMEs.** GitHub Actions ist nicht mehr erreichbar, und auf der
-  Forgejo-Instanz läuft kein Runner. Das ist dieselbe Begründung wie bei seiner Einführung
-  (CORE-META-02): ein Badge, der nicht auf einen echten Lauf zeigt, ist schlechter als keiner.
+- **CI badge from both READMEs.** GitHub Actions is no longer reachable, and no runner runs on the
+  Forgejo instance. That is the same reasoning as at its introduction
+  (CORE-META-02): a badge that does not point to a real run is worse than none.
 
 ### Internal
-- GUI-Smoke: läuft jetzt vollständig im Staging-Vault auf einer Zweitinstanz (34/34, Rezept in
-  `docs/SMOKE.md`). Das Fixture trägt Plugin-Einstellungen mit je zwei Endpunkt-Zeilen
-  (`docs/images/fixture/plugin/settings.json`), die Bilanz zählt übersprungene Prüfpunkte getrennt
-  und mit Grund, und ein neuer Prüfpunkt belegt, dass die Reformat-Vorschau nach dem Verwerfen
-  geschlossen ist. Fünf Treiber-Befunde behoben (Warten im Renderer, Sprachquelle, kollabierte
-  Sidebar, kalter Chat-Endpunkt, Backslash im Template-String) — keiner am Plugin.
-- **`scripts/index-probe.ts`** — Selbstfindungs-Stichprobe über den laufenden Index als
-  wiederholbares Werkzeug. Misst, ob eine kurze Notiz sich über ihren *eigenen* Wortlaut auf
-  Rang 0 findet, und wertet nach Änderungsdatum aus. Erster Lauf gegen 6.952 Pfade: 35/40 auf
-  Rang 0; der treppenförmige Zeilenversatz vom 2026-08-30 ist weg, drei verbliebene Rückstände
-  tragen einen konstanten Versatz von 4 Zeilen. Kein Auslieferungscode — Wartungswerkzeug.
-- **Release läuft mit `--no-github`.** Store-Weg und Mirror-getriebenes Store-Release existieren
-  für dieses Plugin nicht mehr; die Verteilung geht über den Forgejo-Release und den
-  AnySource-Sideloader-Katalog.
+- GUI smoke: now runs entirely in the staging vault on a second instance (34/34, recipe in
+  `docs/SMOKE.md`). The fixture carries plugin settings with two endpoint rows each
+  (`docs/images/fixture/plugin/settings.json`), the tally counts skipped checks separately
+  and with a reason, and a new check proves that the reformat preview is
+  closed after discarding. Five driver findings fixed (waiting in the renderer, language source, collapsed
+  sidebar, cold chat endpoint, backslash in the template string) — none in the plugin.
+- **`scripts/index-probe.ts`** — self-retrieval sample over the running index as a
+  repeatable tool. Measures whether a short note finds itself at rank 0 via its *own* wording,
+  and evaluates by modification date. First run against 6,952 paths: 35/40 at
+  rank 0; the staircase-shaped row offset from 2026-08-30 is gone, three remaining leftovers
+  carry a constant offset of 4 rows. Not shipped code — a maintenance tool.
+- **Release runs with `--no-github`.** The store route and the mirror-driven store release no longer exist
+  for this plugin; distribution goes via the Forgejo release and the
+  AnySource Sideloader catalogue.
 
 ## [0.29.0] — 2026-08-30
 
 ### Added
-- **Der Index sagt jetzt, wenn seine Vektoren nicht mehr zu seinen Notizen gehören.** Bisher
-  konnte er strukturell perfekt sein — CRC32 grün, Notizzahl plausibel, `indexed: true` — und
-  trotzdem zu jeder Notiz die Ähnlichkeit einer *fremden* Notiz liefern. Die Trefferlisten sahen
-  dabei nicht kaputt aus, sondern vertrauenswürdig: hohe Werte, zusammenhanglose Notizen. Zwei
-  Wächter schließen die Lücke:
-  - Notizen, die im Index stehen, aber einen unbrauchbaren Vektor tragen, werden beim Laden
-    gemeldet und zum Neu-Einbetten vorgemerkt. Sie waren zuvor doppelt unsichtbar: nie
-    auffindbar, und von der Vollständigkeitsanzeige als vorhanden gezählt.
-  - Der GUI-Smoke prüft, ob eine kurze Notiz sich über ihren eigenen Wortlaut auf Platz 1 findet.
-    Das ist die einzige Probe, die diese Schadensklasse überhaupt sieht.
+- **The index now says when its vectors no longer belong to its notes.** Until now
+  it could be structurally perfect — CRC32 green, note count plausible, `indexed: true` — and
+  still return for every note the similarity of a *different* note. The hit lists did not
+  look broken, but trustworthy: high scores, unrelated notes. Two
+  guards close the gap:
+  - Notes that are in the index but carry an unusable vector are reported on load
+    and queued for re-embedding. Before, they were doubly invisible: never
+    findable, and counted as present by the completeness display.
+  - The GUI smoke checks whether a short note finds itself at place 1 via its own wording.
+    That is the only probe that sees this class of damage at all.
 
 ### Changed
-- **„Vault neu indizieren" verliert bei einem Abbruch nicht mehr den ganzen Lauf.** Bisher wurde
-  der neue Index erst ganz am Schluss geschrieben — brach der Vorgang vorher ab, war die gesamte
-  Rechenzeit verloren, auch wenn er kurz vor dem Ziel stand. Jetzt wird alle 250 Notizen ein
-  Zwischenstand gespeichert; ein Abbruch kostet höchstens diese letzte Etappe, der Rest bleibt
-  erhalten und wird beim nächsten Start übernommen.
-  Der Zwischenstand ist dabei immer **vollständig**: die schon neu berechneten Notizen, ergänzt um
-  die noch nicht erreichten aus dem bisherigen Index. Während des Laufs liefert die Suche
-  unverändert den bisherigen Stand, damit die Ergebnisse nicht mitten in der Benutzung wandern.
-  Wird das Embedding-Modell gewechselt, entfallen die Zwischenstände bewusst — dort würde ein
-  gemischter Index zwei nicht vergleichbare Vektorräume enthalten.
-- **Die Anbindung an „LLM Lab" verlangt jetzt dessen apiVersion 3** (der stabile Anteil des
-  System-Prompts wird als `promptTemplate` gemeldet, damit das Lab daraus eine Prompt-
-  **Fassung** statt eines einzelnen Aufrufs bilden kann — Chat, Umformatieren und Smart Apply
-  melden dafür je ihren eigenen stabilen Anteil). Ist „LLM Lab" noch auf dem alten Vertrag
-  (apiVersion 2, vor dessen nächstem Release), meldet vault-rag ab diesem Release **gar nichts
-  mehr** ans Lab — genau wie ohne installiertes Lab, nur still, bis „LLM Lab" nachzieht.
+- **"Reindex vault" no longer loses the whole run on an abort.** Until now
+  the new index was written only at the very end — if the operation aborted before that, all the
+  computing time was lost, even if it was close to the goal. Now an intermediate state is saved every 250 notes;
+  an abort costs at most that last stage, the rest is kept
+  and picked up at the next start.
+  The intermediate state is always **complete**: the notes already recomputed, supplemented by
+  those not yet reached from the previous index. During the run search keeps
+  delivering the previous state, so that results do not shift in the middle of use.
+  If the embedding model is changed, the intermediate states are deliberately dropped — there a
+  mixed index would contain two incomparable vector spaces.
+- **The connection to "LLM Lab" now requires its apiVersion 3** (the stable part of the
+  system prompt is reported as `promptTemplate`, so that the lab can form a prompt
+  **version** from it instead of a single call — chat, reformatting and Smart Apply
+  each report their own stable part for this). If "LLM Lab" is still on the old contract
+  (apiVersion 2, before its next release), vault-rag reports **nothing at all** to the lab
+  from this release on — just as without an installed lab, only silently, until "LLM Lab" catches up.
 
 ## [0.28.0] — 2026-08-27
 

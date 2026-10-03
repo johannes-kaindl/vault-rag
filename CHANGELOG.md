@@ -939,12 +939,12 @@ for a separate slice.
 ## [0.10.0] — 2026-07-08
 
 ### Added
-- Endpunkt-Presets: Ein-Klick-Buttons „+ LM Studio" / „+ Ollama" mit korrekten Default-Ports.
-- Klartext-Diagnose pro Endpunkt statt nur rot/grün (Verbindung abgelehnt / Hostname unbekannt / Zeitüberschreitung / kein LLM-API).
-- Nicht-blockierende Eingabe-Prüfung (fehlendes Schema/Port, Platzhalter-IP).
+- Endpoint presets: one-click buttons "+ LM Studio" / "+ Ollama" with correct default ports.
+- Plain-language diagnosis per endpoint instead of just red/green (connection refused / unknown hostname / timeout / no LLM API).
+- Non-blocking input validation (missing scheme/port, placeholder IP).
 
 ### Changed
-- Chat-Endpunkt-Default auf `http://localhost:1234` (LM Studio) geändert.
+- Chat endpoint default changed to `http://localhost:1234` (LM Studio).
 
 ## [0.9.0] — 2026-07-07
 

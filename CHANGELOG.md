@@ -27,84 +27,84 @@ All notable changes to this project are documented here. The format follows
 ## [0.36.0] — 2026-09-26
 
 ### Changed
-- **Chat-Client und SSE-Transport kommen aus dem Kit** (`createChatClient`, obsidian-kit 0.43.0; die lokalen `sse.ts` und der Streaming-Teil von `chat_client.ts` entfallen). **Sichtbare Folgen:** es gibt erstmals eine Frist — ein Server, der 120 s schweigt, bricht ab (bis zum ersten Byte 600 s, weil LM Studio ein Modell beim ersten Aufruf lädt); der Chat zeigt dann „Seit … s keine Antwort vom Chat-LLM“ statt ewig zu hängen. Verweigert ein Server den Stream (Origin-Prüfung), wiederholt der Client einmal ohne Stream über `requestUrl`. Eine HTTP-200-Antwort mit Fehlerkörper ist jetzt ein Fehler mit der Servermeldung statt einer leeren Antwort. Der Abbruch-Listener bleibt nicht mehr am Signal hängen.
-- **`ttftMs` im LLM Lab misst das erste Byte** statt des ersten Content-Tokens — bei einem denkenden Modell ist der Wert damit früher als bisher.
-- **Der Index-Ordner wird im Hauptfenster ausgeblendet** (Kit `folder-hide`, Ziel `rootSplit.doc` statt `activeDocument`): steht beim Laden ein Pop-out im Vordergrund, landet die Regel nicht mehr dort. Neuer Prüfpunkt im GUI-Smoke.
-- Der Lab-Client (`lab-client`) kommt aus dem Kit; ist das Lab installiert, aber mit einer anderen Vertragsversion, sagt der Kit-Client den Grund. Kit-Pin `obsidian-kit` 0.41.1 → 0.43.0, Endpunkt-Liste-CSS auf den Stand 0.43.0.
+- **Chat client and SSE transport now come from the kit** (`createChatClient`, obsidian-kit 0.43.0; the local `sse.ts` and the streaming part of `chat_client.ts` are removed). **Visible consequences:** there is a deadline for the first time — a server that stays silent for 120 s is cut off (600 s until the first byte, because LM Studio loads a model on the first call); the chat then shows "No answer from the chat LLM for … s" instead of hanging forever. If a server refuses the stream (origin check), the client retries once without streaming via `requestUrl`. An HTTP 200 response with an error body is now an error carrying the server message instead of an empty answer. The abort listener no longer stays attached to the signal.
+- **`ttftMs` in the LLM Lab measures the first byte** instead of the first content token — for a thinking model the value is therefore earlier than before.
+- **The index folder is hidden in the main window** (kit `folder-hide`, target `rootSplit.doc` instead of `activeDocument`): if a pop-out is in the foreground at load time, the rule no longer lands there. New check in the GUI smoke.
+- The lab client (`lab-client`) now comes from the kit; if the lab is installed but speaks a different contract version, the kit client states the reason. Kit pin `obsidian-kit` 0.41.1 → 0.43.0, endpoint list CSS updated to the 0.43.0 state.
 
 ## [0.35.0] — 2026-09-26
 
 ### Added
-- **Hilfe-Zeile ganz oben in den Einstellungen** (UI-STANDARD §8): Text-Knopf „Open documentation“ auf den Doku-Index und Bug-Icon auf den Issue-Tracker auf GitHub (Help row at the top of the settings with links to the documentation and the issue tracker). Kit-Modul `help-setting.ts` aus obsidian-kit 0.43.0, einzeln gepinnt; die übrigen vendorten Module bleiben unverändert.
+- **Help row at the very top of the settings** (UI-STANDARD §8): a text button "Open documentation" linking to the documentation index and a bug icon linking to the issue tracker on GitHub. Kit module `help-setting.ts` from obsidian-kit 0.43.0, pinned individually; the other vendored modules remain unchanged.
 
 ## [0.34.0] — 2026-09-25
 
 ### Fixed
-- **Die Aufzeichnung im LLM Lab war still aus.** `lab_client.ts` prüfte `apiVersion === 3`, llm-lab liefert seit 2026-09-03 die 4 — `readLabApi` gab deshalb `null` zurück, und Chat, Smart Apply und Umformatieren meldeten nichts mehr. Jetzt auf 4 gehoben; jede Nutzer-Handlung (eine Chat-Nachricht, ein Smart-Apply-Lauf, eine Umformung) trägt eine frische `turnId`. Am laufenden Obsidian 1.14.2 gegen das echte llm-lab 0.6.0 gemessen: der Aufruf landet in dessen Trace mit `turnId`.
+- **Recording in the LLM Lab was silently off.** `lab_client.ts` checked `apiVersion === 3`, while llm-lab has delivered 4 since 2026-09-03 — `readLabApi` therefore returned `null`, and chat, Smart Apply and reformatting reported nothing any more. Now raised to 4; every user action (a chat message, a Smart Apply run, a reformat) carries a fresh `turnId`. Measured on a running Obsidian 1.14.2 against the real llm-lab 0.6.0: the call shows up in its trace with `turnId`.
 
 ### Changed
-- **Endpunkte kommen vom LLM Endpoint Manager, wenn er installiert ist** (Kit `endpoint-source`, Kit-Pin `obsidian-kit` 0.35.0 → 0.41.1, `code-kit` 0.6.0 → 0.7.0). Zwei Rollen, je ein Aufruf: `chat` für Chat, Smart Apply und Umformatieren, `embedding` für Suche und Index. **Sichtbare Folgen:** ist der Manager da, zeigen die Einstellungen statt der beiden Endpunkt-Listen den Manager-Baustein (Endpunkt wählen, Modell wählen, lokale Endpunkte in den Manager übernehmen); die Wahl steht in `chatChoice`/`embeddingChoice` in der `data.json`, Schlüssel und Manager-Modell werden nie gespeichert. Ohne Manager bleibt alles wie bisher (lokale Liste als Rückfall). Der Manager entscheidet auch über „kein Endpunkt" — es gibt dann keinen stillen Rückfall auf die lokale Liste. Ein Wechsel im Manager wird ohne Neustart übernommen.
-- **Der Modell-Guard gilt auch für den Manager-Endpunkt.** Passt das Modell des Embedding-Endpunkts nicht zum geladenen Index, wird er nicht als aktiv markiert, beantwortet aber weiter Suchanfragen; in den Index wird nichts geschrieben (Schreibschutz am Persist, wie bei der lokalen Liste). Ein Manager-Endpunkt ohne Modellnamen wird nie aktiv, damit ein Reindex nicht `embedding_model: ""` stempelt.
-- Die Kit-Änderungen des Pin-Sprungs sind für dieses Plugin additiv (Schlüssel-Hook und Zusatzzeile an der Endpunkt-Liste, `installTabRefreshOnOpen`, Sampling-Profile); Chat-Client und SSE-Transport bleiben unberührt.
+- **Endpoints come from the LLM Endpoint Manager when it is installed** (kit `endpoint-source`, kit pin `obsidian-kit` 0.35.0 → 0.41.1, `code-kit` 0.6.0 → 0.7.0). Two roles, one call each: `chat` for chat, Smart Apply and reformatting, `embedding` for search and index. **Visible consequences:** if the manager is present, the settings show the manager component instead of the two endpoint lists (choose endpoint, choose model, adopt local endpoints into the manager); the choice is stored in `chatChoice`/`embeddingChoice` in `data.json`, keys and the manager model are never stored. Without the manager everything stays as before (local list as fallback). The manager also decides on "no endpoint" — there is then no silent fallback to the local list. A change in the manager is picked up without a restart.
+- **The model guard also applies to the manager endpoint.** If the model of the embedding endpoint does not match the loaded index, it is not marked as active but keeps answering search requests; nothing is written to the index (write protection at persist, as with the local list). A manager endpoint without a model name never becomes active, so that a reindex does not stamp `embedding_model: ""`.
+- The kit changes of the pin bump are additive for this plugin (key hook and extra row on the endpoint list, `installTabRefreshOnOpen`, sampling profiles); chat client and SSE transport remain untouched.
 
 ## [0.33.0] — 2026-09-24
 
 ### Fixed
-- **`suppressThinking` unterdrückt Thinking nicht mehr bei gpt-oss/harmony-Modellen** (`chat_client.ts`).
-  Diese Modelle lehnen `reasoning_effort`/`chat_template_kwargs`/`reasoning_budget` mit HTTP 400 ab,
-  statt sie als No-op zu ignorieren — der Request schlug also bisher fehl, sobald die Thinking-Abschaltung
-  aktiv war. Guard `isAlwaysOnThinker(effectiveModel)` (bereits vendort) vor `suppressParams`, geprüft
-  gegen den tatsächlich verwendeten Modellnamen (`opts.model ?? this.model`).
-- **Smart Apply: der gesperrte Knopf „Auf aktive Notiz anwenden" liest sich jetzt als gesperrt.**
-  Bisher trug er nur die Klasse `is-disabled`, die Obsidians Theme auf Knöpfen nicht rendert — er
-  sah aus wie aktiv (am laufenden Obsidian 1.14.0 gemessen, Screenshot identisch). Jetzt
-  `aria-disabled` plus eigene Regel (gedimmt, Cursor „nicht erlaubt", keine Klicks), dieselbe
-  Sperr-Grammatik wie die Modus-Knöpfe. Gilt auch für „Stop". Der GUI-Smoke misst den sichtbaren
-  Zustand, nicht die Klasse.
+- **`suppressThinking` no longer suppresses thinking on gpt-oss/harmony models** (`chat_client.ts`).
+  These models reject `reasoning_effort`/`chat_template_kwargs`/`reasoning_budget` with HTTP 400
+  instead of ignoring them as a no-op — so the request used to fail as soon as the thinking
+  switch-off was active. Guard `isAlwaysOnThinker(effectiveModel)` (already vendored) before `suppressParams`, checked
+  against the model name actually in use (`opts.model ?? this.model`).
+- **Smart Apply: the disabled "Apply to active note" button now reads as disabled.**
+  Until now it only carried the class `is-disabled`, which Obsidian's theme does not render on buttons — it
+  looked active (measured on a running Obsidian 1.14.0, screenshot identical). Now
+  `aria-disabled` plus a rule of its own (dimmed, cursor "not allowed", no clicks), the same
+  disabled grammar as the mode buttons. Also applies to "Stop". The GUI smoke measures the visible
+  state, not the class.
 
 ### Changed
-- `authorUrl` im Manifest zeigt wieder auf das GitHub-Profil (Store-Rückkehr).
-- **Kit-Pin 0.31.0 → 0.35.0** (code-kit 0.5.0 → 0.6.0) — keine funktionalen Änderungen an den
-  bestehenden Vendor-Modulen, nur der Stempel.
-- **Smart Apply (laufende Karte) und Umformatieren-Vorschau nutzen jetzt den Streaming-
-  Antwortbereich aus dem Kit** (`buildStreamArea`, UI-STANDARD §8). Verhaltenswechsel:
-  - Der Gedankenblock von Smart Apply bleibt weiterhin während des Streams offen; der laufende
-    Roh-Stream (Protokoll-JSON des Modells) ist jetzt **immer sichtbar** statt hinter einem
-    zugeklappten „Roh-Stream"-Element — der Kit-Bereich kennt keine zweite, unabhängig klappbare
-    Fläche neben dem Gedankenblock.
-  - Die Umformatieren-Vorschau ist jetzt **ein** Rollbereich (das Modal) statt drei verschachtelter
-    (Modal + zwei eigene `overflow: auto`-Felder); der Ergebnisbereich rollt über das Modal mit
-    (Quicktask von Johannes).
-  - Neu im Umformatieren-Fenster: Kopieren-Knopf für das Ergebnis, Ergebnis- und Original-Text
-    explizit markierbar.
-- Thinking-Schalter zeigt seinen Zustand jetzt auch ohne Farbe (Icon, Beschriftung,
-  aria-pressed) — UI-STANDARD §8 „Zustands-Knopf (Toggle)". Betrifft den Toggle im
-  Chat-Panel und in Smart Apply: Icon wechselt `brain` ↔ `brain-cog`,
-  `aria-pressed="true|false"`, Tooltip (`setTooltip`) statt reinem `aria-label`, bei einem
-  Always-On-Modell zusätzlich nativ `disabled` mit Grund im Tooltip. `brain-off` (der
-  ursprünglich in §8 genannte Name) existiert nicht im Obsidian-Bundle und rendert leer
-  (gemessen 2026-09-16) — `brain-cog` ist das verifiziert existierende zweite Glied.
+- `authorUrl` in the manifest points to the GitHub profile again (return to the store).
+- **Kit pin 0.31.0 → 0.35.0** (code-kit 0.5.0 → 0.6.0) — no functional changes to the
+  existing vendor modules, only the stamp.
+- **Smart Apply (running card) and the reformat preview now use the streaming
+  answer area from the kit** (`buildStreamArea`, UI-STANDARD §8). Behaviour change:
+  - The thinking block of Smart Apply still stays open during the stream; the running
+    raw stream (the model's protocol JSON) is now **always visible** instead of behind a
+    collapsed "raw stream" element — the kit area has no second, independently collapsible
+    surface next to the thinking block.
+  - The reformat preview is now **one** scroll area (the modal) instead of three nested ones
+    (modal + two `overflow: auto` fields of its own); the result area scrolls with the modal
+    (quick task from Johannes).
+  - New in the reformat window: a copy button for the result, and result and original text
+    can be explicitly selected.
+- The thinking switch now shows its state without colour as well (icon, label,
+  aria-pressed) — UI-STANDARD §8 "state button (toggle)". Affects the toggle in the
+  chat panel and in Smart Apply: icon switches `brain` ↔ `brain-cog`,
+  `aria-pressed="true|false"`, tooltip (`setTooltip`) instead of a bare `aria-label`, and for an
+  always-on model additionally a native `disabled` with the reason in the tooltip. `brain-off` (the name
+  originally given in §8) does not exist in the Obsidian bundle and renders empty
+  (measured 2026-09-16) — `brain-cog` is the verified existing second member.
 
 ## [0.32.0] — 2026-09-07
 
 ### Added
-- **Integrator (Stufe 1): Verlinkungs-Vorschläge mit Review-Inbox** — sechster Tab in der Sidebar
-  (opt-in, Einstellung „Integrator aktivieren"). Für eine Notiz holt das Plugin die inhaltlich
-  nächsten Notizen aus dem Index (offline, kein LLM), filtert schon verlinkte und abgelehnte Ziele
-  und legt den Rest als Vorschlag in die Inbox. **Annehmen** schreibt einen Wikilink in die Notiz,
-  **Ablehnen** merkt sich das Ziel für diese Notiz. Kein Auto-Apply: geschrieben wird nur nach
-  Bestätigung (Dach-Zuschnitt: vault-rag liefert Material, entscheidet nichts).
-  - Drei Auslöser: automatisch nach jeder Änderung für Notizen unter den eingestellten Ordnern,
-    Befehl „Links für aktive Notiz vorschlagen", Befehl „Links für Ordner vorschlagen" (Stapel für
-    den Altbestand). Ordnerliste leer heißt: nur die Befehle.
-  - Zwei Schreibmodi: **Abschnitt** am Notiz-Ende (Werks-Default, Überschrift einstellbar) oder
-    **Frontmatter-Listen-Eigenschaft** (Default `related`). Im Frontmatter-Modus werden nur die
-    Zeilen dieser einen Eigenschaft angefasst — alles andere bleibt byteweise stehen; Inline- und
-    Blocklisten behalten ihre Form.
-  - Ein Vorschlag je Notiz (neu ersetzt alt), Stale-Schutz per Hash gegen zwischenzeitliche
-    Änderungen, Inbox geräte-lokal im Plugin-Ordner (kein Vault-Footprint).
-- **Plugin-API:** `proposeLinks(path)` und `applyLink(path, target)` für andere Plugins — z. B. eine
-  spätere Crew, die das Unbeaufsichtigte übernimmt. `apiVersion` bleibt 1 (additiv).
+- **Integrator (stage 1): link suggestions with a review inbox** — sixth tab in the sidebar
+  (opt-in, setting "Enable Integrator"). For a note, the plugin fetches the semantically
+  nearest notes from the index (offline, no LLM), filters out already linked and rejected targets
+  and puts the rest into the inbox as a suggestion. **Accept** writes a wikilink into the note,
+  **Reject** remembers the target for that note. No auto-apply: nothing is written without
+  confirmation (umbrella scope: vault-rag supplies material, decides nothing).
+  - Three triggers: automatically after every change for notes under the configured folders,
+    the command "Suggest links for active note", the command "Suggest links for folders" (batch for
+    existing notes). An empty folder list means: commands only.
+  - Two write modes: **section** at the end of the note (factory default, heading configurable) or
+    **frontmatter list property** (default `related`). In frontmatter mode only the
+    lines of that one property are touched — everything else stays byte for byte; inline and
+    block lists keep their form.
+  - One suggestion per note (a new one replaces the old), stale protection by hash against changes made in the meantime,
+    inbox device-local in the plugin folder (no vault footprint).
+- **Plugin API:** `proposeLinks(path)` and `applyLink(path, target)` for other plugins — e.g. a
+  future crew that takes over the unattended part. `apiVersion` stays 1 (additive).
 
 ## [0.31.0] — 2026-09-07
 

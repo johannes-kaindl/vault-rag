@@ -612,76 +612,76 @@ All notable changes to this project are documented here. The format follows
 ## [0.20.0] — 2026-08-05
 
 ### Added
-- **Endpunkt-Priorität ohne Löschen änderbar:** Jede Endpunkt-Zeile (ab Platz 2) bekommt einen
-  „Zuerst verwenden"-Knopf, der sie an die Spitze der Fallback-Liste setzt. Da die Liste selbst
-  die Priorität ist (der erste erreichbare Endpunkt gewinnt), war Umsortieren bisher nur über
-  Löschen + Neuanlegen möglich. Jede Zeile zeigt außerdem ihre aktuelle Rolle als Text
-  („aktiv" / „erreichbar, aber Platz N" / „nicht erreichbar" / „übersprungen — Modell passt nicht
-  zum Index"), damit nie unklar ist, welcher Endpunkt gerade tatsächlich genutzt wird.
+- **Endpoint priority can be changed without deleting:** every endpoint row (from position 2) gets a
+  "Use first" button that moves it to the top of the fallback list. Since the list itself
+  is the priority (the first reachable endpoint wins), reordering used to be possible only by
+  deleting and recreating. Every row also shows its current role as text
+  ("active" / "reachable, but position N" / "unreachable" / "skipped — model does not match
+  the index"), so that it is never unclear which endpoint is actually being used right now.
 
 ### Fixed
-- **Aktiver Endpunkt war optisch nie markiert:** Die Hervorhebung setzte `font-weight` auf den
-  Status-Icon-Container — der trägt aber nur ein SVG, auf dem `font-weight` wirkungslos ist. Die
-  aktive Zeile sah daher genauso aus wie jede andere erreichbare. Die Markierung sitzt jetzt auf
-  dem neuen Rollen-Text der Zeile, wo sie tatsächlich sichtbar wird.
-- **Fehler des Chat-Endpunkts werden im Klartext gemeldet:** Bisher wurde jeder Fehlschlag durch
-  „Chat-LLM nicht erreichbar (lokal/VPN)." ersetzt — auch ein HTTP 401 mit einer Begründung des
-  Servers. Bei einem gehosteten Endpunkt zeigte diese Vermutung zusätzlich in die falsche
-  Richtung. Jetzt nennt die Meldung Status und Serverbegründung („Zugriff verweigert (HTTP 401)
-  — API-Schlüssel fehlt, ist ungültig oder abgelaufen. — Server: …"), sodass Adresse, Schlüssel,
-  Pfad und Modellname unterscheidbar werden.
-- **Rollen-Text folgte dem Modell-Override nicht:** Wurde das Modell einer Endpunkt-Zeile
-  geändert, blieb die Rollen-Anzeige auf ihrem alten Stand — ein Embedding-Endpunkt, den der
-  Modell-Guard bereits überspringt, meldete weiter „erreichbar, aber Platz N". Korrekt wurde es
-  erst nach einem Neuaufbau des Einstellungs-Tabs.
+- **The active endpoint was never visually marked:** the highlighting set `font-weight` on the
+  status icon container — but that carries only an SVG, on which `font-weight` has no effect. The
+  active row therefore looked just like any other reachable one. The marking now sits on
+  the row's new role text, where it actually becomes visible.
+- **Errors of the chat endpoint are reported in plain text:** until now every failure was replaced by
+  "Chat LLM unreachable (local/VPN)." — even an HTTP 401 with an explanation from the
+  server. With a hosted endpoint this guess additionally pointed in the wrong
+  direction. Now the message names the status and the server's explanation ("Access denied (HTTP 401)
+  — API key missing, invalid or expired. — Server: …"), so that address, key,
+  path and model name become distinguishable.
+- **The role text did not follow the model override:** if the model of an endpoint row was
+  changed, the role display stayed at its old state — an embedding endpoint that the
+  model guard already skips kept reporting "reachable, but position N". It became correct
+  only after a rebuild of the settings tab.
 
 ## [0.19.0] — 2026-08-05
 
 ### Added
-- **Externe LLM-Anbieter:** Endpunkte können jetzt einen API-Schlüssel und ein eigenes Modell
-  tragen. Damit lassen sich OpenAI-kompatible Dienste (OpenRouter, Groq, Together, Mistral,
-  OpenAI …) genauso in die Endpunkt-Liste eintragen wie lokale Server — die Liste bleibt eine
-  Fallback-Kette, der erste erreichbare gewinnt. Der Schlüssel wird maskiert eingegeben und liegt
-  wie alle Einstellungen unverschlüsselt in `data.json`.
-- **Modellauswahl als Dropdown statt Freitext:** Alle vier Modellname-Felder der Einstellungen
-  (Embedding-Modell, Chat-Modell, Smart-Apply-Modell, Modell-Override je Endpunkt-Zeile) zeigen
-  jetzt eine Liste der vom Endpunkt gemeldeten Modelle statt eines Textfelds — bisher war das
-  Endpunkt-Override der einzige Freitext dieser vier und damit tippfehleranfällig. Ist der
-  Endpunkt nicht erreichbar, bleibt der gespeicherte Wert sichtbar, aber gesperrt; liefert er
-  keine Modell-Liste, bleibt es beim Freitextfeld.
-- **Modell-Schutz für den Embedding-Index:** Da ein Index an das Modell gebunden ist, mit dem er
-  gebaut wurde, überspringt der Endpunkt-Resolver jeden Kandidaten, dessen Embedding-Modell nicht
-  zum Index passt, und jeder Schreibvorgang (Live-Embedding, „Index vervollständigen") wird
-  blockiert, wenn Container-Modell und Embedder-Modell auseinanderlaufen — Suche und Lesen laufen
-  dabei unverändert weiter. Ein bewusster Modellwechsel läuft ausschließlich über
-  „Vault neu indizieren" (Voll-Neuaufbau). Betrifft nur Embedding-Endpunkte; ein Modellwechsel bei
-  Chat-Endpunkten bleibt folgenlos.
+- **External LLM providers:** endpoints can now carry an API key and a model of their own.
+  This allows OpenAI-compatible services (OpenRouter, Groq, Together, Mistral,
+  OpenAI …) to be entered into the endpoint list just like local servers — the list remains a
+  fallback chain, the first reachable one wins. The key is entered masked and, like
+  all settings, is stored unencrypted in `data.json`.
+- **Model selection as a dropdown instead of free text:** all four model name fields of the settings
+  (embedding model, chat model, Smart Apply model, per-endpoint-row model override) now
+  show a list of the models reported by the endpoint instead of a text field — until now the
+  endpoint override was the only free text of these four and thus prone to typos. If the
+  endpoint is not reachable, the stored value stays visible but locked; if it returns
+  no model list, it stays a free-text field.
+- **Model protection for the embedding index:** since an index is bound to the model it was
+  built with, the endpoint resolver skips every candidate whose embedding model does not
+  match the index, and every write operation (live embedding, "Complete index") is
+  blocked when container model and embedder model diverge — search and reading continue
+  unchanged. A deliberate model change runs exclusively via
+  "Reindex vault" (full rebuild). Affects only embedding endpoints; a model change on
+  chat endpoints remains without consequences.
 
 ### Fixed
-- **Backup-Rotation ließ leere Ordner zurück:** Beim Aufräumen alter Index-Backups blieb jedes
-  Mal ein leerer Ordner stehen — über Wochen sammelten sich so 1309 davon an. Ursache: Obsidians
-  Adapter kann ein Verzeichnis nur mit `recursive: true` entfernen; der bisherige Aufruf schlug
-  auf **jedem** Verzeichnis fehl und der Fehler wurde stillschweigend verworfen. Das Entfernen
-  läuft jetzt in einem Zug, und Fehlschläge werden protokolliert statt geschluckt. Dieselbe
-  kaputte Aufrufform steckte im Aufräumen des alten Index-Ordners nach einem Pfadwechsel.
+- **Backup rotation left empty folders behind:** when cleaning up old index backups, an empty folder
+  stayed behind each time — over weeks 1309 of them accumulated. Cause: Obsidian's
+  adapter can remove a directory only with `recursive: true`; the previous call failed
+  on **every** directory and the error was silently discarded. Removal
+  now happens in one go, and failures are logged instead of swallowed. The same
+  broken call form was in the clean-up of the old index folder after a path change.
 
 ## [0.18.0] — 2026-07-29
 
 ### Changed
-- **Index-Format:** Der Sync-Index ist jetzt EINE Container-Datei `_vaultrag/index.bin`
-  (vorher drei: `notes.i8`/`paths.json`/`manifest.json`). Obsidian Sync kann damit keine
-  inkonsistenten Mischzustände aus zwei Generationen mehr erzeugen — die Wurzel der
-  wiederkehrenden Index-Beschädigung (Vorfälle 19.07./22.07.) ist beseitigt, nicht nur erkannt.
-  Bestehende Indizes werden beim ersten Start automatisch und verlustfrei migriert.
-  **Mixed-Version-Hinweis:** Ein Gerät, das noch eine ältere Plugin-Version läuft, zeigt bis
-  zu seinem Update „kein Index" an (kein Datenverlust — Notizen sind unberührt).
+- **Index format:** the sync index is now ONE container file `_vaultrag/index.bin`
+  (previously three: `notes.i8`/`paths.json`/`manifest.json`). Obsidian Sync can thereby no longer produce
+  inconsistent mixed states of two generations — the root of the
+  recurring index corruption (incidents of 19.07./22.07.) is eliminated, not just detected.
+  Existing indexes are migrated automatically and losslessly at the first start.
+  **Mixed-version note:** a device that still runs an older plugin version shows "no index" until
+  its update (no data loss — notes are untouched).
 
 ### Added
-- **Automatische Wiederherstellung:** Ist der Index beim Laden beschädigt (z. B. halber
-  Sync-Download), stellt das Plugin ihn selbstständig aus dem neuesten per Prüfsumme
-  verifizierten geräte-lokalen Backup wieder her und ergänzt fehlende Notizen per
-  Delta-Reindex — sofern der Embedding-Endpoint erreichbar ist. Sonst wie bisher:
-  Schreibschutz + Meldung.
+- **Automatic recovery:** if the index is corrupted on load (e.g. a half
+  sync download), the plugin restores it by itself from the newest device-local backup verified by checksum
+  and supplements missing notes via
+  delta reindex — provided the embedding endpoint is reachable. Otherwise as before:
+  write protection + message.
 
 ## [0.17.4] — 2026-07-28
 

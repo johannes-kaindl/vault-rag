@@ -1,5 +1,5 @@
 // Pure-core (obsidian-frei): datenverlust-kritische Entscheidungen an einer Stelle,
-// isoliert testbar. Siehe docs/superpowers/specs/2026-07-10-index-robustheit-design.md.
+// isoliert testbar. Siehe Vault-Cockpit `_SDD/2026-07-10-index-robustheit-design.md`.
 
 export type LoadState = "no-index" | "loaded-ok" | "load-failed-index-present";
 

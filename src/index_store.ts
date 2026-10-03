@@ -1,7 +1,7 @@
 // Pure-core (obsidian-frei): Lade-/Migrations-Wahrheit für den Container-Index.
 // Container-first; Legacy-Tripel (Prä-0.18) wird byte-level in den Container repackt
 // (kein Umweg über Float — keine Re-Quantisierung) und erst nach parseIndex-Beweis
-// geschrieben. Spec: docs/superpowers/specs/2026-07-29-sync-race-container-index-design.md
+// geschrieben. Spec: Vault-Cockpit `_SDD/2026-07-29-sync-race-container-index-design.md`
 
 import { VaultAdapter, VaultIndex, IndexManifest, IndexLoader, parseIndex } from "./index";
 import { CONTAINER_FILE, encodeContainer, decodeContainer, FileStamp } from "./index_container";

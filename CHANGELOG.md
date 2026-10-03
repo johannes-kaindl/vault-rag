@@ -109,66 +109,64 @@ All notable changes to this project are documented here. The format follows
 ## [0.31.0] — 2026-09-07
 
 ### Changed
-- **Das Modell steht nur noch in der Endpunkt-Zeile.** Die globalen Felder „Embedding-Modell"
-  und „Chat-Modell" sind entfallen; beim ersten Start nach dem Update wandert der alte Wert in
-  jede Zeile, die noch kein eigenes Modell trägt (Zeilen mit Modell bleiben, wie sie sind).
-  Grund ist die Kit-Entscheidung aus obsidian-kit 0.29.0: ein Modellname existiert nur auf dem
-  Endpunkt, der ihn meldet — „globales Modell plus Override je Zeile" war dieselbe Information
-  an zwei Orten mit einer Vorrangregel obendrauf. Die Endpunkt-Beschreibung und die Doku sagen
-  nicht mehr „leer heißt globales Modell".
-  - Die alten Schlüssel werden nach der Migration aus den Einstellungen entfernt; sonst liefe
-    sie bei jedem Start erneut und füllte ein bewusst geleertes Zeilen-Modell wieder auf (am
-    laufenden Plugin gemessen).
-- **Vendor-Schicht auf code-kit 0.5.0 / obsidian-kit 0.31.0** (vorher obsidian-kit 0.27.0). Acht
-  der 15 pure-Module gibt es in obsidian-kit nicht mehr, `tools/sync-kit.sh` liest sie jetzt
-  direkt aus code-kit. Was uns davon erreicht: der Chat versteht Reasoning-Deltas auch unter
-  `reasoning` (MLX) und `thinking`, und Server, die trotz `stream: true` ganze Nachrichten
-  schicken, liefern nicht mehr stumm nichts. Das lokale `model_choice.ts` ist gegen die
-  Kit-Fassung getauscht (die ohnehin seit dem Endpunkt-Editor im Baum lag).
-- **Der Endpunkt-Zeilen-Editor kommt jetzt aus dem Kit** statt aus einer lokalen Kopie. Das
-  Modul `obsidian/endpoint-list.ts` ist am 2026-08-08 als „Umzug aus vault-rag" ins Kit gezogen —
-  dieses Repo hat seine eigene Extraktion danach anderthalb Monate nicht zurückadoptiert und die
-  Vorlage weiterlaufen lassen (278 Zeilen in `settings.ts`). Sie ist entfallen; hier bleibt nur
-  die Sprach-Hälfte, die die 22 Textstellen des Kit-Vertrags auf unsere i18n-Schlüssel abbildet.
-  - **Kein Funktionsverlust, und das war die eigentliche Frage:** alles, was diese Zeile über
-    andere Konsumenten hinaus trug — „Zuerst verwenden", die Rollen-Zeile, das Drittanbieter-Icon
-    bei gesetztem Schlüssel, der Modell-Override je Zeile, der Modell-Guard gegen das
-    Index-Modell — ist im Kit parametrisiert. Auch die neun offenen Generalisierungen aus der
-    Registry-Analyse von 2026-07-16 sind dort inzwischen alle gelöst.
-  - **Belegt statt behauptet:** GUI-Smoke vor dem Umbau 34/34, danach 34/34, mit **identischer
-    Prüfpunktmenge** (Namen gediffed, nicht nur die Summe verglichen) und demselben einen
-    übersprungenen Punkt. Ohne festgehaltene Baseline wäre „grün" nicht von „anders grün" zu
-    unterscheiden gewesen.
-  - Mitgezogen: der Modell-Listen-Cache (`vendor/kit/model-list-cache` — ebenfalls eine
-    Extraktion aus diesem Repo) und die CSS-Grammatik, die jetzt `okit-ep-*` heißt.
-- **Smart Apply unterdrückt Thinking jetzt per Default.** Denken und Antwort teilen sich dasselbe
-  `smartApplyMaxTokens`-Budget; bei 4096 und einem ausführlich denkenden Modell ist es erschöpft,
-  **bevor** die Antwort beginnt — gemessen am 2026-08-23 mit `google/gemma-4-26b-a4b-qat`:
-  14.083 Zeichen Reasoning, Antwort leer, 105,9 s Laufzeit ohne Ergebnis. Smart Apply füllt ein
-  JSON-Schema aus; eine Denkphase davor bringt dafür nichts. Der Toggle existierte bereits, er
-  stand nur falsch herum, und die Beschreibung des Feldes sagt jetzt, was das Ausschalten kostet.
-  - **Bewusst ohne Migration:** ein fehlendes Feld erbt den neuen Default, ein explizit
-    gespeichertes `false` bleibt stehen. `data.json` hält nur den Wert, nicht ob ihn jemand
-    gesetzt hat — eine Migration könnte beide Fälle nicht unterscheiden und würde damit auch eine
-    bewusste Entscheidung umdrehen. Für diesen Fall trägt der neue Befund die Auskunft.
+- **The model now lives only in the endpoint row.** The global fields "Embedding model"
+  and "Chat model" are gone; on the first start after the update the old value moves into
+  every row that does not yet carry a model of its own (rows with a model stay as they are).
+  The reason is the kit decision from obsidian-kit 0.29.0: a model name exists only on the
+  endpoint that reports it — "global model plus per-row override" was the same information
+  in two places with a precedence rule on top. The endpoint description and the docs no longer
+  say "empty means global model".
+  - The old keys are removed from the settings after the migration; otherwise it would run
+    again on every start and refill a row model that had been deliberately cleared (measured on the
+    running plugin).
+- **Vendor layer on code-kit 0.5.0 / obsidian-kit 0.31.0** (previously obsidian-kit 0.27.0). Eight
+  of the 15 pure modules no longer exist in obsidian-kit; `tools/sync-kit.sh` now reads them
+  directly from code-kit. What reaches us from that: the chat understands reasoning deltas also under
+  `reasoning` (MLX) and `thinking`, and servers that send whole messages despite `stream: true`
+  no longer silently deliver nothing. The local `model_choice.ts` is swapped for the
+  kit version (which had been in the tree since the endpoint editor anyway).
+- **The endpoint row editor now comes from the kit** instead of a local copy. The
+  module `obsidian/endpoint-list.ts` was moved into the kit on 2026-08-08 as "moved out of vault-rag" —
+  this repo did not adopt its own extraction back for a month and a half and kept running the
+  original (278 lines in `settings.ts`). It is gone; what remains here is only
+  the language half, which maps the 22 text spots of the kit contract onto our i18n keys.
+  - **No loss of function, and that was the real question:** everything this row carried beyond
+    other consumers — "Use first", the role line, the third-party icon
+    when a key is set, the per-row model override, the model guard against the
+    index model — is parameterised in the kit. The nine open generalisations from the
+    registry analysis of 2026-07-16 have meanwhile all been resolved there as well.
+  - **Proven rather than claimed:** GUI smoke before the rebuild 34/34, afterwards 34/34, with an **identical
+    set of checks** (names diffed, not just the totals compared) and the same single
+    skipped check. Without a recorded baseline "green" could not have been told apart from "differently green".
+  - Pulled along: the model list cache (`vendor/kit/model-list-cache` — likewise an
+    extraction from this repo) and the CSS grammar, which is now called `okit-ep-*`.
+- **Smart Apply now suppresses thinking by default.** Thinking and answer share the same
+  `smartApplyMaxTokens` budget; at 4096 and a model that thinks at length it is exhausted
+  **before** the answer begins — measured on 2026-08-23 with `google/gemma-4-26b-a4b-qat`:
+  14,083 characters of reasoning, empty answer, 105.9 s runtime without a result. Smart Apply fills a
+  JSON schema; a thinking phase beforehand brings nothing for that. The toggle already existed, it
+  was just the wrong way round, and the field's description now says what switching it off costs.
+  - **Deliberately without migration:** a missing field inherits the new default, an explicitly
+    stored `false` stays. `data.json` holds only the value, not whether anyone
+    set it — a migration could not tell the two cases apart and would thereby also reverse a
+    deliberate decision. For this case the new finding carries the information.
 
 ### Added
-- **Ein eigener Befund, wenn das Token-Budget im Denken aufgebraucht wurde**
-  (`reasoning-consumed-budget`, ersetzt in diesem Fall `output-truncated`). Beide beschreiben
-  dieselbe Klasse, haben aber verschiedene Auswege: lief das Budget während der *Antwort* aus,
-  hilft nur ein größeres; ging es für die *Denkphase* drauf, ist Thinking abzuschalten der
-  nähere Griff. Der generische Text nannte nur „Max-Tokens erhöhen" — wer dem folgte, drehte am
-  Budget, und das Modell dachte es beim nächsten Mal wieder auf. Wie `output-truncated` ein
-  reiner Begleit-Befund: er geht nie in `hardOk` ein.
+- **A dedicated finding when the token budget was used up while thinking**
+  (`reasoning-consumed-budget`, replaces `output-truncated` in this case). Both describe
+  the same class but have different remedies: if the budget ran out during the *answer*,
+  only a larger one helps; if it went on the *thinking phase*, switching thinking off is the
+  closer remedy. The generic text only said "raise max tokens" — whoever followed it turned the
+  budget up, and the model thought it away again the next time. Like `output-truncated`, a
+  pure companion finding: it never enters `hardOk`.
 
 ### Fixed
-- **Das Smart-Apply-Modell war still wirkungslos, sobald die Chat-Zeile ein Modell trug** —
-  und das tat sie in jedem Setup mit Zeilen-Override. Die Vorrangregel (Zeile schlägt Feature)
-  stammte aus der Zeit, als das globale Feld die Basis war; gemessen 2026-09-07 an einem echten
-  Vault lief Smart Apply auf dem Zeilen-Modell, während die Einstellung ein anderes zeigte. Jetzt
-  gewinnt das Feature-Feld. Der Preis ist benannt: kennt ein Fallback-Endpunkt den Namen nicht,
-  scheitert Smart Apply laut in seiner Fehlerbox, statt still auf ein anderes Modell zu wechseln.
-
+- **The Smart Apply model was silently ineffective as soon as the chat row carried a model** —
+  and it did in every setup with a row override. The precedence rule (row beats feature)
+  dated from the time when the global field was the base; measured 2026-09-07 on a real
+  vault, Smart Apply ran on the row model while the setting showed another one. Now
+  the feature field wins. The price is stated: if a fallback endpoint does not know the name,
+  Smart Apply fails loudly in its error box instead of silently switching to another model.
 
 ## [0.30.0] — 2026-09-05
 

@@ -2,6 +2,7 @@
   "name": "vault-retrieval",
   "version": "0.37.0",
   "description": "On-device retrieval over your vault — related notes, semantic search — plus grounded chat with the LLM endpoint you configure.",
+  "author": "Johannes Kaindl",
   "keywords": [
     "obsidian",
     "obsidian-plugin",

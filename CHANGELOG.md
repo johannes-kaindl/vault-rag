@@ -366,67 +366,67 @@ All notable changes to this project are documented here. The format follows
 ## [0.28.0] — 2026-08-27
 
 ### Changed
-- **Fünf lokale Fassungen sind durch die Module aus obsidian-kit 0.27.0 ersetzt** — die
-  Fehlerkörper-Kaskade, der Callout-Bau, die Hub-Tab-Leiste und beide Kopier-Stellen. Vier davon
-  waren Quellen der Kit-Extraktion; sie liefen hier weiter, während die Fixes, die beim
-  Zusammenführen entstanden, nicht ankamen. Vendoring läuft ab jetzt über `tools/sync-kit.sh`
-  statt per Handkopie, und beide Vendor-Verzeichnisse tragen einen einheitlichen Pin.
-- **„In Callout einpacken" schreibt bei Leerzeilen `>` statt `> `** (ohne nachlaufendes
-  Leerzeichen). Obsidian rendert beides identisch, im Dokument ist der Unterschied nur mit
-  sichtbarem Whitespace zu erkennen — genannt wird er trotzdem, weil der Befehl in die Notizen
-  des Nutzers schreibt und eine unbenannte Änderung dort nichts zu suchen hat.
+- **Five local versions are replaced by the modules from obsidian-kit 0.27.0** — the
+  error body cascade, the callout builder, the hub tab bar and both copy spots. Four of them
+  were sources of the kit extraction; they kept running here while the fixes that arose during
+  the merge did not arrive. Vendoring now runs through `tools/sync-kit.sh`
+  instead of by hand copy, and both vendor directories carry a uniform pin.
+- **"Wrap in callout" writes `>` instead of `> ` for blank lines** (without a trailing
+  space). Obsidian renders both identically, in the document the difference is only visible
+  with visible whitespace — it is mentioned anyway, because the command writes into the user's
+  notes and an unnamed change has no place there.
 
 ### Fixed
-- **„Kopiert" erscheint nicht mehr, wenn gar nichts kopiert wurde.** Beide Kopier-Knöpfe (MCP-Port
-  im Chat-Panel, MCP-Konfiguration in den Einstellungen) zeigten die Erfolgsmeldung unbedingt,
-  ohne das Ergebnis abzuwarten. Lehnt die Zwischenablage ab — Fokusverlust oder fehlende
-  Berechtigung, im unfokussierten Fenster der Normalfall —, stand „Kopiert" bei leerer
-  Zwischenablage. Jetzt erscheint die Meldung nach erfolgreichem Schreiben, und ein Fehlschlag
-  meldet sich als solcher.
-- **Ein Fehlerkörper mit leerem Fehlertext zeigt jetzt den Rohtext statt gar nichts.** Bei einer
-  Antwort wie `{"error":""}` fiel die Serverbegründung vorher komplett weg: der leere String galt
-  als Treffer, und der Rückfall auf den Rohtext griff deshalb nicht.
-- **Ein Tab-Wechsel auf ein abgeschaltetes Panel leert den Hub nicht mehr.** Bei deaktiviertem
-  Smart Apply konnte der Befehl einen Tab aktivieren, dessen Panel nie gebaut wurde — sichtbar
-  wurde ein leerer Hub. Der Wechsel ist jetzt wirkungslos statt zerstörend.
+- **"Copied" no longer appears when nothing was copied at all.** Both copy buttons (MCP port
+  in the chat panel, MCP configuration in the settings) showed the success message unconditionally,
+  without waiting for the result. If the clipboard refuses — loss of focus or missing
+  permission, the normal case in an unfocused window —, "Copied" appeared with an empty
+  clipboard. Now the message appears after a successful write, and a failure
+  reports itself as such.
+- **An error body with an empty error text now shows the raw text instead of nothing.** With a
+  response like `{"error":""}` the server's explanation used to drop out completely: the empty string counted
+  as a hit, and the fallback to the raw text therefore did not kick in.
+- **Switching to a disabled panel's tab no longer empties the hub.** With Smart Apply
+  disabled, the command could activate a tab whose panel was never built — an empty hub
+  became visible. The switch is now ineffective instead of destructive.
 
 ### Accessibility
-- **Die Hub-Tab-Leiste ist eine echte ARIA-Tabliste.** Tabs melden `role`/`aria-selected` und
-  zeigen per `aria-controls` auf ihr Panel; die Navigation läuft über Pfeiltasten, Home und End
-  (roving tabindex). ⚠️ Damit sind inaktive Tabs **nicht mehr per Tab-Taste** erreichbar — das ist
-  das Standardverhalten einer Tabliste, aber eine Änderung gegenüber vorher.
+- **The hub tab bar is a real ARIA tablist.** Tabs report `role`/`aria-selected` and
+  point to their panel via `aria-controls`; navigation works with arrow keys, Home and End
+  (roving tabindex). ⚠️ As a result, inactive tabs are **no longer reachable with the Tab key** — that is
+  the standard behaviour of a tablist, but a change compared with before.
 
 ## [0.27.0] — 2026-08-24
 
 ### Fixed
-- **Gemma-Modelle werden nicht mehr fälschlich als „keine Vision" angezeigt.** Die Erkennung
-  kannte nur die Ollama-Schreibweise (`gemma3:4b`). LM Studio liefert dasselbe Modell als
-  `google/gemma-3-4b-it`, und die gesamte Gemma-4-Reihe fiel ebenfalls durch — beide wurden als
-  vision-los geführt, obwohl sie Bilder verstehen. Die kleinen Text-Modelle (`3-1b`, `3-270m`)
-  bleiben korrekt als vision-los erkannt, jetzt aus dem richtigen Grund statt zufällig.
-- **„Auf aktive Notiz anwenden" ist gesperrt, solange keine Vorlage feststeht.** Wer klickte,
-  während die Vorlagen-Erkennung noch lief, startete einen Lauf ohne Vorlage; das Panel fiel
-  daraufhin still in den Ausgangszustand zurück. Von außen war das nicht davon zu unterscheiden,
-  dass Smart Apply noch rechnet — was legitim zehn Minuten dauern kann. Wer eine Sekunde später
-  geklickt hätte, hätte ein korrektes Ergebnis bekommen.
-- **Das Öffnen der Einstellungen schreibt die Konfiguration nicht mehr.** Beim Zeichnen zog das
-  Plugin die Obergrenze des Kontext-Budgets ans Modell nach und löste damit einen vollständigen
-  Speichervorgang aus, ohne dass jemand etwas geändert hatte. Das zementierte einen fehlerhaften
-  Zustand sofort auf die Platte und machte „die Konfigurationsdatei wurde geschrieben" als
-  Hinweis bei der Fehlersuche wertlos. Eine echte Anpassung des Werts wird weiterhin gespeichert.
-- **Ein abgebrochener Chat zeichnet den bis dahin erhaltenen Text auf** (nur mit installiertem
-  „LLM Lab"). Bisher wurde ein per „Stopp" beendeter Lauf mit leerem Inhalt gemeldet — also
-  ohne genau das, wofür man ihn nachsieht.
+- **Gemma models are no longer wrongly shown as "no vision".** The detection
+  only knew the Ollama spelling (`gemma3:4b`). LM Studio delivers the same model as
+  `google/gemma-3-4b-it`, and the entire Gemma 4 series fell through as well — both were listed as
+  without vision although they understand images. The small text models (`3-1b`, `3-270m`)
+  remain correctly detected as without vision, now for the right reason instead of by accident.
+- **"Apply to active note" is disabled as long as no template has been determined.** Whoever clicked
+  while the template detection was still running started a run without a template; the panel then fell
+  silently back to its initial state. From outside that was indistinguishable
+  from Smart Apply still computing — which can legitimately take ten minutes. Whoever had
+  clicked a second later would have got a correct result.
+- **Opening the settings no longer writes the configuration.** While drawing, the
+  plugin adjusted the upper limit of the context budget to the model and thereby triggered a complete
+  save without anyone having changed anything. That cemented a faulty
+  state onto the disk immediately and made "the configuration file was written" worthless
+  as a hint when debugging. A real adjustment of the value is still saved.
+- **An aborted chat records the text received up to that point** (only with "LLM Lab"
+  installed). Until now a run ended with "Stop" was reported with empty content — that is,
+  without exactly what one looks it up for.
 
 ### Changed
-- **Das Prüfgatter läuft jetzt bei jeder Änderung an `main`, nicht mehr nur beim Release.**
-  Dazu prüft es neu, dass die Obsidian-Abhängigkeit auf die dafür vorgesehenen Dateien beschränkt
-  bleibt — die Architekturregel dahinter stand bisher nur in der Dokumentation.
-- **Die Anbindung an „LLM Lab" verlangt jetzt dessen apiVersion 2** (Endpunkt-Schlüssel zur
-  exakten Maskierung, Kontext-Pfade für einen Ordner-Filter). Ist „LLM Lab" noch auf dem
-  alten Vertrag (apiVersion 1, vor dessen Release 0.3.0), meldet vault-rag ab diesem Release
-  **gar nichts mehr** ans Lab — genau wie ohne installiertes Lab, nur still, bis „LLM Lab" auf
-  0.3.0 aktualisiert ist.
+- **The gate now runs on every change to `main`, no longer only at release.**
+  In addition it newly checks that the Obsidian dependency stays restricted to the files provided for it
+  — the architecture rule behind it was previously only in the documentation.
+- **The connection to "LLM Lab" now requires its apiVersion 2** (endpoint key for
+  exact masking, context paths for a folder filter). If "LLM Lab" is still on the
+  old contract (apiVersion 1, before its release 0.3.0), vault-rag reports
+  **nothing at all** to the lab from this release on — just as without an installed lab, only silently, until "LLM Lab" is
+  updated to 0.3.0.
 
 ## [0.26.0] — 2026-08-23
 

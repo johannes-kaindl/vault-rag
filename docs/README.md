@@ -18,4 +18,4 @@ The [README](https://github.com/johannes-kaindl/vault-rag/blob/main/README.md) c
 
 ---
 
-`SMOKE.md`, `images/` and `superpowers/` hold maintainer material (the GUI smoke checklist, README screenshots, design specs and plans) and are not user documentation.
+`SMOKE.md` and `images/` hold maintainer material (the GUI smoke checklist and the README screenshots) and are not user documentation.

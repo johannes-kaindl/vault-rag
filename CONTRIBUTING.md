@@ -18,8 +18,7 @@ workspace conventions documented in [`AGENTS.md`](AGENTS.md); the short version:
 - **`npm run gate`** — one command, and the same one CI runs on every push to `main`.
   It chains typecheck, tests, lint, `check:pure` and the build; listing the steps
   separately here is how a contributor ends up green locally and red in CI.
-- **TDD is the default**, and larger features go through brainstorm → spec → plan → TDD
-  ([`docs/superpowers/`](docs/superpowers/)).
+- **TDD is the default**, and larger features go through brainstorm → spec → plan → TDD.
 - Tests verify real behaviour, not mocks; no `.only`/`.skip` in commits.
 
 ## UI conventions

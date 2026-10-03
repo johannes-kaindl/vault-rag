@@ -364,7 +364,7 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
 **Index-Format (seit 0.18.0):** EINE Container-Datei `_vaultrag/index.bin` — `"VRIX"` · u32 headerLen LE
 · Header-JSON (Manifest inkl. `paths`, `schema_version: 2`) · Int8-Matrix · CRC32. Ein File statt drei,
 damit Obsidian Sync keine Generationen mischen kann (Spec
-`docs/superpowers/specs/2026-07-29-sync-race-container-index-design.md`). Embedding-Dimension **256**,
+im Vault-Cockpit unter `_SDD/`: `2026-07-29-sync-race-container-index-design.md`). Embedding-Dimension **256**,
 `INT8_SCALE = 127`, **mean**-Aggregation. `pending.json` bleibt eigenständig (Dirty-List, unkritisch).
 Das Prä-0.18-Tripel (`notes.i8`/`paths.json`/`manifest.json`) wird beim ersten Load byte-level migriert.
 **HyperForge-Export ist stillgelegt** — bei Reaktivierung muss er das Container-Format erzeugen.
@@ -476,8 +476,7 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 - **Größere Features** laufen über die Superpowers-Kette
   brainstorming → writing-plans → subagent-driven-development → finishing; **TDD ist Default**.
-  Specs/Pläne landen im Coding-Cockpit des Maintainers (siehe §Memory, CORE-META-14);
-  `docs/superpowers/{specs,plans}/` ist eingefrorener Alt-Bestand.
+  Specs und Pläne liegen im Vault-Cockpit unter `_SDD/` (CORE-META-14, siehe §Memory).
 
 ## Gotchas
 
@@ -787,7 +786,7 @@ gar nicht bis in die Oberfläche schafft.
   nichts geändert (Datenverlust-Schutz, B-vor-A).
 - **MCP-Server läuft in-Plugin (HTTP)** statt als separater stdio-CLI: desktop-only via
   `Platform.isMobile`-Gate, Loopback (`127.0.0.1`) + Bearer-Token, läuft nur solange Obsidian
-  offen ist (kein eigenständiger Prozess); Spec `docs/superpowers/specs/2026-07-09-mcp-server-design.md`.
+  offen ist (kein eigenständiger Prozess); Spec im Vault-Cockpit unter `_SDD/`: `2026-07-09-mcp-server-design.md`.
 - **Der Chat-Client ist seit Welle 11 der Kit-Client, `ChatClient.stream` bleibt die lokale Fassade.** Seit Welle 14 baut sie gar nichts mehr: `opts.params` kommt fertig vom Aufrufer (`main.ts` → `requestFor` → `request_profile.ts`), `opts.check` prüft die Antwort per `checkResponse` gegen das Profil (Abweichungen gehen an die Sitzung, ein werfendes `report` reißt nichts mit). Sie übersetzt das Kit-`kind` zurück in die Fehler, die die Aufrufer kennen: `http`/`overflow` → `ChatHttpError`, `timeout` → `ChatTimeoutError`, `aborted` → `AbortError`, sonst der Netzfehlertext; „abgeschnitten ohne Text“ (`kind: "truncated"`) bleibt ein Ergebnis mit `finishReason: "length"`, kein Wurf. Fristen: Idle 120 s, bis zum ersten Chunk 600 s (LM Studio lädt ein Modell beim ersten Aufruf und sendet dabei nichts); vorher gab es gar keine. Nach einem Netzfehler des XHR wiederholt der Client einmal ohne Stream über `requestUrl` und bleibt dabei — je Instanz, und `main.ts` baut die Instanz beim Endpunktwechsel neu. `ttftMs` im Lab-Log ist jetzt die Zeit bis zum ersten Byte, auch Reasoning. Lokal bleibt vom Lab nur `newTurnId`; der Smoke-Stub liest die `apiVersion` aus dem vendorten `lab-client.ts`.
 - **Ein Endpunkt-API-Schlüssel muss an ALLE fünf Netzwege**, nicht nur den Chat-/Embed-POST:
   Probe (`probeEndpoint`/`.probe()`/`.ping()`), `listModels`, `embed`/Chat-POST, der Kit-Chat-Client
@@ -887,7 +886,7 @@ gar nicht bis in die Oberfläche schafft.
   Coding-Cockpit des Maintainers (`$VAULT/25_Coding/vault-rag/_SDD/`, CORE-META-14, maintainer-lokal).
   Sie tragen Arbeitskontext (Vault-Pfade, Schwester-Repo-Interna), der in einem public Repo niemandem nützt.
   Das Repo behält die Design-Essenz in dieser Datei + `CHANGELOG.md`.
-- **Alt-Bestand:** `docs/superpowers/{specs,plans}/` ist eingefroren — nichts Neues dort ablegen.
+- **Specs und Pläne liegen im Vault-Cockpit unter `_SDD/` (CORE-META-14)** — auch der frühere Bestand aus `docs/superpowers/` ist dorthin umgezogen; im Repo wird nichts davon abgelegt.
 - **Nie im Repo:** absolute Pfade außerhalb des Repos (`/Users/…`, Vault-Pfade) — Platzhalter nutzen
   (`$VAULT/…`, `~/…`, repo-relativ). Herkunftsnachweise als Repo-Name + `Datei:Zeile` sind dagegen erwünscht.
   Gate: `scripts/check-no-abs-paths.mjs` (Teil von `npm test`).

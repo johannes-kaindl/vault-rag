@@ -227,7 +227,7 @@ If the **LLM Lab** plugin is installed, Vault Retrieval reports its LLM calls to
 
 ## Contributing
 
-Issues and pull requests are welcome on [Forgejo](https://git.jkaindl.de/jkaindl/vault-rag) (canonical; GitHub is a mirror). The project is test-driven — every change ships with tests (`npm test`), and larger features go through a brainstorm → spec → plan → TDD flow ([`docs/superpowers/`](https://github.com/johannes-kaindl/vault-rag/tree/main/docs/superpowers)). See [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md) for architecture and conventions.
+Issues and pull requests are welcome on [Forgejo](https://git.jkaindl.de/jkaindl/vault-rag) (canonical; GitHub is a mirror). The project is test-driven — every change ships with tests (`npm test`), and larger features go through a brainstorm → spec → plan → TDD flow. See [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md) for architecture and conventions.
 
 ## License
 

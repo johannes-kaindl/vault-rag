@@ -171,126 +171,126 @@ All notable changes to this project are documented here. The format follows
 ## [0.30.0] — 2026-09-05
 
 ### Added
-- **Der Index meldet jetzt, wenn eine Notiz sich seit ihrem Einbetten geändert hat.** Bis dahin
-  war ein veralteter Vektor bei vorhandenem Pfad durch **nichts** erkennbar: CRC32 deckt Header
-  und Nutzlast gemeinsam ab und beglaubigt einen Fehlstand mit, `diffIndexVsVault` ist rein
-  mengenbasiert, `findDeadVectorPaths` sieht nur Nullvektoren — die Suche wurde still schlechter,
-  während „Index vervollständigen" nichts anzubieten hatte. Der Container trägt dafür je Zeile
-  `[mtime, size]` der Notiz; beim Laden vergleicht das Plugin gegen den aktuellen Stand, meldet
-  die Abweichungen und merkt sie zum Neu-Einbetten vor (wie bisher schon die toten Zeilen).
-  - **Kein Format-Bruch:** das Feld ist optional unter derselben `schema_version`. Ein Container
-    mit Stempeln bleibt für jede ältere Plugin-Version lesbar — wichtig, weil der Index-Ordner
-    gesynct wird und eine Versionserhöhung dort den *Gefahrenzustand* ausgelöst hätte.
-  - **Ein Index ohne Stempel (vor dieser Version gebaut) meldet nichts**, statt den ganzen Vault
-    als veraltet auszuweisen: ungeprüft ist nicht verdächtig. Die Stempel entstehen beim nächsten
-    ohnehin fälligen Reindex, es wird keiner erzwungen.
-  - **Kosten beim Start: keine.** `mtime` und `size` liefert Obsidian aus `TFile.stat` im
-    Speicher. Gemessen am 2026-09-04 im Arbeits-Vault: ein Inhalts-Hash hätte stattdessen alle
-    7200 Notizen gelesen (44 MB, 768 ms roh, über die Obsidian-Schicht ein Vielfaches).
+- **The index now reports when a note has changed since it was embedded.** Until then
+  a stale vector with an existing path was recognisable by **nothing**: CRC32 covers header
+  and payload together and certifies a faulty state along with them, `diffIndexVsVault` is purely
+  set-based, `findDeadVectorPaths` only sees zero vectors — search silently got worse
+  while "Complete index" had nothing to offer. For this the container carries `[mtime, size]` of the
+  note per row; on load the plugin compares against the current state, reports
+  the deviations and queues them for re-embedding (as it already did for the dead rows).
+  - **No format break:** the field is optional under the same `schema_version`. A container
+    with stamps stays readable for every older plugin version — important, because the index folder
+    is synced and a version bump there would have triggered the *danger state*.
+  - **An index without stamps (built before this version) reports nothing**, instead of declaring the whole
+    vault stale: unchecked is not suspicious. The stamps are created at the next
+    reindex that is due anyway; none is forced.
+  - **Cost at startup: none.** Obsidian supplies `mtime` and `size` from `TFile.stat` in
+    memory. Measured on 2026-09-04 in the working vault: a content hash would instead have read all
+    7200 notes (44 MB, 768 ms raw, many times that through the Obsidian layer).
 
-- **Die Plugin-API meldet, dass gerade ein Voll-Reindex läuft** (`status().reindexing`). Bis dahin
-  war der Umbau nach außen unsichtbar: `indexed` und `noteCount` blieben wahr und bezogen sich
-  auf den *bisherigen* Stand — ein Fremdplugin konnte nicht zwischen „Index ist fertig und gut"
-  und „Index wird gerade ersetzt" unterscheiden und reichte ahnungslos die alte Nachbarschaft
-  weiter. Gemeldet von der einzigen Konsumenten-Seite (koda-agent) aus einem echten Parallellauf.
-  - **Bewusst ein Boolean, keine Fortschrittszahl.** „2900 von 6696" lädt dazu ein, eine Schwelle
-    zu bauen („ab 80 % vertraue ich den Treffern wieder") — und ein Urteil über Trefferqualität
-    gehört der Quelle, nicht dem Konsumenten. Fortschritt zeigt die eigene Oberfläche.
-  - **`indexed` bleibt dabei `true`.** Das neue Feld qualifiziert es, es widerspricht ihm nicht:
-    während des Umbaus gibt es weiterhin einen nutzbaren Index — der alte steht vollständig im
-    Speicher, `related()` rechnet offline darauf weiter. Ein „ehrliches `false`" hieße „kein
-    Index" und nähme dem Konsumenten die Fähigkeit für Stunden.
-  - **Kein `apiVersion`-Bump:** ein zusätzliches Feld ändert die Form des Vertrags nicht. Ältere
-    Plugin-Versionen liefern hier schlicht `undefined`.
-  - Am laufenden System gesehen: `reindexing` steht während eines echten Laufs auf `true` und
-    fällt mit dessen Ende zurück auf `false`.
+- **The plugin API reports that a full reindex is currently running** (`status().reindexing`). Until then
+  the rebuild was invisible from outside: `indexed` and `noteCount` stayed true and referred to the
+  *previous* state — a third-party plugin could not distinguish between "index is finished and good"
+  and "index is being replaced right now" and unknowingly passed on the old neighbourhood.
+  Reported from the only consumer side (koda-agent) from a real parallel run.
+  - **Deliberately a boolean, not a progress number.** "2900 of 6696" invites building a threshold
+    ("from 80 % I trust the hits again") — and a judgement about hit quality
+    belongs to the source, not the consumer. Progress is shown by the plugin's own UI.
+  - **`indexed` stays `true`.** The new field qualifies it, it does not contradict it:
+    during the rebuild there is still a usable index — the old one sits completely in
+    memory, `related()` keeps computing on it offline. An "honest `false`" would mean "no
+    index" and take the capability away from the consumer for hours.
+  - **No `apiVersion` bump:** an additional field does not change the shape of the contract. Older
+    plugin versions simply return `undefined` here.
+  - Seen on the running system: `reindexing` is `true` during a real run
+    and falls back to `false` when it ends.
 
-- **Ein laufender Voll-Reindex lässt sich abbrechen** (Befehl „Vault-Indizierung stoppen").
-  Bisher gab es dafür keinen Weg: kein Flag, kein `AbortController`, und ein Deaktivieren des
-  Plugins beendete den laufenden Vorgang nicht — er arbeitete seine Liste weiter ab, belegte den
-  Embedding-Endpunkt und schrieb am Ende seinen Index in ein Plugin hinein, das es nicht mehr
-  gab. Der einzige verfügbare Stopp war ein Neuladen des ganzen Vault-Fensters.
-  - **Ein Abbruch kostet nichts.** Der Index bleibt *vollständig*: neu berechnete Notizen plus
-    alle noch nicht erreichten mit ihren bisherigen Vektoren. Am laufenden System gemessen —
-    Abbruch nach 32 von 168 Notizen, danach standen weiterhin 168 im Index.
-  - Abgebrochen wird an der nächsten Gruppengrenze, nicht mitten in einer Embedding-Anfrage:
-    deren Vektoren wären sonst verloren. Gemessen endete der Lauf 6 Sekunden nach dem Befehl.
-  - Der Befehl bleibt in der Palette sichtbar, auch wenn gerade nichts läuft, und erklärt das
-    dann — ein Befehl, der verschwindet, sieht aus, als gäbe es die Funktion nicht.
+- **A running full reindex can be cancelled** (command "Stop vault indexing").
+  There was no way to do that before: no flag, no `AbortController`, and disabling the
+  plugin did not end the running operation — it kept working through its list, occupied the
+  embedding endpoint and at the end wrote its index into a plugin that no longer
+  existed. The only available stop was reloading the whole vault window.
+  - **A cancellation costs nothing.** The index stays *complete*: newly computed notes plus
+    all those not yet reached with their previous vectors. Measured on the running system —
+    cancelled after 32 of 168 notes, afterwards there were still 168 in the index.
+  - Cancellation happens at the next group boundary, not in the middle of an embedding request:
+    its vectors would otherwise be lost. Measured, the run ended 6 seconds after the command.
+  - The command stays visible in the palette even when nothing is running, and explains that
+    then — a command that disappears looks as if the feature did not exist.
 
 ### Fixed
-- **Eine einzige Notiz ohne Stempel nimmt nicht mehr dem ganzen Index seine Stempel.** Das
-  Stempel-Feld ist ein Array parallel zu den Pfaden, und `stampsFor` brach bei der ersten Lücke
-  ab — der Container wurde dann ganz ohne Stempel geschrieben. `stampOf` liefert aber
-  `undefined`, sobald eine Notiz zwischen Lesen und Stempeln aus dem Vault verschwindet, und bei
-  einem Lauf über Tausende Notizen genügt **eine**. Der Wächter gegen veraltete Vektoren war
-  damit ausgerechnet in großen, aktiv benutzten Vaults blind — also dort, wofür er gebaut wurde.
-  - **Gemessen am 2026-09-05**, in zwei Vaults mit demselben Build: Staging (18 Notizen, ~30 s)
-    ⇒ 18 Stempel im Container. Arbeits-Vault (7.002 Notizen, ~10 h) ⇒ **keine**. Auch die drei
-    Index-Backups des Laufs trugen keine.
-  - **Der Lauf meldete dabei nichts:** Container gültig, CRC in Ordnung, Vektoren frisch, Notice
-    „N Notizen indiziert". Und beim nächsten Start schweigt der Wächter korrekt, weil ein Index
-    ohne Stempel als *ungeprüft* gilt, nicht als verdächtig — der Fehlstand war von einem
-    gesunden Zustand nicht zu unterscheiden.
-  - **Lücken tragen jetzt `[0, 0]`** und gelten beim Vergleich als ungeprüft. Der Einwand hinter
-    der alten Lösung („eine ungestempelte Zeile darf nicht für unauffällig gehalten werden")
-    bleibt damit beantwortet — die Zeile ist als ungeprüft *markiert*, statt zu fehlen. Kein
-    Format-Bruch: der Wert ist unter derselben `schema_version` gültig, und `[0, 0]` kann keine
-    echte Notiz sein (mtime 0 wäre 1970; eine 0 Byte große Notiz hat keine Chunks und steht nie
-    im Index).
-  - **Ein Altbestand-Index bleibt ohne Stempel-Feld**, statt jede Zeile mit Platzhaltern zu
-    füllen: das hält „nie gestempelt" und „einzelne Lücke" unterscheidbar und spart bei 7.000
-    Notizen ~42 KB Header-JSON ohne Aussage.
+- **A single note without a stamp no longer takes the stamps away from the whole index.** The
+  stamp field is an array parallel to the paths, and `stampsFor` aborted at the first gap
+  — the container was then written without any stamps at all. But `stampOf` returns
+  `undefined` as soon as a note disappears from the vault between reading and stamping, and in
+  a run over thousands of notes **one** is enough. The guard against stale vectors was
+  thereby blind precisely in large, actively used vaults — that is, where it was built to work.
+  - **Measured on 2026-09-05**, in two vaults with the same build: staging (18 notes, ~30 s)
+    ⇒ 18 stamps in the container. Working vault (7,002 notes, ~10 h) ⇒ **none**. The three
+    index backups of the run carried none either.
+  - **The run reported nothing in the process:** container valid, CRC fine, vectors fresh, notice
+    "N notes indexed". And at the next start the guard stays silent, correctly, because an index
+    without stamps counts as *unchecked*, not as suspicious — the faulty state could not be told apart from
+    a healthy one.
+  - **Gaps now carry `[0, 0]`** and count as unchecked in the comparison. The objection behind
+    the old solution ("an unstamped row must not be taken for inconspicuous")
+    thus remains answered — the row is *marked* as unchecked instead of missing. No
+    format break: the value is valid under the same `schema_version`, and `[0, 0]` cannot be a
+    real note (mtime 0 would be 1970; a note of 0 bytes has no chunks and is never
+    in the index).
+  - **A legacy index stays without a stamp field**, instead of filling every row with placeholders:
+    that keeps "never stamped" and "single gap" distinguishable and saves ~42 KB of header JSON
+    without meaning at 7,000 notes.
 
 ### Changed
-- **Ein Voll-Reindex bündelt die Chunks mehrerer Notizen in eine Embedding-Anfrage.** Der
-  Embedding-Client batcht intern seit jeher zu 32, bekam vom Reindex aber nur die Chunks *einer*
-  Notiz auf einmal — typisch 1–5 — und lief damit fast immer im Leerlauf. Am 2026-09-05 am
-  echten Endpunkt gemessen (`qwen3-embedding:8b`, Ollama): **1 Chunk kostet 3,62 s, 32 Chunks
-  kosten 4,68 s.** Der Aufruf-Overhead dominiert, nicht die Arbeit; ein Voll-Reindex über ~7.200
-  Notizen lief entsprechend bei ~0,5 Notizen/s.
-  - **Die Aufteilung der Antwort ist gegen Versatz gesichert.** Die Vektoren werden nach
-    Chunk-Zahl auf die Notizen verteilt — liefert ein Endpunkt mehr oder weniger Vektoren als
-    Chunks, verschiebt sich ab dort *jede* Zuordnung um denselben Betrag. Das ist exakt die
-    treppenförmige Fehlzuordnung, die am 2026-08-30 ~79 % des Arbeits-Vaults betraf und die
-    CRC32 nicht sehen kann. Stimmt die Länge nicht, fällt der Lauf auf Einzelverarbeitung
-    zurück: lieber langsam richtig als schnell falsch.
-  - **Eine kaputte Notiz reißt ihre Gruppe nicht mit.** Scheitert die Gruppen-Anfrage, wird
-    Notiz für Notiz nachgefasst — `failed` behält damit den Zuschnitt von vorher, statt bis zu
-    32 gesunde Notizen mitzumelden.
-  - Nicht angefasst: `healMissing` (Delta-Reindex) embeddet weiterhin pro Notiz. Dort geht es
-    um wenige Notizen, und der Umbau säße im selben Schreibpfad.
+- **A full reindex bundles the chunks of several notes into one embedding request.** The
+  embedding client has always batched internally to 32, but from the reindex it received only the chunks of *one*
+  note at a time — typically 1–5 — and thus almost always ran idle. Measured on 2026-09-05 at the
+  real endpoint (`qwen3-embedding:8b`, Ollama): **1 chunk costs 3.62 s, 32 chunks
+  cost 4.68 s.** The call overhead dominates, not the work; a full reindex over ~7,200
+  notes accordingly ran at ~0.5 notes/s.
+  - **The splitting of the response is secured against offset.** The vectors are distributed to the notes by
+    chunk count — if an endpoint returns more or fewer vectors than
+    chunks, *every* assignment from there on shifts by the same amount. That is exactly the
+    staircase-shaped misassignment that affected ~79 % of the working vault on 2026-08-30 and that
+    CRC32 cannot see. If the length does not match, the run falls back to single processing:
+    better slow and right than fast and wrong.
+  - **One broken note does not drag its group down.** If the group request fails, the run retries
+    note by note — `failed` thus keeps its earlier granularity instead of also reporting up to
+    32 healthy notes.
+  - Not touched: `healMissing` (delta reindex) still embeds per note. There it is
+    about a few notes, and the rebuild would sit in the same write path.
 
 ### Fixed
-- **Ein Voll-Reindex bildet den Vault jetzt so ab, wie er beim ABSCHLUSS aussieht — nicht wie
-  beim Start.** `reindexAll` arbeitet eine beim Start gesnapshottete Pfadliste ab und ersetzte
-  am Ende den ganzen Bestand; alles, was während des Laufs hereinkam, fiel dabei heraus. Am
-  2026-09-04 in drei Ausprägungen gemessen: eine **neu angelegte** Notiz fehlte danach, eine
-  **geänderte** behielt den beim Lauf gelesenen (also älteren) Vektor, eine **gelöschte** kam
-  zurück. Live-Handler zeichnen ihre Pfade während eines Laufs jetzt mit; beim Abschluss und bei
-  jedem Zwischenstand gewinnt der Live-Stand gegen den Snapshot.
-  ⚠️ Der Fall „geänderte Notiz" war der gefährliche, weil **stumm**: der Pfad steht im Index, nur
-  der Vektor ist veraltet — `diffIndexVsVault` ist mengenbasiert und sieht das nie,
-  `computeIndexDelta` meldet „vollständig", `status()` weiter `indexed: true`. Er heilte sich
-  weder von selbst noch über „Index vervollständigen", sondern erst beim nächsten Voll-Reindex.
-- **Ein Live-Update während des Schreibens eines Zwischenstands geht nicht mehr verloren.**
-  `persistCheckpoint` hängte `this.noteVectors` für die Dauer des Schreibvorgangs auf eine
-  temporäre Map um und stellte danach den alten Stand wieder her. Weil dazwischen `await`
-  steht und der Reindex **nicht** unter dem Live-Mutex (`runIndexOp`) läuft, schrieb ein
-  gleichzeitiges `handleModify` in genau die Map, die unmittelbar darauf verworfen wurde.
-  Das Umhängen ist ersatzlos entfallen — die zu schreibende Map wird jetzt als Argument
-  übergeben (`persistVectors`), das Zeitfenster existiert nicht mehr, statt bewacht zu werden.
+- **A full reindex now maps the vault as it looks at COMPLETION — not as it did
+  at the start.** `reindexAll` works through a path list snapshotted at the start and replaced the whole
+  inventory at the end; everything that came in during the run dropped out in the process. Measured on
+  2026-09-04 in three forms: a **newly created** note was missing afterwards, a
+  **changed** one kept the (older) vector read during the run, a **deleted** one
+  came back. Live handlers now record their paths during a run; on completion and at
+  every intermediate state the live state wins against the snapshot.
+  ⚠️ The "changed note" case was the dangerous one, because it was **silent**: the path is in the index, only
+  the vector is stale — `diffIndexVsVault` is set-based and never sees that,
+  `computeIndexDelta` reports "complete", `status()` still `indexed: true`. It healed
+  neither on its own nor through "Complete index", only at the next full reindex.
+- **A live update during the writing of an intermediate state is no longer lost.**
+  `persistCheckpoint` re-pointed `this.noteVectors` to a temporary map for the duration of the write
+  and restored the old state afterwards. Because there is an `await` in between
+  and the reindex does **not** run under the live mutex (`runIndexOp`), a
+  concurrent `handleModify` wrote into exactly the map that was discarded immediately afterwards.
+  The re-pointing is removed without replacement — the map to be written is now
+  passed as an argument (`persistVectors`), the time window no longer exists instead of being guarded.
 
-- **`scripts/index-probe.ts` hält seine Zusage der Vergleichbarkeit jetzt ein** (Maintainer-Werkzeug).
-  Der Docblock sagte zu, ein Wiederholungslauf treffe dieselbe Auswahl — der Fisher-Yates-Shuffle
-  zog aber `j = seed % (i + 1)`, also ging die *Länge* der Dateiliste in jede Position ein. Eine
-  einzige zusätzliche Notiz verschob damit die gesamte Auswahl; zwei Läufe vor und nach einem
-  Voll-Reindex teilten keine einzige Notiz und lasen sich trotzdem wie eine Verbesserung.
-  - Die Auswahl ordnet jetzt ein Hash je *Pfad* statt der Position und lebt in getestetem Code
-    (`scripts/probe_core.ts`) statt im `evaluate`-String — vorher war sie strukturell unprüfbar.
-  - `--wie <bericht.json>` misst exakt die Notizen eines früheren Laufs und stellt die Ränge
-    gegenüber. Erst das erlaubt die Aussage „diese Notiz ist geheilt"; Notizen, die im zweiten
-    Lauf fehlen, werden ausgewiesen statt geschluckt.
+- **`scripts/index-probe.ts` now keeps its promise of comparability** (maintainer tool).
+  The docblock promised that a repeat run hits the same selection — but the Fisher-Yates shuffle
+  drew `j = seed % (i + 1)`, so the *length* of the file list went into every position. A
+  single additional note therefore shifted the whole selection; two runs before and after a
+  full reindex shared not a single note and still read like an improvement.
+  - The selection now orders by a hash per *path* instead of by position and lives in tested code
+    (`scripts/probe_core.ts`) instead of in the `evaluate` string — before, it was structurally untestable.
+  - `--wie <report.json>` measures exactly the notes of an earlier run and compares the ranks.
+    Only that allows the statement "this note is healed"; notes that are missing in the second
+    run are reported instead of swallowed.
 
 ## [0.29.1] — 2026-09-03
 

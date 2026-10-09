@@ -53,6 +53,8 @@ export interface VaultRagPluginHost extends Plugin {
   chatClient: ChatClient;
   /** Die Chat-Anbindung (Kit `createLlmConnection`): zeichnet die Abschnitte „Endpunkte“ und „Anfrage“. */
   readonly llm: LlmConnection;
+  /** Der offene Tab hängt hier die Zeilen ein, die dem aufgelösten Chat-Endpunkt folgen (Modelldetails, Fähigkeiten). */
+  chatResolvedHook: (() => void) | null;
   /** Modell, das Chat-Anfragen tatsächlich mitschicken (Zeilen-Modell des aktiven
    *  Endpunkts — seit 0.31.0 die einzige Quelle) — siehe main.ts. */
   chatModelInUse: string;
@@ -596,6 +598,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  leert ihn beim Neuzeichnen und darf nie den ganzen Tab bekommen. */
   private renderChatConnection = (setting: Setting): void => {
     const host = settingBodyHost(setting).createDiv();
+    // Eine Auflösung, die das Kit selbst anstößt (Liste, Wahl), ändert das Modell: die Zeilen darunter folgen ihr.
+    this.plugin.chatResolvedHook = () => { this.showInfo(this.plugin.chatModelInUse); this.showCaps(this.plugin.chatModelInUse); };
     this.plugin.llm.renderSettings(host, { lang: getLang() });
   };
 
@@ -714,6 +718,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.resolvedOnOpen = false;
     this.modelCache.clear();
     this.plugin.llm.hideSettings();
+    this.plugin.chatResolvedHook = null;
     super.hide();
   }
 

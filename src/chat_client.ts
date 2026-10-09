@@ -5,7 +5,7 @@ import { httpJson, probeEndpoint } from "./http";
 import { authHeaders, type EndpointConfig } from "./endpoint_config";
 import type { EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import { readLabApi } from "./vendor/kit-obsidian/lab-client";
-import { redactMessages, JIT_FIRST_CHUNK_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS } from "./vendor/kit-obsidian/chat-client";
+import { redactExchange, JIT_FIRST_CHUNK_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS } from "./vendor/kit-obsidian/chat-client";
 import type { LlmConnection, LlmResult } from "./vendor/kit-obsidian/llm-connection";
 import { ChatHttpError, ChatTimeoutError } from "./chat_error";
 import { t } from "./vendor/kit/i18n";
@@ -173,30 +173,27 @@ export class ChatClient {
     if (!opts?.trace) return;
     try {
       const { errorRaw, ...rest } = result;
-      const tail = [
-        { role: "assistant", content: rest.content },
-        { role: "assistant", content: rest.reasoning ?? "" },
-        { role: "system", content: opts.trace.promptTemplate ?? "" },
-      ];
-      const sent = redactMessages([...messages, ...tail]).messages;
+      // Der stabile Prompt-Anteil läuft als letzte Nachricht mit, damit derselbe Wert überall denselben Platzhalter trägt.
+      const pt = opts.trace.promptTemplate ?? "";
+      const ex = redactExchange({ messages: [...messages, { role: "system", content: pt }], answer: rest.content, reasoning: rest.reasoning ?? null });
       const n = messages.length;
-      const text = (i: number, orig: string): string => { const c = sent[i]?.content; return typeof c === "string" ? c : orig; };
+      const ptSent = ex.messages[n]?.content;
       const apiKey = res.source.config?.apiKey;
-      const promptTemplate = opts.trace.promptTemplate ? text(n + 2, opts.trace.promptTemplate) : "";
+      const promptTemplate = pt ? (typeof ptSent === "string" ? ptSent : pt) : "";
       const ret: unknown = readLabApi(opts.trace.app)?.log({
         plugin: "vault-retrieval",
         feature: opts.trace.feature,
         model: res.source.sentModel || res.source.model,
         endpointUrl: res.source.config?.url ?? "",
-        messages: sent.slice(0, n) as ChatMessage[],
+        messages: ex.messages.slice(0, n) as ChatMessage[],
         latencyMs,
         ...(ttftMs !== undefined ? { ttftMs } : {}),
         ...(apiKey ? { secrets: [apiKey] } : {}),
         ...(opts.trace.contextPaths?.length ? { contextPaths: opts.trace.contextPaths } : {}),
         ...(promptTemplate ? { promptTemplate } : {}),
         ...(opts.trace.turnId ? { turnId: opts.trace.turnId } : {}),
-        content: text(n, rest.content),
-        ...(rest.reasoning ? { reasoning: text(n + 1, rest.reasoning) } : {}),
+        content: ex.answer,
+        ...(ex.reasoning ? { reasoning: ex.reasoning } : {}),
         ...(rest.finishReason !== undefined ? { finishReason: rest.finishReason } : {}),
         ...(errorRaw !== undefined ? { error: describeError(errorRaw) } : {}),
       });

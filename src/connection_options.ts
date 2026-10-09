@@ -1,3 +1,4 @@
+import type { EndpointSourceResult } from "./vendor/kit/endpoint-source";
 import type { LlmConnectionOptions } from "./vendor/kit-obsidian/llm-connection";
 import type { VaultRagSettings } from "./settings_core";
 import { MODE_CHAT, MODE_SMART_APPLY, MODE_REFORMAT, PLUGIN_MODES } from "./request_profile";
@@ -11,6 +12,8 @@ export interface ChatConnectionHost {
   settings(): VaultRagSettings;
   save(): Promise<void>;
   lang(): "en" | "de";
+  /** Nach jeder abgeschlossenen Auflösung der Verbindung, auch nach der aus Liste und Wahl im Tab. */
+  onResolved?(result: EndpointSourceResult): void;
 }
 
 /** Die Optionen der Chat-Verbindung (Kit `createLlmConnection`, Welle 15) — an EINER Stelle, damit
@@ -29,6 +32,7 @@ export function chatConnectionOptions(h: ChatConnectionHost): LlmConnectionOptio
     // Der Chat zeigt dem Nutzer die Stufenwahl (Denk-Knopf mit Dropdown, `thinkingDeps` in main.ts).
     levelPicker: true,
     lang: () => h.lang(),
+    ...(h.onResolved ? { onResolved: (r: EndpointSourceResult) => h.onResolved?.(r) } : {}),
     // Das Budget des Plugins je Modus: nur Smart Apply (Einstellung) und Umformen (Konstante) haben
     // eines; der Chat lässt das Kit entscheiden.
     maxTokens: (mode) => mode === MODE_SMART_APPLY ? h.settings().smartApplyMaxTokens

@@ -144,6 +144,7 @@ function makeFakeHost() {
     resolveAndReconnectEmbedder: vi.fn().mockResolvedValue(undefined),
     resolveAndReconnectChat: vi.fn().mockResolvedValue(undefined),
     // Chat-Anbindung (Kit `createLlmConnection`): zeichnet „Endpunkte“ und „Anfrage“ in einem Zug.
+    chatResolvedHook: null,
     llm: { renderSettings: vi.fn(), hideSettings: vi.fn(), resolve: vi.fn().mockResolvedValue({ config: null }) },
     // Von renderImperative (display-Fallback) synchron aufgerufene render-Hatch-Methoden —
     // ungemockt würden sie beim Walk sofort werfen (undefined ist keine Funktion).

@@ -1619,6 +1619,7 @@ async function main(): Promise<void> {
       "Schlüsselbund: der Bearer erreicht den Endpunkt",
       "Schwärzung: das Modell sieht einen Platzhalter statt des Tokens, der Aufrufer bekommt das Original zurück",
       "Neutralisierung: eine Antwort mit Bild-URL und Platzhalter erzeugt in der Chat-Oberfläche kein img-Element",
+      "onResolved: eine Auflösung, die das Kit selbst anstößt, erreicht die Plugin-Zeilen im offenen Tab (Gegenprobe: eine gemerkte nicht)",
     ];
     {
       const W15_KEY = "w15-schluessel-geheim";
@@ -1711,6 +1712,32 @@ async function main(): Promise<void> {
         `);
         record(W15_PUNKTE[4]!, fertig === true && img.imgs === 0 && img.hasText,
           fertig ? `${img.imgs} img-Element(e) · Antworttext ${img.hasText ? "sichtbar als Text" : "FEHLT"}` : "keine Ergebniszeile in 60 s — nichts gemessen");
+        // onResolved (Kit 0.51.3): die Kit-Liste löst nach einer Änderung selbst neu auf, ohne `resolveAndReconnectChat`.
+        // Hier wird genau das nachgestellt (invalidate + resolve am Plugin vorbei) und gezählt, ob der offene Tab es erfährt.
+        await openSettings(main);
+        await new Promise<void>((r) => setTimeout(r, 1500));
+        try {
+          const hk = await main.evaluate<{ had: boolean; after: number; cached: number }>(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            const had = typeof p.chatResolvedHook === "function";
+            window.__w15Hook = 0;
+            const orig = p.chatResolvedHook;
+            p.chatResolvedHook = () => { window.__w15Hook++; if (orig) orig(); };
+            p.llm.invalidate();
+            await p.llm.resolve();
+            await new Promise(r => setTimeout(r, 700));
+            const after = window.__w15Hook;
+            await p.llm.resolve();
+            await new Promise(r => setTimeout(r, 400));
+            const cached = window.__w15Hook;
+            p.chatResolvedHook = orig;
+            return { had, after, cached };
+          `);
+          record(W15_PUNKTE[5]!, hk.had && hk.after >= 1 && hk.cached === hk.after,
+            `Hook ${hk.had ? "im offenen Tab gesetzt" : "FEHLT"} · nach neuer Auflösung ${hk.after}× gerufen · nach gemerkter ${hk.cached - hk.after} weitere`);
+        } finally {
+          await main.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+        }
       } finally {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];

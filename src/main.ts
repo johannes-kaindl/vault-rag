@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupMo
 import { findEndpointManager, onEndpointManagerChanged } from "./vendor/kit-obsidian/endpoint-source";
 import { resolveManagedEmbedding } from "./managed_endpoint";
 import { probeEndpoint } from "./http";
-import { describeModel } from "./vendor/kit/endpoint-source";
+import { describeModel, type EndpointSourceResult } from "./vendor/kit/endpoint-source";
 import { createLlmConnection, type LlmConnection } from "./vendor/kit-obsidian/llm-connection";
 import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import { sanitizeRequestSettings, thinkingFor, onLevelFor, type FamilyId, type ModeId, type RequestSettings } from "./vendor/kit/sampling-profiles";
@@ -106,6 +106,8 @@ export default class VaultRagPlugin extends Plugin {
   private pendingChatModel: string | null = null;
   /** Zähler der Chat-Auflösungen: nur der jüngste Lauf schreibt `activeChatEndpoint`. */
   private chatReconnectGen = 0;
+  /** Vom Einstellungs-Tab gesetzt, solange er offen ist: zeichnet die Zeilen neu, die dem aufgelösten Endpunkt folgen. */
+  chatResolvedHook: (() => void) | null = null;
   /** Zuletzt gemeldete Modell-Guard-Übersprünge — verhindert Notice-Spam, weil
    *  `embedderReady()` den Resolver bei jedem fehlgeschlagenen Ping erneut anwirft. */
   private lastSkipNotice = "";
@@ -269,6 +271,7 @@ export default class VaultRagPlugin extends Plugin {
       settings: () => this.settings,
       save: () => this.saveSettings(),
       lang: () => getLang(),
+      onResolved: (r) => { void this.applyChatResolution(r); },
     }));
     this.chatClient = new ChatClient(this.llm);
     // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
@@ -713,14 +716,17 @@ export default class VaultRagPlugin extends Plugin {
    *  bei einem Manager-Wechsel). Die Verbindung wählt den ersten erreichbaren Endpunkt (lokal) bzw.
    *  fragt den Manager; hier bleibt nur, welcher Endpunkt als „aktiv“ gilt. */
   async resolveAndReconnectChat(): Promise<void> {
-    // Kein `invalidate()` davor: es leert die gemerkte Auflösung, und bis die neue da ist (bei einer
-    // toten Zeile bis zu 5 s) wäre `source()` neutral. Das Modell im Chat-Dropdown würde leer, und eine
-    // Überschreibung im Abschnitt „Anfrage“ landete unter der Familie `unknown`. `force` liest die
-    // Einstellungen ohnehin frisch und ersetzt die alte Auflösung erst, wenn die neue vorliegt.
+    // Kein `invalidate()` nötig: `force` liest die Einstellungen frisch und ersetzt die gemerkte Auflösung,
+    // sobald die neue vorliegt (seit Kit 0.51.3 bleibt `source()` auch nach `invalidate()` bis dahin gültig).
+    await this.applyChatResolution(await this.llm.resolve({ force: true }));
+  }
+
+  /** Übernimmt eine abgeschlossene Auflösung: welcher Endpunkt als „aktiv“ gilt, und die Plugin-Zeilen im
+   *  Einstellungs-Tab (Modelldetails, Fähigkeiten) folgen ihr. Gerufen von `resolveAndReconnectChat` UND vom
+   *  Kit nach jeder Auflösung, die es selbst anstößt (Endpunkt-Liste, Wahl) — dort läuft sonst nichts von uns. */
+  private async applyChatResolution(r: EndpointSourceResult): Promise<void> {
+    // Mehrere Läufe können gleichzeitig laufen (Start, Tab öffnen, Manager-Abo, Ping, Kit): nur der jüngste schreibt.
     const gen = ++this.chatReconnectGen;
-    const r = await this.llm.resolve({ force: true });
-    // Mehrere Läufe können gleichzeitig laufen (Start, Tab öffnen, Manager-Abo, Ping): nur der jüngste schreibt.
-    if (gen !== this.chatReconnectGen) return;
     const cfg = r.config;
     // Lokal heißt aufgelöst erreichbar (die Verbindung pingt jede Zeile). Der Manager nennt auch einen
     // nicht erreichbaren Endpunkt: der zählt erst nach der Probe als aktiv.
@@ -729,6 +735,7 @@ export default class VaultRagPlugin extends Plugin {
     if (gen !== this.chatReconnectGen) return;
     this.activeChatEndpoint = active && cfg ? normalizeEndpoint(cfg.url) : null;
     this.pendingChatModel = null;
+    this.chatResolvedHook?.();
   }
 
   /** Modellwahl aus dem Chat-Dropdown. Mit Manager gehört die Wahl in `chatChoice` (die Zeile im

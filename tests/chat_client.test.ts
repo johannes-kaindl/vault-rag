@@ -1,19 +1,25 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import "../src/i18n/strings";
-import { ChatClient } from "../src/chat_client";
 import { ChatHttpError, ChatTimeoutError, chatErrorMessage } from "../src/chat_error";
 import { requestUrl } from "obsidian";
 import { installFakeXHR } from "./fake_xhr";
+import { harness, recordingTransport, fakeSecretStorage } from "./helpers/llm";
+import { migrateEndpointList } from "../src/endpoint_config";
+import type { SseTransport } from "../src/vendor/kit-obsidian/chat-client";
 
 const DONE = "data: [DONE]\n\n";
+const msgs = [{ role: "user" as const, content: "hi" }];
+const chat = (o: Parameters<typeof harness>[0] = {}) => harness(o).client;
 
+// Die Fassade `ChatClient` sitzt auf der echten Chat-Verbindung des Plugins (`chatConnectionOptions`
+// aus Kit `createLlmConnection`); nur Netz und Plattform sind ersetzt (tests/helpers/llm.ts).
 describe("ChatClient", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.mocked(requestUrl).mockReset(); });
   it("stream akkumuliert content und gibt {content,reasoning} zurück", async () => {
     const xhr = installFakeXHR();
     const content: string[] = [];
-    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "hi" }], t => content.push(t), () => {});
+    const p = chat().stream(msgs, t => content.push(t), () => {});
+    await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
     xhr.feed([
       'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
       'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n' + DONE,
@@ -21,206 +27,222 @@ describe("ChatClient", () => {
     expect(await p).toEqual({ content: "Hallo", reasoning: "" });
     expect(content).toEqual(["Hal", "lo"]);
   });
-  it("stream reicht finishReason durch — der Aufrufer muss eine Truncation von einem Inhaltsfehler trennen koennen", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {});
-    xhr.feed(['data: {"choices":[{"delta":{"content":"halb"},"finish_reason":"length"}]}\n\n' + DONE]);
-    expect(await p).toEqual({ content: "halb", reasoning: "", finishReason: "length" });
-  });
 
+  async function streamed(
+    c: ReturnType<typeof chat>, chunks: string[], opts?: Parameters<ReturnType<typeof chat>["stream"]>[4], status = 200,
+  ): Promise<ReturnType<ReturnType<typeof chat>["stream"]>> {
+    const xhr = installFakeXHR();
+    const p = c.stream(msgs, () => {}, () => {}, undefined, opts);
+    await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
+    xhr.feed(chunks, status);
+    return p;
+  }
+
+  it("stream reicht finishReason durch — der Aufrufer muss eine Truncation von einem Inhaltsfehler trennen koennen", async () => {
+    const r = await streamed(chat(), ['data: {"choices":[{"delta":{"content":"halb"},"finish_reason":"length"}]}\n\n' + DONE]);
+    expect(r).toEqual({ content: "halb", reasoning: "", finishReason: "length" });
+  });
   it("stream routet reasoning_content an onReasoning", async () => {
     const xhr = installFakeXHR();
     const reasoning: string[] = []; const content: string[] = [];
-    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "hi" }], c => content.push(c), r => reasoning.push(r));
+    const p = chat().stream(msgs, c => content.push(c), r => reasoning.push(r));
+    await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
     xhr.feed([
       'data: {"choices":[{"delta":{"reasoning_content":"den"}}]}\n\n',
       'data: {"choices":[{"delta":{"reasoning_content":"ke"}}]}\n\n',
       'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\n' + DONE,
     ]);
     expect(await p).toEqual({ content: "Antwort", reasoning: "denke" });
+    expect(reasoning.join("")).toBe("denke");
   });
   it("stream zieht inline <think> in den reasoning-Kanal", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {});
-    xhr.feed([
+    const r = await streamed(chat(), [
       'data: {"choices":[{"delta":{"content":"<think>weil</think>"}}]}\n\n',
       'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\n' + DONE,
     ]);
-    expect(await p).toEqual({ content: "Antwort", reasoning: "weil" });
+    expect(r).toEqual({ content: "Antwort", reasoning: "weil" });
   });
   it("stream wirft bei HTTP-Fehlerstatus", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "x" }], () => {}, () => {});
-    xhr.feed([], 500);
-    await expect(p).rejects.toThrow("500");
+    await expect(streamed(chat(), [], undefined, 500)).rejects.toThrow("500");
   });
   it("stream verliert keinen Tag-Rest am Stream-Ende (splitter flush)", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "x" }], () => {}, () => {});
-    xhr.feed(['data: {"choices":[{"delta":{"content":"Ende <"}}]}\n\n' + DONE]);
-    expect((await p).content).toBe("Ende <");
+    const r = await streamed(chat(), ['data: {"choices":[{"delta":{"content":"Ende <"}}]}\n\n' + DONE]);
+    expect(r.content).toBe("Ende <");
   });
-  it("stream schickt model und die fertigen params aus opts im Body", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { model: "m2", params: { temperature: 0.2 } });
-    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-    await p;
-    const body = JSON.parse(xhr.body) as { model: string; temperature: number };
-    expect(body.model).toBe("m2");
-    expect(body.temperature).toBe(0.2);
+
+  describe("Anfrage-Parameter entscheidet die Verbindung, nicht der Aufrufer", () => {
+    const sent = async (opts?: Parameters<ReturnType<typeof chat>["stream"]>[4], model = "qwen3"): Promise<Record<string, unknown>> => {
+      const { transport, calls } = recordingTransport();
+      const c = chat({ transport, endpoints: [{ url: "http://localhost:8080", model }] });
+      await c.stream(msgs, () => {}, () => {}, undefined, opts);
+      return calls[0]!.body;
+    };
+    it("model aus opts steht im Body, der Modus liefert die Temperatur (Chat = grounded 0,4)", async () => {
+      const body = await sent({ model: "m2" });
+      expect(body.model).toBe("m2");
+      expect(body.temperature).toBe(0.4);
+    });
+    // E1 (2026-09-07): ein Feature-Modell (Smart Apply) schlägt das Zeilen-Modell. Vorher schlug die
+    // Zeile das Feature; damit war `smartApplyModel` wirkungslos, sobald die Zeile ein Modell trug.
+    // Preis: kennt ein Fallback-Endpunkt den Namen nicht, scheitert Smart Apply laut statt still zu wechseln.
+    it("ein Feature-Modell schlägt das Zeilen-Modell — getrimmt", async () => {
+      expect((await sent({ model: " gemma " })).model).toBe("gemma");
+    });
+    it("ein leeres Feature-Modell lässt das Zeilen-Modell gelten", async () => {
+      expect((await sent({ model: "" })).model).toBe("qwen3");
+      expect((await sent({ model: "   " })).model).toBe("qwen3");
+    });
+    it("ohne opts: model = Zeilen-Modell, kein max_tokens im Chat", async () => {
+      const body = await sent();
+      expect(body.model).toBe("qwen3");
+      expect("max_tokens" in body).toBe(false);
+    });
+    it("mode wählt die Modus-Werte: structured 0,1 mit Plugin-Budget, transform 0,2 mit Umform-Budget", async () => {
+      const a = await sent({ mode: "structured" });
+      expect(a.temperature).toBe(0.1);
+      expect(a.max_tokens).toBe(4096);
+      const b = await sent({ mode: "transform" });
+      expect(b.temperature).toBe(0.2);
+      expect(b.max_tokens).toBe(4096);
+    });
+    it("kein Suppress-Schlüssel mehr im Body (chat_template_kwargs, reasoning_budget)", async () => {
+      const body = await sent();
+      for (const k of ["chat_template_kwargs", "reasoning_budget"]) expect(k in body, k).toBe(false);
+    });
   });
-  it("stream ohne opts: model = Konstruktor-Wert, kein temperature-Key", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {});
-    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-    await p;
-    const body = JSON.parse(xhr.body) as Record<string, unknown>;
-    expect(body.model).toBe("qwen3");
-    expect("temperature" in body).toBe(false);
-  });
-  it("stream schickt ALLE params unverändert in den Body — entschieden wird im Plugin, nicht im Client", async () => {
-    const xhr = installFakeXHR();
-    const params = { temperature: 0.4, top_p: 0.95, top_k: 20, reasoning_effort: "none", max_tokens: 512 };
-    const p = new ChatClient("http://x", "m").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {}, undefined, { params });
-    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-    await p;
-    const body = JSON.parse(xhr.body) as Record<string, unknown>;
-    expect(body).toMatchObject(params);
-  });
-  it("stream ohne params sendet keine Sampling-Keys (auch keine Suppress-Keys mehr)", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://x", "m").stream([{ role: "user", content: "hi" }], () => {}, () => {});
-    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-    await p;
-    const body = JSON.parse(xhr.body) as Record<string, unknown>;
-    for (const k of ["reasoning_effort", "chat_template_kwargs", "reasoning_budget", "temperature", "max_tokens"]) {
-      expect(k in body, k).toBe(false);
-    }
-  });
-  describe("check (Antwort gegen das Profil)", () => {
+
+  describe("Antwort gegen das Profil", () => {
     it("meldet „Denken trotz aus“, wenn Reasoning zurückkommt, obwohl die Stufe off war", async () => {
-      const xhr = installFakeXHR();
-      const report = vi.fn();
-      const p = new ChatClient("http://x", "m").stream(
-        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
-        { check: { family: "qwen3.6", thinking: "off", report } });
-      xhr.feed([
+      const h = harness({ endpoints: [{ url: "http://x", model: "qwen3.6-27b" }] });
+      h.settings.request.thinking.grounded = "off";
+      await streamed(h.client, [
         'data: {"choices":[{"delta":{"reasoning_content":"ich denke"}}]}\n\n',
         'data: {"choices":[{"delta":{"content":"Antwort"}}]}\n\n' + DONE,
       ]);
-      await p;
-      expect(report).toHaveBeenCalledTimes(1);
-      const kinds = (report.mock.calls[0]?.[0] as { kind: string }[]).map(d => d.kind);
-      expect(kinds).toContain("thinking-despite-off");
+      expect(h.llm.session.deviations().map(d => d.kind)).toContain("thinking-despite-off");
     });
     it("meldet eine abgelehnte Anfrage (HTTP 400) als rejected und wirft weiter", async () => {
-      const xhr = installFakeXHR();
-      const report = vi.fn();
-      const p = new ChatClient("http://x", "m").stream(
-        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
-        { check: { family: null, thinking: "off", report } });
-      xhr.feed([], 400);
-      await expect(p).rejects.toThrow("400");
-      const kinds = (report.mock.calls[0]?.[0] as { kind: string }[]).map(d => d.kind);
-      expect(kinds).toContain("rejected");
-    });
-    it("ein werfendes report() reißt die Antwort nicht mit", async () => {
-      const xhr = installFakeXHR();
-      const p = new ChatClient("http://x", "m").stream(
-        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
-        { check: { family: null, thinking: "off", report: () => { throw new Error("kaputt"); } } });
-      xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-      expect((await p).content).toBe("x");
+      const h = harness();
+      await expect(streamed(h.client, [], undefined, 400)).rejects.toThrow("400");
+      expect(h.llm.session.deviations().map(d => d.kind)).toContain("rejected");
     });
   });
-  it("stream ohne params: kein max_tokens-Key im Body", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://x", "m").stream(
-      [{ role: "user", content: "hi" }], () => {}, () => {});
-    xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-    await p;
-    const body = JSON.parse(xhr.body) as Record<string, unknown>;
-    expect("max_tokens" in body).toBe(false);
+
+  describe("kein Endpunkt", () => {
+    it("ohne erreichbare Zeile wirft stream den übersetzten Text und ping ist false", async () => {
+      const c = chat({ probe: () => Promise.resolve(false) });
+      await expect(c.stream(msgs, () => {}, () => {})).rejects.toThrow(/No chat endpoint|Kein Chat-Endpunkt/);
+      expect(await c.ping()).toBe(false);
+    });
   });
+
+  describe("Schwärzung (Verhaltenswechsel, Kit 0.51)", () => {
+    const TOKEN = "Bearer abcdefghijklmnop1234567890";
+    /** Antwortet mit dem Platzhalter, den es im gesendeten Text findet — wie ein Modell, das die Stelle zitiert. */
+    function echoTransport(wrap = (ph: string) => `Das war ${ph} gewesen`): { transport: SseTransport; bodies: string[] } {
+      const bodies: string[] = [];
+      return {
+        bodies,
+        transport: {
+          postStream: (_u, body, _h, onChunk) => {
+            const text = JSON.stringify(body);
+            bodies.push(text);
+            const ph = /\[redacted-[a-z0-9-]+-\d+\]/.exec(text)?.[0] ?? "KEIN-PLATZHALTER";
+            onChunk(`data: ${JSON.stringify({ choices: [{ delta: { content: wrap(ph) }, finish_reason: "stop" }] })}\n\n${DONE}`);
+            return Promise.resolve(200);
+          },
+        },
+      };
+    }
+
+    it("das Modell sieht einen Platzhalter, der Aufrufer bekommt das Original zurück", async () => {
+      const { transport, bodies } = echoTransport();
+      const r = await chat({ transport }).stream([{ role: "user", content: `Der Zugang ist ${TOKEN} ok.` }], () => {}, () => {});
+      expect(bodies[0]).not.toContain("abcdefghijklmnop1234567890");
+      expect(bodies[0]).toMatch(/\[redacted-/);
+      expect(r.content).toContain("abcdefghijklmnop1234567890");
+    });
+
+    it("Roundtrip für Smart Apply: der Token bleibt im JSON-Ergebnis erhalten (restoreContent json)", async () => {
+      const { transport } = echoTransport((ph) => JSON.stringify({ v: ph }));
+      const r = await chat({ transport }).stream(
+        [{ role: "user", content: `Notiz mit ${TOKEN}` }], () => {}, () => {}, undefined, { mode: "structured", restoreContent: "json" });
+      expect((JSON.parse(r.content) as { v: string }).v).toBe(TOKEN);
+    });
+
+    it("das Lab bekommt den GESENDETEN Text: Platzhalter statt Original, auch in Antwort und Prompt-Anteil", async () => {
+      const { transport } = echoTransport();
+      let seen: any;
+      const app = { plugins: { plugins: { "llm-lab": { api: { apiVersion: 4, status: () => ({ apiVersion: 4, recording: true }), log: (i: unknown) => { seen = i; return "id"; } } } } } };
+      await chat({ transport }).stream(
+        [{ role: "system", content: `Regeln mit ${TOKEN}` }, { role: "user", content: `Frage mit ${TOKEN}` }], () => {}, () => {}, undefined,
+        { trace: { feature: "chat", app, promptTemplate: `Regeln mit ${TOKEN}` } });
+      const logged = JSON.stringify(seen);
+      expect(logged).not.toContain("abcdefghijklmnop1234567890");
+      expect(logged).toMatch(/\[redacted-/);
+      // Derselbe Wert trägt in Nachricht, Antwort und Prompt-Anteil denselben Platzhalter.
+      const phs = new Set(logged.match(/\[redacted-[a-z0-9-]+-\d+\]/g));
+      expect(phs.size).toBe(1);
+    });
+  });
+
   describe("llm-lab trace", () => {
     function fakeLabApp(log: (input: any) => unknown): unknown {
       return { plugins: { plugins: { "llm-lab": { api: { apiVersion: 4, status: () => ({ apiVersion: 4, recording: true }), log } } } } };
     }
+    const ok = ['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE];
 
     it("ein werfendes log() darf den aufgeloesten Wert nicht veraendern", async () => {
-      const xhr = installFakeXHR();
       const app = fakeLabApp(() => { throw new Error("lab kaputt"); });
-      const content: string[] = [];
-      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-        [{ role: "user", content: "hi" }], t => content.push(t), () => {}, undefined,
-        { trace: { feature: "chat", app } });
-      xhr.feed([
+      const r = await streamed(chat(), [
         'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
         'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n' + DONE,
-      ]);
-      await expect(p).resolves.toEqual({ content: "Hallo", reasoning: "" });
-      expect(content).toEqual(["Hal", "lo"]);
+      ], { trace: { feature: "chat", app } });
+      expect(r).toEqual({ content: "Hallo", reasoning: "" });
     });
 
     it("reicht die turnId der Nutzer-Handlung unveraendert ans Lab", async () => {
-      const xhr = installFakeXHR();
       let seen: any;
       const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
-      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
-        { trace: { feature: "chat", app, turnId: "turn-1" } });
-      xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-      await p;
+      await streamed(chat(), ok, { trace: { feature: "chat", app, turnId: "turn-1" } });
       expect(seen.turnId).toBe("turn-1");
     });
 
     it("ohne turnId bleibt das Feld weg statt undefined zu tragen", async () => {
-      const xhr = installFakeXHR();
       let seen: any;
       const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
-      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
-        { trace: { feature: "chat", app } });
-      xhr.feed(['data: {"choices":[{"delta":{"content":"x"}}]}\n\n' + DONE]);
-      await p;
+      await streamed(chat(), ok, { trace: { feature: "chat", app } });
       expect("turnId" in seen).toBe(false);
     });
 
-    it("HTTP-500 rejected wie zuvor UND meldet dem Lab error + leeren content", async () => {
-      const xhr = installFakeXHR();
+    it("meldet Plugin, Feature, gesendetes Modell und Endpunkt", async () => {
       let seen: any;
       const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
-      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-        [{ role: "user", content: "x" }], () => {}, () => {}, undefined,
-        { trace: { feature: "chat", app } });
-      xhr.feed([], 500);
-      await expect(p).rejects.toThrow("500");
+      await streamed(chat({ endpoints: [{ url: "http://localhost:8080", model: "qwen3" }] }), ok, { trace: { feature: "chat", app } });
+      expect(seen.plugin).toBe("vault-retrieval");
+      expect(seen.feature).toBe("chat");
+      expect(seen.model).toBe("qwen3");
+      expect(seen.endpointUrl).toBe("http://localhost:8080");
+    });
+
+    it("HTTP-500 rejected wie zuvor UND meldet dem Lab error + leeren content", async () => {
+      let seen: any;
+      const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
+      await expect(streamed(chat(), [], { trace: { feature: "chat", app } }, 500)).rejects.toThrow("500");
       expect(seen.content).toBe("");
       expect(typeof seen.error).toBe("string");
       expect(seen.error).toContain("500");
-      expect(seen.plugin).toBe("vault-retrieval");
-      expect(seen.feature).toBe("chat");
     });
 
-    // Der Kommentar im catch-Zweig nennt den gescheiterten Lauf "den interessanten Debug-Fall".
-    // Mit content:"" war die Zusage nur halb eingeloest: dass ein Modell bis zum Abbruch
-    // Quelltext produziert hat statt zu antworten, stand danach in keiner Aufzeichnung.
+    // Der gescheiterte Lauf ist der interessante Debug-Fall: auch der bis dahin gestreamte Teiltext
+    // gehört in die Aufzeichnung.
     it("ein abgebrochener Stream meldet dem Lab den bis dahin gestreamten Teiltext", async () => {
-      const xhr = installFakeXHR();
       let seen: any;
       const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
+      const xhr = installFakeXHR();
       const ac = new AbortController();
-      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-        [{ role: "user", content: "hi" }], () => {}, () => {}, ac.signal,
-        { trace: { feature: "chat", app } });
+      const p = chat().stream(msgs, () => {}, () => {}, ac.signal, { trace: { feature: "chat", app } });
+      await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
       xhr.progress([
         'data: {"choices":[{"delta":{"content":"Teil"}}]}\n\n',
         'data: {"choices":[{"delta":{"content":"text"}}]}\n\n',
@@ -232,13 +254,12 @@ describe("ChatClient", () => {
     });
 
     it("ein abgebrochener Stream meldet auch das bis dahin gestreamte reasoning", async () => {
-      const xhr = installFakeXHR();
       let seen: any;
       const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
+      const xhr = installFakeXHR();
       const ac = new AbortController();
-      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-        [{ role: "user", content: "hi" }], () => {}, () => {}, ac.signal,
-        { trace: { feature: "chat", app } });
+      const p = chat().stream(msgs, () => {}, () => {}, ac.signal, { trace: { feature: "chat", app } });
+      await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
       xhr.progress(['data: {"choices":[{"delta":{"reasoning_content":"denke"}}]}\n\n']);
       ac.abort();
       await expect(p).rejects.toThrow();
@@ -246,13 +267,12 @@ describe("ChatClient", () => {
     });
 
     it("ttftMs <= latencyMs, Token-Reihenfolge unveraendert wenn trace gesetzt ist", async () => {
-      const xhr = installFakeXHR();
       let seen: any;
       const app = fakeLabApp((input: any) => { seen = input; return "rec-id"; });
+      const xhr = installFakeXHR();
       const content: string[] = [];
-      const p = new ChatClient("http://localhost:8080", "qwen3").stream(
-        [{ role: "user", content: "hi" }], t => content.push(t), () => {}, undefined,
-        { trace: { feature: "chat", app } });
+      const p = chat().stream(msgs, t => content.push(t), () => {}, undefined, { trace: { feature: "chat", app } });
+      await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
       xhr.feed([
         'data: {"choices":[{"delta":{"content":"Hal"}}]}\n\n',
         'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n' + DONE,
@@ -260,75 +280,52 @@ describe("ChatClient", () => {
       await p;
       expect(content).toEqual(["Hal", "lo"]);
       expect(seen.ttftMs).toBeGreaterThanOrEqual(0);
-      expect(seen.latencyMs).toBeGreaterThanOrEqual(0);
       expect(seen.ttftMs).toBeLessThanOrEqual(seen.latencyMs);
     });
 
-    // Regression Fix-Runde 1: ein leeres Array ist in JS truthy — `contextPaths: []` (kein
-    // Retrieval-Treffer) darf trotzdem nicht als Feld ans Lab durchgereicht werden, sonst
-    // behauptet der Record faelschlich "gemeldet, aber leer" statt "nicht gemeldet".
+    // Ein leeres Array ist in JS truthy — `contextPaths: []` (kein Retrieval-Treffer) darf trotzdem
+    // nicht als Feld ans Lab durchgereicht werden.
     it("leere contextPaths werden NICHT ans Lab gemeldet — nur ein nicht-leeres Array", async () => {
-      const xhr = installFakeXHR();
       let seenEmpty: any;
-      const appEmpty = fakeLabApp((input: any) => { seenEmpty = input; return "rec-id"; });
-      const p1 = new ChatClient("http://localhost:8080", "qwen3").stream(
-        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
-        { trace: { feature: "chat", app: appEmpty, contextPaths: [] } });
-      xhr.feed(['data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n' + DONE]);
-      await p1;
+      await streamed(chat(), ok, { trace: { feature: "chat", app: fakeLabApp((i: any) => { seenEmpty = i; return "id"; }), contextPaths: [] } });
       expect(seenEmpty.contextPaths).toBeUndefined();
-
-      const xhr2 = installFakeXHR();
       let seenFull: any;
-      const appFull = fakeLabApp((input: any) => { seenFull = input; return "rec-id"; });
-      const p2 = new ChatClient("http://localhost:8080", "qwen3").stream(
-        [{ role: "user", content: "hi" }], () => {}, () => {}, undefined,
-        { trace: { feature: "chat", app: appFull, contextPaths: ["a.md"] } });
-      xhr2.feed(['data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n' + DONE]);
-      await p2;
+      await streamed(chat(), ok, { trace: { feature: "chat", app: fakeLabApp((i: any) => { seenFull = i; return "id"; }), contextPaths: ["a.md"] } });
       expect(seenFull.contextPaths).toEqual(["a.md"]);
     });
   });
 
   describe("ping", () => {
+    const real = { probe: undefined } as const;
     it("true bei 200 mit gültiger Modell-Liste", async () => {
       vi.mocked(requestUrl).mockResolvedValue({ status: 200, json: { data: [] } } as any);
-      expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(true);
+      expect(await chat({ ...real, probe: undefined }).ping()).toBe(true);
     });
     it("false wenn 200 aber kein OpenAI-Body (Fremd-Server)", async () => {
       vi.mocked(requestUrl).mockResolvedValue({ status: 200, json: {} } as any);
-      expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(false);
+      expect(await harness({ overrides: { probe: undefined } }).client.ping()).toBe(false);
     });
     it("false wenn nicht erreichbar", async () => {
       vi.mocked(requestUrl).mockRejectedValue(new Error("ECONNREFUSED"));
-      expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(false);
+      expect(await harness({ overrides: { probe: undefined } }).client.ping()).toBe(false);
     });
     it("false bei HTTP 500", async () => {
       vi.mocked(requestUrl).mockResolvedValue({ status: 500 } as any);
-      expect(await new ChatClient("http://localhost:8080", "qwen3").ping()).toBe(false);
-    });
-  });
-
-  describe("probe", () => {
-    it("liefert kind=refused mit Klartext bei ECONNREFUSED", async () => {
-      vi.mocked(requestUrl).mockRejectedValue(new Error("net::ERR_CONNECTION_REFUSED"));
-      const s = await new ChatClient("http://localhost:1243", "m").probe();
-      expect(s.kind).toBe("refused");
-      expect(s.klartext).toContain("Port");
+      expect(await harness({ overrides: { probe: undefined } }).client.ping()).toBe(false);
     });
   });
 });
 
 describe("ChatClient über den Kit-Client (Welle 11)", () => {
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.mocked(requestUrl).mockReset(); });
-  const msgs = [{ role: "user" as const, content: "hi" }];
   const chunk = (c: string): string => `data: {"choices":[{"delta":{"content":"${c}"}}]}\n\n`;
 
   it("Stille nach dem ersten Chunk bricht nach der Idle-Frist ab (vorher: gar kein Timeout)", async () => {
     vi.useFakeTimers();
     const xhr = installFakeXHR();
-    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {});
+    const p = chat().stream(msgs, () => {}, () => {});
     const caught = p.catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(10);
     xhr.progress([chunk("a")]);
     await vi.advanceTimersByTimeAsync(119_000);
     xhr.progress([chunk("b")]); // Lebenszeichen setzt die Frist zurück
@@ -342,7 +339,7 @@ describe("ChatClient über den Kit-Client (Welle 11)", () => {
   it("bis zum ersten Chunk gilt eine längere Frist (ein JIT-ladendes Modell braucht Minuten)", async () => {
     vi.useFakeTimers();
     installFakeXHR();
-    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {});
+    const p = chat().stream(msgs, () => {}, () => {});
     let state = "offen";
     p.then(() => { state = "erfüllt"; }, () => { state = "abgelehnt"; });
     await vi.advanceTimersByTimeAsync(300_000);
@@ -353,7 +350,8 @@ describe("ChatClient über den Kit-Client (Welle 11)", () => {
 
   it("HTTP 200 mit Fehlerkörper ist ein Fehler, kein leerer Erfolg (vorher: content \"\")", async () => {
     const xhr = installFakeXHR();
-    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {});
+    const p = chat().stream(msgs, () => {}, () => {});
+    await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
     xhr.feed(['{"error":{"message":"model not loaded"}}'], 200);
     const e = await p.catch((err: unknown) => err);
     expect(e).toBeInstanceOf(ChatHttpError);
@@ -362,7 +360,8 @@ describe("ChatClient über den Kit-Client (Welle 11)", () => {
 
   it("abgeschnitten OHNE Text bleibt ein Ergebnis mit finishReason length — kein Wurf, wie zuvor", async () => {
     const xhr = installFakeXHR();
-    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {});
+    const p = chat().stream(msgs, () => {}, () => {});
+    await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
     xhr.feed(['data: {"choices":[{"delta":{"reasoning_content":"denke"},"finish_reason":"length"}]}\n\n' + DONE]);
     expect(await p).toEqual({ content: "", reasoning: "denke", finishReason: "length" });
   });
@@ -370,8 +369,9 @@ describe("ChatClient über den Kit-Client (Welle 11)", () => {
   it("weist der Server den XHR ab, wiederholt der Client ohne Stream über requestUrl und bleibt dabei", async () => {
     const xhr = installFakeXHR();
     vi.mocked(requestUrl).mockResolvedValue({ status: 200, text: JSON.stringify({ choices: [{ message: { content: "Antwort" }, finish_reason: "stop" }] }) } as never);
-    const c = new ChatClient("http://x", "m");
+    const c = chat();
     const p = c.stream(msgs, () => {}, () => {});
+    await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
     xhr.error();
     expect(await p).toEqual({ content: "Antwort", reasoning: "", finishReason: "stop" });
     const first = JSON.parse(vi.mocked(requestUrl).mock.calls[0]![0].body as string) as { stream: boolean };
@@ -383,7 +383,8 @@ describe("ChatClient über den Kit-Client (Welle 11)", () => {
   it("ein Netzfehler ohne Fallback-Erfolg wirft weiter den übersetzten Netzfehlertext", async () => {
     const xhr = installFakeXHR();
     vi.mocked(requestUrl).mockRejectedValue(new Error("offline"));
-    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {});
+    const p = chat().stream(msgs, () => {}, () => {});
+    await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
     xhr.error();
     await expect(p).rejects.toThrow(/Chat network error|Chat-Netzwerkfehler/);
   });
@@ -394,7 +395,7 @@ describe("ChatClient über den Kit-Client (Welle 11)", () => {
     const xhr = installFakeXHR();
     let seen: any;
     const app = { plugins: { plugins: { "llm-lab": { api: { apiVersion: 4, status: () => ({ apiVersion: 4, recording: true }), log: (i: unknown) => { seen = i; return "id"; } } } } } };
-    const p = new ChatClient("http://x", "m").stream(msgs, () => {}, () => {}, undefined, { trace: { feature: "chat", app } });
+    const p = chat().stream(msgs, () => {}, () => {}, undefined, { trace: { feature: "chat", app } });
     await vi.advanceTimersByTimeAsync(1_000);
     xhr.progress(['data: {"choices":[{"delta":{"reasoning_content":"denke"}}]}\n\n']);
     await vi.advanceTimersByTimeAsync(2_000);
@@ -408,124 +409,149 @@ describe("ChatClient über den Kit-Client (Welle 11)", () => {
 describe("ChatClient Modelle", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.mocked(requestUrl).mockReset(); });
   const ok = (json: unknown) => ({ status: 200, json });
+  const real = (o: Parameters<typeof harness>[0] = {}) => harness({ ...o, overrides: { probe: undefined } }).client;
   it("listModels parst data[].id und sortiert", async () => {
     vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "qwen" }, { id: "deepseek" }] }) as any);
-    expect(await new ChatClient("http://x", "m").listModels()).toEqual(["deepseek", "qwen"]);
+    expect(await real().listModels()).toEqual(["deepseek", "qwen"]);
   });
   it("listModels gibt [] bei HTTP-Fehler", async () => {
     vi.mocked(requestUrl).mockResolvedValue({ status: 500 } as any);
-    expect(await new ChatClient("http://x", "m").listModels()).toEqual([]);
+    expect(await real().listModels()).toEqual([]);
   });
   it("listModels gibt [] bei Netzwerkfehler", async () => {
     vi.mocked(requestUrl).mockRejectedValue(new Error("offline"));
-    expect(await new ChatClient("http://x", "m").listModels()).toEqual([]);
+    expect(await real().listModels()).toEqual([]);
   });
   it("modelInfo parst /api/v0/models-Eintrag", async () => {
-    vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m", max_context_length: 8192, loaded_context_length: 4096, quantization: "Q4_K_M", arch: "qwen2", state: "loaded" }] }) as any);
-    const info = await new ChatClient("http://x", "m").modelInfo("m");
+    vi.mocked(requestUrl).mockImplementation((p: any) => Promise.resolve(
+      p.url.endsWith("/api/v0/models")
+        ? ok({ data: [{ id: "m", max_context_length: 8192, loaded_context_length: 4096, quantization: "Q4_K_M", arch: "qwen2", state: "loaded" }] })
+        : ok({ data: [{ id: "m" }] }),
+    ) as any);
+    const info = await real().modelInfo("m");
     expect(info).toMatchObject({ id: "m", contextLength: 8192, loadedContextLength: 4096, quantization: "Q4_K_M", arch: "qwen2", state: "loaded" });
   });
   it("modelInfo gibt null wenn Modell fehlt", async () => {
     vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "andere" }] }) as any);
-    expect(await new ChatClient("http://x", "m").modelInfo("m")).toBeNull();
+    expect(await real().modelInfo("m")).toBeNull();
   });
   it("modelInfo gibt null bei Fehler", async () => {
     vi.mocked(requestUrl).mockRejectedValue(new Error("offline"));
-    expect(await new ChatClient("http://x", "m").modelInfo("m")).toBeNull();
+    expect(await real().modelInfo("m")).toBeNull();
   });
   it("fetchCapabilities liest LM Studio /api/v1/models", async () => {
     vi.mocked(requestUrl).mockImplementation((p: any) => Promise.resolve(
       p.url.endsWith("/api/v1/models")
         ? ok({ data: [{ id: "m", capabilities: { vision: true } }] })
-        : { status: 404 },
+        : ok({ data: [{ id: "m" }] }),
     ) as any);
-    const c = await new ChatClient("http://localhost:1234", "m").fetchCapabilities("m");
+    const c = await real({ endpoints: [{ url: "http://localhost:1234", model: "m" }] }).fetchCapabilities("m");
     expect(c?.vision).toBe("confirmed");
   });
   it("fetchCapabilities gibt null wenn nichts greift", async () => {
     vi.mocked(requestUrl).mockResolvedValue({ status: 404 } as any);
-    expect(await new ChatClient("http://x", "m").fetchCapabilities("m")).toBeNull();
+    expect(await real().fetchCapabilities("m")).toBeNull();
   });
 });
 
 describe("API-Schlüssel", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.mocked(requestUrl).mockReset(); });
   const ok = (json: unknown) => ({ status: 200, json });
-  const headersOf = (call: number): Record<string, string> =>
-    (vi.mocked(requestUrl).mock.calls[call][0] as { headers?: Record<string, string> }).headers ?? {};
+  const lastHeaders = (): Record<string, string> => {
+    const calls = vi.mocked(requestUrl).mock.calls;
+    return (calls[calls.length - 1]![0] as { headers?: Record<string, string> }).headers ?? {};
+  };
+  const real = (apiKey?: string, url = "https://x/api") =>
+    harness({ endpoints: [{ url, model: "m", ...(apiKey ? { apiKey } : {}) }], overrides: { probe: undefined } }).client;
 
   it("stream sendet den Bearer an chat/completions", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("https://x/api", "m", "sk-1")
-      .stream([{ role: "user", content: "hi" }], () => {}, () => {});
-    xhr.feed([DONE]);
-    await p;
-    expect(xhr.headers.Authorization).toBe("Bearer sk-1");
-    expect(xhr.headers["Content-Type"]).toBe("application/json");
+    const { transport, calls } = recordingTransport();
+    await chat({ transport, endpoints: [{ url: "https://x/api", model: "m", apiKey: "sk-1" }] }).stream(msgs, () => {}, () => {});
+    expect(calls[0]!.headers.Authorization).toBe("Bearer sk-1");
   });
 
   it("ohne Schlüssel bleibt der Header beim Streamen weg", async () => {
-    const xhr = installFakeXHR();
-    const p = new ChatClient("http://localhost:1234", "m")
-      .stream([{ role: "user", content: "hi" }], () => {}, () => {});
-    xhr.feed([DONE]);
-    await p;
-    expect(xhr.headers.Authorization).toBeUndefined();
+    const { transport, calls } = recordingTransport();
+    await chat({ transport, endpoints: [{ url: "http://localhost:1234", model: "m" }] }).stream(msgs, () => {}, () => {});
+    expect(calls[0]!.headers.Authorization).toBeUndefined();
   });
 
   it("listModels sendet den Bearer mit", async () => {
     vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m" }] }) as any);
-    await new ChatClient("https://x/api", "m", "sk-1").listModels();
-    expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+    await real("sk-1").listModels();
+    expect(lastHeaders().Authorization).toBe("Bearer sk-1");
   });
-
   it("listModels: ohne Schlüssel bleibt der Header weg", async () => {
     vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m" }] }) as any);
-    await new ChatClient("http://localhost:1234", "m").listModels();
-    expect(headersOf(0).Authorization).toBeUndefined();
+    await real(undefined, "http://localhost:1234").listModels();
+    expect(lastHeaders().Authorization).toBeUndefined();
   });
-
   it("modelInfo sendet den Bearer mit", async () => {
     vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m" }] }) as any);
-    await new ChatClient("https://x/api", "m", "sk-1").modelInfo("m");
-    expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+    await real("sk-1").modelInfo("m");
+    expect(lastHeaders().Authorization).toBe("Bearer sk-1");
   });
-
   it("modelInfo: ohne Schlüssel bleibt der Header weg", async () => {
     vi.mocked(requestUrl).mockResolvedValue(ok({ data: [{ id: "m" }] }) as any);
-    await new ChatClient("http://localhost:1234", "m").modelInfo("m");
-    expect(headersOf(0).Authorization).toBeUndefined();
+    await real(undefined, "http://localhost:1234").modelInfo("m");
+    expect(lastHeaders().Authorization).toBeUndefined();
   });
-
   it("probe sendet den Bearer mit", async () => {
     vi.mocked(requestUrl).mockResolvedValue(ok({ data: [] }) as any);
-    await new ChatClient("https://x/api", "m", "sk-1").probe();
-    expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+    await real("sk-1").probe();
+    expect(lastHeaders().Authorization).toBe("Bearer sk-1");
   });
-
   it("probe: ohne Schlüssel bleibt der Header weg", async () => {
     vi.mocked(requestUrl).mockResolvedValue(ok({ data: [] }) as any);
-    await new ChatClient("http://localhost:1234", "m").probe();
-    expect(headersOf(0).Authorization).toBeUndefined();
+    await real(undefined, "http://localhost:1234").probe();
+    expect(lastHeaders().Authorization).toBeUndefined();
   });
-
   it("fetchCapabilities sendet den Bearer mit", async () => {
     vi.mocked(requestUrl).mockImplementation((p: any) => Promise.resolve(
-      p.url.endsWith("/api/v1/models")
-        ? ok({ data: [{ id: "m", capabilities: { vision: true } }] })
-        : { status: 404 },
+      p.url.endsWith("/api/v1/models") ? ok({ data: [{ id: "m", capabilities: { vision: true } }] }) : ok({ data: [{ id: "m" }] }),
     ) as any);
-    await new ChatClient("https://x/api", "m", "sk-1").fetchCapabilities("m");
-    expect(headersOf(0).Authorization).toBe("Bearer sk-1");
+    await real("sk-1").fetchCapabilities("m");
+    expect(lastHeaders().Authorization).toBe("Bearer sk-1");
   });
-
   it("fetchCapabilities: ohne Schlüssel bleibt der Header weg", async () => {
     vi.mocked(requestUrl).mockImplementation((p: any) => Promise.resolve(
-      p.url.endsWith("/api/v1/models")
-        ? ok({ data: [{ id: "m", capabilities: { vision: true } }] })
-        : { status: 404 },
+      p.url.endsWith("/api/v1/models") ? ok({ data: [{ id: "m", capabilities: { vision: true } }] }) : ok({ data: [{ id: "m" }] }),
     ) as any);
-    await new ChatClient("http://localhost:1234", "m").fetchCapabilities("m");
-    expect(headersOf(0).Authorization).toBeUndefined();
+    await real(undefined, "http://localhost:1234").fetchCapabilities("m");
+    expect(lastHeaders().Authorization).toBeUndefined();
+  });
+});
+
+describe("Schlüsselbund (Kit 0.48): der Schlüssel verlässt data.json und überlebt den Neustart", () => {
+  const msgs2 = [{ role: "user" as const, content: "hi" }];
+
+  it("der erste Aufruf migriert den Klartext-Schlüssel in den Schlüsselbund und sendet ihn weiter als Bearer", async () => {
+    const secrets = fakeSecretStorage();
+    const { transport, calls } = recordingTransport();
+    const h = harness({ transport, app: { secretStorage: secrets }, endpoints: [{ url: "https://x/api", model: "m", apiKey: "sk-geheim" }] });
+    await h.client.stream(msgs2, () => {}, () => {});
+    expect(calls[0]!.headers.Authorization).toBe("Bearer sk-geheim");
+    const row = h.settings.chatEndpoints[0]!;
+    expect(row.apiKey).toBeUndefined();
+    expect(row.secretId).toMatch(/^vault-retrieval-ep-/);
+    expect(JSON.stringify(h.settings)).not.toContain("sk-geheim");
+  });
+
+  it("nach ZWEI Neustarts trägt die Zeile weiter secretId, und der Schlüssel löst auf", async () => {
+    const secrets = fakeSecretStorage();
+    const first = harness({ transport: recordingTransport().transport, app: { secretStorage: secrets }, endpoints: [{ url: "https://x/api", model: "m", apiKey: "sk-geheim" }] });
+    await first.client.stream(msgs2, () => {}, () => {});
+
+    // Neustart: data.json -> Laden (wie `loadSettings` in main.ts) -> neue Verbindung, derselbe Schlüsselbund.
+    let stored = JSON.parse(JSON.stringify(first.settings.chatEndpoints)) as unknown[];
+    for (let start = 1; start <= 2; start++) {
+      const loaded = migrateEndpointList(undefined, stored as never);
+      const { transport, calls } = recordingTransport();
+      const h = harness({ transport, app: { secretStorage: secrets }, endpoints: loaded });
+      await h.client.stream(msgs2, () => {}, () => {});
+      expect(calls[0]!.headers.Authorization, `Neustart ${start}`).toBe("Bearer sk-geheim");
+      expect(h.settings.chatEndpoints[0]!.secretId, `Neustart ${start}`).toMatch(/^vault-retrieval-ep-/);
+      stored = JSON.parse(JSON.stringify(h.settings.chatEndpoints)) as unknown[];
+    }
   });
 });

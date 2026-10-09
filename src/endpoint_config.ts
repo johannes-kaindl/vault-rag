@@ -2,24 +2,22 @@
  *  Migration alter String-Listen und Listen-Bearbeitung. */
 
 import { t } from "./vendor/kit/i18n";
+import type { EndpointConfig, EndpointRole } from "./vendor/kit/endpoint_config";
 import { validateEndpointInput } from "./vendor/kit/endpoint_diagnostics";
 import type { EndpointStatus, EndpointWarning } from "./vendor/kit/endpoint_diagnostics";
 
-export interface EndpointConfig {
-  url: string;
-  /** Leer/fehlend = kein Authorization-Header (lokaler Server). */
-  apiKey?: string;
-  /** Leer/fehlend = noch kein Modell gewählt (siehe `rowModel`). */
-  model?: string;
-}
-
-/** Auth-Header für einen Endpunkt — die EINZIGE Stelle, an der ein Bearer aus einem
- *  Endpunkt-/Anbieter-Schlüssel gebaut wird. (Der plugin-eigene MCP-Server baut seinen
- *  Loopback-Token-Bearer separat — anderes Subsystem, kein Anbieter-Schlüssel.) */
-export function authHeaders(apiKey?: string): Record<string, string> {
-  const k = apiKey?.trim();
-  return k ? { Authorization: `Bearer ${k}` } : {};
-}
+// Die Struktur, Migration und Listen-Bearbeitung kommen aus dem Kit. Eine eigene Kopie von
+// `toConfig` verwarf `id` und `secretId` — nach dem Schlüsselbund-Umzug wäre der Verweis beim
+// zweiten Start weg gewesen (MIGRATION § 0.48.0 Nachtrag 1).
+export type { EndpointConfig, EndpointRole };
+export {
+  authHeaders,
+  carriesApiKey,
+  migrateEndpointList,
+  applyEndpointEdit,
+  moveEndpointToFront,
+  endpointRole,
+} from "./vendor/kit/endpoint_config";
 
 /** Modell der Zeile, getrimmt; "" = noch nichts gewählt. Seit 0.31.0 die EINZIGE Quelle für
  *  das Modell eines Endpunkts — ein Modellname existiert nur auf dem Endpunkt, der ihn in
@@ -27,117 +25,6 @@ export function authHeaders(apiKey?: string): Record<string, string> {
  *  dieselbe Information an zwei Orten plus Vorrangregel). */
 export function rowModel(cfg: EndpointConfig): string {
   return cfg.model?.trim() ?? "";
-}
-
-/** Modell für EINE Chat-Anfrage an den gerade aktiven Endpunkt: feature-eigenes Modell
- *  (z. B. `smartApplyModel`), wenn gesetzt, sonst das Zeilen-Modell.
- *
- *  ⚠️ Bis 0.30.0 stand die Zeile ÜBER dem Feature („ein lokal gewählter Name ist am
- *  Fallback-Anbieter unbekannt, HTTP 400"). Seit jede Zeile ihr Modell trägt, war das Feature
- *  damit strukturell tot — gemessen 2026-09-07 an einem echten Vault: Smart Apply lief auf dem
- *  Zeilen-Modell, die Oberfläche zeigte ein anderes. Gedreht (E1): das Feature gewinnt, und
- *  der Preis ist benannt — kennt ein Fallback-Endpunkt den Namen nicht, scheitert Smart Apply
- *  LAUT in seiner Fehlerbox, während der Chat weiterläuft. Laut ist hier besser als still. */
-export function chatRequestModel(active: EndpointConfig, featureModel?: string): string {
-  return featureModel?.trim() || rowModel(active);
-}
-
-/** Verlässlicher Indikator für "geht an einen Drittanbieter": der Schlüssel, NICHT die URL —
- *  eine URL-Heuristik ("sieht das nach Cloud aus?") wäre unzuverlässig (ein eigener Server im
- *  LAN/VPN braucht ebenfalls keinen Schlüssel, ist aber kein Drittanbieter, und umgekehrt). */
-export function carriesApiKey(cfg: EndpointConfig): boolean {
-  return !!cfg.apiKey?.trim();
-}
-
-/** Ein Listen-Eintrag (alt: blanke URL, neu: Config) → normalisierte Config.
- *  null = unbrauchbar (leere URL) und fliegt aus der Liste. */
-function toConfig(entry: string | EndpointConfig): EndpointConfig | null {
-  if (typeof entry === "string") {
-    const url = entry.trim();
-    return url ? { url } : null;
-  }
-  const url = entry?.url?.trim();
-  if (!url) return null;
-  const key = entry.apiKey?.trim();
-  const model = entry.model?.trim();
-  return { url, ...(key ? { apiKey: key } : {}), ...(model ? { model } : {}) };
-}
-
-/** Migriert alte Einzel-/String-Listen-Settings auf EndpointConfig[]. Reiner Helfer. */
-export function migrateEndpointList(
-  single: string | undefined,
-  list: (string | EndpointConfig)[] | undefined,
-): EndpointConfig[] {
-  if (list && list.length) {
-    const out = list.map(toConfig).filter((c): c is EndpointConfig => c !== null);
-    if (out.length) return out;
-  }
-  const s = single?.trim();
-  return s ? [{ url: s }] : [];
-}
-
-/** Wendet die Bearbeitung EINES Feldes an (bei blur, nicht pro Tastendruck).
- *  Leere URL entfernt den Eintrag; ein geleerter Schlüssel/Modell entfernt nur das Feld. */
-export function applyEndpointEdit(
-  eps: EndpointConfig[],
-  index: number,
-  field: "url" | "apiKey" | "model",
-  value: string,
-  isAdder: boolean,
-): EndpointConfig[] {
-  const v = value.trim();
-  const next = [...eps];
-  if (isAdder) {
-    if (field === "url" && v) next.push({ url: v });
-    return next;
-  }
-  const cur = next[index];
-  if (!cur) return next;
-  if (field === "url") {
-    if (!v) { next.splice(index, 1); return next; }
-    next[index] = { ...cur, url: v };
-    return next;
-  }
-  const updated = { ...cur };
-  if (v) updated[field] = v;
-  else delete updated[field];
-  next[index] = updated;
-  return next;
-}
-
-/** Neue Liste mit dem Eintrag an `index` an der Spitze — die Liste IST die Priorität
- *  (`resolveAndReconnect*` nimmt den ersten erreichbaren), also ist Umsortieren die
- *  einzige Wahrheit darüber, welcher Endpunkt bevorzugt wird. Index 0 oder außerhalb:
- *  unveränderte Kopie, kein Fehler — der Aufrufer muss nicht vorher prüfen. */
-export function moveEndpointToFront(eps: EndpointConfig[], index: number): EndpointConfig[] {
-  if (index <= 0 || index >= eps.length) return [...eps];
-  const next = [...eps];
-  const [moved] = next.splice(index, 1);
-  next.unshift(moved);
-  return next;
-}
-
-/** Welche Rolle ein Endpunkt in der Liste gerade spielt. Reine Ableitung — kein eigener
- *  Zustand, keine Resolver-Änderung: die Einstellungs-UI kennt alle vier Zutaten bereits. */
-export type EndpointRole =
-  | { kind: "active" }
-  | { kind: "standby"; position: number }   // 1-basiert, wie angezeigt
-  | { kind: "unreachable" }
-  | { kind: "skipped-model" };
-
-/** Reihenfolge der Prüfung ist bedeutungstragend: „aktiv" schlägt alles; danach gewinnt der
- *  offensichtlichere Grund (nicht erreichbar) vor dem subtileren (Modell passt nicht).
- *  `modelFits` ist für Chat-Listen immer true — dort hängt kein Index am Modell. */
-export function endpointRole(input: {
-  isActive: boolean;
-  reachable: boolean;
-  modelFits: boolean;
-  position: number;
-}): EndpointRole {
-  if (input.isActive) return { kind: "active" };
-  if (!input.reachable) return { kind: "unreachable" };
-  if (!input.modelFits) return { kind: "skipped-model" };
-  return { kind: "standby", position: input.position };
 }
 
 /** EINE Wahrheit für Zeilentext und Tooltip. */

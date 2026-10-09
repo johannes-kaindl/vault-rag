@@ -30,6 +30,7 @@ Everything lives in **one sidebar view** with tabs: related notes, search, chat,
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/thinking.png" width="820" alt="The chat tab with the Thoughts block expanded, showing the model working through the retrieved notes, and the Thinking toggle in the header">
 - **Model capability hints** — settings show, best-effort, whether the selected chat model supports vision and/or thinking, so you can pick the right one. Each endpoint has an inline connection test, and the model pickers populate from the server.
+- **Secrets stay out of the prompt** — before a chat, Smart Apply or reformat request leaves your machine, tokens, bearer headers, private-key blocks and similar secrets in the text are replaced by placeholders such as `[redacted-token-1]`. The model works on the placeholders, and you get your original text back — in the answer, in the Smart Apply result and in the reformat preview. The LLM Lab log shows the text that was actually sent.
 - **Endpoints are a priority list you can see and change** — the first reachable endpoint wins, so the order matters. Each row states its own role in plain words (*in use* / *reachable, but position N* / *unreachable* / *skipped — model does not match the index*), and one click moves any endpoint to the front. Reachable is not the same as in use, and now you can tell them apart without guessing.
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/endpoints.png" width="820" alt="Two embedding endpoint rows: the first marked active with a green check, the second marked unreachable with a red cross and a button to move it to the front">
@@ -120,7 +121,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 
 > **Endpoint tip:** enter the base URL *without* a trailing `/v1` — the plugin appends it. Both forms are accepted.
 
-> **External providers:** any endpoint row may carry an API key and a model name, turning it into a hosted OpenAI-compatible provider (OpenRouter, Groq, Together, Mistral, OpenAI, …) that sits in the same fallback list as local servers. Keys are stored unencrypted in the plugin's `data.json` — like every other setting — and travel with settings sync.
+> **External providers:** any endpoint row may carry an API key and a model name, turning it into a hosted OpenAI-compatible provider (OpenRouter, Groq, Together, Mistral, OpenAI, …) that sits in the same fallback list as local servers. **Chat** endpoint keys are stored in Obsidian's keychain (**Settings → Keychain**), not in `data.json`, and do not travel with settings sync — enter them again on each device. **Embedding** endpoint keys are still stored unencrypted in the plugin's `data.json` and travel with settings sync.
 
 ## How it works
 

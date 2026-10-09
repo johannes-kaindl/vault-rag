@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveManagedChat, resolveManagedEmbedding } from "../src/managed_endpoint";
+import { resolveManagedEmbedding } from "../src/managed_endpoint";
 import type { LlmEndpointManagerApi, ResolvedEndpoint, ApiError } from "../src/vendor/kit/endpoint-source";
 
 function fakeManager(over: { resolve?: ResolvedEndpoint | ApiError; materialize?: ResolvedEndpoint | ApiError } = {}): LlmEndpointManagerApi {
@@ -15,36 +15,6 @@ function fakeManager(over: { resolve?: ResolvedEndpoint | ApiError; materialize?
 }
 const up = async () => true;
 const down = async () => false;
-
-describe("resolveManagedChat", () => {
-  it("nimmt Endpunkt und Standardmodell vom Manager, Schluessel bleibt an der Zeile", async () => {
-    const r = await resolveManagedChat(fakeManager(), {}, up);
-    expect(r.config).toEqual({ url: "http://m:1", apiKey: "geheim", model: "qwen3-embedding:8b" });
-    expect(r.active).toBe(true);
-  });
-  it("die Nutzerwahl (choice.model) schlaegt das Standardmodell", async () => {
-    const r = await resolveManagedChat(fakeManager(), { model: "mein-modell" }, up);
-    expect(r.config?.model).toBe("mein-modell");
-  });
-  it("config.model des Managers (== defaultModel) ueberschreibt die Nutzerwahl NICHT — lingotuner-Fund C1", async () => {
-    const ep: ResolvedEndpoint = { id: "e1", label: "E1", config: { url: "http://m:1", model: "default-modell" }, defaultModel: "default-modell" };
-    const r = await resolveManagedChat(fakeManager({ resolve: ep }), { model: "meine-wahl" }, up);
-    expect(r.config?.model).toBe("meine-wahl");
-  });
-  it("kein Endpunkt beim Manager: config null, kein Rueckfall auf eine lokale Liste", async () => {
-    const r = await resolveManagedChat(fakeManager({ resolve: { error: "no-endpoint" } }), {}, up);
-    expect(r).toEqual({ config: null, reason: "no-endpoint", active: false });
-  });
-  it("nicht erreichbar: Endpunkt bleibt verdrahtet, ist aber nicht aktiv markiert", async () => {
-    const r = await resolveManagedChat(fakeManager(), {}, down);
-    expect(r.config?.url).toBe("http://m:1");
-    expect(r.active).toBe(false);
-  });
-  it("ein werfender Ping macht den Endpunkt inaktiv statt den Resolver zu kippen", async () => {
-    const r = await resolveManagedChat(fakeManager(), {}, async () => { throw new Error("x"); });
-    expect(r.active).toBe(false);
-  });
-});
 
 describe("resolveManagedEmbedding", () => {
   it("Modell passt zum Index und Endpunkt antwortet: aktiv", async () => {

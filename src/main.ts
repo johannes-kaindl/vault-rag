@@ -1,26 +1,22 @@
 import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView, getLanguage } from "obsidian";
 import "./i18n/strings";
-import { pickLang, setLang, t } from "./vendor/kit/i18n";
+import { getLang, pickLang, setLang, t } from "./vendor/kit/i18n";
 import { VaultIndex } from "./index";
 import { Hit } from "./retriever";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
 import { findEndpointManager, onEndpointManagerChanged } from "./vendor/kit-obsidian/endpoint-source";
-import { resolveManagedChat, resolveManagedEmbedding } from "./managed_endpoint";
-import { cachedProbe } from "./http";
+import { resolveManagedEmbedding } from "./managed_endpoint";
+import { probeEndpoint } from "./http";
 import { describeModel } from "./vendor/kit/endpoint-source";
-import { createRequestSession, type RequestSession } from "./vendor/kit-obsidian/request-session";
-import type { RequestSectionState } from "./vendor/kit-obsidian/request-section";
+import { createLlmConnection, type LlmConnection } from "./vendor/kit-obsidian/llm-connection";
 import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
-import { sanitizeRequestSettings, thinkingFor, onLevelFor, type ModeId, type RequestSettings } from "./vendor/kit/sampling-profiles";
-import {
-  buildChatParams, buildSmartApplyParams, buildReformatParams, migrateLegacySampling, NO_SOURCE, MODE_CHAT, MODE_SMART_APPLY,
-  type BuiltRequest, type SourceFacts,
-} from "./request_profile";
-import { deviationNotice, requestText } from "./request_text";
-import type { RequestParams, ResponseCheck } from "./chat_client";
-import { chatRequestModel, rowModel, migrateEndpointList, applyEndpointEdit, type EndpointConfig } from "./endpoint_config";
+import { sanitizeRequestSettings, thinkingFor, onLevelFor, type FamilyId, type ModeId, type RequestSettings } from "./vendor/kit/sampling-profiles";
+import { migrateLegacySampling, MODE_CHAT, MODE_SMART_APPLY, MODE_REFORMAT } from "./request_profile";
+import { chatConnectionOptions } from "./connection_options";
+import { requestText } from "./request_text";
+import { rowModel, migrateEndpointList, applyEndpointEdit, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
@@ -58,7 +54,6 @@ import { pickTransform, promptInstruction } from "./reformat_picker";
 import type { TransformDef } from "./reformat_transforms";
 import { splitSelectionAffix } from "./reformat_mechanical";
 import { ReformatPreviewModal } from "./reformat_preview_modal";
-import { REFORMAT_MAX_TOKENS } from "./reformat_prompts";
 import { maskProtected, integrityProblem } from "./protect_markup";
 import { ReformatReadiness, readinessMessage, canRun, isRangeStale } from "./reformat_selection_state";
 import { ReformatPanel } from "./reformat_panel";
@@ -101,17 +96,16 @@ export default class VaultRagPlugin extends Plugin {
    *  Embedder und LiveIndexer/Manifest MÜSSEN immer dasselbe Modell nennen — sonst behauptet
    *  das Manifest einen Vektorraum, aus dem die Vektoren nicht stammen. */
   private embeddingModelInUse = "";
-  /** Chat-Endpunkt, mit dem `chatClient` gebaut wurde — Quelle des Zeilen-Modell-Overrides.
-   *  Anders als beim Embedder wird hier die Config statt eines fertigen Modellnamens gehalten:
-   *  Smart Apply bringt ein eigenes Modellfeld mit, und nur `chatRequestModel` kennt die
-   *  Vorrangregel zwischen beidem. */
-  private chatEndpointInUse: EndpointConfig = { url: "" };
-  /** Familie, Backend und gesendete Schreibweise des aktiven Chat-Endpunkts — Quelle der
-   *  Anfrage-Profile (Welle 14). Wird bei jedem Verdrahten neu bestimmt; `factsFor` passt die
-   *  Familie an ein abweichendes Modell an (Dropdown, Smart-Apply-Modell). */
-  private chatSource: SourceFacts = NO_SOURCE;
-  /** „Letzte Anfrage“ und beobachtete Abweichungen der Sitzung (Abschnitt „Anfrage“). */
-  readonly requestSession: RequestSession = createRequestSession({ message: (d) => deviationNotice(d) });
+  /** Die ganze Chat-Anbindung: Endpunkt-Quelle (Manager oder lokale Liste mit Schlüsselbund), gemerkte
+   *  Auflösung, Anfrage-Parameter je Modus, Client, Prüfung der Antwort und die Einstellungs-Abschnitte
+   *  „Endpunkte“ und „Anfrage“ (Kit `createLlmConnection`, Welle 15). Der Embedding-Pfad bleibt daneben
+   *  bei seiner eigenen Auflösung (Index-Guard `fits`/`mismatch`). */
+  llm!: LlmConnection;
+  /** Modellwahl aus dem Chat-Dropdown, solange die neue Auflösung noch läuft — sonst zeigte
+   *  `chatModelInUse` in der Zwischenzeit das Neutral-Modell (leer). */
+  private pendingChatModel: string | null = null;
+  /** Zähler der Chat-Auflösungen: nur der jüngste Lauf schreibt `activeChatEndpoint`. */
+  private chatReconnectGen = 0;
   /** Zuletzt gemeldete Modell-Guard-Übersprünge — verhindert Notice-Spam, weil
    *  `embedderReady()` den Resolver bei jedem fehlgeschlagenen Ping erneut anwirft. */
   private lastSkipNotice = "";
@@ -267,11 +261,16 @@ export default class VaultRagPlugin extends Plugin {
     // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
     // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
     const e0 = this.settings.embeddingEndpoints[0] ?? { url: "" };
-    const c0 = this.settings.chatEndpoints[0] ?? { url: "" };
     this.embeddingModelInUse = rowModel(e0);
     this.embedder = new EmbeddingClient(e0.url, this.embeddingModelInUse, e0.apiKey);
-    this.chatEndpointInUse = c0;
-    this.chatClient = new ChatClient(c0.url, this.chatModelInUse, c0.apiKey);
+    this.llm = createLlmConnection(chatConnectionOptions({
+      app: this.app,
+      pluginId: this.manifest.id,
+      settings: () => this.settings,
+      save: () => this.saveSettings(),
+      lang: () => getLang(),
+    }));
+    this.chatClient = new ChatClient(this.llm);
     // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
     // fire-and-forget am Ende von onload, der modify-Listener kann davor feuern.
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.embeddingModelInUse);
@@ -356,11 +355,7 @@ export default class VaultRagPlugin extends Plugin {
           app: () => this.app,
         },
         () => this.chatClient,
-        () => {
-          const model = this.smartApplyModelInUse;
-          const maxTokens = this.settings.smartApplyMaxTokens;
-          return { model, maxTokens, ...this.requestFor(buildSmartApplyParams, model, maxTokens) };
-        },
+        () => ({ model: this.settings.smartApplyModel ?? "", maxTokens: this.settings.smartApplyMaxTokens }),
       );
       this.templateRanker = new TemplateRanker({
         read: (p) => this.app.vault.adapter.read(p),
@@ -520,7 +515,7 @@ export default class VaultRagPlugin extends Plugin {
             budget: this.settings.contextCharBudget,
           }),
           systemPreamble: () => effectiveSystemPrompt(this.settings.chatSystemPrompt),
-          params: () => ({ model: this.chatModelInUse, ...this.requestFor(buildChatParams, this.chatModelInUse) }),
+          model: () => this.chatModelInUse,
           app: () => this.app,
         }),
         openPath: this.openPath,
@@ -528,39 +523,9 @@ export default class VaultRagPlugin extends Plugin {
         ping: () => this.chatReady(),
         listModels: () => this.chatClient.listModels(),
         getModel: () => this.chatModelInUse,
-        // Kein globales Feld mehr: eine Auswahl aus diesem Dropdown schreibt in die Zeile des
-        // aktiven Chat-Endpunkts. NICHT in-place mutieren (`chatEndpointInUse.model = m`) —
-        // zwei Pfade zerreißen sonst die Identitätsannahme "dieselbe Instanz wie in
-        // settings.chatEndpoints": (a) bei leerer Liste ist chatEndpointInUse ein frisches
-        // `{ url: "" }`-Objekt außerhalb des Arrays (verwaister Schreiber, geht beim nächsten
-        // Save verloren); (b) buildKitEndpointList ersetzt vor save()/reconnect() das GANZE
-        // Array durch Kopien (opts.set) — eine Auswahl in diesem Fenster träfe ein bereits
-        // losgelöstes Objekt. Deshalb über Index + `applyEndpointEdit` (Kopie), wie jede
-        // andere Zeilen-Bearbeitung auch.
-        setModel: (m: string) => {
-          // Mit Manager gehört die Wahl in `chatChoice` (die Zeile im Speicher ist nur ein
-          // Abbild des Manager-Ergebnisses); die lokale Liste bleibt unberührt.
-          if (findEndpointManager(this.app)) {
-            this.settings.chatChoice = { ...this.settings.chatChoice, model: m || undefined };
-            this.chatEndpointInUse = { ...this.chatEndpointInUse, model: m };
-            void this.saveSettings();
-            // Familie (und Backend) der neuen Wahl kennt der Manager; der Re-Resolve holt sie.
-            void this.resolveAndReconnectChat();
-            return;
-          }
-          const eps = this.settings.chatEndpoints;
-          // Identität zuerst, URL als Fallback: zwischen dem Kit-Listeneditor-Ersatz des ganzen
-          // Arrays (opts.set(copies)) und dem nächsten reconnect() kann `chatEndpointInUse` auf
-          // ein Objekt zeigen, das in `eps` keine Referenzgleichheit mehr hat, obwohl seine URL
-          // noch in der Liste steht — sonst würde die Auswahl in genau diesem Fenster verworfen.
-          const byIdentity = eps.indexOf(this.chatEndpointInUse);
-          const i = byIdentity >= 0 ? byIdentity : eps.findIndex((e) => e.url === this.chatEndpointInUse.url);
-          if (i < 0) return;   // leere Liste / Platzhalter-Endpunkt: nichts, worauf die Wahl zeigen koennte
-          const updated = applyEndpointEdit(eps, i, "model", m, false);
-          this.settings.chatEndpoints = updated;
-          this.chatEndpointInUse = updated[i] ?? this.chatEndpointInUse;
-          void this.saveSettings();
-        },
+        // Kein globales Feld: eine Auswahl aus diesem Dropdown schreibt in die Zeile des aktiven
+        // Chat-Endpunkts, mit Manager in `chatChoice` (siehe `setChatModel`).
+        setModel: (m: string) => { void this.setChatModel(m); },
         inputPosition: () => this.settings.chatInputPosition,
         getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
         embed: async (q) => {
@@ -744,69 +709,60 @@ export default class VaultRagPlugin extends Plugin {
     return this.blockedMessage(e instanceof PersistBlockedError ? e.kind : undefined, fallback);
   }
 
-  /** Aktiven Chat-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
-   *  und chatClient darauf neu verdrahten. */
+  /** Chat-Verbindung neu auflösen (nach einer Listen- oder Wahländerung, beim Öffnen der Einstellungen,
+   *  bei einem Manager-Wechsel). Die Verbindung wählt den ersten erreichbaren Endpunkt (lokal) bzw.
+   *  fragt den Manager; hier bleibt nur, welcher Endpunkt als „aktiv“ gilt. */
   async resolveAndReconnectChat(): Promise<void> {
-    let active: EndpointConfig | null = null;
-    let cfg: EndpointConfig;
-    const manager = findEndpointManager(this.app);
-    let managed: Awaited<ReturnType<typeof resolveManagedChat>> | null = null;
-    if (manager) {
-      // Manager-Vorrang; die Zeile trägt Schlüssel und Modell nur im Speicher (nie in data.json).
-      const res = managed = await resolveManagedChat(manager, this.settings.chatChoice,
-        (c) => new ChatClient(c.url, rowModel(c), c.apiKey).ping(),
-        (c) => cachedProbe(normalizeEndpoint(c.url), rowModel(c)));
-      cfg = res.config ?? { url: "" };
-      if (res.active) active = cfg;
-    } else {
-      for (const candidate of this.settings.chatEndpoints) {
-        const url = candidate.url?.trim();
-        if (!url) continue;
-        if (await new ChatClient(url, rowModel(candidate), candidate.apiKey).ping()) {
-          active = candidate;
-          break;
-        }
-      }
-      cfg = active ?? this.settings.chatEndpoints[0] ?? { url: "" };
+    // Kein `invalidate()` davor: es leert die gemerkte Auflösung, und bis die neue da ist (bei einer
+    // toten Zeile bis zu 5 s) wäre `source()` neutral. Das Modell im Chat-Dropdown würde leer, und eine
+    // Überschreibung im Abschnitt „Anfrage“ landete unter der Familie `unknown`. `force` liest die
+    // Einstellungen ohnehin frisch und ersetzt die alte Auflösung erst, wenn die neue vorliegt.
+    const gen = ++this.chatReconnectGen;
+    const r = await this.llm.resolve({ force: true });
+    // Mehrere Läufe können gleichzeitig laufen (Start, Tab öffnen, Manager-Abo, Ping): nur der jüngste schreibt.
+    if (gen !== this.chatReconnectGen) return;
+    const cfg = r.config;
+    // Lokal heißt aufgelöst erreichbar (die Verbindung pingt jede Zeile). Der Manager nennt auch einen
+    // nicht erreichbaren Endpunkt: der zählt erst nach der Probe als aktiv.
+    const active = cfg !== null
+      && (r.kind === "local" || (await probeEndpoint(normalizeEndpoint(cfg.url), cfg.apiKey)).reachable);
+    if (gen !== this.chatReconnectGen) return;
+    this.activeChatEndpoint = active && cfg ? normalizeEndpoint(cfg.url) : null;
+    this.pendingChatModel = null;
+  }
+
+  /** Modellwahl aus dem Chat-Dropdown. Mit Manager gehört die Wahl in `chatChoice` (die Zeile im
+   *  Speicher ist nur ein Abbild des Manager-Ergebnisses); ohne ihn schreibt sie in die Zeile des
+   *  aktiven Endpunkts, über Index + `applyEndpointEdit` (Kopie, nie in-place). */
+  private async setChatModel(m: string): Promise<void> {
+    this.pendingChatModel = m;
+    try { await this.applyChatModel(m); }
+    finally { if (this.pendingChatModel === m) this.pendingChatModel = null; }
+  }
+
+  private async applyChatModel(m: string): Promise<void> {
+    if (findEndpointManager(this.app)) {
+      this.settings.chatChoice = { ...this.settings.chatChoice, model: m || undefined };
+      await this.saveSettings();
+      // Familie (und Backend) der neuen Wahl kennt der Manager; der Re-Resolve holt sie.
+      await this.resolveAndReconnectChat();
+      return;
     }
-    this.activeChatEndpoint = active ? normalizeEndpoint(cfg.url) : null;
-    this.chatEndpointInUse = cfg;
-    this.chatClient = new ChatClient(cfg.url, this.chatModelInUse, cfg.apiKey);
-    await this.refreshChatSource(managed?.source ?? null);
+    const active = (await this.llm.resolve()).config;
+    const eps = this.settings.chatEndpoints;
+    const i = eps.findIndex((e) => (active?.id !== undefined && e.id === active.id) || (active !== null && e.url === active.url));
+    if (i < 0) return;   // leere Liste / kein Endpunkt: nichts, worauf die Wahl zeigen könnte
+    this.settings.chatEndpoints = applyEndpointEdit(eps, i, "model", m, false);
+    await this.saveSettings();
+    await this.resolveAndReconnectChat();
   }
 
-  /** Bestimmt Familie und Backend des aktiven Chat-Endpunkts fuer die Anfrage-Profile. Mit Manager
-   *  kommen beide von dort (der Manager kennt die Familie eines Alias); ohne ihn wird die Familie
-   *  aus dem Namen geschaetzt und das Backend einmal je URL erkannt (30 s Cache, mit Frist). */
-  private async refreshChatSource(fromManager: SourceFacts | null): Promise<void> {
-    if (fromManager) { this.chatSource = fromManager; return; }
-    const cfg = this.chatEndpointInUse;
-    const model = this.chatModelInUse;
-    const d = describeModel(model, undefined);
-    const backend = cfg.url ? await cachedProbe(normalizeEndpoint(cfg.url), model) : null;
-    this.chatSource = {
-      family: d.family, familySource: d.familySource,
-      backend: backend ?? "unknown", backendSource: backend ? "probe" : "none",
-      model, sentModel: d.sentModel,
-    };
-  }
-
-  /** Die Quelle fuer eine Anfrage mit `model`: weicht es vom Modell des Endpunkts ab (Dropdown,
+  /** Familie für die Denk-Steuerung eines Panels: weicht das Modell vom aufgelösten ab (Dropdown,
    *  eigenes Smart-Apply-Modell), gilt die Familie DIESES Modells, nicht die des Endpunkts. */
-  private factsFor(model: string): SourceFacts {
-    const base = this.chatSource;
-    if (model === "" || model === base.sentModel || model === base.model) return base;
-    const d = describeModel(model, undefined);
-    return { ...base, family: d.family, familySource: d.familySource, model, sentModel: d.sentModel };
-  }
-
-  /** Fuer den Abschnitt „Anfrage“ in den Einstellungen. */
-  requestSectionState(): RequestSectionState {
-    const s = this.factsFor(this.chatModelInUse);
-    return {
-      family: s.family, familySource: s.familySource, backend: s.backend, backendSource: s.backendSource,
-      model: s.model, sentModel: s.sentModel, ...(s.defaultModel !== undefined ? { defaultModel: s.defaultModel } : {}),
-    };
+  private familyFor(model: string): FamilyId | null {
+    const s = this.llm.source();
+    if (model === "" || model === s.model || model === s.sentModel) return s.family;
+    return describeModel(model, undefined).family;
   }
 
   async saveRequestSettings(next: RequestSettings): Promise<void> {
@@ -814,28 +770,11 @@ export default class VaultRagPlugin extends Plugin {
     await this.saveSettings();
   }
 
-  /** Sampling-Felder fuer EINE Aufrufstelle: baut sie aus der Kit-Tabelle (`request_profile.ts`),
-   *  merkt sie fuer „Letzte Anfrage“ und liefert die Antwortpruefung mit. Jede Aufrufstelle
-   *  nennt nur ihren Wrapper, ihr Modell und ihr Budget — entschieden wird nichts mehr vor Ort. */
-  private requestFor(
-    build: (src: SourceFacts, settings: RequestSettings, maxTokens?: number) => BuiltRequest,
-    model: string,
-    maxTokens?: number,
-  ): { params: RequestParams; check: ResponseCheck } {
-    const src = this.factsFor(model);
-    const built = build(src, this.settings.request, maxTokens);
-    this.requestSession.recordRequest(built.params);
-    return {
-      params: built.params,
-      check: { family: src.family, thinking: built.level, report: (ds) => this.requestSession.report(ds) },
-    };
-  }
-
   /** Denk-Steuerung eines Panels (Kit `thinking-control`): Stufe und Einschalt-Stufe je Modus,
    *  Speichern in `request`. Die Texte entstehen erst beim Zeichnen (`t()` im Aufruf), nie hier. */
   private thinkingDeps(mode: ModeId, modelOf: () => string): Omit<ThinkingControlOptions, "containerEl"> {
     return {
-      family: () => this.factsFor(modelOf()).family,
+      family: () => this.familyFor(modelOf()),
       current: () => thinkingFor(this.settings.request, mode),
       onLevel: () => onLevelFor(this.settings.request, mode),
       setLevel: async (level) => {
@@ -855,18 +794,16 @@ export default class VaultRagPlugin extends Plugin {
     };
   }
 
-  /** Modell, das eine Chat-Anfrage tatsächlich mitschickt. `ChatClient.stream` liest `opts.model`
-   *  und ignoriert das im Konstruktor gesetzte Modell — jede Aufrufstelle muss deshalb DIESEN
-   *  Wert übergeben, sonst ginge bei einem Fallback auf einen gehosteten Anbieter der lokale
-   *  Modellname raus (HTTP 400 ohne erkennbare Ursache). Getter statt Feld: eine Modellauswahl
-   *  im Dropdown wirkt so sofort, ohne Re-Resolve. */
+  /** Modell, das eine Chat-Anfrage tatsächlich mitschickt: das aufgelöste der Verbindung (Zeilen-Modell
+   *  bzw. Manager-Wahl). Getter statt Feld: eine Modellauswahl im Dropdown wirkt so sofort. */
   get chatModelInUse(): string {
-    return chatRequestModel(this.chatEndpointInUse);
+    return this.pendingChatModel ?? this.llm.source().model;
   }
 
-  /** `smartApplyModel` schlägt das Zeilen-Modell (E1); Preis siehe `chatRequestModel`. */
+  /** `smartApplyModel` schlägt das Zeilen-Modell (E1): kennt ein Fallback-Endpunkt den Namen nicht,
+   *  scheitert Smart Apply LAUT in seiner Fehlerbox, während der Chat weiterläuft. */
   private get smartApplyModelInUse(): string {
-    return chatRequestModel(this.chatEndpointInUse, this.settings.smartApplyModel);
+    return this.settings.smartApplyModel?.trim() || this.chatModelInUse;
   }
 
   /** Embedding-Modell des geladenen Index — für den Modell-Guard der Einstellungs-UI.
@@ -1118,7 +1055,7 @@ export default class VaultRagPlugin extends Plugin {
       stream: (onToken, signal) => this.chatClient
         .stream(messages, onToken, () => {}, signal, {
           model: this.chatModelInUse,
-          ...this.requestFor(buildReformatParams, this.chatModelInUse, REFORMAT_MAX_TOKENS),
+          mode: MODE_REFORMAT,
           trace: { feature: `reformat:${def.id}`, app: this.app, contextPaths: [cap.path], promptTemplate: def.promptTemplate(), turnId: newTurnId() },
         })
         .then(r => {

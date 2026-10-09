@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { authHeaders, rowModel, chatRequestModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointWarningText, endpointInputWarnings, type EndpointConfig } from "../src/endpoint_config";
+import { ensureEndpointIds, hydrateEndpointSecrets } from "../src/vendor/kit/endpoint_config";
+import { authHeaders, rowModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointWarningText, endpointInputWarnings, type EndpointConfig } from "../src/endpoint_config";
 import "../src/i18n/strings"; // Register i18n strings
 
 describe("authHeaders", () => {
@@ -21,28 +22,6 @@ describe("rowModel", () => {
     expect(rowModel({ url: "u", model: " gpt-4o " })).toBe("gpt-4o");
     expect(rowModel({ url: "u", model: "  " })).toBe("");
     expect(rowModel({ url: "u" })).toBe("");
-  });
-});
-
-describe("chatRequestModel — Feature-Modell schlägt Zeile (E1, 2026-09-07)", () => {
-  const row: EndpointConfig = { url: "http://localhost:1234", model: "qwen3" };
-
-  it("ohne feature-eigenes Modell gilt das Zeilen-Modell des aktiven Endpunkts", () => {
-    expect(chatRequestModel(row)).toBe("qwen3");
-    expect(chatRequestModel(row, "")).toBe("qwen3");
-    expect(chatRequestModel(row, "   ")).toBe("qwen3");
-  });
-
-  it("ein gesetztes feature-eigenes Modell (Smart Apply) gewinnt — getrimmt", () => {
-    // Vorher schlug die Zeile das Feature; damit war smartApplyModel wirkungslos, sobald die
-    // Zeile ein Modell trug — und seit 0.31.0 trägt jede Zeile eines. Preis: kennt ein
-    // Fallback-Endpunkt den Namen nicht, scheitert Smart Apply laut (HTTP 400) statt still
-    // auf ein anderes Modell zu wechseln.
-    expect(chatRequestModel(row, " gemma ")).toBe("gemma");
-  });
-
-  it("Zeile ohne Modell und ohne Feature → leer (noch nichts gewählt)", () => {
-    expect(chatRequestModel({ url: "u" })).toBe("");
   });
 });
 
@@ -268,18 +247,19 @@ describe("endpointInputWarnings", () => {
 // Modell benutzt.
 describe("Listenoperationen — Invariante: kein stiller Feldverlust", () => {
   const full = (): EndpointConfig[] => ([
-    { url: "http://a", apiKey: "ka", model: "ma" },
-    { url: "http://b", apiKey: "kb", model: "mb" },
+    { url: "http://a", apiKey: "ka", model: "ma", id: "id-a", secretId: "vault-retrieval-ep-id-a" },
+    { url: "http://b", apiKey: "kb", model: "mb", id: "id-b", secretId: "vault-retrieval-ep-id-b" },
     { url: "http://c" },                                  // bewusst ohne Zusatzfelder
   ]);
 
   /** Jeder Eintrag, der die Operation ueberlebt, traegt seine Felder unveraendert —
    *  ausser er war das Ziel einer Bearbeitung GENAU dieses Feldes. */
-  function assertFieldsKept(before: EndpointConfig[], after: EndpointConfig[], exempt?: { url: string; field: "apiKey" | "model" }): void {
+  function assertFieldsKept(before: EndpointConfig[], after: EndpointConfig[], exempt?: { url: string; field: "apiKey" | "model" | "id" }): void {
+    // `id`/`secretId` sind die Schlüsselbund-Verweise: gehen sie verloren, ist der Schlüssel weg.
     for (const b of before) {
       const a = after.find(x => x.url === b.url);
       if (!a) continue;                                    // bewusst entfernt — nicht Gegenstand
-      for (const field of ["apiKey", "model"] as const) {
+      for (const field of ["apiKey", "model", "id", "secretId"] as const) {
         if (exempt && exempt.url === b.url && exempt.field === field) continue;
         expect(a[field], `${b.url}.${field} ging verloren`).toBe(b[field]);
       }
@@ -306,6 +286,18 @@ describe("Listenoperationen — Invariante: kein stiller Feldverlust", () => {
     }
   });
 
+  it("ensureEndpointIds erhaelt alle Felder", () => {
+    // c trug keine id: sie bekommt eine (nur Ergaenzen, nie Verlieren).
+    assertFieldsKept(full(), ensureEndpointIds(full()), { url: "http://c", field: "id" });
+  });
+
+  it("hydrateEndpointSecrets erhaelt alle Felder (apiKey kommt aus dem Store)", () => {
+    const store = { get: (id: string) => (id === "vault-retrieval-ep-id-a" ? "aus-dem-bund" : null) };
+    const out = hydrateEndpointSecrets(full(), store, "vault-retrieval-ep");
+    assertFieldsKept(full(), out, { url: "http://a", field: "apiKey" });
+    expect(out[0]?.apiKey).toBe("aus-dem-bund");
+  });
+
   it("applyEndpointEdit im Adder-Modus laesst die bestehende Liste unberuehrt", () => {
     assertFieldsKept(full(), applyEndpointEdit(full(), 3, "url", "http://d", true));
   });
@@ -314,11 +306,11 @@ describe("Listenoperationen — Invariante: kein stiller Feldverlust", () => {
   // Operationen. Eine neu hinzugefuegte Listenoperation soll diesen Test rot faerben, statt
   // ungeprueft danebenzustehen (CORE-TEST-04).
   it("kennt jede Operation, die eine Endpunkt-Liste zurueckgibt", () => {
-    const src = readFileSync(join(__dirname, "..", "src", "endpoint_config.ts"), "utf8");
+    const src = readFileSync(join(__dirname, "..", "src", "vendor", "kit", "endpoint_config.ts"), "utf8");
     // Am RUECKGABETYP erkannt, nicht am Parameter: eine Listenoperation ist definiert durch das,
     // was sie liefert. `[^{]*?` haelt den Treffer in der Signatur, damit nicht zwei Funktionen
     // ueber ihre Rumpfgrenze hinweg zu einem Match verschmelzen.
     const listOps = [...src.matchAll(/export function (\w+)\([^{]*?\): EndpointConfig\[\]/g)].map(m => m[1]);
-    expect(listOps.sort()).toEqual(["applyEndpointEdit", "migrateEndpointList", "moveEndpointToFront"]);
+    expect(listOps.sort()).toEqual(["applyEndpointEdit", "ensureEndpointIds", "hydrateEndpointSecrets", "migrateEndpointList", "moveEndpointToFront"]);
   });
 });

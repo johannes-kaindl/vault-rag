@@ -30,6 +30,7 @@ Alles lebt in **einer Sidebar-Ansicht** mit Tabs: Ähnlich, Suche, Chat, Umforma
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/thinking.png" width="820" alt="Der Chat-Tab mit aufgeklapptem Thoughts-Block: das Modell arbeitet sich sichtbar durch die gefundenen Notizen, oben der Thinking-Schalter">
 - **Modell-Fähigkeiten auf einen Blick** — die Einstellungen zeigen nach bestem Wissen, ob das gewählte Chat-Modell Vision und/oder Thinking beherrscht. Jeder Endpunkt hat einen Verbindungstest, die Modell-Auswahl füllt sich vom Server.
+- **Geheimnisse bleiben aus dem Prompt** — bevor eine Chat-, Smart-Apply- oder Umformatieren-Anfrage deinen Rechner verlässt, ersetzt das Plugin Tokens, Bearer-Header, Private-Key-Blöcke und ähnliche Geheimnisse im Text durch Platzhalter wie `[redacted-token-1]`. Das Modell arbeitet mit den Platzhaltern, du bekommst deinen Originaltext zurück — in der Antwort, im Smart-Apply-Ergebnis und in der Umformatieren-Vorschau. Das LLM-Lab-Log zeigt den Text, der tatsächlich gesendet wurde.
 - **Die Endpunkt-Liste ist eine sichtbare, änderbare Rangfolge** — der erste erreichbare Endpunkt gewinnt, die Reihenfolge entscheidet also. Jede Zeile sagt im Klartext, welche Rolle sie spielt (*aktiv* / *erreichbar, aber Platz N* / *nicht erreichbar* / *übersprungen — Modell passt nicht zum Index*), und ein Klick holt einen Endpunkt nach vorn. Erreichbar heißt nicht benutzt — jetzt ist der Unterschied auch zu sehen.
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/endpoints.png" width="820" alt="Zwei Embedding-Endpunkt-Zeilen: die erste mit grünem Haken als aktiv markiert, die zweite mit rotem Kreuz als nicht erreichbar, dazu ein Knopf, sie nach vorn zu holen">
@@ -120,7 +121,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 
 > **Endpunkt-Tipp:** die Basis-URL *ohne* abschließendes `/v1` eintragen — das Plugin hängt es an. Beide Formen werden akzeptiert.
 
-> **Externe Anbieter:** jede Endpunkt-Zeile kann einen API-Schlüssel und einen Modellnamen tragen — damit wird sie zu einem gehosteten OpenAI-kompatiblen Anbieter (OpenRouter, Groq, Together, Mistral, OpenAI, …), der in derselben Fallback-Liste wie lokale Server steht. Schlüssel liegen unverschlüsselt in der Plugin-`data.json` — wie jede andere Einstellung — und wandern mit dem Einstellungs-Sync mit.
+> **Externe Anbieter:** jede Endpunkt-Zeile kann einen API-Schlüssel und einen Modellnamen tragen — damit wird sie zu einem gehosteten OpenAI-kompatiblen Anbieter (OpenRouter, Groq, Together, Mistral, OpenAI, …), der in derselben Fallback-Liste wie lokale Server steht. Schlüssel der **Chat**-Endpunkte liegen im Obsidian-Schlüsselbund (**Einstellungen → Schlüsselbund**), nicht in der `data.json`, und wandern nicht mit dem Einstellungs-Sync — auf jedem Gerät neu eintragen. Schlüssel der **Embedding**-Endpunkte liegen weiterhin unverschlüsselt in der Plugin-`data.json` und wandern mit dem Einstellungs-Sync mit.
 
 ## Wie es funktioniert
 

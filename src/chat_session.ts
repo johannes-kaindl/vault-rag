@@ -1,4 +1,5 @@
-import { ChatClient, ChatMessage, type RequestParams, type ResponseCheck } from "./chat_client";
+import { ChatClient, ChatMessage } from "./chat_client";
+import { MODE_CHAT } from "./request_profile";
 import { ContextResult } from "./context_source";
 import { chatErrorMessage } from "./chat_error";
 import { t } from "./vendor/kit/i18n";
@@ -8,9 +9,9 @@ export interface ChatSessionDeps {
   client: () => ChatClient;
   assemble: (paths: string[]) => Promise<ContextResult>;
   systemPreamble: () => string;
-  /** Modell und fertige Sampling-Felder (Modus `grounded`, gebaut in `request_profile.ts`); `check`
-   *  prueft die Antwort gegen das Profil. */
-  params: () => { model: string; params: RequestParams; check?: ResponseCheck };
+  /** Modell der Anfrage; die Sampling-Felder (Modus `grounded`) und die Antwortpruefung baut die
+   *  Verbindung des Plugins. */
+  model: () => string;
   /** `app`-Referenz nur für das llm-lab-Tracing (`readLabApi`) — obsidian-frei gehalten,
    *  deshalb `unknown` statt eines `App`-Imports (siehe `lab_client.ts`). */
   app: () => unknown;
@@ -53,13 +54,12 @@ export class ChatSession {
     try {
       // onToken = reiner Re-Render-Notifier (View ignoriert das Argument).
       // reasoning wird am Assistenten akkumuliert, aber NIE in `history` (oben) aufgenommen.
-      const p = this.deps.params();
       const result = await this.deps.client().stream(
         sent,
         c => { assistant.content += c; onToken(c); },
         r => { assistant.reasoning = (assistant.reasoning ?? "") + r; onToken(r); },
         this.controller.signal,
-        { model: p.model, params: p.params, ...(p.check ? { check: p.check } : {}), trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: preamble, turnId: newTurnId() } },
+        { model: this.deps.model(), mode: MODE_CHAT, trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: preamble, turnId: newTurnId() } },
       );
       assistant.content = result.content;
       assistant.reasoning = result.reasoning || undefined;

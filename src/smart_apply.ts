@@ -30,7 +30,8 @@ import {
   Assignment,
   ApplyMode,
 } from "./note_restructurer";
-import type { ChatClient, RequestParams, ResponseCheck } from "./chat_client";
+import type { ChatClient } from "./chat_client";
+import { MODE_SMART_APPLY } from "./request_profile";
 import { t } from "./vendor/kit/i18n";
 import { newTurnId } from "./lab_client";
 
@@ -38,12 +39,9 @@ import { newTurnId } from "./lab_client";
 
 export interface SmartApplyParams {
   model: string;
-  /** Fertige Sampling-Felder (Modus `structured`, gebaut in `request_profile.ts`). */
-  params: RequestParams;
-  /** Das Budget des PLUGINS (Einstellung) — Text der Budget-Befunde; gesendet wird `params.max_tokens`,
-   *  das das Kit auf die Reserve der Familie anheben kann. */
+  /** Das Budget des PLUGINS (Einstellung): Text der Budget-Befunde und `max_tokens` der Verbindung
+   *  im Modus `structured` (das Kit kann es auf die Reserve der Familie anheben). */
   maxTokens: number;
-  check?: ResponseCheck;
 }
 
 export interface SmartApplyDeps {
@@ -164,7 +162,7 @@ export class SmartApply {
   constructor(
     private deps: SmartApplyDeps,
     private client: () => ChatClient,
-    private params: () => SmartApplyParams = () => ({ model: '', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }),
+    private params: () => SmartApplyParams = () => ({ model: '', maxTokens: 2048 }),
   ) {}
 
   /** Aborts any in-flight propose() call. */
@@ -266,7 +264,7 @@ export class SmartApply {
       // Beispiele im Prompt (Step 6, buildRestructurePrompt) stammen aus der Vorlage, nicht
       // nur aus der Notiz — wer seinen Vorlagen-Ordner ausschliesst, soll dessen Inhalt nicht
       // trotzdem aufgezeichnet bekommen.
-      { model: p.model, params: p.params, ...(p.check ? { check: p.check } : {}), trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath], turnId: newTurnId(), ...(promptTemplate ? { promptTemplate } : {}) } },
+      { model: p.model, mode: MODE_SMART_APPLY, restoreContent: "json", trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath], turnId: newTurnId(), ...(promptTemplate ? { promptTemplate } : {}) } },
     );
 
     // Ins Token-Budget gelaufen: das erklaert einen anschliessenden Fehlschlag und nennt die

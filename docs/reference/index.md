@@ -67,7 +67,7 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 
 | Setting | Effect | Default |
 |---|---|---|
-| Chat endpoints / model | LLM used for chat, Smart Apply and LLM reformatting; each row may add its own API key and model (no model-guard here — chat has no index to protect) | `http://localhost:1234` · `qwen3` |
+| Chat endpoints / model | LLM used for chat, Smart Apply and LLM reformatting; each row may add its own API key (kept in Obsidian's keychain, not in `data.json`) and model (no model-guard here — chat has no index to protect). The list is tried in order and the first reachable row is used; if none answers, chat reports “No chat endpoint is reachable” instead of trying a dead row | `http://localhost:1234` · `qwen3` |
 | Context notes | How many retrieved notes are offered as context | `5` |
 | Context budget | Maximum characters of context; ceiling follows the model window | `12000` |
 | System prompt | Grounding instruction sent with every conversation | see settings |
@@ -83,6 +83,10 @@ One collapsible section **Request** covers all three call sites: chat (*grounded
 | Overrides | Own value for one field (temperature, top_p, top_k, min_p, presence_penalty, reasoning_effort, max_tokens) in one mode and for one family | none — the table decides |
 | Thinking level | Off · low · medium · high per mode; the chat and Smart Apply tabs carry a button for it | off |
 | Level picker in chat | Shows a dropdown with all four levels in the chat and Smart Apply tabs instead of the on/off button | off |
+
+### Secret masking
+
+Chat, Smart Apply and reformat requests are masked before they are sent: tokens, `Bearer …` headers, private-key blocks and similar secrets in the text are replaced by placeholders (`[redacted-token-1]`), and the same value always gets the same placeholder. The answer is translated back, so you see and get your original text; Smart Apply's JSON result is restored with escaping, so a multi-line value stays valid JSON. The LLM Lab log records the masked text — what the server actually saw. Images are not masked.
 
 ### Smart Apply *(opt-in)*
 
@@ -175,8 +179,9 @@ losing it costs nothing but a re-scan.
 | `<plugin folder>/index-backups/` | Last three index snapshots | no — device-local by design |
 | `<plugin folder>/data.json` | Your settings | depends on your sync configuration |
 
-Any endpoint API keys live in `data.json` alongside everything else, stored **unencrypted** —
-they travel wherever your settings sync goes. See [`SECURITY.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/SECURITY.md).
+**Chat** endpoint API keys live in Obsidian's keychain (**Settings → Keychain**), not in `data.json`; they do not
+travel with settings sync. **Embedding** endpoint API keys still live in `data.json` alongside everything else,
+stored **unencrypted** — they travel wherever your settings sync goes. See [`SECURITY.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/SECURITY.md).
 
 ## Architecture
 

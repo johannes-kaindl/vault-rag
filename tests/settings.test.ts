@@ -143,10 +143,8 @@ function makeFakeHost() {
     // Endpoint-/Modell-/MCP-Methoden für render-Hatches (in Struktur-Tests nicht aufgerufen):
     resolveAndReconnectEmbedder: vi.fn().mockResolvedValue(undefined),
     resolveAndReconnectChat: vi.fn().mockResolvedValue(undefined),
-    // Abschnitt „Anfrage“ (render-Hatch): Familie/Backend des Endpunkts, Sitzung, Speichern
-    requestSectionState: () => ({ family: null, familySource: "none", backend: "unknown", backendSource: "none", model: "", sentModel: "" }),
-    requestSession: { recordRequest: () => {}, lastRequest: () => null, report: () => {}, deviations: () => [], clear: () => {} },
-    saveRequestSettings: vi.fn().mockResolvedValue(undefined),
+    // Chat-Anbindung (Kit `createLlmConnection`): zeichnet „Endpunkte“ und „Anfrage“ in einem Zug.
+    llm: { renderSettings: vi.fn(), hideSettings: vi.fn(), resolve: vi.fn().mockResolvedValue({ config: null }) },
     // Von renderImperative (display-Fallback) synchron aufgerufene render-Hatch-Methoden —
     // ungemockt würden sie beim Walk sofort werfen (undefined ist keine Funktion).
     embedderReady: vi.fn().mockResolvedValue(true),

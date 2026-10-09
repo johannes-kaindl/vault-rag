@@ -101,7 +101,7 @@ describe("SmartApply", () => {
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
@@ -135,7 +135,7 @@ describe("SmartApply", () => {
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(badAssignment), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(badAssignment), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(false);
@@ -163,7 +163,7 @@ describe("SmartApply", () => {
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(fabricatedAssignment), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(fabricatedAssignment), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // hardOk still true (fm-source is a soft check)
@@ -182,7 +182,7 @@ describe("SmartApply", () => {
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient("Dies ist kein JSON und kann nicht geparst werden."), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient("Dies ist kein JSON und kann nicht geparst werden."), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(false);
@@ -194,7 +194,7 @@ describe("SmartApply", () => {
     const deps = makeDeps({
       read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),
     });
-    const sa = new SmartApply(deps, makeClient('{"version":1,"sections":[{"head', "", "length"), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient('{"version":1,"sections":[{"head', "", "length"), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(false);
@@ -213,7 +213,7 @@ describe("SmartApply", () => {
     const deps = makeDeps({
       read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),
     });
-    const sa = new SmartApply(deps, makeClient("", "x".repeat(14083), "length"), () => ({ model: 'm', params: { temperature: 0, max_tokens: 4096 }, maxTokens: 4096 }));
+    const sa = new SmartApply(deps, makeClient("", "x".repeat(14083), "length"), () => ({ model: 'm', maxTokens: 4096 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(false);
@@ -231,7 +231,7 @@ describe("SmartApply", () => {
     const deps = makeDeps({
       read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),
     });
-    const sa = new SmartApply(deps, makeClient("", "", "length"), () => ({ model: 'm', params: { temperature: 0, max_tokens: 4096 }, maxTokens: 4096 }));
+    const sa = new SmartApply(deps, makeClient("", "", "length"), () => ({ model: 'm', maxTokens: 4096 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.checks.find((c) => c.id === "output-truncated")?.ok).toBe(false);
@@ -242,7 +242,7 @@ describe("SmartApply", () => {
     const deps = makeDeps({
       read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON(), "", "length"), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON(), "", "length"), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
@@ -271,7 +271,7 @@ describe("SmartApply", () => {
       }) as unknown as ChatClient;
 
     controller.abort();
-    const sa = new SmartApply(deps, abortingClient, () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, abortingClient, () => ({ model: 'm', maxTokens: 2048 }));
 
     await expect(
       sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {}, controller.signal),
@@ -288,7 +288,7 @@ describe("SmartApply", () => {
       },
       write: writeFn,
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // Simulate the file being modified externally
@@ -309,7 +309,7 @@ describe("SmartApply", () => {
       },
       write: writeFn,
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
@@ -329,7 +329,7 @@ describe("SmartApply", () => {
       },
       write: writeFn,
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     const result = await sa.persistApply(proposal, proposal.selection, false);
@@ -353,7 +353,7 @@ describe("SmartApply", () => {
       },
       write: writeFn,
     });
-    const sa = new SmartApply(deps, () => makeClient(clientJson)(), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, () => makeClient(clientJson)(), () => ({ model: 'm', maxTokens: 2048 }));
 
     // First apply
     const proposal1 = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
@@ -401,7 +401,7 @@ describe("SmartApply", () => {
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // provenance should be the block text (e.g. "## Agenda"), not "block_0"
@@ -438,7 +438,7 @@ Erste Ergebnisse hier.
       // listTemplates contains the matching template
       listTemplates: async () => ["Templates/Meeting.md"],
     });
-    const sa = new SmartApply(ragDeps, makeClient(validAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(ragDeps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // SEAM-VERTRAG (3): RAG path threaded from this.detect()
@@ -470,7 +470,7 @@ Erste Ergebnisse hier.
         },
       }) as unknown as ChatClient;
 
-    const sa = new SmartApply(deps, client, () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, client, () => ({ model: 'm', maxTokens: 2048 }));
     await sa.propose(
       NOTE_PATH,
       TEMPLATE_PATH,
@@ -484,8 +484,8 @@ Erste Ergebnisse hier.
     expect(reasonings).toContain("reason1");
   });
 
-  it("params: die fertigen Sampling-Felder erreichen stream opts unverändert", async () => {
-    let capturedOpts: { params?: Record<string, number | string>; model?: string } | undefined;
+  it("opts: Modus structured und restoreContent json erreichen stream — die Parameter baut die Verbindung", async () => {
+    let capturedOpts: { mode?: string; restoreContent?: string; model?: string } | undefined;
     const deps = makeDeps({
       read: async (p) => {
         if (p === TEMPLATE_PATH) return templateText;
@@ -499,22 +499,21 @@ Erste Ergebnisse hier.
           onToken: (t: string) => void,
           _onReasoning: (t: string) => void,
           _signal?: AbortSignal,
-          opts?: { params?: Record<string, number | string>; model?: string },
+          opts?: { mode?: string; restoreContent?: string; model?: string },
         ) => {
           capturedOpts = opts;
           onToken(validAssignmentJSON());
           return { content: validAssignmentJSON(), reasoning: "" };
         },
       }) as unknown as ChatClient;
-
-    const sa = new SmartApply(deps, client, () => ({ model: 'm', params: { temperature: 0.7 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, client, () => ({ model: 'm', maxTokens: 2048 }));
     await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
-
-    expect(capturedOpts?.params).toEqual({ temperature: 0.7 });
+    // JSON-Vertrag: ein geschwaerzter, mehrzeiliger Wert muss JSON-escaped zurueckkommen.
+    expect(capturedOpts).toMatchObject({ mode: "structured", restoreContent: "json", model: "m" });
   });
 
-  it("params(): model, params und check erreichen stream opts; maxTokens bleibt das Plugin-Budget für die Meldungen", async () => {
-    let capturedOpts: { params?: Record<string, number | string>; model?: string; check?: unknown } | undefined;
+  it("params(): das Modell erreicht stream opts; maxTokens bleibt das Plugin-Budget für die Meldungen", async () => {
+    let capturedOpts: { model?: string } | undefined;
     const deps = makeDeps({
       read: async (p) => {
         if (p === TEMPLATE_PATH) return templateText;
@@ -528,7 +527,7 @@ Erste Ergebnisse hier.
           onToken: (t: string) => void,
           _onReasoning: (t: string) => void,
           _signal?: AbortSignal,
-          opts?: { params?: Record<string, number | string>; model?: string; check?: unknown },
+          opts?: { model?: string },
         ) => {
           capturedOpts = opts;
           onToken(validAssignmentJSON());
@@ -536,14 +535,11 @@ Erste Ergebnisse hier.
         },
       }) as unknown as ChatClient;
 
-    const check = { family: null, thinking: "off" as const, report: () => {} };
-    const testParams: SmartApplyParams = { model: 'm-fast', params: { temperature: 0.4, reasoning_effort: "none", max_tokens: 777 }, maxTokens: 777, check };
+    const testParams: SmartApplyParams = { model: 'm-fast', maxTokens: 777 };
     const sa = new SmartApply(deps, client, () => testParams);
     await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(capturedOpts?.model).toBe('m-fast');
-    expect(capturedOpts?.params).toEqual({ temperature: 0.4, reasoning_effort: "none", max_tokens: 777 });
-    expect(capturedOpts?.check).toBe(check);
   });
 
   it("abort() bricht laufendes propose() ab", async () => {
@@ -572,7 +568,7 @@ Erste Ergebnisse hier.
         },
       }) as unknown as ChatClient;
 
-    const sa = new SmartApply(deps, client, () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, client, () => ({ model: 'm', maxTokens: 2048 }));
     const proposePromise = sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
     await streamStarted;
     sa.abort();
@@ -601,7 +597,7 @@ Erste Ergebnisse hier.
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(badHeadingAssignment), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(badHeadingAssignment), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // block_3 ("Erste Ergebnisse hier.") must be in unassigned
@@ -631,7 +627,7 @@ Erste Ergebnisse hier.
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(partialAssignment), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(partialAssignment), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // sectionDiff must have both template sections
@@ -686,7 +682,7 @@ Keine bisher.
       },
       listTemplates: async () => ["Templates/Besprechung.md"],
     });
-    const sa = new SmartApply(deps, makeClient(assignment), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(assignment), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, "Templates/Besprechung.md", "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
@@ -719,7 +715,7 @@ Keine bisher.
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(assignmentWithUnassigned), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(assignmentWithUnassigned), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     expect(proposal.hardOk).toBe(true);
@@ -737,7 +733,7 @@ Keine bisher.
         return testNoteText;
       },
     });
-    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const preDetection = await sa.detect(NOTE_PATH); // call once explicitly
     detectSpy.mockClear(); // reset call count
     await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {}, undefined, preDetection);
@@ -795,7 +791,7 @@ datum:
 
   it("deterministisch verwirft additions und inferred (Wörtlichkeit erzwungen)", async () => {
     const deps = makeGatingDeps(TEMPLATE_PATH, templateText);
-    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", noop, noop);
 
     expect(p.additions).toHaveLength(0);
@@ -806,7 +802,7 @@ datum:
 
   it("additiv behält additions + inferred", async () => {
     const deps = makeGatingDeps(TEMPLATE_PATH, templateText);
-    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
 
     expect(p.additions.length).toBeGreaterThan(0);
@@ -821,7 +817,7 @@ datum:
 
   it("additiv droppt addition mit fremder targetHeading → weicher Check, hardOk bleibt true", async () => {
     const deps = makeGatingDeps(STRAY_TEMPLATE_PATH, tplWithStrayAdditionText);
-    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const p = await sa.propose(NOTE_PATH, STRAY_TEMPLATE_PATH, "additiv", noop, noop);
 
     expect(p.checks.find((c) => c.id === "additions-target")?.ok).toBe(false);
@@ -831,7 +827,7 @@ datum:
   it("persistApply schreibt mit finaler Auswahl (nicht der Preview)", async () => {
     const writeFn = vi.fn();
     const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
-    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
     // Preview (default selection) has the inferred "datum" value ("System") in it:
     expect(p.proposedText).toContain("System");
@@ -845,7 +841,7 @@ datum:
   it("auditTrail=true schreibt smartapply_erschlossen ins Frontmatter", async () => {
     const writeFn = vi.fn();
     const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
-    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
     await sa.persistApply(p, { inferredKeys: new Set(["datum"]), additionIds: new Set() }, true);
     const written = writeFn.mock.calls[0][1] as string;
@@ -855,7 +851,7 @@ datum:
   it("redo wendet die FINALE Auswahl erneut an (nicht die Default-Preview)", async () => {
     const writeFn = vi.fn();
     const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
-    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048 }));
+    const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
     // Preview (Default-Auswahl) enthält den erschlossenen Wert "System":
     expect(p.proposedText).toContain("System");
@@ -963,7 +959,7 @@ type: Meeting
   it("fragt das Modell gar nicht erst", async () => {
     const stream = vi.fn();
     const sa = new SmartApply(makeFlatDeps(), () => ({ stream }) as unknown as ChatClient, () => ({
-      model: "m", params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048,
+      model: "m", maxTokens: 2048,
     }));
     await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
@@ -972,7 +968,7 @@ type: Meeting
 
   it("meldet den Grund als eigenen Check statt als Zuordnungs-Fehlschlag", async () => {
     const sa = new SmartApply(makeFlatDeps(), makeClient(validAssignmentJSON()), () => ({
-      model: "m", params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048,
+      model: "m", maxTokens: 2048,
     }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
@@ -986,7 +982,7 @@ type: Meeting
 
   it("behauptet keine Zuordnung, die nie stattgefunden hat", async () => {
     const sa = new SmartApply(makeFlatDeps(), makeClient(validAssignmentJSON()), () => ({
-      model: "m", params: { temperature: 0, max_tokens: 2048 }, maxTokens: 2048,
+      model: "m", maxTokens: 2048,
     }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 

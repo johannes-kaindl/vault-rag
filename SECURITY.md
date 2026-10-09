@@ -17,7 +17,10 @@ one under your control, local or on your own network. Add a third-party provider
 relevant request content (chat context, note text) goes to that provider instead; the plugin sends
 nothing anywhere else.
 
-API keys are stored **unencrypted** in the plugin's `data.json`, like every other setting, and travel
-with Obsidian's settings sync if you have it enabled. Treat the URLs and any credentials you put in the
+**Chat** endpoint API keys are stored in Obsidian's keychain (`app.secretStorage`), not in `data.json`, and
+do not travel with settings sync. **Embedding** endpoint API keys are still stored **unencrypted** in the
+plugin's `data.json`, like every other setting, and travel with Obsidian's settings sync if you have it enabled.
+Secrets found in the text of a chat, Smart Apply or reformat request (tokens, bearer headers, private-key
+blocks) are replaced by placeholders before the request is sent and restored in the answer. Treat the URLs and any credentials you put in the
 settings as trusted local configuration — anyone with access to your vault folder or your synced settings
 can read them.

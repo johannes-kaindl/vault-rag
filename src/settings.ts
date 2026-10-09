@@ -1,14 +1,9 @@
 import { App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, setIcon } from "obsidian";
 import type { SettingDefinitionItem, SettingDefinitionGroup } from "obsidian";
-import { ChatClient } from "./chat_client";
+import type { ChatClient } from "./chat_client";
 import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
-import { buildRequestSection } from "./vendor/kit-obsidian/request-section";
-import { FAMILIES, BACKENDS, type BackendId, type FamilyId, type FieldExplain, type RequestSettings } from "./vendor/kit/sampling-profiles";
-import type { RequestSession } from "./vendor/kit-obsidian/request-session";
-import type { RequestSectionState } from "./vendor/kit-obsidian/request-section";
-import { PLUGIN_MODES } from "./request_profile";
-import { deviationDetail, requestText } from "./request_text";
+import type { LlmConnection } from "./vendor/kit-obsidian/llm-connection";
 import { isDotPath } from "./index_dir";
 import { normalizeFolder } from "./vendor/kit/folder-hide";
 import { ENDPOINT_PRESETS } from "./vendor/kit/endpoint_diagnostics";
@@ -27,7 +22,7 @@ import { renderModelPicker } from "./vendor/kit-obsidian/model-picker";
 import { createModelListCache, type ModelListCache } from "./vendor/kit/model-list-cache";
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import { describeStartError, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
-import { t } from "./vendor/kit/i18n";
+import { getLang, t } from "./vendor/kit/i18n";
 
 export { DEFAULT_SETTINGS };
 export type { VaultRagSettings };
@@ -56,6 +51,8 @@ export interface VaultRagPluginHost extends Plugin {
   readonly indexEmbeddingModel: string | undefined;
   embedder: EmbeddingClient;
   chatClient: ChatClient;
+  /** Die Chat-Anbindung (Kit `createLlmConnection`): zeichnet die Abschnitte „Endpunkte“ und „Anfrage“. */
+  readonly llm: LlmConnection;
   /** Modell, das Chat-Anfragen tatsächlich mitschicken (Zeilen-Modell des aktiven
    *  Endpunkts — seit 0.31.0 die einzige Quelle) — siehe main.ts. */
   chatModelInUse: string;
@@ -84,11 +81,6 @@ export interface VaultRagPluginHost extends Plugin {
   mcpStartError(): StartErrorReason | null;
   rotateMcpToken(): Promise<void>;
   mcpSelfCheck(): Promise<SelfCheckResult>;
-  /** Anfrage-Profile: Familie/Backend/Modell des aktiven Chat-Endpunkts, die Sitzung
-   *  („Letzte Anfrage“, Abweichungen) und das Speichern der Einstellungen. */
-  requestSectionState(): RequestSectionState;
-  readonly requestSession: RequestSession;
-  saveRequestSettings(next: RequestSettings): Promise<void>;
 }
 
 export class RestoreBackupModal extends Modal {
@@ -197,7 +189,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         reportIssue: t("settings.help.reportIssue"),
       },
     });
-    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup(), this.requestGroup(), this.integratorGroup()];
+    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup(), this.integratorGroup()];
   }
 
   /** Einmal-pro-Öffnen die aktiven Endpunkte auflösen. An ein echtes Render-Signal (erster
@@ -329,7 +321,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  Action-Zeile, das Toggle selbst ist deklarativ. */
   private chatGroup(): SettingDefinitionGroup {
     return { type: "group", heading: t("settings.chat.group"), items: [
-      { name: t("settings.chatEndpoints.label"), desc: "", render: this.renderChatEndpoints },
+      { name: t("settings.chatEndpoints.label"), desc: "", render: this.renderChatConnection },
       { name: t("settings.modelDetails.name"), desc: "", render: this.renderModelDetails },
       { name: t("settings.capabilities.name"), desc: "", render: this.renderCapsRow },
       { name: t("settings.chat.contextNotes.name"), desc: t("settings.chat.contextNotes.desc"),
@@ -343,81 +335,6 @@ export class VaultRagSettingTab extends PluginSettingTab {
         control: { type: "toggle", key: "enterSends" } },
     ] };
   }
-
-  /** Anfrage-Profile (Kit `sampling-profiles`): was das Plugin je Aufrufstelle sendet. Ein
-   *  Abschnitt fuer alle drei Modi — Chat, Smart Apply, Umformatieren — statt je eines Reglers. */
-  private requestGroup(): SettingDefinitionGroup {
-    return { type: "group", heading: t("settings.request.group"), items: [
-      { name: t("request.title"), desc: "", render: this.renderRequestSection },
-    ] };
-  }
-
-  private fieldStateText(e: FieldExplain): string {
-    const state = {
-      "sent-effective": "request.state.sentEffective",
-      "sent-unproven": "request.state.sentUnproven",
-      "not-sent-ignored": "request.state.notSentIgnored",
-      "not-sent-unsupported": "request.state.notSentUnsupported",
-      "not-sent-unknown-family": "request.state.notSentUnknownFamily",
-      "not-sent-no-value": "request.state.notSentNoValue",
-    }[e.state];
-    let text = t(state);
-    const note = e.note ? {
-      "raised-to-reserve": "request.note.raisedToReserve",
-      "raised-to-thinking-floor": "request.note.raisedToThinkingFloor",
-      "below-thinking-floor": "request.note.belowThinkingFloor",
-      "off-not-possible": "request.note.offNotPossible",
-    }[e.note] : undefined;
-    if (note) text += ` ${t(note)}`;
-    if (e.field === "top_p") text += t("request.top_p.hint");
-    return text;
-  }
-
-  /** Abschnitt „Anfrage“ des Kits. Formuliert nichts selbst: alle Texte kommen von hier, auch
-   *  Familie und Backend als ID (`unknown` uebersetzen wir, die `label`-Felder der Tabellen sind
-   *  englische Bezeichner, keine UI-Texte — Nachtrag 2 des Rezepts). `maxTokens` nennt das
-   *  Budget des Plugins je Modus: nur Smart Apply hat eine Einstellung dafuer. */
-  private renderRequestSection = (setting: Setting): void => {
-    const host = settingBodyHost(setting);
-    buildRequestSection({
-      containerEl: host,
-      modes: PLUGIN_MODES,
-      state: () => this.plugin.requestSectionState(),
-      settings: () => this.plugin.settings.request,
-      save: (next) => this.plugin.saveRequestSettings(next),
-      maxTokens: (mode) => mode === "structured" ? this.plugin.settings.smartApplyMaxTokens : undefined,
-      session: this.plugin.requestSession,
-      rerender: () => this.refreshUi(),
-      strings: {
-        title: t("request.title"),
-        head: (family, familySource, backend, backendSource) => {
-          const famLabel = family === "—" ? "—" : (FAMILIES[family as FamilyId]?.label ?? family);
-          const backLabel = backend === "unknown" ? t("request.backendSource.none") : (BACKENDS[backend as BackendId]?.label ?? backend);
-          return t("request.head", famLabel, requestText("request.familySource", familySource), backLabel, requestText("request.backendSource", backendSource));
-        },
-        unknownFamily: t("request.unknownFamily"),
-        jitWarning: (model, defaultModel) => t("request.jitWarning", model, defaultModel),
-        sentAs: (model) => t("request.sentAs", model),
-        modeHeading: (mode) => requestText("request.mode", mode),
-        fieldName: (field) => requestText("request.field", field),
-        fieldDesc: (e) => this.fieldStateText(e),
-        reset: t("request.reset"),
-        thinkingLevel: t("request.thinkingLevel"),
-        level: (l) => requestText("request.level", l),
-        levelPicker: t("request.levelPicker"),
-        levelPickerDesc: t("request.levelPickerDesc"),
-        dormant: (fam) => t("request.dormant", fam === "unknown" ? t("request.familySource.none") : (FAMILIES[fam]?.label ?? fam)),
-        deleteDormant: t("request.deleteDormant"),
-        lastRequest: t("request.lastRequest"),
-        lastRequestNone: t("request.lastRequestNone"),
-        copy: t("request.copy"),
-        copied: t("request.copied"),
-        deviationsOk: t("request.deviationsOk"),
-        deviationsWarn: (n) => t("request.deviationsWarn", String(n)),
-        deviation: (kind, count, detail) => `${deviationDetail(kind, detail)} (${count}×)`,
-      },
-    });
-  };
 
   /** Smart-Apply-Gruppe: fast vollständig deklarativ. „Verbindung" ist eine reine Info-Zeile
    *  (kein control/render/action — Smart Apply teilt sich den Chat-Endpoint, kein eigener nötig).
@@ -673,44 +590,19 @@ export class VaultRagSettingTab extends PluginSettingTab {
     pre.setText(buildClientSnippet(this.mcpClient, { url, token: maskToken(token) }));
   };
 
-  /** render-Hatch: Chat-Endpunkt-Liste. Zeichnet in settingBodyHost über buildEndpointList. */
-  private renderChatEndpoints = (setting: Setting): void => {
-    const host = settingBodyHost(setting);
-    const chatLabel = t("settings.chatEndpoints.label");
-    buildEndpointSourceSection({
-      app: this.app, containerEl: host, capability: "chat", caller: "vault-retrieval",
-      choice: () => this.plugin.settings.chatChoice,
-      setChoice: async (c) => { this.plugin.settings.chatChoice = c; await this.plugin.saveSettings(); await this.plugin.resolveAndReconnectChat(); },
-      local: () => this.plugin.settings.chatEndpoints,
-      strings: this.sourceStrings("settings.source.managedDescChat"),
-      rerender: () => this.refreshUi(),
-      renderLocalList: () => {
-        buildKitEndpointList({
-          containerEl: host,
-          label: chatLabel,
-          desc: t("settings.chatEndpoints.desc"),
-          placeholder: "http://localhost:1234",   // i18n-exempt: URL-Beispiel, sprachneutral
-          strings: this.endpointStrings(chatLabel),
-          cache: this.modelCache,
-          get: () => this.plugin.settings.chatEndpoints,
-          set: (eps) => { this.plugin.settings.chatEndpoints = eps; },
-          active: () => this.plugin.activeChatEndpoint,
-          clientFor: (cfg) => new ChatClient(cfg.url, rowModel(cfg), cfg.apiKey),
-          // KEIN modelFits: an einem Chat-Endpunkt haengt kein Index, ein Modellwechsel ist dort
-          // folgenlos. Der Kit-Vertrag liest das Fehlen als „passt immer".
-          save: () => this.plugin.saveSettings(),
-          reconnect: () => this.plugin.resolveAndReconnectChat(),
-          rerender: () => this.refreshUi(),
-          presets: ENDPOINT_PRESETS,
-        });
-      },
-    });
+  /** render-Hatch: die Chat-Anbindung. Das Kit zeichnet Quelle (Manager oder lokale Liste mit
+   *  Schlüsselbund), Endpunkt-Liste und den Abschnitt „Anfrage“ (alle drei Modi) in einem Zug; die
+   *  Texte kommen von dort (`lang`), hier bleibt nur der eigene Host-Container: `renderSettings`
+   *  leert ihn beim Neuzeichnen und darf nie den ganzen Tab bekommen. */
+  private renderChatConnection = (setting: Setting): void => {
+    const host = settingBodyHost(setting).createDiv();
+    this.plugin.llm.renderSettings(host, { lang: getLang() });
   };
 
   /** Texte des Kit-Bausteins „Endpunkte vom Manager". `managedDesc` unterscheidet sich je Rolle:
    *  beim Embedding steht der Rand dabei, dass ein Modell-Mismatch den Endpunkt nur für die Suche
    *  behält (Task „Kein Endpunkt als aktiv markiert, wenn keiner zum Index-Modell passt"). */
-  private sourceStrings(descKey: "settings.source.managedDescEmbedding" | "settings.source.managedDescChat") {
+  private sourceStrings(descKey: "settings.source.managedDescEmbedding") {
     return {
       managed: t("settings.source.managed"), managedDesc: t(descKey), openManager: t("settings.source.openManager"),
       pickEndpoint: t("settings.source.pickEndpoint"), automatic: t("settings.source.automatic"), model: t("settings.source.model"),
@@ -788,9 +680,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const host = settingBodyHost(setting);
     const s = new Setting(host).setName(t("settings.smartApplyModel.name"))
       .setDesc(t("settings.smartApplyModel.desc"));
-    const key = this.plugin.activeChatEndpoint ?? "";
     const gen = this.modelCache.generation();
-    void this.modelCache.load(key, this.plugin.chatClient).then(({ models, reachable }) => {
+    // Der Cache-Schlüssel ist der Endpunkt, den die Verbindung JETZT auflöst (nicht ein zweites,
+    // womöglich veraltetes Feld): die Kit-Liste ändert die Auflösung, ohne uns zu fragen.
+    const key = { value: "" };
+    void this.plugin.llm.resolve().then((r) => { key.value = r.config?.url ?? ""; return this.modelCache.load(key.value, this.plugin.chatClient); }).then(({ models, reachable }) => {
       if (gen !== this.modelCache.generation()) return;
       const choice = resolveModelChoice({ reachable, models, current: this.plugin.settings.smartApplyModel, allowEmpty: true });
       const emptyLabel = t("settings.smartApplyModel.emptyLabel");
@@ -806,7 +700,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
           this.plugin.settings.smartApplyModel = v;
           void this.plugin.saveSettings();
         },
-        onRefresh: () => { this.modelCache.invalidate(key); this.refreshUi(); },
+        onRefresh: () => { this.modelCache.invalidate(key.value); this.refreshUi(); },
       });
     });
   };
@@ -819,6 +713,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.cleanupPrevious = () => {};
     this.resolvedOnOpen = false;
     this.modelCache.clear();
+    this.plugin.llm.hideSettings();
     super.hide();
   }
 

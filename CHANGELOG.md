@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The chat connection now comes from the kit** (`createLlmConnection`, obsidian-kit 0.51.2 / code-kit 0.15.0): endpoint choice, request parameters per mode, client with deadlines, response check and the settings sections "Endpoints" and "Request" are one component now. The embedding path is unchanged (own resolution, index guard). **Visible consequences:**
+  - **Chat endpoint API keys move into Obsidian's keychain** (Settings → Keychain). The first time the chat resolves its endpoint, a key found in `data.json` is moved there; `data.json` keeps only a reference. Keys do not travel with settings sync any more — enter them again on other devices. Embedding endpoint keys stay in `data.json`.
+  - **No reachable chat endpoint is an error of its own now:** "No chat endpoint is reachable. Check the endpoints in the settings (or the LLM Endpoint Manager)." Before, the first row was tried anyway and failed with a network error.
+  - **The chat endpoint list uses the kit's wording:** "Test connection", "Try this endpoint first", row status "active — this one is used" / "reachable — fallback N" / "not reachable — skipped", failures such as "Timed out — network unreachable." The embedding list keeps its wording. The "Request" section now sits right below the chat endpoint list (inside the Chat group).
+  - **Secret masking before sending:** tokens, bearer headers, private-key blocks and similar secrets in chat, Smart Apply and reformat requests are replaced by placeholders (`[redacted-token-1]`) and put back in the answer; Smart Apply's JSON result is restored with escaping. The LLM Lab log now records the masked text, i.e. what the server actually saw. Images are not masked.
+  - Deadlines are unchanged (600 s until the first chunk, 120 s of silence) but fixed values of the kit now; a "cut off after N s" message names that value.
+  - Kit pin `obsidian-kit` 0.43.0 → 0.51.2, `code-kit` 0.7.0 → 0.15.0 (all modules on one ref); the kit CSS for the request section and the streaming area in `styles.css` is updated and checked by a test. `minAppVersion` stays 1.12.7.
+
+### Fixed
+
+- **Loading the endpoint lists keeps `id` and `secretId` of a row.** A local copy of the list migration dropped both fields; with keys in the keychain that would have cut the link to the key at the second start. The migration now comes from the kit, and the "no silent field loss" test covers both fields.
+
 ## [0.37.1] — 2026-10-03
 
 ### Changed

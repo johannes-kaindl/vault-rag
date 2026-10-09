@@ -1,12 +1,12 @@
 {
   "sources": {
-    "obsidian-kit": { "ref": "0.43.0" },
-    "code-kit": { "ref": "0.7.0" }
+    "obsidian-kit": { "ref": "0.51.2" },
+    "code-kit": { "ref": "0.15.0" }
   },
   "targets": [
     {
       "dir": "src/vendor/kit", "source": "code-kit", "from": "src/ts/pure",
-      "modules": ["capabilities", "endpoint", "endpoint_config", "endpoint_diagnostics", "error_body", "i18n", "model-choice", "model-list-cache", "reasoning", "sampling-profiles", "settings", { "name": "sse", "ref": "0.8.0" }, "think-splitter", "timeout"]
+      "modules": ["backend-probe", "capabilities", "cooperative-yield", "endpoint", "endpoint_config", "endpoint_diagnostics", "error_body", "i18n", "model-choice", "model-list-cache", "reasoning", "redact", "run-state", "sampling-profiles", "secrets", "settings", "sse", "think-splitter", "timeout"]
     },
     {
       "dir": "src/vendor/kit", "source": "code-kit", "from": "src/ts/web",
@@ -19,8 +19,12 @@
     },
     {
       "dir": "src/vendor/kit-obsidian", "source": "obsidian-kit", "from": "src/obsidian",
-      "modules": [{ "name": "chat-client", "ref": "0.44.0" }, "chat-transport", "clock", "lab-client", "clipboard", "collapsible", "confirm", "endpoint-list", "endpoint-source", "folder-hide", "folder-suggest", "hub", "model-picker", "settings_walker", "stream-area", "help-setting", "request-section", "request-session", "thinking-control"],
+      "modules": ["backend-probe", "chat-client", "chat-transport", "clock", "lab-client", "clipboard", "collapsible", "confirm", "endpoint-list", "endpoint-secrets", "endpoint-source", "folder-hide", "folder-suggest", "help-setting", "hub", "llm-connection", "llm-connection-strings", "model-picker", "request-section", "request-session", "secrets", "settings_walker", "shortcuts-bridge", "stream-area", "thinking-control"],
       "rewrite": [["../vendor/code-kit/pure/", "../kit/"], ["../vendor/code-kit/web/", "../kit/"], ["../pure/", "../kit/"]]
+    },
+    {
+      "dir": "tests/vendor/kit", "source": "obsidian-kit", "from": "src/testing",
+      "modules": ["kit-css"]
     }
   ]
 }

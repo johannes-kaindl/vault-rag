@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.38.0] — 2026-10-09
+
 ### Changed
 
 - **The chat connection now comes from the kit** (`createLlmConnection`, obsidian-kit 0.51.3 / code-kit 0.15.4): endpoint choice, request parameters per mode, client with deadlines, response check and the settings sections "Endpoints" and "Request" are one component now. The embedding path is unchanged (own resolution, index guard). **Visible consequences:**

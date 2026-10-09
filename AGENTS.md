@@ -59,7 +59,7 @@ siehe „Abweichungen"). Die vier Hub-Panels (`view.ts`/`search_view.ts`/`chat_v
 bzw. zusätzlich `Notice` (nur `smart_apply_view.ts`, Fehler-Feedback). `http.ts` kapselt Obsidians
 `requestUrl` (CORS-frei, mobil-tauglich) als einzigen Netz-Helfer — die
 Client-Module (`chat_client`, `embedder`, `capabilities`) sprechen nur `http.ts` an und bleiben damit
-obsidian-frei + in Node testbar. **Streaming:** `ChatClient.stream` ruft seit Welle 11 den Kit-Client `createChatClient` (`vendor/kit-obsidian/chat-client.ts`) mit `xhrSseTransport` (`XMLHttpRequest` via `onprogress`, weil `requestUrl` nicht streamen kann und `fetch` von der obsidianmd-Lint-Regel gesperrt ist) und `requestUrlTransport` als Fallback ohne Stream. `main.ts` orchestriert:
+obsidian-frei + in Node testbar. **Streaming:** `ChatClient.stream` ruft seit Welle 15 `llm.complete` der Kit-Verbindung `createLlmConnection` (`vendor/kit-obsidian/llm-connection.ts`, Optionen in `connection_options.ts`), die den Kit-Client `createChatClient` mit `xhrSseTransport` (`XMLHttpRequest` via `onprogress`, weil `requestUrl` nicht streamen kann und `fetch` von der obsidianmd-Lint-Regel gesperrt ist) und `requestUrlTransport` als Fallback ohne Stream. `main.ts` orchestriert:
 `file-Events → Debounce → embed → buildIndex → persist → refresh`.
 
 ### Modul-Layout (`src/`)
@@ -112,10 +112,10 @@ chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker
 endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZIGE Stelle, an der
                   ein Bearer aus einem Endpunkt-/Anbieter-Schlüssel gebaut wird — der MCP-Server
                   baut seinen Loopback-Token-Bearer separat) · rowModel (Zeilen-Modell, getrimmt —
-                  seit 0.31.0 die einzige Quelle) · chatRequestModel (Feature-Modell schlägt Zeile;
-                  Preis: laut an fremdem Fallback-Endpunkt — E1, 2026-09-07;
-                  `ChatClient.stream` liest nur `opts.model`, nie das
-                  Konstruktor-Modell) · migrateEndpointList (alte String-Liste → Configs) ·
+                  seit 0.31.0 die einzige Quelle; Feature-Modell schlägt Zeile — E1, 2026-09-07, Preis:
+                  laut an fremdem Fallback-Endpunkt — liegt seit Welle 15 in `ChatClient.stream`:
+                  ein nicht leeres `opts.model` gewinnt, leer lässt die Verbindung das Zeilen-Modell
+                  nehmen) · migrateEndpointList (Re-Export aus dem Kit, behält `id`/`secretId`) (alte String-Liste → Configs) ·
                   applyEndpointEdit (Zeilen-Bearbeitung bei blur, Feld-Diskriminator
                   "url"|"apiKey"|"model") · carriesApiKey (verlässlicher Drittanbieter-Indikator
                   für die Settings-UI — der Schlüssel, NICHT die URL: ein eigener Server im LAN/VPN
@@ -138,9 +138,9 @@ endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZI
                   Obsidian-frei. **Einzige öffentliche Fläche** — weder
                   settings.ts noch settings_core.ts reichen diese Helfer durch; Aufrufer
                   importieren direkt hier.
-managed_endpoint.ts  Obsidian-freie Endpunkt-Wahl über den LLM Endpoint Manager (Kit `endpoint-source`): `resolveManagedChat`/`resolveManagedEmbedding` liefern Zeile, `active` und beim Embedding `mismatch`/`noModel`; `resolveManagedChat` trägt außerdem `source` (Familie/Backend für die Anfrage-Profile, vom Manager, sonst über das injizierte `backendOf` = `cachedProbe` aus `http.ts`). Nur der Manager-Pfad — ohne Manager läuft die lokale Liste in `main.ts` (`resolveAndReconnect*`), dort liegen ihre Regeln. Gesendet und gegen den Index geprüft wird die aufgelöste Schreibweise (`sentModel`), nie `config.model` des Managers (der trägt das Standardmodell und würde die Nutzerwahl überschreiben, lingotuner-Fund C1). Die Zeile trägt den Schlüssel nur im Speicher; `chatChoice`/`embeddingChoice` sind das einzige, was gespeichert wird.
-request_profile.ts  Anfrage-Profile (Welle 14): die Werte, die das Plugin sendet, entscheidet die Kit-Tabelle `sampling-profiles`; hier steht nur der MODUS je Aufrufstelle — drei dünne Wrapper mit fest verdrahtetem Modus (`buildChatParams` = `grounded`, `buildSmartApplyParams` = `structured`, `buildReformatParams` = `transform`), Vorbild `buildTuneParams` in lingotuner — plus `SourceFacts` (Familie/Backend/Schreibweise des aktiven Chat-Endpunkts) und die einmalige Legacy-Migration `migrateLegacySampling` (Chat-/Smart-Apply-Temperatur ≠ altem Default → Überschreibung unter `unknown`, die beiden „Thinking unterdrücken“-Schalter → Denk-Stufe je Modus). Die goldenen Requests (`tests/request-golden.test.ts`, 45 Zeilen ausgeschrieben, nicht als Snapshot) rufen die Wrapper, nicht `resolveRequestParams`. Obsidian-frei.
-request_text.ts   Textbausteine der Abweichungen (aus lingotuner übernommen, Herkunftsstempel) und `requestText(gruppe, id)`: der Schlüssel entsteht erst dort, weil der Schlüssel-Wächter Template-Literale in `t()` nicht auflösen kann; die Vollständigkeit bewacht `tests/request_text.test.ts` gegen die Kit-Tabellen.
+managed_endpoint.ts  Obsidian-freie Endpunkt-Wahl des EMBEDDINGS über den LLM Endpoint Manager (Kit `endpoint-source`): `resolveManagedEmbedding` liefert Zeile, `active`, `mismatch`/`noModel`. Nur der Manager-Pfad — ohne Manager läuft die lokale Liste in `main.ts` (`resolveAndReconnectEmbedder`), dort liegen ihre Regeln. Gesendet und gegen den Index geprüft wird die aufgelöste Schreibweise (`sentModel`), nie `config.model` des Managers (der trägt das Standardmodell und würde die Nutzerwahl überschreiben, lingotuner-Fund C1). Die Zeile trägt den Schlüssel nur im Speicher. Die CHAT-Auflösung (Manager oder lokale Liste mit Schlüsselbund) liegt seit Welle 15 in der Kit-Verbindung `createLlmConnection`; `connection_options.ts` hält die Optionen (Modi, Budget je Modus, `levelPicker`, Settings-Abbildung), `tests/chat_manager.test.ts` die Manager-Regeln.
+request_profile.ts  Anfrage-Profile (Welle 14): die Werte, die das Plugin sendet, entscheidet die Kit-Tabelle `sampling-profiles`; hier stehen nur die MODI je Aufrufstelle (`MODE_CHAT` = `grounded`, `MODE_SMART_APPLY` = `structured`, `MODE_REFORMAT` = `transform`, `PLUGIN_MODES`) und die einmalige Legacy-Migration `migrateLegacySampling` (Chat-/Smart-Apply-Temperatur ≠ altem Default → Überschreibung unter `unknown`, die beiden „Thinking unterdrücken“-Schalter → Denk-Stufe je Modus). Seit Welle 15 baut die Kit-Verbindung die Parameter selbst (die Wrapper `build*Params` und `SourceFacts` sind entfallen); die goldenen Requests (`tests/request-golden.test.ts`, 45 Zeilen ausgeschrieben, nicht als Snapshot) messen den Body, der durch die echte Verbindung in den Transport geht. Obsidian-frei.
+request_text.ts   `requestText(gruppe, id)` (aus lingotuner übernommen, Herkunftsstempel): der Schlüssel entsteht erst dort, weil der Schlüssel-Wächter Template-Literale in `t()` nicht auflösen kann; gruppiert ist nur noch `request.level` (Denk-Knopf), die Vollständigkeit bewacht `tests/request_text.test.ts` gegen die Kit-Tabelle. Die Abweichungs-Texte und alle Texte des Abschnitts „Anfrage“ kommen seit Welle 15 aus dem Kit (`llm-connection-strings`).
 capabilities.ts   Reine Vision/Thinking-Erkennung, geschichtet L1 Metadaten (Ollama /api/show,
                   LM Studio /api/v1|v0) → L2 Name-Heuristik → L3 live-bestätigt (monotones Upgrade);
                   geteilter fetchCapabilities(baseUrl, model)-Probe-Helper.
@@ -355,10 +355,10 @@ main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab re
                   Kettenglied — sonst ueberschriebe ein aelterer Snapshot einen juengeren.
                   `applyLinkNow` ist die Plugin-API-Flaeche: sofort, ohne Inbox, ohne Hash-Guard.
                   Aktive Endpunkt-Modelle: `embeddingModelInUse` (Embedder + LiveIndexer/Manifest
-                  als Paar) und `chatEndpointInUse` → Getter `chatModelInUse` /
-                  `smartApplyModelInUse` (`chatRequestModel`). JEDE Chat-Anfrage muss einen der
-                  beiden Getter als `opts.model` mitgeben — die Zeile des aktiven Endpunkts direkt zu
-                  senden ignoriert das Feature-Modell (`smartApplyModel`), das seit 0.31.0 gewinnt (E1).
+                  als Paar); Chat: `llm` (Kit-Verbindung) → Getter `chatModelInUse` (aufgelöstes
+                  Modell, bis zur neuen Auflösung die Dropdown-Wahl `pendingChatModel`) /
+                  `smartApplyModelInUse` (Feature-Modell vor Zeilen-Modell). Smart Apply gibt
+                  `smartApplyModel` als `opts.model`; leer heißt: Zeilen-Modell (E1, 0.31.0).
 ```
 
 **Index-Format (seit 0.18.0):** EINE Container-Datei `_vaultrag/index.bin` — `"VRIX"` · u32 headerLen LE
@@ -787,7 +787,7 @@ gar nicht bis in die Oberfläche schafft.
 - **MCP-Server läuft in-Plugin (HTTP)** statt als separater stdio-CLI: desktop-only via
   `Platform.isMobile`-Gate, Loopback (`127.0.0.1`) + Bearer-Token, läuft nur solange Obsidian
   offen ist (kein eigenständiger Prozess); Spec im Vault-Cockpit unter `_SDD/`: `2026-07-09-mcp-server-design.md`.
-- **Der Chat-Client ist seit Welle 11 der Kit-Client, `ChatClient.stream` bleibt die lokale Fassade.** Seit Welle 14 baut sie gar nichts mehr: `opts.params` kommt fertig vom Aufrufer (`main.ts` → `requestFor` → `request_profile.ts`), `opts.check` prüft die Antwort per `checkResponse` gegen das Profil (Abweichungen gehen an die Sitzung, ein werfendes `report` reißt nichts mit). Sie übersetzt das Kit-`kind` zurück in die Fehler, die die Aufrufer kennen: `http`/`overflow` → `ChatHttpError`, `timeout` → `ChatTimeoutError`, `aborted` → `AbortError`, sonst der Netzfehlertext; „abgeschnitten ohne Text“ (`kind: "truncated"`) bleibt ein Ergebnis mit `finishReason: "length"`, kein Wurf. Fristen: Idle 120 s, bis zum ersten Chunk 600 s (LM Studio lädt ein Modell beim ersten Aufruf und sendet dabei nichts); vorher gab es gar keine. Nach einem Netzfehler des XHR wiederholt der Client einmal ohne Stream über `requestUrl` und bleibt dabei — je Instanz, und `main.ts` baut die Instanz beim Endpunktwechsel neu. `ttftMs` im Lab-Log ist jetzt die Zeit bis zum ersten Byte, auch Reasoning. Lokal bleibt vom Lab nur `newTurnId`; der Smoke-Stub liest die `apiVersion` aus dem vendorten `lab-client.ts`.
+- **Die Chat-Verbindung ist seit Welle 15 die Kit-Verbindung (`createLlmConnection`), `ChatClient` bleibt die lokale Fassade.** Parameter und Antwortprüfung entscheidet die Verbindung je Modus (`opts.mode`: Chat `grounded`, Smart Apply `structured` mit `restoreContent: "json"`, Umformen `transform`); die Fassade übersetzt das Kit-`kind` zurück in die Fehler, die die Aufrufer kennen: `http`/`overflow` → `ChatHttpError`, `timeout` → `ChatTimeoutError`, `aborted` → `AbortError`, `no-endpoint` → `error.noEndpoint`, sonst der Netzfehlertext; „abgeschnitten ohne Text“ bleibt ein Ergebnis mit `finishReason: "length"`. Fristen sind statisch (Idle 120 s, erster Chunk 600 s). Schlüssel der Chat-Zeilen liegen im Obsidian-Schlüsselbund (`secretId` statt `apiKey` in `data.json`; das Laden der Listen muss `id`/`secretId` durchreichen, sonst ist der Verweis beim nächsten Start weg). Das Kit schwärzt Geheimnisse vor dem Senden umkehrbar; das Lab-Log bekommt den GESENDETEN (geschwärzten) Text (`reportToLab`). `resolveAndReconnectChat` ruft `resolve({ force: true })` ohne `invalidate()` (sonst ist `source()` bis zur neuen Auflösung neutral) und lässt nur den jüngsten Lauf schreiben. Lokal bleibt vom Lab nur `newTurnId`; der Smoke-Stub liest die `apiVersion` aus dem vendorten `lab-client.ts`.
 - **Ein Endpunkt-API-Schlüssel muss an ALLE fünf Netzwege**, nicht nur den Chat-/Embed-POST:
   Probe (`probeEndpoint`/`.probe()`/`.ping()`), `listModels`, `embed`/Chat-POST, der Kit-Chat-Client
   (Chat-Streaming) und `fetchCapabilities`. Alle gehen über `authHeaders(apiKey)`

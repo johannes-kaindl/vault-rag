@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ensureEndpointIds, hydrateEndpointSecrets } from "../src/vendor/kit/endpoint_config";
+import { ensureEndpointIds, fillMissingRowModels, hydrateEndpointSecrets } from "../src/vendor/kit/endpoint_config";
 import { authHeaders, rowModel, migrateEndpointList, applyEndpointEdit, carriesApiKey, moveEndpointToFront, endpointRole, describeEndpointRole, endpointStatusText, endpointWarningText, endpointInputWarnings, type EndpointConfig } from "../src/endpoint_config";
 import "../src/i18n/strings"; // Register i18n strings
 
@@ -298,6 +298,13 @@ describe("Listenoperationen — Invariante: kein stiller Feldverlust", () => {
     expect(out[0]?.apiKey).toBe("aus-dem-bund");
   });
 
+  it("fillMissingRowModels erhaelt alle Felder (nur das leere Modell wird gefuellt)", () => {
+    // c trug kein Modell: es bekommt das Alt-Modell; a und b behalten ihres.
+    const out = fillMissingRowModels(full(), "alt");
+    assertFieldsKept(full(), out, { url: "http://c", field: "model" });
+    expect(out.map((e) => e.model)).toEqual(["ma", "mb", "alt"]);
+  });
+
   it("applyEndpointEdit im Adder-Modus laesst die bestehende Liste unberuehrt", () => {
     assertFieldsKept(full(), applyEndpointEdit(full(), 3, "url", "http://d", true));
   });
@@ -311,6 +318,6 @@ describe("Listenoperationen — Invariante: kein stiller Feldverlust", () => {
     // was sie liefert. `[^{]*?` haelt den Treffer in der Signatur, damit nicht zwei Funktionen
     // ueber ihre Rumpfgrenze hinweg zu einem Match verschmelzen.
     const listOps = [...src.matchAll(/export function (\w+)\([^{]*?\): EndpointConfig\[\]/g)].map(m => m[1]);
-    expect(listOps.sort()).toEqual(["applyEndpointEdit", "ensureEndpointIds", "hydrateEndpointSecrets", "migrateEndpointList", "moveEndpointToFront"]);
+    expect(listOps.sort()).toEqual(["applyEndpointEdit", "ensureEndpointIds", "fillMissingRowModels", "hydrateEndpointSecrets", "migrateEndpointList", "moveEndpointToFront"]);
   });
 });

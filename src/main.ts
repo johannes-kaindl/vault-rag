@@ -17,11 +17,12 @@ import { migrateLegacySampling, MODE_CHAT, MODE_SMART_APPLY, MODE_REFORMAT } fro
 import { chatConnectionOptions } from "./connection_options";
 import { requestText } from "./request_text";
 import { rowModel, migrateEndpointList, applyEndpointEdit, type EndpointConfig } from "./endpoint_config";
+import { fillMissingRowModels } from "./vendor/kit/endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { hydrateLocalEndpoints, migrateLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
-import { effectiveSystemPrompt, migrateSystemPrompt, migrateGlobalModels, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
+import { effectiveSystemPrompt, migrateSystemPrompt, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
 import { withTimeout } from "./vendor/kit/timeout";
 import { EmbeddingClient } from "./embedder";
@@ -235,8 +236,8 @@ export default class VaultRagPlugin extends Plugin {
     // Migration (0.31.0): das globale Modellfeld ist entfallen — der alte Wert wandert in jede
     // Zeile ohne eigenes Modell. Läuft NACH dem Default-Fallback, damit ein leeres data.json
     // die Default-Zeile (die ihr Modell schon trägt) nicht überschreibt.
-    this.settings.embeddingEndpoints = migrateGlobalModels(this.settings.embeddingEndpoints, loaded?.embeddingModel);
-    this.settings.chatEndpoints = migrateGlobalModels(this.settings.chatEndpoints, loaded?.chatModel);
+    this.settings.embeddingEndpoints = fillMissingRowModels(this.settings.embeddingEndpoints, loaded?.embeddingModel);
+    this.settings.chatEndpoints = fillMissingRowModels(this.settings.chatEndpoints, loaded?.chatModel);
     // mergeSettings kopiert unbekannte Alt-Schlüssel aus data.json mit (Object.assign kennt keine
     // Schemagrenze) — ohne diesen Schritt liefe die Migration bei JEDEM Start erneut (Docblock).
     const hadLegacyGlobalModels = LEGACY_GLOBAL_MODEL_KEYS.some((k) => k in this.settings);

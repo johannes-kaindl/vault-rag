@@ -433,15 +433,8 @@ async function main(): Promise<void> {
       `return document.documentElement.lang || (window.localStorage && localStorage.getItem("language")) || "en";`,
     );
     const W = uiLang.startsWith("de") ? DE : EN;
-    const L = {
-      active: W["endpointRole.active"],
-      standby: W["endpointRole.standby"],
-      unreachable: W["endpointRole.unreachable"],
-      skippedModel: W["endpointRole.skippedModel"],
-      checking: W["settings.conn.checking"],
-    };
-    // Die Chat-Liste zeichnet seit Welle 15 das Kit (`llm.renderSettings`) mit SEINEN Zustandstexten;
-    // die Embedding-Liste bleibt beim Wörterbuch des Plugins. Zwei Wortschätze, je Liste einer.
+    // Seit Welle 16 teilen beide Listen das Rollen-Vokabular des Kits; die Embedding-Liste überschreibt
+    // nur `skipped-model` (nennt den Index) und trägt sonst dieselben Texte wie die Chat-Liste.
     const KE = (uiLang.startsWith("de") ? LLM_CONNECTION_STRINGS_DE : LLM_CONNECTION_STRINGS_EN).endpointList;
     const LK = {
       active: KE.role({ kind: "active" }),
@@ -450,6 +443,7 @@ async function main(): Promise<void> {
       skippedModel: KE.role({ kind: "skipped-model" }),
       checking: KE.probing,
     };
+    const L = { ...LK, skippedModel: W["endpointRole.skippedModel"], checking: W["settings.conn.checking"] };
     const isChecking = (state: string | null): boolean => state === L.checking || state === LK.checking;
     console.log(`  (Oberflächensprache: ${uiLang} — Embedding „${L.active}" / „${L.unreachable}", Chat (Kit) „${LK.active}" / „${LK.unreachable}")\n`);
 

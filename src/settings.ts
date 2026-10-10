@@ -13,7 +13,7 @@ import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { githubHelpUrls, helpSettingDefinition } from "./vendor/kit-obsidian/help-setting";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import { rowModel, describeEndpointRole, endpointStatusText, endpointWarningText } from "./endpoint_config";
+import { rowModel } from "./endpoint_config";
 import { buildEndpointSourceSection } from "./vendor/kit-obsidian/endpoint-source";
 import { buildEndpointList as buildKitEndpointList, type EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
 import { hydrateLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
@@ -108,6 +108,26 @@ export class RestoreBackupModal extends Modal {
  * Budget-Slider, Suppress-Test↔Fähigkeiten) laufen über Render-State-Felder (`lastCaps`,
  * `infoValue`, `capSetting`, `updateBudgetMax`), die render-Hatches beim Zeichnen neu setzen.
  */
+/** Rollen-, Status- und Warnungstexte der Embedding-Liste: das Kit-Bündel (dasselbe Vokabular wie
+ *  die Chat-Liste), mit vier Überschreibungen, wo unsere Fassung reicher ist — der Modell-Guard
+ *  nennt den Index, `timeout`/`not-an-llm-api` sagen, was zu prüfen ist, `unknown` ohne Rohtext
+ *  endet nicht auf einem hängenden Strich. Sie bleiben, bis das
+ *  Kit sie übernimmt (UI-STANDARD §10: die reichere Fassung gewinnt). Sprachneutrale Codes rein,
+ *  Text raus; `klartext` des Kits wird nie gelesen. */
+export function embeddingListTexts(lang: "en" | "de"): Pick<EndpointListStrings, "statusTooltip" | "role" | "warnings"> {
+  const base = resolveLlmConnectionStrings({ lang }).endpointList;
+  return {
+    statusTooltip: (status) => {
+      if (status.kind === "timeout") return t("endpointStatus.timeout");
+      if (status.kind === "not-an-llm-api") return t("endpointStatus.notAnLlmApi");
+      if (status.kind === "unknown" && !status.raw) return t("endpointStatus.unknown");   // Kit: „Not reachable — “ mit hängendem Strich
+      return base.statusTooltip(status);
+    },
+    role: (role) => (role.kind === "skipped-model" ? t("endpointRole.skippedModel") : base.role(role)),
+    warnings: (warnings) => base.warnings(warnings),
+  };
+}
+
 export class VaultRagSettingTab extends PluginSettingTab {
   private mcpPortRestartTimer: number | null = null;
   private showMcpToken = false;
@@ -747,6 +767,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
   private endpointStrings(label: string): EndpointListStrings {
     // Texte der Schlüsselzeile (Schlüsselbund-Hook): trägt das Kit-Bündel in EN und DE.
     const kit = resolveLlmConnectionStrings({ lang: getLang() }).endpointList;
+    const texts = embeddingListTexts(getLang());
     return {
       secretSaved: kit.secretSaved,
       secretChange: kit.secretChange,
@@ -768,9 +789,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
       remove: t("settings.endpoint.removeTooltip"),
       thirdParty: t("settings.endpoint.keyWarning"),
       probing: t("settings.conn.checking"),
-      statusTooltip: (status) => endpointStatusText(status),
-      role: (role) => describeEndpointRole(role),
-      warnings: (warnings) => warnings.map(endpointWarningText).join(" · "),
+      statusTooltip: texts.statusTooltip,
+      role: texts.role,
+      warnings: texts.warnings,
       presetTooltip: (preset) => t("settings.endpoint.addPreset", preset.url),
       presetLabel: (preset) => `+ ${preset.label}`,
       checkConnection: t("settings.button.checkConnection"),

@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - **Embedding endpoint API keys move into Obsidian's keychain** (Settings → Keychain), like the chat keys since 0.38.0. When the plugin loads, a key found in `data.json` — in the embedding or the chat list — is moved there, also with the LLM Endpoint Manager installed; `data.json` keeps only a reference. Keys do not travel with settings sync any more — enter them again on other devices. Without a keychain (Obsidian older than 1.11.4) existing keys keep working and the key field is locked.
+- **The embedding endpoint list uses the same state wording as the chat list** (kit texts): "active — this one is used" / "reachable — fallback N" / "not reachable — skipped"; the skipped-model state still names the index. Error tooltips for "Timed out" and "not an OpenAI-compatible endpoint" keep their hint on what to check. Address warnings come from the kit.
+- Kit pin `code-kit` 0.15.4 → 0.17.0 (all modules on one ref); `rowModel` and the migration of the old global model field now come from the kit.
 
 ### Documentation
 

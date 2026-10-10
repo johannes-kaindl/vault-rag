@@ -61,17 +61,13 @@ describe("Diagnose-Codes: die Kit-Prosa bleibt draußen", () => {
     expect(hits).toEqual([]);
   });
 
-  it("kapselt `validateEndpointInput` in endpoint_config.ts", () => {
-    // Die erste Fassung dieser Regel prüfte nur, ob `endpointWarningText` in derselben
-    // Datei VORKOMMT — und blieb in der Gegenprobe grün, während der Aufruf umgangen war
-    // (der Import allein reichte). Solange ein Aufrufer das rohe `EndpointWarning` in der
-    // Hand hält, kann er an der fest deutschen `message` vorbeigreifen, und ein Wächter
-    // kann das nur raten. Deshalb liegt der Aufruf jetzt hinter `endpointInputWarnings`,
-    // das fertige Strings liefert: es gibt nichts mehr zu greifen. Diese Regel hält die
-    // Kapsel geschlossen — sie ist der Grund, warum die Textprüfung entfallen kann.
+  it("ruft `validateEndpointInput` im eigenen Code nirgends auf", () => {
+    // Das Kit-Listenbündel (`endpointList.warnings`) übersetzt die Regeln selbst; solange kein
+    // eigener Aufrufer das rohe `EndpointWarning` hält, kann niemand an der fest deutschen
+    // `message` vorbeigreifen. Kommt ein Aufrufer dazu, gehört er über das Bündel geführt.
     const callers = repoOwnFiles()
       .filter((f) => /\bvalidateEndpointInput\s*\(/.test(f.text))
       .map((f) => f.rel);
-    expect(callers).toEqual(["endpoint_config.ts"]);
+    expect(callers).toEqual([]);
   });
 });

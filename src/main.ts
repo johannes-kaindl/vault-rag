@@ -933,7 +933,7 @@ export default class VaultRagPlugin extends Plugin {
 
   private backupsRoot(): string { return `${this.manifest.dir}/${BACKUP_SUBDIR}`; }
 
-  /** Kopiert den aktuellen Index geräte-lokal (Plugin-Ordner, synct nicht) und rotiert auf 3.
+  /** Kopiert den aktuellen Index geräte-lokal (Plugin-Ordner, synct nicht) und rotiert (GFS, höchstens 23).
    *  Läuft über runIndexOp (Fix Backup-Rotation): verhindert, dass ein Snapshot mitten in einen
    *  laufenden Live-Persist hineinkopiert und dadurch eine unvollständige Kopie erzeugt.
    *  runIndexOp ist NICHT reentrant — alle Aufrufer müssen `void this.snapshotIndex()`
@@ -960,9 +960,9 @@ export default class VaultRagPlugin extends Plugin {
           await this.removeBackupDir(root, name);
           return;
         }
-        // Rotation: vorhandene Backup-Verzeichnisse listen → älteste über 3 löschen.
+        // Rotation (Großvater-Vater-Sohn): das gerade angelegte Backup fällt nie heraus.
         const existing = await this.backupNames();
-        for (const del of selectBackupsToDelete(existing, 3)) {
+        for (const del of selectBackupsToDelete(existing, Date.now(), { protect: [name] })) {
           await this.removeBackupDir(root, del);
         }
       } catch (e) { console.warn("vault-rag: snapshotIndex failed", e); }

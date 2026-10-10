@@ -78,12 +78,14 @@ The plugin also offers this by itself when it notices a substantial gap on load.
 
 ## Restore an index backup
 
-Run `Index aus Backup wiederherstellen` and pick a snapshot. The plugin keeps the last three
-device-local copies (in the plugin folder, so they are **not** synced) and takes one after every
-successful load and before risky operations.
+Run `Index aus Backup wiederherstellen` and pick a snapshot. The plugin keeps device-local
+copies (in the plugin folder, so they are **not** synced) and takes one after every successful load and
+before risky operations. Recent copies are kept densely, older ones thinned out: the six newest of today, the
+oldest of each of the last seven days, of the last four weeks and of the last six months — at most 23, and the
+newest copy is never removed.
 
 > **Caveat worth knowing:** backups are taken from what is currently on disk. If a problem went
-> unnoticed for a while, all three snapshots may already contain it. For a bad index the honest
+> unnoticed for a while, the newer snapshots may already contain it. For a bad index the honest
 > fallback is a full reindex or a filesystem-level backup (Time Machine, Borg, …).
 
 ## Move the index folder

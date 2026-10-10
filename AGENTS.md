@@ -99,7 +99,7 @@ index_guard.ts    Pure-core Datenverlust-Entscheidungen: classifyLoadResult (no-
                   trennt „Endpunkt gerade tot" von „dieses Gerät hat nie einen").
 index_backup.ts   Pure-core Namens-/Rotationslogik für geräte-lokale Index-Backups:
                   BACKUP_SUBDIR ("index-backups") · backupDirName (ISO-Zeitstempel → FS-sicher) ·
-                  selectBackupsToDelete (Rotation, N=3) · sortBackupsNewestFirst (Restore-Auswahl).
+                  selectBackupsToDelete (Rotation Großvater-Vater-Sohn über Kit `rotation`, höchstens 23; `keepNewest` + `protect`, weil der Name `built_at` trägt) · sortBackupsNewestFirst (Restore-Auswahl).
                   Die eigentliche Datei-I/O liegt in main.ts (migrateIndex).
 retriever.ts      Retriever(index).related(path, {k,minSim,exclude}) → Hit[];
                   Brute-Force-Cosinus auf normalisierten Vektoren, Top-k über minSim.
@@ -608,7 +608,7 @@ gar nicht bis in die Oberfläche schafft.
   `PersistBlockedError` je Event-Handler ab: `handleModify` merkt die Notiz zusätzlich in der
   `PendingQueue` vor (nicht verworfen), `handleDelete`/`handleRename` melden nur laut (Notice) ohne
   Pending-Fallback — in allen drei Fällen setzt es `indexHealthy = false`. Geräte-lokale
-  Index-Backups liegen unter `<plugin-dir>/index-backups/` (synct **nicht**, rotiert auf 3 —
+  Index-Backups liegen unter `<plugin-dir>/index-backups/` (synct **nicht**, rotiert nach GFS (Kit `rotation`, höchstens 23) —
   `index_backup.ts`), Snapshot bei jedem erfolgreichen Load + vor riskanten Operationen.
 - **`writeBinary` kürzt die Zieldatei auf 0, bevor es schreibt — und `rename` kann das NICHT heilen.**
   Beides an Obsidian 1.13.7 gemessen (Implementierung aus dem laufenden Renderer gelesen, nicht aus

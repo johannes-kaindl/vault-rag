@@ -15,6 +15,7 @@ import { EmbeddingClient } from "../src/embedder";
 import { assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/index_guard";
 import { migrateIndex, hasAllRequiredFiles } from "../src/index_migrate";
 import { selectBackupsToDelete } from "../src/index_backup";
+import { utcCalendar } from "../src/vendor/kit/rotation";
 import { CONTAINER_FILE, decodeContainer } from "../src/index_container";
 import { loadIndexStore, verifyBackupCandidate } from "../src/index_store";
 import { findStaleVectorPaths } from "../src/index_guard";
@@ -136,12 +137,11 @@ describe("Index-Robustheit — Integration gegen echtes Dateisystem", () => {
     expect(idx.count).toBe(100);
   });
 
-  it("Backup-Rotation: selectBackupsToDelete behält die 3 neuesten", () => {
-    const names = [
-      "2026-07-01T00-00-00-000Z", "2026-07-02T00-00-00-000Z",
-      "2026-07-03T00-00-00-000Z", "2026-07-04T00-00-00-000Z",
-    ];
-    expect(selectBackupsToDelete(names, 3)).toEqual(["2026-07-01T00-00-00-000Z"]);
+  it("Backup-Rotation: dichte Sicherungen eines Tages werden ausgedünnt, das jüngste bleibt", () => {
+    const names = Array.from({ length: 9 }, (_, i) => `2026-07-11T0${i + 1}-00-00-000Z`);
+    const del = selectBackupsToDelete(names, Date.parse("2026-07-11T12:00:00.000Z"), { calendar: utcCalendar });
+    expect(del).toEqual(["2026-07-11T02-00-00-000Z", "2026-07-11T03-00-00-000Z"]);
+    expect(del).not.toContain("2026-07-11T09-00-00-000Z");
   });
 
   it("Unvollständige Backup-Kopie (Quelldatei verschwindet während der Kopie) hinterlässt keine Ordner-Leiche", async () => {

@@ -18,7 +18,7 @@
 | Smart Apply on active note | `Smart Apply on active note` | Only when Smart Apply is enabled |
 | Reindex vault | `Reindex vault` | Full rebuild; needs the embedding endpoint |
 | Complete the index | `Complete index (missing notes)` | Delta-only; embeds what is missing |
-| Restore index backup | `Restore index from backup` | Picks from the last three snapshots |
+| Restore index backup | `Restore index from backup` | Picks from the kept snapshots (at most 23) |
 
 Commands carry no default hotkeys — assign your own under **Settings → Hotkeys**.
 
@@ -176,7 +176,7 @@ losing it costs nothing but a re-scan.
 |---|---|---|
 | `<vault>/_vaultrag/` | The index (configurable location) | yes, if your sync includes non-Markdown files |
 | `<vault>/_vaultrag/pending.json` | Notes queued for re-embedding while offline | yes |
-| `<plugin folder>/index-backups/` | Last three index snapshots | no — device-local by design |
+| `<plugin folder>/index-backups/` | Index snapshots (grandfather-father-son, at most 23) | no — device-local by design |
 | `<plugin folder>/data.json` | Your settings | depends on your sync configuration |
 
 **Chat** and **embedding** endpoint API keys live in Obsidian's keychain (**Settings → Keychain**), not in `data.json`; they do not

@@ -674,12 +674,14 @@ const SHOTS: Shot[] = [
     // Kein vorgetaeuschter Zustand: ein zweiter, toter Endpunkt ist genau die
     // Fallback-Liste, die das Feature beschreibt — der Port ist bewusst einer, auf dem
     // nichts lauscht, damit die Rolle "unreachable" ECHT gemessen wird und nicht behauptet.
+    // Seit 0.31.0 tragen die Zeilen ihr Modell selbst; ohne Modell ueberspringt der Resolver die Zeile
+    // („skipped — model does not match the index“) und das Bild zeigt keine aktive Rolle.
     async vorher(cdp) {
       await cdp.evaluate(`
         const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
         p.settings.embeddingEndpoints = [
-          { url: "http://localhost:11434" },
-          { url: "http://localhost:11435" },
+          { url: "http://localhost:11434", model: "qwen3-embedding:8b" },
+          { url: "http://localhost:11435", model: "qwen3-embedding:8b" },
         ];
         await p.saveSettings?.();
         return true;

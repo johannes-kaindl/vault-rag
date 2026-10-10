@@ -121,7 +121,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 
 > **Endpoint tip:** enter the base URL *without* a trailing `/v1` — the plugin appends it. Both forms are accepted.
 
-> **External providers:** any endpoint row may carry an API key and a model name, turning it into a hosted OpenAI-compatible provider (OpenRouter, Groq, Together, Mistral, OpenAI, …) that sits in the same fallback list as local servers. **Chat** endpoint keys are stored in Obsidian's keychain (**Settings → Keychain**), not in `data.json`, and do not travel with settings sync — enter them again on each device. **Embedding** endpoint keys are still stored unencrypted in the plugin's `data.json` and travel with settings sync.
+> **External providers:** any endpoint row may carry an API key and a model name, turning it into a hosted OpenAI-compatible provider (OpenRouter, Groq, Together, Mistral, OpenAI, …) that sits in the same fallback list as local servers. **Chat** and **embedding** endpoint keys are stored in Obsidian's keychain (**Settings → Keychain**), not in `data.json`, and do not travel with settings sync — enter them again on each device.
 
 ## How it works
 

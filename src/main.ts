@@ -18,6 +18,7 @@ import { chatConnectionOptions } from "./connection_options";
 import { requestText } from "./request_text";
 import { rowModel, migrateEndpointList, applyEndpointEdit, type EndpointConfig } from "./endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
+import { hydrateLocalEndpoints, migrateLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { effectiveSystemPrompt, migrateSystemPrompt, migrateGlobalModels, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
@@ -243,6 +244,14 @@ export default class VaultRagPlugin extends Plugin {
     // sonst bleiben die Alt-Schlüssel bis zum nächsten beliebigen Speichern in data.json — die
     // Migration ist idempotent, aber die CHANGELOG-Zusage "entfernt" wäre bis dahin unwahr.
     if (hadLegacyGlobalModels) await this.saveSettings();
+    // Schlüssel in den Schlüsselbund (beide Listen), unabhängig vom Manager: mit installiertem
+    // Manager migriert weder der Kit-Resolver noch die Listen-UI (renderLocalList läuft nur ohne
+    // Manager). Muss VOR dem ersten Embedder stehen, sonst startet er mit einer Zeile ohne Schlüssel.
+    const embSecrets = migrateLocalEndpoints(this.app, this.manifest.id, this.settings.embeddingEndpoints);
+    const chatSecrets = migrateLocalEndpoints(this.app, this.manifest.id, this.settings.chatEndpoints);
+    if (embSecrets.changed) this.settings.embeddingEndpoints = embSecrets.list;
+    if (chatSecrets.changed) this.settings.chatEndpoints = chatSecrets.list;
+    if (embSecrets.changed || chatSecrets.changed) await this.saveSettings();
     // Anfrage-Profile: `request` feldweise pruefen (ungueltige Werte fallen auf das Profil und
     // werden gemeldet, nie still verworfen), dann die vier Alt-Regler hineinziehen und entfernen.
     const { settings: requestRaw, dropped } = sanitizeRequestSettings((loaded as { request?: unknown } | null)?.request);
@@ -262,7 +271,7 @@ export default class VaultRagPlugin extends Plugin {
     this.settings.chatChoice = { ...this.settings.chatChoice };
     // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
     // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
-    const e0 = this.settings.embeddingEndpoints[0] ?? { url: "" };
+    const e0 = this.hydratedEmbeddingEndpoints()[0] ?? { url: "" };
     this.embeddingModelInUse = rowModel(e0);
     this.embedder = new EmbeddingClient(e0.url, this.embeddingModelInUse, e0.apiKey);
     this.llm = createLlmConnection(chatConnectionOptions({
@@ -610,6 +619,12 @@ export default class VaultRagPlugin extends Plugin {
 
   /** Aktiven Embedding-Endpoint aus der Fallback-Liste auflösen (erster erreichbarer gewinnt)
    *  und embedder + liveIndexer darauf neu verdrahten. Behält die liveIndexer-Verdrahtung. */
+  /** Kopien der Embedding-Liste mit `apiKey` aus dem Schlüsselbund. Nur für Clients: nie in
+   *  `settings.*` zurückschreiben, sonst steht der Schlüssel beim nächsten Speichern wieder in data.json. */
+  hydratedEmbeddingEndpoints(): EndpointConfig[] {
+    return hydrateLocalEndpoints(this.app, this.manifest.id, this.settings.embeddingEndpoints);
+  }
+
   async resolveAndReconnectEmbedder(): Promise<void> {
     // Eigene Schleife statt resolveActiveEndpoint (Kit): das kennt nur URLs und könnte den
     // Schlüssel/das Modell-Override des Eintrags nicht mitführen.
@@ -640,7 +655,8 @@ export default class VaultRagPlugin extends Plugin {
       if (res.mismatch) skipped.push(`„${cfg.url}" (Modell ${rowModel(cfg)})`);
       if (res.noModel && res.config) ohneModell.push(cfg.url);
     } else {
-      for (const candidate of this.settings.embeddingEndpoints) {
+      const hydrated = this.hydratedEmbeddingEndpoints();
+      for (const candidate of hydrated) {
         const url = candidate.url?.trim();
         if (!url) continue;
         const model = rowModel(candidate);
@@ -660,7 +676,7 @@ export default class VaultRagPlugin extends Plugin {
       // Auch die Rückfall-Verdrahtung respektiert den Guard: lieber ein passender, gerade nicht
       // erreichbarer Endpunkt als ein erreichbarer aus dem falschen Vektorraum (und nie ein
       // Endpunkt ohne Modell — `fits` schließt das bereits aus).
-      cfg = active ?? this.settings.embeddingEndpoints.find(fits) ?? this.settings.embeddingEndpoints[0] ?? { url: "" };
+      cfg = active ?? hydrated.find(fits) ?? hydrated[0] ?? { url: "" };
     }
     this.activeEmbeddingEndpoint = active ? normalizeEndpoint(cfg.url) : null;
     const m = rowModel(cfg);

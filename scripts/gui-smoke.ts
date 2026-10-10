@@ -1753,6 +1753,141 @@ async function main(): Promise<void> {
     }
 
 
+    // --- 7e3. Embedding-Schlüssel im Schlüsselbund (Welle 16) -----------------------------------
+    // Gegen einen FAKE-Endpunkt (Node-Seite), der Probe (GET) und embed (POST) mit ihrem
+    // Authorization-Header aufzeichnet. „Kein apiKey in data.json“ besteht auch bei einem
+    // schlüssellosen Embedder — deshalb zusätzlich der Bearer an Probe UND embed, nach zwei
+    // Neustarts, und eine Gegenprobe mit einer nicht hydrierten Zeile. Der Treiber baut den Vault
+    // nicht aus dem Fixture: Listen und Schlüsselbund werden im finally zurückgesetzt.
+    const W16_PUNKTE = [
+      "Schlüsselbund (Embedding): nach dem Plugin-Start steht in data.json bei BEIDEN Listen kein apiKey, beide Zeilen tragen secretId",
+      "Schlüsselbund (Embedding): nach ZWEI Neustarts trägt die Zeile weiter secretId und der Embedder hält den Schlüssel",
+      "Schlüsselbund (Embedding): der Bearer erreicht die Probe UND embed",
+      "Gegenprobe: ein Client aus der nicht hydrierten Zeile sendet keinen Bearer (der Punkt davor kann also rot werden)",
+      "Schlüsselbund (Embedding) mit installiertem Manager: die Migration läuft beim Laden trotzdem",
+    ];
+    {
+      const W16_KEY = "w16-embedding-schluessel";
+      const W16_CHAT_KEY = "w16-chat-schluessel";
+      const seen16: { method: string; auth: string | undefined }[] = [];
+      const srv16: Server = createServer((req, res) => {
+        const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
+        if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
+        seen16.push({ method: req.method ?? "", auth: req.headers.authorization });
+        if (req.method === "GET") { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "qwen3-embedding:8b" }, { id: "fake-model" }] })); return; }
+        req.on("data", () => undefined);
+        req.on("end", () => {
+          res.writeHead(200, { ...cors, "Content-Type": "application/json" });
+          res.end(JSON.stringify({ data: [{ embedding: [0.1, 0.2, 0.3] }] }));
+        });
+      });
+      await new Promise<void>((r) => srv16.listen(0, "127.0.0.1", r));
+      const addr16 = srv16.address();
+      const url16 = `http://127.0.0.1:${typeof addr16 === "object" && addr16 ? addr16.port : 0}`;
+      const saved16 = await main.evaluate<{ emb: unknown; chat: unknown }>(`
+        const s = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings;
+        return { emb: JSON.parse(JSON.stringify(s.embeddingEndpoints)), chat: JSON.parse(JSON.stringify(s.chatEndpoints)) };
+      `);
+      // Klartext-Zustand herstellen (wie ein Vault vor Welle 16) und prüfen, dass er wirklich so auf der Platte steht.
+      const setPlain = async (): Promise<boolean> => main.evaluate<boolean>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        p.settings.embeddingEndpoints = [{ url: ${JSON.stringify(url16)}, model: "qwen3-embedding:8b", apiKey: ${JSON.stringify(W16_KEY)} }];
+        p.settings.chatEndpoints = [{ url: ${JSON.stringify(url16)}, model: "fake-model", apiKey: ${JSON.stringify(W16_CHAT_KEY)} }];
+        await p.saveSettings();
+        const disk = await app.vault.adapter.read(app.vault.configDir + "/plugins/" + ${JSON.stringify(PLUGIN_ID)} + "/data.json");
+        return disk.includes(${JSON.stringify(W16_KEY)}) && disk.includes(${JSON.stringify(W16_CHAT_KEY)});
+      `);
+      const reload = async (): Promise<Record<string, unknown>> => main.evaluate<Record<string, unknown>>(`
+        await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+        await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+        await new Promise(res => setTimeout(res, 1500));
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const disk = await app.vault.adapter.read(app.vault.configDir + "/plugins/" + ${JSON.stringify(PLUGIN_ID)} + "/data.json");
+        const e = p.settings.embeddingEndpoints[0] || {};
+        const c = p.settings.chatEndpoints[0] || {};
+        return {
+          leakEmb: disk.includes(${JSON.stringify(W16_KEY)}), leakChat: disk.includes(${JSON.stringify(W16_CHAT_KEY)}),
+          embSecret: e.secretId || null, chatSecret: c.secretId || null, embPlain: e.apiKey || null,
+          embedderKey: p.embedder && p.embedder.apiKey || null,
+        };
+      `);
+      try {
+        if (!(await setPlain())) {
+          for (const n of W16_PUNKTE) skipped(n, "Vorbedingung nicht herstellbar: der Klartext-Schlüssel steht nicht in data.json");
+        } else {
+          const r1 = await reload();
+          record(W16_PUNKTE[0]!, r1.leakEmb === false && r1.leakChat === false && !!r1.embSecret && !!r1.chatSecret,
+            `Leck Embedding=${String(r1.leakEmb)} Chat=${String(r1.leakChat)} · secretId Embedding=${String(r1.embSecret)} Chat=${String(r1.chatSecret)}`);
+
+          const r2 = await reload();
+          const r3 = await reload();
+          record(W16_PUNKTE[1]!,
+            !!r3.embSecret && !r3.embPlain && r3.leakEmb === false && r3.embedderKey === W16_KEY && r2.embedderKey === W16_KEY,
+            `Neustart 2: Schlüssel im Embedder ${r2.embedderKey === W16_KEY ? "da" : "FEHLT"} · Neustart 3: secretId ${r3.embSecret ? "da" : "WEG"}, Schlüssel im Embedder ${r3.embedderKey === W16_KEY ? "da" : "FEHLT"}`);
+
+          seen16.length = 0;
+          await main.evaluate(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            await p.resolveAndReconnectEmbedder();
+            await p.embedder.embed(["probe"]);
+            return true;
+          `);
+          const gets = seen16.filter((x) => x.method === "GET");
+          const posts = seen16.filter((x) => x.method === "POST");
+          const want = `Bearer ${W16_KEY}`;
+          record(W16_PUNKTE[2]!,
+            gets.length > 0 && posts.length > 0 && gets.every((x) => x.auth === want) && posts.every((x) => x.auth === want),
+            `Probe ${gets.length}× ${gets.every((x) => x.auth === want) ? "mit Bearer" : "OHNE Bearer"} · embed ${posts.length}× ${posts.every((x) => x.auth === want) ? "mit Bearer" : "OHNE Bearer"}`);
+
+          seen16.length = 0;
+          await main.evaluate(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            const raw = p.settings.embeddingEndpoints[0];
+            const c = new p.embedder.constructor(raw.url, raw.model, raw.apiKey);
+            await c.ping();
+            await c.embed(["probe"]);
+            return true;
+          `);
+          record(W16_PUNKTE[3]!, seen16.length >= 2 && seen16.every((x) => x.auth === undefined),
+            `${seen16.length} Anfragen aus der nicht hydrierten Zeile · Bearer ${seen16.every((x) => x.auth === undefined) ? "keiner (richtig)" : "VORHANDEN (Gegenprobe taugt nicht)"}`);
+
+          // Mit Manager: weder Kit-Resolver noch Listen-UI migrieren dann.
+          if (!(await setPlain())) {
+            skipped(W16_PUNKTE[4]!, "Klartext-Zustand nicht herstellbar");
+          } else {
+            await main.evaluate(`
+              app.plugins.plugins[${JSON.stringify(MGR)}] = { api: {
+                version: 1, list: () => [], get: () => null, resolve: async () => null,
+                materialize: async () => ({ error: "not-found" }), models: async () => [],
+                importEndpoints: async () => ({ added: [], merged: [], skipped: [] }), on: () => () => {},
+              } };
+              return true;
+            `);
+            const rm = await reload();
+            record(W16_PUNKTE[4]!, rm.leakEmb === false && rm.leakChat === false && !!rm.embSecret && !!rm.chatSecret,
+              `Leck Embedding=${String(rm.leakEmb)} Chat=${String(rm.leakChat)} · secretId Embedding=${String(rm.embSecret)} Chat=${String(rm.chatSecret)}`);
+          }
+        }
+      } finally {
+        await main.evaluate(`
+          delete app.plugins.plugins[${JSON.stringify(MGR)}];
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          for (const l of [p.settings.embeddingEndpoints, p.settings.chatEndpoints]) {
+            for (const cur of l) if (cur && cur.secretId) app.secretStorage.setSecret(cur.secretId, "");
+          }
+          p.settings.embeddingEndpoints = ${JSON.stringify(saved16.emb)};
+          p.settings.chatEndpoints = ${JSON.stringify(saved16.chat)};
+          await p.saveSettings();
+          p.llm.invalidate();
+          await p.resolveAndReconnectChat();
+          await p.resolveAndReconnectEmbedder();
+          return true;
+        `);
+        await new Promise<void>((r) => srv16.close(() => r()));
+      }
+    }
+
+
     // --- 7f. Index-Ordner ausblenden: Ziel ist das Hauptfenster, auch mit Pop-out ---------------
     // Kit `folder-hide` (Welle 11). Die alte Bauart hing das Blatt an `activeDocument`; steht beim
     // Laden ein Pop-out im Vordergrund, landet es dort statt beim Explorer (slide-deck 0.4.0 lud so

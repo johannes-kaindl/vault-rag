@@ -794,6 +794,7 @@ gar nicht bis in die Oberfläche schafft.
   stillschweigend (kein Ping-Erfolg); das Feature wirkt dann wie tot, ohne Fehlermeldung, weil
   ein reiner Ping-Fehlschlag keine Notice auslöst (anders als der Modell-Guard oben, der explizit
   meldet).
+- **Beide Endpunkt-Listen halten ihre Schlüssel im Schlüsselbund (Embedding seit Welle 16).** `onload` migriert beide Listen mit `migrateLocalEndpoints`, unabhängig vom Manager (mit Manager migrieren weder der Kit-Resolver noch die Listen-UI), und speichert bei `changed`. Jeder Client für die Embedding-Liste bekommt den Schlüssel aus `hydratedEmbeddingEndpoints()` bzw. `hydrateLocalEndpoints`; die hydrierten Kopien werden nie in `settings.*` zurückgeschrieben, sonst steht der Schlüssel beim nächsten `saveSettings()` wieder in `data.json`. Die Plugin-Id ist `this.manifest.id` (`vault-retrieval`). Der Smoke prüft nicht nur „kein apiKey in data.json" (das besteht auch bei einem schlüssellosen Embedder), sondern den Bearer an Probe und `embed` nach Neustarts samt Gegenprobe mit einer nicht hydrierten Zeile.
 - **Ein Feature-Modell (`smartApplyModel`) schlägt seit 0.31.0 das Zeilen-Modell.** Bis 0.30.0
   war es umgekehrt, und damit war das Feld tot, sobald die Zeile ein Modell trug — sichtbar nur
   als Widerspruch zwischen Einstellung und Verhalten (gemessen 2026-09-07). Wer den Vorrang je

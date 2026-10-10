@@ -179,9 +179,8 @@ losing it costs nothing but a re-scan.
 | `<plugin folder>/index-backups/` | Last three index snapshots | no — device-local by design |
 | `<plugin folder>/data.json` | Your settings | depends on your sync configuration |
 
-**Chat** endpoint API keys live in Obsidian's keychain (**Settings → Keychain**), not in `data.json`; they do not
-travel with settings sync. **Embedding** endpoint API keys still live in `data.json` alongside everything else,
-stored **unencrypted** — they travel wherever your settings sync goes. See [`SECURITY.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/SECURITY.md).
+**Chat** and **embedding** endpoint API keys live in Obsidian's keychain (**Settings → Keychain**), not in `data.json`; they do not
+travel with settings sync, so enter them again on each device. Keys found in `data.json` from older versions are moved to the keychain when the plugin loads. See [`SECURITY.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/SECURITY.md).
 
 ## Architecture
 

@@ -16,6 +16,8 @@ import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRa
 import { rowModel, describeEndpointRole, endpointStatusText, endpointWarningText } from "./endpoint_config";
 import { buildEndpointSourceSection } from "./vendor/kit-obsidian/endpoint-source";
 import { buildEndpointList as buildKitEndpointList, type EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
+import { hydrateLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
+import { resolveLlmConnectionStrings } from "./vendor/kit-obsidian/llm-connection-strings";
 import { embeddingModelMatchesIndex } from "./index_guard";
 import { resolveModelChoice, type ModelHintKey } from "./vendor/kit/model-choice";
 import { renderModelPicker } from "./vendor/kit-obsidian/model-picker";
@@ -403,6 +405,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
       renderLocalList: () => {
         buildKitEndpointList({
           containerEl: host,
+          app: this.app,
+          pluginId: this.plugin.manifest.id,
           label: embeddingLabel,
           desc: t("settings.embeddingEndpoints.desc"),
           placeholder: "http://localhost:11434",   // i18n-exempt: URL-Beispiel, sprachneutral
@@ -411,7 +415,11 @@ export class VaultRagSettingTab extends PluginSettingTab {
           get: () => this.plugin.settings.embeddingEndpoints,
           set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
           active: () => this.plugin.activeEmbeddingEndpoint,
-          clientFor: (cfg) => new EmbeddingClient(cfg.url, rowModel(cfg), cfg.apiKey),
+          // Die Zeile trägt nur `secretId`; der Client braucht den Schlüssel aus dem Schlüsselbund.
+          clientFor: (cfg) => {
+            const hydrated = hydrateLocalEndpoints(this.app, this.plugin.manifest.id, [cfg])[0] ?? cfg;
+            return new EmbeddingClient(hydrated.url, rowModel(hydrated), hydrated.apiKey);
+          },
           modelFits: (cfg) => embeddingModelMatchesIndex(rowModel(cfg), this.plugin.indexEmbeddingModel),
           save: () => this.plugin.saveSettings(),
           reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
@@ -737,7 +745,13 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  Kit-Diagnose-Codes (i18n Teil 3 — die vendorten Module liefern Code UND fest deutschen
    *  Klartext; wir nehmen immer den Code): `statusTooltip`, `role`, `warnings`. */
   private endpointStrings(label: string): EndpointListStrings {
+    // Texte der Schlüsselzeile (Schlüsselbund-Hook): trägt das Kit-Bündel in EN und DE.
+    const kit = resolveLlmConnectionStrings({ lang: getLang() }).endpointList;
     return {
+      secretSaved: kit.secretSaved,
+      secretChange: kit.secretChange,
+      secretClear: kit.secretClear,
+      secretUnavailable: kit.secretUnavailable,
       addPlaceholder: t("settings.endpoint.addPlaceholder"),
       apiKeyPlaceholder: t("settings.endpoint.keyPlaceholder"),
       modelPlaceholder: t("settings.endpoint.modelPlaceholder"),

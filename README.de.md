@@ -121,7 +121,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 
 > **Endpunkt-Tipp:** die Basis-URL *ohne* abschließendes `/v1` eintragen — das Plugin hängt es an. Beide Formen werden akzeptiert.
 
-> **Externe Anbieter:** jede Endpunkt-Zeile kann einen API-Schlüssel und einen Modellnamen tragen — damit wird sie zu einem gehosteten OpenAI-kompatiblen Anbieter (OpenRouter, Groq, Together, Mistral, OpenAI, …), der in derselben Fallback-Liste wie lokale Server steht. Schlüssel der **Chat**-Endpunkte liegen im Obsidian-Schlüsselbund (**Einstellungen → Schlüsselbund**), nicht in der `data.json`, und wandern nicht mit dem Einstellungs-Sync — auf jedem Gerät neu eintragen. Schlüssel der **Embedding**-Endpunkte liegen weiterhin unverschlüsselt in der Plugin-`data.json` und wandern mit dem Einstellungs-Sync mit.
+> **Externe Anbieter:** jede Endpunkt-Zeile kann einen API-Schlüssel und einen Modellnamen tragen — damit wird sie zu einem gehosteten OpenAI-kompatiblen Anbieter (OpenRouter, Groq, Together, Mistral, OpenAI, …), der in derselben Fallback-Liste wie lokale Server steht. Schlüssel der **Chat**- und der **Embedding**-Endpunkte liegen im Obsidian-Schlüsselbund (**Einstellungen → Schlüsselbund**), nicht in der `data.json`, und wandern nicht mit dem Einstellungs-Sync — auf jedem Gerät neu eintragen.
 
 ## Wie es funktioniert
 

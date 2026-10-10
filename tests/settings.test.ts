@@ -134,6 +134,7 @@ const DECLARATIVE_KEYS = [
 
 function makeFakeHost() {
   return {
+    manifest: { id: "vault-retrieval" },
     settings: structuredClone(DEFAULT_SETTINGS),
     saveSettings: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn(),

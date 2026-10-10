@@ -17,11 +17,10 @@ Obsidian-Community-Directory bereits von einem fremden Plugin belegt ist.)
 
 **Warum es existiert:** Drei AI-Plugins (`similar-notes`, `local-gpt`, `smart-composer`)
 berechnen je **eigene** Embeddings über dasselbe Modell (`qwen3-embedding:8b`) → redundant
-und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem** geteilten
-[HyperForge](../hyperforge)-Retrieval-Backend.
+und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin mit **einem** Index, den das Plugin selbst aus dem Vault aufbaut (Reindex über den konfigurierten Embedding-Endpunkt, `LiveIndexer.reindexAll`).
 
 **Bewusste Designentscheidungen:**
-- **Retrieval ≠ Generierung.** Retrieval läuft über HyperForge; Chat/Composer (spätere Slices)
+- **Retrieval ≠ Generierung.** Retrieval läuft über den lokalen Index; Chat/Composer (spätere Slices)
   über lokale LLMs. Das Panel selbst braucht **keinen** Daemon, kein VPN, kein On-Device-LLM.
 - **Slices statt Monolith:** **A Related-Notes** (✅ gebaut + live) · **B Chat** · **C Inline-Composer** ·
   **D Integrator Stufe 1 — Verlinkung mit Review-Inbox** (✅ seit 0.32.0; ADR-031, Spec im Cockpit
@@ -30,8 +29,8 @@ und ressourcenfressend. `vault-rag` ersetzt sie durch **ein** Plugin auf **einem
   Plugin [`image-to-markdown`](https://git.jkaindl.de/jkaindl/vault-rag) (Schwester-Repo `../image-to-markdown`).
   vault-rag bleibt der schlanke RAG-Kern. Der Chat-Client (Streaming, Fristen, Fallback ohne Stream) kommt seit
   Welle 11 aus dem Kit (`createChatClient`), nicht mehr aus einer Kopie in beiden Plugins.
-- **Offline-first & cross-device:** HyperForge exportiert beim Reindex einen note-level
-  Matryoshka-256-int8-Mini-Index (~1,4 MB) nach `<vault>/_vaultrag/`. Das Plugin liest ihn und
+- **Offline-first & cross-device:** Das Plugin baut beim Reindex einen note-level
+  Matryoshka-256-int8-Mini-Index (~1,4 MB) nach `<vault>/_vaultrag/` (ein extern erzeugter Index im selben Format wird ebenso gelesen). Es liest ihn und
   rechnet **Brute-Force-Cosinus lokal** — auf allen Geräten, auch auf dem iPhone.
 - **Live-Embedding (Slice A+):** Bei `file:modify` wird die Notiz via konfigurierbarem
   Ollama/MLX-Endpoint neu vektorisiert; Offline-Edits landen in einer Dirty-List und werden
@@ -367,7 +366,7 @@ damit Obsidian Sync keine Generationen mischen kann (Spec
 im Vault-Cockpit unter `_SDD/`: `2026-07-29-sync-race-container-index-design.md`). Embedding-Dimension **256**,
 `INT8_SCALE = 127`, **mean**-Aggregation. `pending.json` bleibt eigenständig (Dirty-List, unkritisch).
 Das Prä-0.18-Tripel (`notes.i8`/`paths.json`/`manifest.json`) wird beim ersten Load byte-level migriert.
-**HyperForge-Export ist stillgelegt** — bei Reaktivierung muss er das Container-Format erzeugen.
+Der Index entsteht im Plugin (`LiveIndexer.persist`, Container-Format); ein früherer externer Export (HyperForge) ist stillgelegt. Ein extern erzeugter Index muss dieses Container-Format tragen.
 
 ### Vendored Kit Module (`src/vendor/kit/` + `src/vendor/kit-obsidian/`)
 
@@ -761,7 +760,6 @@ gar nicht bis in die Oberfläche schafft.
   (150 reichten) und räumt sie danach weg — der Vault ist Wegwerfware, aber sein Fixture ist
   getrackt. Dieselbe Wurzel wie CORE-TEST-22: eine Messung braucht eine Definition davon, wann
   sie gültig ist.
-- **HyperForge-Export** braucht Daemon-Stopp bei Live-Lauf (embedded-Qdrant ist single-process).
 - **`main.js`** ist Build-Artefakt (gitignored) — nie von Hand editieren.
 - **`adapter.rmdir(path, false)` löscht in Obsidian NIE ein Verzeichnis** — auch kein leeres.
   Der Adapter setzt es intern auf `fs.rm()` **ohne** `recursive` um; das wirft auf jedem
@@ -891,7 +889,7 @@ gar nicht bis in die Oberfläche schafft.
   (`$VAULT/…`, `~/…`, repo-relativ). Herkunftsnachweise als Repo-Name + `Datei:Zeile` sind dagegen erwünscht.
   Gate: `scripts/check-no-abs-paths.mjs` (Teil von `npm test`).
 - **Projekt-Memory:** `~/.claude/projects/-Users-Shared-code-vault-rag/memory/` (Index `MEMORY.md`,
-  aktuell leer). Verwandtes Wissen liegt im HyperForge-Memory: `…-code-hyperforge/memory/project_vault_rag.md`.
+  aktuell leer).
 - **Coding-Cockpit (SSOT für Stand/Tasks/History):**
   `$VAULT/25_Coding/vault-rag/vault-rag.md` (maintainer-lokal). Wird vom
   SessionEnd-Hook gestempelt (`letzter_commit`, `letzte_session`, `fokus`); §🧭 hält die dauerhafte

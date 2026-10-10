@@ -127,7 +127,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 
 The index in `<vault>/_vaultrag/` is a portable note-level **Matryoshka-256 int8 mini-index** — one 256-dimensional int8 vector per note, roughly 1.4 MB for a few thousand notes. Small enough to sync with the vault, which is the whole point: the plugin loads it and runs **brute-force cosine locally**, so retrieval works identically on every synced device — no daemon, no VPN, no on-device LLM. What does leave the device is text: each note you save goes to the **embedding endpoint** to be re-embedded, and chat, Smart Apply and LLM reformatting send their prompt and context to the **chat endpoint**. Both are endpoints you configure — by default ones under your control — and a third party only receives any of it once you add that provider's API key.
 
-The plugin writes that index itself, as a single container file (`_vaultrag/index.bin`, CRC-checked on every load — one file instead of several means a sync service can never deliver a mixed generation), and reads any index in the same format — including one exported by an external backend such as HyperForge.
+The plugin writes that index itself, as a single container file (`_vaultrag/index.bin`, CRC-checked on every load — one file instead of several means a sync service can never deliver a mixed generation), and reads any index in the same format (documented in the reference), whoever wrote it.
 
 Architecture, module layout and contributor conventions live in [`AGENTS.md`](https://github.com/johannes-kaindl/vault-rag/blob/main/AGENTS.md).
 

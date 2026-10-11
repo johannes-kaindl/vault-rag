@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.53.0, src/obsidian/llm-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.54.0, src/obsidian/llm-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Die LLM-Anbindung eines Fachplugins als EINE Komposition: Endpunkt-Quelle (Manager oder lokale
  *  Liste mit Schlüsselbund), gemerkte Auflösung, Modellliste, Anfrage-Parameter je Modus, Client mit
  *  Transport und Fristen, Prüfung der Antwort und beide Settings-Abschnitte.
@@ -32,12 +32,11 @@
  *
  *  Vertrag an `persist`: es übernimmt den Patch in die Settings des Plugins SYNCHRON (bevor es
  *  speichert) — die Endpunkt-Liste liest ihre Zeilen danach über `getSettings()` zurück. */
-import { requestUrl, Setting, type App } from "obsidian";
+import { Setting, type App } from "obsidian";
 import { normalizeEndpoint } from "../kit/endpoint";
 import type { RedactRules } from "../kit/redact";
-import { applyEndpointEdit, authHeaders, type EndpointConfig } from "../kit/endpoint_config";
-import { classifyEndpointStatus, extractModelIds, type EndpointStatus } from "../kit/endpoint_diagnostics";
-import { createModelListCache, type ModelListClient, type ModelListResult } from "../kit/model-list-cache";
+import { type EndpointConfig } from "../kit/endpoint_config";
+import { createModelListCache, type ModelListResult } from "../kit/model-list-cache";
 import {
   checkResponse, mapTruncated, resolveRequestParams, responseFactsOf, thinkingFor, DEFAULT_REQUEST_SETTINGS,
   type BackendId, type Deviation, type FamilyKey, type ModeId, type RequestSettings, type ResponseFacts, type ThinkingLevel, type TruncatedPolicy,
@@ -54,7 +53,9 @@ import { requestUrlTransport, transportFor, xhrSseTransport } from "./chat-trans
 import { realClock, type ClockPort } from "./clock";
 import { createObsidianBackendProbe } from "./backend-probe";
 import { buildEndpointList, type EndpointListStrings } from "./endpoint-list";
-import { hydrateLocalEndpoints, prepareLocalEndpoints } from "./endpoint-secrets";
+import { prepareLocalEndpoints } from "./endpoint-secrets";
+import { createEndpointPlumbing } from "./endpoint-plumbing";
+import { createEmbeddingConnection, type EmbeddingConnection, type EmbeddingConnectionOptions } from "./embedding-connection";
 import { buildEndpointSourceSection, findEndpointManager, type EndpointSourceSectionStrings } from "./endpoint-source";
 import { buildRequestSection, type RequestSectionState, type RequestSectionStrings } from "./request-section";
 import { createRequestSession, type RequestSession } from "./request-session";
@@ -93,8 +94,9 @@ export interface LlmConnectionOptions {
   app: App;
   pluginId: string;
   caller: string;
-  /** Nur "chat" und "vision" sind gebaut; "embedding" und "image" reservieren den Namen und werfen. */
-  capability: Capability;
+  /** "chat" und "vision" sind gebaut; "image" reserviert den Namen und wirft. `"embedding"` liefert seit 0.54.0 eine
+   *  `EmbeddingConnection` (`EmbeddingConnectionOptions`), keine `LlmConnection`. */
+  capability: Exclude<Capability, "embedding">;
   getSettings(): LlmConnectionSettings;
   persist(patch: Partial<LlmConnectionSettings>): Promise<void>;
   /** Erreichbarkeit einer lokalen Zeile (Default: `GET /v1/models`, 5 s). Wird nur ohne Manager gerufen. */
@@ -132,7 +134,10 @@ export interface LlmConnectionOptions {
   restoreContent?: "text" | "json";
   /** Wird nach jeder abgeschlossenen Auflösung gerufen (auch der internen aus Liste, Wahl und `invalidate`),
    *  nicht bei einem gemerkten Ergebnis und nicht bei einem überholten parallelen Lauf. Für Plugin-eigene Zeilen
-   *  im Settings-Tab (Kontextlänge, Modelldetails), die einer Endpunkt-Änderung folgen sollen. */
+   *  im Settings-Tab (Kontextlänge, Modelldetails), die einer Endpunkt-Änderung folgen sollen.
+   *  **Kreis:** ein Callback, der selbst `resolve()` auslöst (z. B. über eine Probe oder `models()`), läuft im Kreis — jede
+   *  Auflösung ruft ihn wieder. Nur neu zeichnen, wenn sich das Ergebnis geändert hat (image-to-markdown: „nur bei geändertem
+   *  Modell“). */
   onResolved?: (result: EndpointSourceResult) => void;
   /** Modi, die der Anfrage-Abschnitt in `renderSettings` zeigt (Default `[mode]`). */
   modes?: ModeId[];
@@ -233,38 +238,31 @@ export interface LlmConnection {
   readonly session: RequestSession;
 }
 
-const PROBE_TIMEOUT_MS = 5_000;
 const NEUTRAL_SOURCE = (): RequestSectionState => ({
   family: null, familySource: "none", backend: "unknown", backendSource: "none", model: "", sentModel: "",
 });
 
-export function createLlmConnection(o: LlmConnectionOptions): LlmConnection {
-  if (o.capability === "embedding" || o.capability === "image") {
+export function createLlmConnection(o: EmbeddingConnectionOptions): EmbeddingConnection;
+export function createLlmConnection(o: LlmConnectionOptions): LlmConnection;
+export function createLlmConnection(o: LlmConnectionOptions | EmbeddingConnectionOptions): LlmConnection | EmbeddingConnection {
+  if (o.capability === "embedding") return createEmbeddingConnection(o);
+  return createChatConnection(o);
+}
+
+function createChatConnection(o: LlmConnectionOptions): LlmConnection {
+  if (o.capability === "image") {
     throw new Error(
       `createLlmConnection: capability "${o.capability}" ist reserviert und noch nicht gebaut — vorgesehen ist eine zweite Verbindung je Fähigkeit `
-      + "(statt einer Verbindung mit zwei Listen). Bis dahin: createChatClient bzw. die Endpunkt-Quelle direkt verdrahten (vault-rag Embedding, local-image-generator Bild).",
+      + "(statt einer Verbindung mit zwei Listen). Bis dahin: die Endpunkt-Quelle direkt verdrahten (local-image-generator Bild).",
     );
   }
   const clock = o.clock ?? realClock;
 
-  /** `persist` MUSS den Patch synchron übernehmen, bevor es speichert: die Endpunkt-Liste liest ihre
-   *  Zeilen gleich danach über `getSettings()` zurück. Ein asynchron patchendes `persist` ließe sie
-   *  alte Zeilen rendern — still falsch. Deshalb prüft diese Hülle, ob der Patch sofort sichtbar ist,
-   *  und wirft sonst einen Hinweis an den Entwickler. */
-  function persist(patch: Partial<LlmConnectionSettings>): Promise<void> {
-    const p = o.persist(patch);
-    const now = o.getSettings();
-    for (const key of Object.keys(patch) as (keyof LlmConnectionSettings)[]) {
-      if (JSON.stringify(now[key]) !== JSON.stringify(patch[key])) {
-        void p.catch(() => undefined);
-        throw new Error(
-          `createLlmConnection: persist() hat „${key}“ nicht synchron übernommen — getSettings() liefert nach dem Aufruf noch den alten Wert. `
-          + "Den Patch in die Settings schreiben, BEVOR gespeichert wird (await erst danach).",
-        );
-      }
-    }
-    return p;
-  }
+  const plumbing = createEndpointPlumbing<LlmConnectionSettings>({
+    app: o.app, pluginId: o.pluginId, clock, getSettings: () => o.getSettings(), persist: (patch) => o.persist(patch),
+    ...(o.probe ? { probe: o.probe } : {}), ...(o.listModels ? { listModels: o.listModels } : {}),
+  });
+  const { persist, probeOf, listOf, clientFor } = plumbing;   // `plumbing.applyModel` gleich unten (setModel)
   const policy: TruncatedPolicy = o.truncated ?? "result";
   const fallback = o.transports?.fallback ?? "auto";
   const langNow = (): "en" | "de" => (typeof o.lang === "function" ? o.lang() : o.lang) ?? "en";
@@ -278,39 +276,6 @@ export function createLlmConnection(o: LlmConnectionOptions): LlmConnection {
   const backendOf = o.backendOf ?? ((cfg: EndpointConfig) => backendProbe(cfg.url, cfg.model ?? o.getSettings().model ?? "", cfg.apiKey));
   const modelCache = createModelListCache();
   const settingsCache = createModelListCache();
-
-  // ── lokale Endpunkt-Zeile: Erreichbarkeit und Modellliste ──────────────────────────────────
-  async function fetchStatus(cfg: EndpointConfig): Promise<{ status: EndpointStatus; ids: string[] }> {
-    // `normalizeEndpoint` streicht ein `/v1` am Ende — die OpenAI-kompatible Liste liegt aber unter `/v1/models`.
-    // Ohne das Präfix antwortet LM Studio mit 200 und einem Fehlerkörper, Ollama mit 404; beides las
-    // `classifyEndpointStatus` als „not-an-llm-api“ und jede lokale Zeile galt als unerreichbar (3d-codeblocks, 2026-10-04).
-    const request = requestUrl({ url: `${normalizeEndpoint(cfg.url)}/v1/models`, headers: authHeaders(cfg.apiKey), throw: false });
-    const timeout = new Promise<"timeout">((resolve) => { clock.setTimeout(() => resolve("timeout"), PROBE_TIMEOUT_MS); });
-    try {
-      const res = await Promise.race([request, timeout]);
-      if (res === "timeout") return { status: classifyEndpointStatus({ kind: "timeout" }), ids: [] };
-      let body: unknown = null;
-      try { body = res.json; } catch { body = null; }
-      const status = classifyEndpointStatus({ kind: "response", status: res.status, body });
-      return { status, ids: status.reachable ? extractModelIds(body) : [] };
-    } catch (e) {
-      return { status: classifyEndpointStatus({ kind: "error", message: e instanceof Error ? e.message : String(e) }), ids: [] };
-    }
-  }
-  const probeOf = o.probe ?? (async (cfg) => (await fetchStatus(cfg)).status.reachable);
-  const listOf = o.listModels ?? (async (cfg) => (await fetchStatus(cfg)).ids);
-  const hydrated = (cfg: EndpointConfig): EndpointConfig => hydrateLocalEndpoints(o.app, o.pluginId, [cfg])[0] ?? cfg;
-  const clientFor = (cfg: EndpointConfig): { probe(): Promise<EndpointStatus> } & ModelListClient => {
-    const h = hydrated(cfg);
-    return {
-      listModels: () => listOf(h),
-      probe: async (): Promise<EndpointStatus> => (o.probe
-        ? ((await o.probe(h))
-          ? { reachable: true, kind: "ok", klartext: "" }
-          : { reachable: false, kind: "unknown", klartext: "" })
-        : (await fetchStatus(h)).status),
-    };
-  };
 
   // ── Auflösung ──────────────────────────────────────────────────────────────────────────────
   let pending: Promise<EndpointSourceResult> | null = null;
@@ -403,28 +368,9 @@ export function createLlmConnection(o: LlmConnectionOptions): LlmConnection {
   // ── Modellwahl eines Panels ────────────────────────────────────────────────────────────────
   let pendingModel: string | null = null;
 
-  async function applyModel(m: string): Promise<void> {
-    if (findEndpointManager(o.app)) {
-      const { model: _old, ...rest } = o.getSettings().choice ?? {};
-      await persist({ choice: m ? { ...rest, model: m } : rest });
-      await resolve({ force: true });
-      return;
-    }
-    const active = (await resolve()).config;
-    if (!active) return;
-    // Zeilen erst NACH dem Auflösen lesen und im selben synchronen Zug schreiben (`persist`-Vertrag).
-    const eps = o.getSettings().endpoints;
-    const i = active.id !== undefined
-      ? eps.findIndex((e) => e.id === active.id)
-      : eps.findIndex((e) => normalizeEndpoint(e.url) === normalizeEndpoint(active.url));
-    if (i < 0) return;
-    await persist({ endpoints: applyEndpointEdit(eps, i, "model", m, false) });
-    await resolve({ force: true });
-  }
-
   async function setModel(m: string): Promise<void> {
     pendingModel = m;
-    try { await applyModel(m); }
+    try { await plumbing.applyModel(m, resolve); }
     finally { if (pendingModel === m) pendingModel = null; }
   }
 

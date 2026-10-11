@@ -1,10 +1,10 @@
 {
   "source": "code-kit",
   "note": "Verbatim snapshots (plus Herkunfts-Header in Zeile 1). Der Ordner heisst historisch 'kit'; die pure-Schicht kommt seit dem code-kit-Split aus code-kit, nur callout/frontmatter noch aus obsidian-kit. Never hand-edit. Pins in tools/kit-sync.json, re-vendor via tools/sync-kit.sh (zentrales kit-sync im Dach).",
-  "version": "0.20.0",
-  "sha": "b6fd3ec",
+  "version": "0.21.0",
+  "sha": "914e925",
   "vendored": "backend-probe.ts, capabilities.ts, cooperative-yield.ts, endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error_body.ts, i18n.ts, model-choice.ts, model-list-cache.ts, reasoning.ts, redact.ts, rotation.ts, run-state.ts, sampling-profiles.ts, secrets.ts, settings.ts, sse.ts, think-splitter.ts, timeout.ts, clipboard.ts",
-  "obsidian_kit_version": "0.52.0",
-  "obsidian_kit_sha": "fd1827e",
+  "obsidian_kit_version": "0.53.0",
+  "obsidian_kit_sha": "792d3f8",
   "obsidian_kit_vendored": "callout.ts, endpoint-secret-hook.ts, endpoint-source.ts, folder-hide.ts, frontmatter.ts"
 }

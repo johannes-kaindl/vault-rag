@@ -9,16 +9,17 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { VaultAdapter, VaultIndex } from "../src/index";
-import { LiveIndexer } from "../src/live_indexer";
+import { VaultAdapter } from "../src/index";
+import { VectorIndex } from "../src/vendor/kit/vector-index";
+import { LiveIndexer } from "../src/vendor/kit/live-indexer";
 import { EmbeddingClient } from "../src/embedder";
-import { assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/index_guard";
+import { assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/vendor/kit/index-guard";
 import { migrateIndex, hasAllRequiredFiles } from "../src/index_migrate";
 import { selectBackupsToDelete } from "../src/index_backup";
 import { utcCalendar } from "../src/vendor/kit/rotation";
-import { CONTAINER_FILE, decodeContainer } from "../src/index_container";
+import { CONTAINER_FILE, decodeContainer } from "../src/vendor/kit/index-container";
 import { loadIndexStore, verifyBackupCandidate } from "../src/index_store";
-import { findStaleVectorPaths } from "../src/index_guard";
+import { findStaleVectorPaths } from "../src/vendor/kit/index-guard";
 
 const DIM = 256;
 
@@ -55,7 +56,7 @@ async function countOnDisk(dir: string): Promise<number> {
 
 /** Lädt via loadIndexStore (Container-first) und wirft, falls kein ladbarer Index vorliegt —
  *  Ersatz für das alte `new IndexLoader(adapter, dir).load()` (Tripel-only). */
-async function loadIndex(adapter: VaultAdapter, dir: string): Promise<VaultIndex> {
+async function loadIndex(adapter: VaultAdapter, dir: string): Promise<VectorIndex> {
   const r = await loadIndexStore(adapter, dir);
   if (r.state !== "loaded") throw new Error(`Index nicht ladbar (state=${r.state})`);
   return r.index;

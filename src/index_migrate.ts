@@ -1,6 +1,6 @@
 import { VaultAdapter } from "./index";
 import { normalizeFolder } from "./vendor/kit/folder-hide";
-import { CONTAINER_FILE } from "./index_container";
+import { CONTAINER_FILE } from "./vendor/kit/index-container";
 
 const INDEX_BINARY_FILES = [CONTAINER_FILE, "notes.i8"];
 // manifest.json bewusst zuletzt (Reload-Trigger-Konvention, vgl. live_indexer.persist)

@@ -1,16 +1,16 @@
 // @vitest-environment node
 import { describe, it, expect, afterEach } from "vitest";
 import * as http from "node:http";
-import { VaultIndex, IndexManifest } from "../src/index";
+import { VectorIndex, IndexManifest } from "../src/vendor/kit/vector-index";
 import { McpTools } from "../src/mcp/tools";
 import { RetrievalFacade } from "../src/retrieval_facade";
 import { startMcpServer } from "../src/mcp/http_server";
 
 const DIM = 4;
-function index(): VaultIndex {
+function index(): VectorIndex {
   const m: IndexManifest = { schema_version: 1, embedding_model: "x", index_dim: DIM, scale: 127, count: 2, granularity: "note", quant: "int8" };
   const v = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0]);
-  return new VaultIndex(m, ["a.md", "b.md"], v);
+  return new VectorIndex(m, ["a.md", "b.md"], v);
 }
 const deps = new RetrievalFacade({
   getIndex: () => index(),

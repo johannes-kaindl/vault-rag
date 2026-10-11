@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  classifyLoadResult, assertSafeToPersist, isSuspiciousShrink,
-  diffIndexVsVault, PersistBlockedError, canPersistHealedIndex, embeddingModelMatchesIndex,
-  assertModelSafeToPersist, planAutoHeal, findDeadVectorPaths, findStaleVectorPaths,
-  UNBEKANNTER_STEMPEL,
-} from "../src/index_guard";
+import { classifyLoadResult, assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal, findDeadVectorPaths, findStaleVectorPaths, UNBEKANNTER_STEMPEL } from "../src/vendor/kit/index-guard";
 
 describe("classifyLoadResult", () => {
   it("kein Manifest → no-index (frische Installation)", () => {

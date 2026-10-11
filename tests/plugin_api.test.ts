@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { createVaultRetrievalApi, VAULT_RETRIEVAL_API_VERSION } from "../src/plugin_api";
 import type { IntegratorPort } from "../src/plugin_api";
 import { RetrievalFacade } from "../src/retrieval_facade";
-import { parseIndex, VaultIndex } from "../src/index";
+import { parseIndex, VectorIndex } from "../src/vendor/kit/vector-index";
 
-function idx(): VaultIndex {
+function idx(): VectorIndex {
   const m = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 3, granularity: "note", quant: "int8" };
   const bytes = new Int8Array([127, 0, 117, 50, 0, 127]);
   return parseIndex(m, ["a.md", "b.md", "c.md"], bytes.buffer);

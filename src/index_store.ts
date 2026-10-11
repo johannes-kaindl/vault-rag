@@ -3,11 +3,13 @@
 // (kein Umweg über Float — keine Re-Quantisierung) und erst nach parseIndex-Beweis
 // geschrieben. Spec: Vault-Cockpit `_SDD/2026-07-29-sync-race-container-index-design.md`
 
-import { VaultAdapter, VaultIndex, IndexManifest, IndexLoader, parseIndex } from "./index";
-import { CONTAINER_FILE, encodeContainer, decodeContainer, FileStamp } from "./index_container";
+import type { VaultAdapter } from "./index";
+import { parseIndex, type VectorIndex, type IndexManifest } from "./vendor/kit/vector-index";
+import { CONTAINER_FILE, encodeContainer, decodeContainer, type FileStamp } from "./vendor/kit/index-container";
+import { loadContainerIndex } from "./vendor/kit/index-store";
 
 export type StoreLoadResult =
-  | { state: "loaded"; index: VaultIndex; source: "container" | "legacy-migrated"; stamps?: FileStamp[] }
+  | { state: "loaded"; index: VectorIndex; source: "container" | "legacy-migrated"; stamps?: FileStamp[] }
   | { state: "no-index" }
   | { state: "corrupt" };
 
@@ -21,33 +23,18 @@ async function existsConservative(adapter: VaultAdapter, p: string): Promise<boo
 
 export async function loadIndexStore(adapter: VaultAdapter, dir: string): Promise<StoreLoadResult> {
   const containerPath = `${dir}/${CONTAINER_FILE}`;
-  if (await existsConservative(adapter, containerPath)) {
-    let index: VaultIndex;
-    // `undefined` bei Altbestand (vor dem Stempel-Feld) — dann kann der Waechter nicht
-    // pruefen, und das ist kein Fehler: der Index ist ungeprueft, nicht verdaechtig.
-    let stamps: FileStamp[] | undefined;
-    try {
-      const decoded = decodeContainer(await adapter.readBinary(containerPath));
-      const { manifest, paths, matrix } = decoded;
-      stamps = decoded.stamps;
-      index = parseIndex(manifest, paths, matrix);
-    } catch (e) {
-      // Diagnose nicht verschlucken: ContainerError.reason (crc/magic/truncated/header/schema)
-      // samt CRC-Werten ist die Forensik-Basis für Vorfall-Rekonstruktionen.
-      console.warn("vault-rag: loadIndexStore: Container unlesbar", e);
-      return { state: "corrupt" };
-    }
+  const loaded = await loadContainerIndex(adapter, dir);
+  if (loaded.state === "loaded") {
     await cleanupLegacyTriple(adapter, dir);
-    return { state: "loaded", index, source: "container", stamps };
+    return loaded;
   }
+  if (loaded.state === "corrupt") return loaded;
+  // no-index: ein Prä-0.18-Tripel? (Der Kit-Kern kennt es nicht — es existiert nur bei Indizes, die sonst niemand hat.)
   if (!(await existsConservative(adapter, `${dir}/manifest.json`))) return { state: "no-index" };
   // Legacy-Tripel: erst beweisen (parseIndex), dann byte-level repacken.
-  let manifest: IndexManifest; let paths: string[]; let matrix: ArrayBuffer; let index: VaultIndex;
+  let manifest: IndexManifest; let paths: string[]; let matrix: ArrayBuffer; let index: VectorIndex;
   try {
-    manifest = JSON.parse(await adapter.read(`${dir}/manifest.json`)) as IndexManifest;
-    paths = JSON.parse(await adapter.read(`${dir}/paths.json`)) as string[];
-    matrix = await adapter.readBinary(`${dir}/notes.i8`);
-    index = parseIndex(manifest, paths, matrix);
+    ({ manifest, paths, matrix, index } = await readLegacyTriple(adapter, dir));
   } catch (e) {
     // s. o.: Read-/JSON-/Schema-Fehler des Tripels bleibt sichtbar, sonst ist `corrupt` blind.
     console.warn("vault-rag: loadIndexStore: Legacy-Tripel unlesbar", e);
@@ -63,6 +50,15 @@ export async function loadIndexStore(adapter: VaultAdapter, dir: string): Promis
   return { state: "loaded", index, source: "legacy-migrated" };
 }
 
+/** Liest das Prä-0.18-Tripel (`manifest.json`, `paths.json`, `notes.i8`) und beweist es mit `parseIndex`. */
+async function readLegacyTriple(adapter: VaultAdapter, dir: string):
+  Promise<{ manifest: IndexManifest; paths: string[]; matrix: ArrayBuffer; index: VectorIndex }> {
+  const manifest = JSON.parse(await adapter.read(`${dir}/manifest.json`)) as IndexManifest;
+  const paths = JSON.parse(await adapter.read(`${dir}/paths.json`)) as string[];
+  const matrix = await adapter.readBinary(`${dir}/notes.i8`);
+  return { manifest, paths, matrix, index: parseIndex(manifest, paths, matrix) };
+}
+
 /** Räumt ein (ggf. von einem Alt-Geräte-Plugin nachgeschriebenes) Legacy-Tripel still weg. */
 async function cleanupLegacyTriple(adapter: VaultAdapter, dir: string): Promise<void> {
   for (const f of LEGACY_FILES) {
@@ -74,7 +70,7 @@ async function cleanupLegacyTriple(adapter: VaultAdapter, dir: string): Promise<
 
 /** Beweist ein Backup (Container ODER Prä-0.18-Tripel) via Decode + parseIndex.
  *  null = nicht beweisbar (korrupt/unvollständig) — nie werfen, Kaskade probiert das nächste. */
-export async function verifyBackupCandidate(adapter: VaultAdapter, backupDir: string): Promise<VaultIndex | null> {
+export async function verifyBackupCandidate(adapter: VaultAdapter, backupDir: string): Promise<VectorIndex | null> {
   try {
     if (await adapter.exists(`${backupDir}/${CONTAINER_FILE}`)) {
       const { manifest, paths, matrix } = decodeContainer(await adapter.readBinary(`${backupDir}/${CONTAINER_FILE}`));
@@ -82,7 +78,7 @@ export async function verifyBackupCandidate(adapter: VaultAdapter, backupDir: st
     }
   } catch { /* Container unbrauchbar → Legacy versuchen */ }
   try {
-    return await new IndexLoader(adapter, backupDir).load();
+    return (await readLegacyTriple(adapter, backupDir)).index;
   } catch {
     return null;
   }

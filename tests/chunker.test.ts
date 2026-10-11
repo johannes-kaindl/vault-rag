@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { chunkMarkdown } from "../src/chunker";
+import { chunkMarkdown } from "../src/vendor/kit/chunker";
 
 describe("chunkMarkdown", () => {
   it("gibt einen Chunk für kurzen Text zurück", () => {

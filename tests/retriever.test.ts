@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseIndex } from "../src/index";
-import { Retriever } from "../src/retriever";
+import { parseIndex } from "../src/vendor/kit/vector-index";
+import { Retriever } from "../src/vendor/kit/vector-index";
 
 function idx() {
   const m = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 3, granularity: "note", quant: "int8" };

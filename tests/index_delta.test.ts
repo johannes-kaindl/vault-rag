@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import "../src/i18n/strings"; // Register i18n strings
-import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "../src/index_delta";
+import { indexDeltaReadout, healResultMessage } from "../src/index_delta";
+import { computeIndexDelta, classifyChunkless, splitHealTargets } from "../src/vendor/kit/index-delta";
 
 describe("indexDeltaReadout", () => {
   // Locale ist über vitest.config.ts auf de-DE gepinnt; schlägt diese Prüfung fehl,

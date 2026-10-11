@@ -1,11 +1,30 @@
-import { VaultAdapter, VaultIndex, IndexManifest } from "./index";
-import { EmbeddingClient } from "./embedder";
-import { chunkMarkdown } from "./chunker";
-import { toIndexVector } from "./embed_vector";
-import { assertSafeToPersist, assertModelSafeToPersist, PersistDecision, PersistReason, PersistBlockedError, UNBEKANNTER_STEMPEL } from "./index_guard";
-import { CONTAINER_FILE, encodeContainer, decodeContainer, FileStamp } from "./index_container";
+// vendored from code-kit@0.22.0, src/ts/pure/live-indexer.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// uebernommen aus vault-rag/src/live_indexer.ts, 2026-10-11 (Änderungen: Dimension als Option statt Konstante INDEX_DIM, Embedder-Interface statt der Klasse EmbeddingClient, IndexStorage statt VaultAdapter, `now` injizierbar, source_dim aus dem beobachteten Vektor, Dimensions-Guard, `noUncheckedIndexedAccess`-clean; Ablauf und Guards sonst unverändert; die Warnungen in der Konsole tragen nicht mehr den Namen des ersten Nutzers)
+/** The indexer: holds one vector per note in memory, keeps them current note by note (`update`, `remove`, `rename`),
+ *  rebuilds all (`reindexAll`) or only the missing ones (`healMissing`), and writes the container with the guards of
+ *  `index-guard` in front of every write. The embedding source (`Embedder`), the file store (`IndexStorage`) and the way
+ *  a note is read (a callback) are injected; there is no I/O in here.
+ *
+ *  Origin: vault-rag (`LiveIndexer`). **Dimension:** the second consumer (Oneiron) indexes with 1 024 dimensions, so it
+ *  is the option `dim` (default 256 = what vault-rag always used), not a constant. An index on disk with another
+ *  dimension is refused like one built with another model (`assertDimSafeToPersist`), and `init` refuses to load one.
+ *
+ *  **`source_dim`** in the header is the length of the vectors the model returned BEFORE they were cut to `dim`
+ *  (4 096 for qwen3-embedding:8b). It was written as the index dimension and never read; now it is the first vector this
+ *  indexer saw, else the value of the manifest it was initialised from, else `dim`. */
 
-const INDEX_DIM = 256;
+import { chunkMarkdown } from "./chunker";
+import { toIndexVector } from "./embed-vector";
+import type { Embedder } from "./embeddings-client";
+import { CONTAINER_FILE, encodeContainer, decodeContainer, type FileStamp } from "./index-container";
+import {
+  assertSafeToPersist, assertModelSafeToPersist, assertDimSafeToPersist, PersistBlockedError, UNBEKANNTER_STEMPEL,
+  type PersistDecision, type PersistReason,
+} from "./index-guard";
+import { VectorIndex, type IndexManifest, type IndexStorage } from "./vector-index";
+
+/** What vault-rag always used. */
+export const DEFAULT_INDEX_DIM = 256;
 /** Notizen je Zwischenstand. 250 ist klein genug, dass ein Abbruch wenig kostet, und gross
  *  genug, dass das Schreiben des Containers (~2 MB) den Lauf nicht dominiert. */
 const CHECKPOINT_EVERY = 250;
@@ -15,7 +34,8 @@ const CHECKPOINT_EVERY = 250;
  *  Endpunkt gemessen: 1 Chunk kostet 3,62 s, 32 Chunks kosten 4,68 s — der Aufruf-Overhead
  *  dominiert, nicht die Arbeit. */
 const EMBED_BATCH = 32;
-const INT8_SCALE = 127;
+/** int8 quantisation of a unit vector: ±1 ↔ ±127. Part of the format; the reader takes `scale` from the manifest. */
+export const INT8_SCALE = 127;
 
 /** Ergebnis eines (Delta-)Reindex-Laufs: ergänzte Notizen, chunk-lose (leer / nur
  *  Frontmatter → nie indexierbar) und fehlgeschlagene (Lese-/Embed-Fehler → beim
@@ -32,6 +52,13 @@ export interface HealReport {
 /** Klassifikation eines Live-Updates: "empty" = Notiz ist chunk-los und wurde aus dem
  *  Index entfernt statt embeddet. */
 export type UpdateResult = "indexed" | "empty";
+
+export interface LiveIndexerOptions {
+  /** Columns of the index. Default {@link DEFAULT_INDEX_DIM}. */
+  dim?: number;
+  /** Clock for `built_at`; default `new Date()`. For tests. */
+  now?: () => Date;
+}
 
 export class LiveIndexer {
   private noteVectors = new Map<string, Float32Array>();
@@ -93,15 +120,36 @@ export class LiveIndexer {
     if (this.liveWaehrendReindex !== null) this.abbruchGewuenscht = true;
   }
 
-  constructor(
-    private adapter: VaultAdapter,
-    private indexDir: string,
-    private embedder: EmbeddingClient,
-    private embeddingModel: string,
-  ) {}
+  /** Columns of the index: what `toIndexVector` cuts a note vector to and what the container is written with. */
+  readonly dim: number;
+  private readonly now: () => Date;
+  /** Length of the first vector the model returned, before the cut to `dim` (header field `source_dim`). */
+  private observedSourceDim: number | null = null;
+  /** `source_dim` of the manifest this indexer was initialised from. */
+  private loadedSourceDim: number | null = null;
 
-  init(index: VaultIndex, stamps?: readonly FileStamp[]): void {
+  constructor(
+    private adapter: IndexStorage,
+    private indexDir: string,
+    private embedder: Embedder,
+    private embeddingModel: string,
+    opts: LiveIndexerOptions = {},
+  ) {
+    this.dim = opts.dim ?? DEFAULT_INDEX_DIM;
+    if (!Number.isInteger(this.dim) || this.dim <= 0) throw new Error(`LiveIndexer: dim muss eine positive ganze Zahl sein, war ${String(opts.dim)}`);
+    this.now = opts.now ?? ((): Date => new Date());
+  }
+
+  /** Takes over a loaded index. Throws `PersistBlockedError("dim-mismatch")` if it has other columns than this indexer
+   *  (an empty index has no vectors to damage and is taken as it is). */
+  init(index: VectorIndex, stamps?: readonly FileStamp[]): void {
+    if (index.count > 0) {
+      const decision = assertDimSafeToPersist(index.dim, this.dim, "live");
+      if (!decision.allowed) throw new PersistBlockedError("dim-mismatch", decision.message ?? "Dimension passt nicht zum Index.");
+    }
     this.loadedManifest = index.manifest;
+    const sd = (index.manifest as { source_dim?: unknown }).source_dim;
+    this.loadedSourceDim = typeof sd === "number" && Number.isFinite(sd) && sd > 0 ? sd : null;
     this.noteVectors.clear();
     this.noteStamps.clear();
     for (const path of index.paths) {
@@ -111,16 +159,30 @@ export class LiveIndexer {
     // Ohne diese Uebernahme waere der Waechter nach jedem Neustart blind: der erste
     // Live-Persist schriebe den Container stempellos zurueck.
     if (stamps && stamps.length === index.paths.length) {
-      index.paths.forEach((p, i) => { if (this.noteVectors.has(p)) this.noteStamps.set(p, stamps[i]); });
+      index.paths.forEach((p, i) => { const st = stamps[i]; if (st && this.noteVectors.has(p)) this.noteStamps.set(p, st); });
     }
     this.ready = true;
+  }
+
+  /** Remembers the length of the first vector the model returns, for `source_dim`. */
+  private observe(vecs: readonly Float32Array[]): void {
+    if (this.observedSourceDim === null) {
+      const n = vecs[0]?.length;
+      if (n) this.observedSourceDim = n;
+    }
+  }
+
+  /** Vectors of one note (all its chunks) → the row for the index. */
+  private rowFrom(vecs: Float32Array[]): Float32Array {
+    this.observe(vecs);
+    return toIndexVector(vecs, this.dim);
   }
 
   private async embedNote(content: string): Promise<Float32Array | null> {
     const chunks = chunkMarkdown(content);
     if (chunks.length === 0) return null;
     const vecs = await this.embedder.embed(chunks.map(c => c.text));
-    return toIndexVector(vecs, INDEX_DIM);
+    return this.rowFrom(vecs);
   }
 
   async update(path: string, content: string, stamp?: FileStamp): Promise<UpdateResult> {
@@ -252,6 +314,7 @@ export class LiveIndexer {
         while (i < paths.length && chunkZahl < EMBED_BATCH) {
           const p = paths[i];
           i++;
+          if (p === undefined) continue;
           let text: string;
           try { text = await read(p); }
           catch { report.failed.push(p); ohneEmbedding++; onProgress?.(++erledigt, report.added, paths.length); continue; }
@@ -283,7 +346,7 @@ export class LiveIndexer {
           if (vektoren && vektoren.length === chunkZahl) {
             let off = 0;
             for (const g of gruppe) {
-              const v = toIndexVector(vektoren.slice(off, off + g.chunks.length), INDEX_DIM);
+              const v = this.rowFrom(vektoren.slice(off, off + g.chunks.length));
               off += g.chunks.length;
               fresh.set(g.path, v); report.added++;
               if (g.stamp) freshStamps.set(g.path, g.stamp);
@@ -295,7 +358,7 @@ export class LiveIndexer {
             for (const g of gruppe) {
               try {
                 const einzeln = await this.embedder.embed(g.chunks);
-                fresh.set(g.path, toIndexVector(einzeln, INDEX_DIM)); report.added++;
+                fresh.set(g.path, this.rowFrom(einzeln)); report.added++;
                 if (g.stamp) freshStamps.set(g.path, g.stamp);
               } catch { report.failed.push(g.path); }
               onProgress?.(++erledigt, report.added, paths.length);
@@ -320,7 +383,7 @@ export class LiveIndexer {
         try {
           await this.persistVectors(gemischt, "reindex", undefined, gemischteStempel);
         } catch (e) {
-          console.warn("vault-rag: Stand nach Abbruch konnte nicht geschrieben werden", e);
+          console.warn("live-indexer: Stand nach Abbruch konnte nicht geschrieben werden", e);
         }
         fresh = gemischt;
         freshStamps = gemischteStempel;
@@ -403,7 +466,7 @@ export class LiveIndexer {
     try {
       await this.persistVectors(gemischt, "reindex", undefined, gemischteStempel);
     } catch (e) {
-      console.warn("vault-rag: Zwischenstand konnte nicht geschrieben werden - Lauf geht weiter", e);
+      console.warn("live-indexer: Zwischenstand konnte nicht geschrieben werden - Lauf geht weiter", e);
     }
   }
 
@@ -433,39 +496,41 @@ export class LiveIndexer {
   ): Promise<HealReport> {
     const report: HealReport = { added: 0, skippedEmpty: [], failed: [], cancelled: false };
     for (let i = 0; i < missing.length; i++) {
+      const path = missing[i] ?? "";
       try {
-        const v = await this.embedNote(await read(missing[i]));
+        const v = await this.embedNote(await read(path));
         if (v) {
-          this.noteVectors.set(missing[i], v); report.added++;
-          const st = stampFor?.(missing[i]);
-          if (st) this.noteStamps.set(missing[i], st);
+          this.noteVectors.set(path, v); report.added++;
+          const st = stampFor?.(path);
+          if (st) this.noteStamps.set(path, st);
         }
-        else report.skippedEmpty.push(missing[i]);
-      } catch { report.failed.push(missing[i]); }
+        else report.skippedEmpty.push(path);
+      } catch { report.failed.push(path); }
       onProgress?.(i + 1, report.added, missing.length);
     }
     this.ready = true;
     return report;
   }
 
-  buildIndex(): VaultIndex {
+  buildIndex(): VectorIndex {
     const paths = [...this.noteVectors.keys()].sort();
     const n = paths.length;
-    const f = new Float32Array(n * INDEX_DIM);
+    const dim = this.dim;
+    const f = new Float32Array(n * dim);
     for (let r = 0; r < n; r++) {
-      const v = this.noteVectors.get(paths[r])!;
-      for (let c = 0; c < INDEX_DIM; c++) f[r * INDEX_DIM + c] = v[c] ?? 0;
+      const v = this.noteVectors.get(paths[r] ?? "");
+      for (let c = 0; c < dim; c++) f[r * dim + c] = v?.[c] ?? 0;
     }
     const manifest: IndexManifest = {
       schema_version: 1,
       embedding_model: this.embeddingModel,
-      index_dim: INDEX_DIM,
+      index_dim: dim,
       scale: INT8_SCALE,
       count: n,
       granularity: "note",
       quant: "int8",
     };
-    return new VaultIndex(manifest, paths, f);
+    return new VectorIndex(manifest, paths, f);
   }
 
   /**
@@ -522,15 +587,20 @@ export class LiveIndexer {
         if (!modelDecision.allowed) {
           throw new PersistBlockedError(modelDecision.kind ?? "model-mismatch", modelDecision.message ?? "Persist verweigert.");
         }
+        const dimDecision = assertDimSafeToPersist(disk.dim, this.dim, reason);
+        if (!dimDecision.allowed) {
+          throw new PersistBlockedError(dimDecision.kind ?? "dim-mismatch", dimDecision.message ?? "Persist verweigert.");
+        }
       }
     }
     const paths = [...vectors.keys()].sort();
     const n = paths.length;
-    const i8 = new Int8Array(n * INDEX_DIM);
+    const dim = this.dim;
+    const i8 = new Int8Array(n * dim);
     for (let r = 0; r < n; r++) {
-      const v = vectors.get(paths[r])!;
-      for (let c = 0; c < INDEX_DIM; c++) {
-        i8[r * INDEX_DIM + c] = Math.max(-INT8_SCALE, Math.min(INT8_SCALE, Math.round((v[c] ?? 0) * INT8_SCALE)));
+      const v = vectors.get(paths[r] ?? "");
+      for (let c = 0; c < dim; c++) {
+        i8[r * dim + c] = Math.max(-INT8_SCALE, Math.min(INT8_SCALE, Math.round((v?.[c] ?? 0) * INT8_SCALE)));
       }
     }
     await this.adapter.mkdir(this.indexDir);
@@ -541,15 +611,15 @@ export class LiveIndexer {
       // obsidian-frei und kennt den echten Namen nicht — leer ist ehrlicher als fremd.
       vault: (this.loadedManifest as { vault?: string } | null)?.vault ?? "",
       embedding_model: stampModel ?? this.embeddingModel,
-      source_dim: INDEX_DIM,
-      index_dim: INDEX_DIM,
+      source_dim: this.observedSourceDim ?? this.loadedSourceDim ?? dim,
+      index_dim: dim,
       granularity: "note",
       aggregation: "mean",
       quant: "int8",
       scale: INT8_SCALE,
       count: n,
       source_commit: "",
-      built_at: new Date().toISOString(),
+      built_at: this.now().toISOString(),
     };
     // EIN Container statt drei Dateien — Sync kann keine Generationen mehr mischen (Spec 2026-07-29).
     await this.adapter.writeBinary(`${this.indexDir}/${CONTAINER_FILE}`,
@@ -584,7 +654,9 @@ export class LiveIndexer {
         message: "Der Index auf Platte ist gerade nicht lesbar (z. B. laufender Sync oder beschädigter Container) — ohne diese Wahrheit ist ein additiver Lauf nicht abzusichern.",
       };
     }
-    return assertModelSafeToPersist(disk.model, this.embeddingModel, reason);
+    const modelDecision = assertModelSafeToPersist(disk.model, this.embeddingModel, reason);
+    if (!modelDecision.allowed) return modelDecision;
+    return assertDimSafeToPersist(disk.dim, this.dim, reason);
   }
 
   /** Liest Notiz-Count UND Embedding-Modell direkt aus der Platte (nicht aus dem In-Memory-
@@ -594,16 +666,17 @@ export class LiveIndexer {
    *  nicht passt). Kein Container vorhanden gilt hingegen als legitim frisch (`count 0`, Modell
    *  leer = „nichts zu schützen") — `loadIndexStore` migriert Legacy-Tripel, bevor im
    *  Plugin-Lebenszyklus der erste Live-Persist laufen kann. */
-  private async readDiskState(): Promise<{ count: number; model: string } | null> {
+  private async readDiskState(): Promise<{ count: number; model: string; dim: number | undefined } | null> {
     const containerPath = `${this.indexDir}/${CONTAINER_FILE}`;
     let exists: boolean;
     try { exists = await this.adapter.exists(containerPath); } catch { return null; }
-    if (!exists) return { count: 0, model: "" };
+    if (!exists) return { count: 0, model: "", dim: undefined };
     try {
       const { manifest } = decodeContainer(await this.adapter.readBinary(containerPath));
       if (typeof manifest.count !== "number") return null;
       const model = (manifest as { embedding_model?: unknown }).embedding_model;
-      return { count: manifest.count, model: typeof model === "string" ? model : "" };
+      const dim = (manifest as { index_dim?: unknown }).index_dim;
+      return { count: manifest.count, model: typeof model === "string" ? model : "", dim: typeof dim === "number" ? dim : undefined };
     } catch { return null; }
   }
 }

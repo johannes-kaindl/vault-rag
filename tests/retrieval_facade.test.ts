@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseIndex, VaultIndex } from "../src/index";
+import { parseIndex, VectorIndex } from "../src/vendor/kit/vector-index";
 import { RetrievalFacade, RetrievalDeps, resolveNotePath } from "../src/retrieval_facade";
 
-function idx(): VaultIndex {
+function idx(): VectorIndex {
   const m = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 3, granularity: "note", quant: "int8" };
   // a=[1,0]  b=[0.92,0.39]  c=[0,1]
   const bytes = new Int8Array([127, 0, 117, 50, 0, 127]);

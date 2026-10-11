@@ -1,8 +1,8 @@
 import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView, getLanguage } from "obsidian";
 import "./i18n/strings";
 import { getLang, pickLang, setLang, t } from "./vendor/kit/i18n";
-import { VaultIndex } from "./index";
-import { Hit } from "./retriever";
+import { VectorIndex } from "./vendor/kit/vector-index";
+import { Hit } from "./vendor/kit/vector-index";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
@@ -26,7 +26,7 @@ import { effectiveSystemPrompt, migrateSystemPrompt, stripLegacyGlobalModels, st
 import { mergeSettings } from "./vendor/kit/settings";
 import { withTimeout } from "./vendor/kit/timeout";
 import { EmbeddingClient } from "./embedder";
-import { LiveIndexer } from "./live_indexer";
+import { LiveIndexer } from "./vendor/kit/live-indexer";
 import { PendingQueue } from "./pending_queue";
 import { SearchPanel, VIEW_TYPE_SEARCH, SearchResult } from "./search_view";
 import { ChatClient } from "./chat_client";
@@ -47,9 +47,9 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, findStaleVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal } from "./index_guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, findStaleVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal } from "./vendor/kit/index-guard";
 import { loadIndexStore, verifyBackupCandidate } from "./index_store";
-import { CONTAINER_FILE, decodeContainer } from "./index_container";
+import { CONTAINER_FILE, decodeContainer } from "./vendor/kit/index-container";
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { pickTransform, promptInstruction } from "./reformat_picker";
@@ -60,7 +60,8 @@ import { maskProtected, integrityProblem } from "./protect_markup";
 import { ReformatReadiness, readinessMessage, canRun, isRangeStale } from "./reformat_selection_state";
 import { ReformatPanel } from "./reformat_panel";
 import { mapStartError, describeStartError, classifySelfCheck, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
-import { indexDeltaReadout, computeIndexDelta, classifyChunkless, healResultMessage, splitHealTargets } from "./index_delta";
+import { indexDeltaReadout, healResultMessage } from "./index_delta";
+import { computeIndexDelta, classifyChunkless, splitHealTargets } from "./vendor/kit/index-delta";
 import type { McpServerHandle } from "./mcp/http_server";
 import { RetrievalFacade } from "./retrieval_facade";
 import { createVaultRetrievalApi, type VaultRetrievalApi, type ApiApplyResult } from "./plugin_api";
@@ -83,7 +84,7 @@ const SELECTION_DEBOUNCE_MS = 150;
 
 export default class VaultRagPlugin extends Plugin {
   settings!: VaultRagSettings;
-  private index: VaultIndex | null = null;
+  private index: VectorIndex | null = null;
   private facade!: RetrievalFacade;
   /** Oeffentlicher Vertrag fuer andere Obsidian-Plugins: `app.plugins.plugins["vault-retrieval"]?.api`.
    *  Siehe `plugin_api.ts` — bewusst schmaler als die Facade (kein Dateizugriff, keine Vektoren). */
@@ -283,7 +284,7 @@ export default class VaultRagPlugin extends Plugin {
     this.chatClient = new ChatClient(this.llm);
     // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
     // fire-and-forget am Ende von onload, der modify-Listener kann davor feuern.
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.embeddingModelInUse);
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.embeddingModelInUse, { dim: 256 });
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
     this.facade = new RetrievalFacade({
       getIndex: () => this.index,
@@ -684,7 +685,7 @@ export default class VaultRagPlugin extends Plugin {
     // (LiveIndexer.persist → assertModelSafeToPersist, Wahrheit aus dem Container auf Platte).
     // Der Skip oben ist reine Prävention: ein unpassender Endpunkt wird gar nicht erst aktiv.
     this.noticeSkippedEmbeddingEndpoints(skipped, ohneModell, indexModel);
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m);
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m, { dim: 256 });
     if (this.index) this.liveIndexer.init(this.index);
     else if (this.indexHealthy) this.liveIndexer.markFresh();
     // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
@@ -860,7 +861,7 @@ export default class VaultRagPlugin extends Plugin {
       }
       this.settings.indexDir = target;
       await this.saveSettings();
-      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.embedder, this.embeddingModelInUse);
+      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.embedder, this.embeddingModelInUse, { dim: 256 });
       this.pendingQueue = new PendingQueue(this.app.vault.adapter, target);
       await this.pendingQueue.load();
       await this.loadIndex();
@@ -1190,7 +1191,7 @@ export default class VaultRagPlugin extends Plugin {
     // den Reindex: wer offline war, blieb dauerhaft auf dem defekten Container sitzen, obwohl
     // das CRC-bewiesene Backup danebenlag (so beobachtet 2026-08-14). Die Aufteilung, was
     // Netz braucht und was nicht, macht `planAutoHeal` explizit.
-    let candidate: VaultIndex | null = null;
+    let candidate: VectorIndex | null = null;
     for (const b of await this.listBackups()) { // sortBackupsNewestFirst-Reihenfolge
       candidate = await verifyBackupCandidate(this.app.vault.adapter, `${this.backupsRoot()}/${b.name}`);
       if (candidate) break;

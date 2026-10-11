@@ -1,8 +1,17 @@
-// Pure-core (obsidian-frei): Codec für das Container-Index-Format `_vaultrag/index.bin`.
-// Ein File statt drei → Obsidian Sync kann keine Generationen mehr mischen (Spec 2026-07-29).
-// Layout: "VRIX" · u32 headerLen LE · Header-JSON (Manifest + paths [+ stamps]) · Int8-Matrix · u32 CRC32 LE.
+// vendored from code-kit@0.22.0, src/ts/pure/index-container.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// uebernommen aus vault-rag/src/index_container.ts, 2026-10-11 (Änderungen: crc32 aus eigenem Modul, `noUncheckedIndexedAccess`-clean; Format und Fehlermeldungen unverändert)
+/** Codec for the container file of a note index (`<dir>/index.bin`). One file instead of three, so that a file sync
+ *  cannot mix generations (vault-rag spec 2026-07-29).
+ *
+ *  Layout: "VRIX" · u32 headerLen LE · header JSON (manifest + paths [+ stamps]) · int8 matrix · u32 CRC32 LE.
+ *
+ *  **The format is frozen, the names are not to be tidied:** the magic "VRIX", the file name `index.bin` and
+ *  `schema_version` 2 are what every index already on disk carries, on several devices, and `decodeContainer` accepts
+ *  exactly one version. The header's key ORDER is part of it too (`encodeContainer(decodeContainer(x))` gives the
+ *  same bytes back; a test holds that against a real index). Origin: vault-rag (`index_container.ts`). */
 
-import { IndexManifest } from "./index";
+import { crc32 } from "./crc32";
+import type { IndexManifest } from "./vector-index";
 
 export const CONTAINER_FILE = "index.bin";
 export const CONTAINER_SCHEMA_VERSION = 2;
@@ -16,37 +25,18 @@ export class ContainerError extends Error {
   }
 }
 
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-
-/** CRC-32/ISO-HDLC (wie zlib), unsigned. */
-export function crc32(bytes: Uint8Array): number {
-  let c = 0xffffffff;
-  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
 /**
- * Datei-Stempel einer Index-Zeile: `[mtime, size]` der Notiz zum Zeitpunkt des Embeddens.
+ * File stamp of an index row: `[mtime, size]` of the note at the time it was embedded.
  *
- * Wozu: ein veralteter Vektor bei vorhandenem Pfad ist sonst durch NICHTS erkennbar — CRC32
- * deckt Header und Nutzlast gemeinsam ab und beglaubigt einen Fehlstand mit, `diffIndexVsVault`
- * ist rein mengenbasiert, `findDeadVectorPaths` sieht nur Nullvektoren. Beide Werte liefert
- * Obsidian in `TFile.stat` aus dem Speicher, also kostet der Waechter beim Laden nichts
- * (gemessen 2026-09-04: ein Inhalts-Hash haette stattdessen 44 MB gelesen, ~768 ms roh).
+ * What for: a stale vector at an existing path is otherwise visible to NOTHING — CRC32 covers header and payload
+ * together and vouches for a wrong state as well, `diffIndexVsVault` only compares sets, `findDeadVectorPaths` only
+ * sees zero vectors. Both values come from the host's file stat for free, so the guard costs nothing at load time
+ * (measured 2026-09-04: a content hash would have read 44 MB, ~768 ms raw).
  */
 export type FileStamp = [mtime: number, size: number];
 
-/** Ein Stempel-Array taugt nur, wenn es Zeile fuer Zeile zu `paths` passt. Sonst ordnet es
- *  falsch zu — dieselbe Klasse wie der Index-Altschaden vom 2026-08-30, bei dem eine
- *  Vektormatrix zu einer aelteren Pfadliste gehoerte. Lieber KEIN Waechter als ein falscher. */
+/** A stamp array is only good if it matches `paths` row for row. Otherwise it assigns wrongly — the same class as the
+ *  index damage of 2026-08-30, where a vector matrix belonged to an older path list. Better NO guard than a wrong one. */
 function stempelGueltig(stamps: unknown, pathCount: number): stamps is FileStamp[] {
   return Array.isArray(stamps)
     && stamps.length === pathCount
@@ -61,11 +51,11 @@ export function encodeContainer(
   matrix: Uint8Array,
   stamps?: FileStamp[],
 ): ArrayBuffer {
-  // `stamps` ist ein OPTIONALES Feld unter derselben `schema_version` — bewusst kein Bruch auf 3:
-  // `decodeContainer` prueft die Version auf exakte Gleichheit, eine Erhoehung liesse also jede
-  // aeltere Plugin-Version den (gesyncten!) Container als Gefahrenzustand ablehnen.
-  // Ohne Stempel wird das Feld WEGGELASSEN, nicht leer geschrieben: sonst waeren zwei
-  // inhaltsgleiche Container nicht mehr byte-identisch.
+  // `stamps` is an OPTIONAL field under the same `schema_version` — deliberately not a break to 3:
+  // `decodeContainer` checks the version for exact equality, so raising it would make every older plugin version
+  // reject the (synced!) container as a danger state.
+  // Without stamps the field is LEFT OUT, not written empty: otherwise two containers with the same content would
+  // no longer be byte-identical.
   const header = stamps && stamps.length === paths.length
     ? { ...manifest, schema_version: CONTAINER_SCHEMA_VERSION, paths, stamps }
     : { ...manifest, schema_version: CONTAINER_SCHEMA_VERSION, paths };
@@ -85,7 +75,7 @@ export function decodeContainer(buf: ArrayBuffer): {
   manifest: IndexManifest & Record<string, unknown>;
   paths: string[];
   matrix: ArrayBuffer;
-  /** `undefined` bei Altbestand ODER bei unbrauchbaren Stempeln — der Aufrufer prueft dann nicht. */
+  /** `undefined` for old files OR for unusable stamps — the caller then does not check. */
   stamps?: FileStamp[];
 } {
   const bytes = new Uint8Array(buf);
@@ -119,9 +109,8 @@ export function decodeContainer(buf: ArrayBuffer): {
     manifest,
     paths: paths as string[],
     matrix: buf.slice(8 + headerLen, bytes.length - 4),
-    // Unbrauchbare Stempel sind KEIN Container-Fehler: der Index selbst ist in Ordnung, nur der
-    // Waechter kann nicht arbeiten. Ein `throw` hier machte aus einer fehlenden Zusatzpruefung
-    // einen Gefahrenzustand — genau die Ueberreaktion, die den Index unbenutzbar machte.
+    // Unusable stamps are NOT a container error: the index itself is fine, only the guard cannot work. A `throw` here
+    // would turn a missing extra check into a danger state — exactly the overreaction that made the index unusable.
     ...(stempelGueltig(stamps, paths.length) ? { stamps } : {}),
   };
 }

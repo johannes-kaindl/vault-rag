@@ -18,7 +18,7 @@ import { buildEndpointSourceSection } from "./vendor/kit-obsidian/endpoint-sourc
 import { buildEndpointList as buildKitEndpointList, type EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
 import { hydrateLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
 import { resolveLlmConnectionStrings } from "./vendor/kit-obsidian/llm-connection-strings";
-import { embeddingModelMatchesIndex } from "./index_guard";
+import { embeddingModelMatchesIndex } from "./vendor/kit/index-guard";
 import { resolveModelChoice, type ModelHintKey } from "./vendor/kit/model-choice";
 import { renderModelPicker } from "./vendor/kit-obsidian/model-picker";
 import { createModelListCache, type ModelListCache } from "./vendor/kit/model-list-cache";

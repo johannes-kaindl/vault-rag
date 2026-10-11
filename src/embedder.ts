@@ -1,13 +1,19 @@
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { Capabilities, fetchCapabilities } from "./capabilities";
 import { httpJson, probeEndpoint } from "./http";
+import { createEmbeddingClient, type Embedder } from "./vendor/kit/embeddings-client";
 import { authHeaders } from "./endpoint_config";
 import { EndpointStatus, extractModelIds } from "./vendor/kit/endpoint_diagnostics";
 
 export class EmbeddingClient {
   private endpoint: string;
+  private client: Embedder;
   constructor(endpoint: string, private model: string, private apiKey?: string) {
     this.endpoint = normalizeEndpoint(endpoint);
+    this.client = createEmbeddingClient({
+      endpoint: this.endpoint, model, ...(apiKey ? { apiKey } : {}),
+      transport: ({ url, method, headers, body }) => httpJson({ url, method, headers, body }),
+    });
   }
 
   /** Erreichbarkeit + Klartext-Diagnose des Endpunkts. */
@@ -35,25 +41,8 @@ export class EmbeddingClient {
     return fetchCapabilities(this.endpoint, model, this.apiKey);
   }
 
-  async embed(texts: string[]): Promise<Float32Array[]> {
-    const results: Float32Array[] = [];
-    for (let i = 0; i < texts.length; i += 32) {
-      const batch = texts.slice(i, i + 32);
-      const { status, json } = await httpJson({
-        url: `${this.endpoint}/v1/embeddings`,
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders(this.apiKey) },
-        body: JSON.stringify({ model: this.model, input: batch }),
-      });
-      if (status < 200 || status >= 300) throw new Error(`Embedding HTTP ${status}`);
-      const data: unknown = json;
-      if (!data || typeof data !== "object" || !Array.isArray((data as Record<string, unknown>).data)) {
-        throw new Error("Embedding: ungültiges Response-Schema (data fehlt)");
-      }
-      for (const item of (data as { data: { embedding: number[] }[] }).data) {
-        results.push(new Float32Array(item.embedding));
-      }
-    }
-    return results;
+  /** Batch-Embed über den Kit-Client (Batches zu 32, nacheinander). Transport ist `httpJson` (Obsidians `requestUrl`). */
+  async embed(texts: string[], opts?: { signal?: AbortSignal }): Promise<Float32Array[]> {
+    return this.client.embed(texts, opts);
   }
 }

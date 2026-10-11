@@ -1,9 +1,7 @@
 import { describe, it, expect } from "vitest";
-import {
-  CONTAINER_FILE, CONTAINER_SCHEMA_VERSION, ContainerError,
-  crc32, encodeContainer, decodeContainer,
-} from "../src/index_container";
-import { IndexManifest } from "../src/index";
+import { CONTAINER_FILE, CONTAINER_SCHEMA_VERSION, ContainerError, encodeContainer, decodeContainer } from "../src/vendor/kit/index-container";
+import type { IndexManifest } from "../src/vendor/kit/vector-index";
+import { crc32 } from "../src/vendor/kit/crc32";
 
 const DIM = 4;
 function makeManifest(count: number): IndexManifest & Record<string, unknown> {

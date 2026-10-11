@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { VaultAdapter, IndexManifest } from "../src/index";
-import { CONTAINER_FILE, encodeContainer, decodeContainer } from "../src/index_container";
+import { VaultAdapter } from "../src/index";
+import { IndexManifest } from "../src/vendor/kit/vector-index";
+import { CONTAINER_FILE, encodeContainer, decodeContainer } from "../src/vendor/kit/index-container";
 import { loadIndexStore, verifyBackupCandidate } from "../src/index_store";
 
 const DIM = 4;

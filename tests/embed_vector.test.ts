@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toIndexVector } from "../src/embed_vector";
+import { toIndexVector } from "../src/vendor/kit/embed-vector";
 
 const norm = (v: Float32Array) => Math.sqrt([...v].reduce((s, x) => s + x * x, 0));
 

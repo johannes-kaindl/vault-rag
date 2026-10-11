@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { LiveIndexer } from "../src/live_indexer";
-import { VaultAdapter, parseIndex, VaultIndex } from "../src/index";
+import { LiveIndexer } from "../src/vendor/kit/live-indexer";
+import { VaultAdapter } from "../src/index";
+import { parseIndex, VectorIndex } from "../src/vendor/kit/vector-index";
 import { EmbeddingClient } from "../src/embedder";
-import { PersistBlockedError, findStaleVectorPaths } from "../src/index_guard";
-import { CONTAINER_FILE, encodeContainer, decodeContainer } from "../src/index_container";
+import { PersistBlockedError, findStaleVectorPaths } from "../src/vendor/kit/index-guard";
+import { CONTAINER_FILE, encodeContainer, decodeContainer } from "../src/vendor/kit/index-container";
 
 const DIM = 256;
 const SCALE = 127;
@@ -51,12 +52,12 @@ function inhaltsEmbedder(): EmbeddingClient {
   } as unknown as EmbeddingClient;
 }
 
-function emptyIndex(): VaultIndex {
+function emptyIndex(): VectorIndex {
   const manifest = { schema_version: 1, embedding_model: "qwen3-embedding:8b", index_dim: DIM, scale: SCALE, count: 0, granularity: "note", quant: "int8" };
   return parseIndex(manifest, [], new ArrayBuffer(0));
 }
 
-function oneNoteIndex(path: string): VaultIndex {
+function oneNoteIndex(path: string): VectorIndex {
   const manifest = { schema_version: 1, embedding_model: "qwen3-embedding:8b", index_dim: DIM, scale: SCALE, count: 1, granularity: "note", quant: "int8" };
   const i8 = new Int8Array(DIM);
   i8[0] = SCALE; // [1, 0, 0, …] normalisiert

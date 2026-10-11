@@ -1,5 +1,5 @@
 import type { EndpointConfig } from "./endpoint_config";
-import { embeddingModelMatchesIndex } from "./index_guard";
+import { embeddingModelMatchesIndex } from "./vendor/kit/index-guard";
 import {
   resolveEndpointSource, type ApiErrorCode, type EndpointChoice, type LlmEndpointManagerApi,
 } from "./vendor/kit/endpoint-source";

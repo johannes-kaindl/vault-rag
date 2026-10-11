@@ -1,4 +1,4 @@
-import { Hit } from "../retriever";
+import { Hit } from "../vendor/kit/vector-index";
 import { RetrievalFacade } from "../retrieval_facade";
 
 export interface HitList { hits: { path: string; score: number }[] }

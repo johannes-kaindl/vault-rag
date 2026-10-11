@@ -1,5 +1,7 @@
-// Pure-core (obsidian-frei): datenverlust-kritische Entscheidungen an einer Stelle,
-// isoliert testbar. Siehe Vault-Cockpit `_SDD/2026-07-10-index-robustheit-design.md`.
+// vendored from code-kit@0.22.0, src/ts/pure/index-guard.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// uebernommen aus vault-rag/src/index_guard.ts, 2026-10-11 (Änderungen: `noUncheckedIndexedAccess`-clean; neu `assertDimSafeToPersist` und die Art "dim-mismatch"; sonst Code und Meldungen unverändert)
+// Pure core: decisions where data can be lost, in one place and testable in isolation. Origin: vault-rag (spec 2026-07-10, index robustness).
+// The message texts are German and stay as they were: the consumer's tests and its users' notices carry them.
 
 export type LoadState = "no-index" | "loaded-ok" | "load-failed-index-present";
 
@@ -36,7 +38,7 @@ export type PersistReason = "live" | "reindex" | "heal";
 
 export interface PersistDecision {
   allowed: boolean;
-  kind?: "shrink" | "model-mismatch" | "unreadable";
+  kind?: "shrink" | "model-mismatch" | "dim-mismatch" | "unreadable";
   message?: string;
 }
 
@@ -137,8 +139,35 @@ export function assertModelSafeToPersist(
   };
 }
 
+/**
+ * Darf mit dieser Dimension auf den Index geschrieben werden, der **auf Platte** liegt? Dieselbe Klasse wie der
+ * Modell-Guard, und neu, seit die Dimension ein Parameter ist (vorher war sie die Konstante 256): ein Indexer, der
+ * mit 256 Spalten arbeitet, würde einen Index mit 1024 Spalten beim Schreiben still auf 256 abschneiden — oder einen
+ * mit 256 auf 1024 mit Nullen auffüllen —, und CRC32, Byte-Guard und Count sähen einen strukturell perfekten
+ * Container. Ein Dimensionswechsel erfordert wie ein Modellwechsel einen vollständigen Neuaufbau.
+ *
+ * - `reindex` → immer erlaubt (Voll-Ersatz).
+ * - `live` und `heal` → bei Unterschied blocken.
+ * - Disk-Dimension fehlend, 0 oder keine Zahl (frischer Index, Container ohne das Feld) → erlauben.
+ */
+export function assertDimSafeToPersist(
+  diskDim: number | undefined,
+  indexerDim: number,
+  reason: PersistReason,
+): PersistDecision {
+  if (reason === "reindex") return { allowed: true };
+  if (typeof diskDim !== "number" || !Number.isFinite(diskDim) || diskDim <= 0) return { allowed: true };
+  if (diskDim === indexerDim) return { allowed: true };
+  return {
+    allowed: false,
+    kind: "dim-mismatch",
+    message: `Persist verweigert: Der Index auf Platte hat ${diskDim} Dimensionen, dieser Indexer arbeitet mit ${indexerDim} — `
+      + `ein Schreiben würde die Vektoren abschneiden oder mit Nullen auffüllen. Eine andere Dimension erfordert einen vollständigen Neuaufbau des Index.`,
+  };
+}
+
 export class PersistBlockedError extends Error {
-  constructor(readonly kind: "not-ready" | "shrink" | "unreadable" | "model-mismatch", message: string) {
+  constructor(readonly kind: "not-ready" | "shrink" | "unreadable" | "model-mismatch" | "dim-mismatch", message: string) {
     super(message);
     this.name = "PersistBlockedError";
   }
@@ -216,7 +245,7 @@ export function findDeadVectorPaths(paths: string[], vectors: Float32Array, dim:
     for (let c = 0; c < dim; c++) {
       if (vectors[r * dim + c] !== 0) { alive = true; break; }
     }
-    if (!alive) dead.push(paths[r]);
+    if (!alive) dead.push(paths[r] ?? "");
   }
   return dead;
 }
@@ -251,13 +280,15 @@ export function findStaleVectorPaths(
   if (!stamps || stamps.length !== paths.length) return [];
   const stale: string[] = [];
   for (let r = 0; r < paths.length; r++) {
-    const jetzt = aktuell.get(paths[r]);
-    if (!jetzt) continue;
-    const [mtime, size] = stamps[r];
+    const path = paths[r] ?? "";
+    const jetzt = aktuell.get(path);
+    const stamp = stamps[r];
+    if (!jetzt || !stamp) continue;
+    const [mtime, size] = stamp;
     // Ungeprueft ist nicht verdaechtig — dieselbe Regel wie fuer einen ganzen Index ohne
     // Stempel, nur zeilenweise. Ohne sie meldete jede Platzhalter-Zeile dauerhaft „veraltet".
     if (mtime === UNBEKANNTER_STEMPEL[0] && size === UNBEKANNTER_STEMPEL[1]) continue;
-    if (jetzt[0] !== mtime || jetzt[1] !== size) stale.push(paths[r]);
+    if (jetzt[0] !== mtime || jetzt[1] !== size) stale.push(path);
   }
   return stale;
 }

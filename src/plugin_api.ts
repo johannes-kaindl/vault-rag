@@ -1,4 +1,4 @@
-import { VaultIndex } from "./index";
+import { VectorIndex } from "./vendor/kit/vector-index";
 import { RetrievalFacade } from "./retrieval_facade";
 import type { ProposeResult } from "./integrator";
 
@@ -94,7 +94,7 @@ export interface VaultRetrievalApi {
  *  und ist unser internes Refactoring-Objekt. */
 export function createVaultRetrievalApi(
   facade: RetrievalFacade,
-  getIndex: () => VaultIndex | null,
+  getIndex: () => VectorIndex | null,
   isReindexing: () => boolean,
   integrator: IntegratorPort,
 ): VaultRetrievalApi {

@@ -1,4 +1,4 @@
-import { Hit } from "./retriever";
+import { Hit } from "./vendor/kit/vector-index";
 import { HubPanel, TabId } from "./hub_panel";
 import { t } from "./vendor/kit/i18n";
 

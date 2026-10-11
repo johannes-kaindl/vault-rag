@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { McpTools } from "../src/mcp/tools";
 import { RetrievalFacade } from "../src/retrieval_facade";
-import { parseIndex } from "../src/index";
+import { parseIndex } from "../src/vendor/kit/vector-index";
 
 function idx() {
   const m = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 3, granularity: "note", quant: "int8" };

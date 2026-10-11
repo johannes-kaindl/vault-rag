@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseIndex } from "../src/index";
+import { parseIndex } from "../src/vendor/kit/vector-index";
 
 describe("parseIndex", () => {
   it("dequantisiert int8 → Float32 und mappt Pfade", () => {

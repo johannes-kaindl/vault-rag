@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.40.0] — 2026-10-11
+
 ### Changed
 
 - **The embedding endpoint list takes its three richer status texts from the kit** ("Timed out — network unreachable", "not an OpenAI-compatible endpoint", "Not reachable" without a dangling dash) instead of overriding them; the wording does not change. Only the skipped-model state still overrides the kit text, because it names the index.

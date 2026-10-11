@@ -224,7 +224,7 @@ settings.ts       ⚠️ **Der Endpunkt-Zeilen-Editor kommt seit 2026-09-06 aus 
                   imperativ zeichnet (eine Wahrheit). 1.13-only-APIs (`update`/`setDestructive`) sind
                   hinter Runtime-Feature-Checks versteckt (`refreshUi`/`applyDestructive`) → lint 0
                   auch bei 1.12.7. On-Open-Endpunkt-Resolve hängt am ersten render-Hatch, nicht am Getter.
-view.ts           RelatedPanel (HubPanel) — rendert Hits (`renderHits`, auch von search_view.ts
+view.ts           RelatedPanel (HubPanel) — rendert Hits (`renderHitList` aus dem Kit, auch von search_view.ts
                   genutzt), Klick öffnet Notiz.
 search_view.ts    SearchPanel (HubPanel) — Wortsuche über den Index (Debounce 400 ms, Min. 3 Zeichen).
 chat_view.ts      ChatPanel (HubPanel) — Chat-UI: SSE-Streaming, Kontext-Panel, Reasoning-Anzeige,
@@ -329,7 +329,7 @@ integrator.ts     `proposeLinks(path, noteText, deps)` → Kandidaten aus `facad
                   not-indexed/nothing-new. `inScope(path, folders)` (leer = automatischer Ausloeser aus),
                   `hashText` (djb2, bewusst Kopie aus smart_apply.ts statt Kopplung).
 integrator_panel.ts  `IntegratorPanel` (HubPanel, 6. Tab, Icon `link`) — Karte je Notiz (Rezept
-                  vault-crews), Ziel-Zeilen ueber `renderHits` mit Aktions-Slot, Annehmen/Ablehnen je
+                  vault-crews), Ziel-Zeilen ueber `renderHitList` (Kit) mit Aktions-Slot, Annehmen/Ablehnen je
                   Ziel und je Notiz, Stale-Hinweis als Icon+Text, Empty-State mit genau einem CTA,
                   Doppelklick-Schutz (`pending`). Fehlercodes werden erst hier zu Text.
 main.ts           Plugin-Entry: Hub-View/Ribbon("layers")/Commands/SettingTab registrieren, file-Events

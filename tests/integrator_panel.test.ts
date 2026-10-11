@@ -41,7 +41,7 @@ describe("IntegratorPanel", () => {
   it("eine Karte je Notiz, eine Zeile je Ziel, Annehmen ruft accept(path, target)", async () => {
     const { el, deps } = mk([prop("Notes/A.md", ["Notes/B.md", "Notes/C.md"])]);
     expect(all(el, "vault-rag-int-card").length).toBe(1);
-    expect(all(el, "vault-rag-hit").length).toBe(2);
+    expect(all(el, "okit-hit").length).toBe(2);
     const accept = all(el, "vault-rag-int-accept");
     expect(accept.length).toBe(2);
     accept[0].click(); await flush();

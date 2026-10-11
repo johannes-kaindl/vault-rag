@@ -1,10 +1,10 @@
 // Sechster Hub-Tab: Review-Inbox des Integrators (Spec §7). Einziger obsidian-Import: setIcon.
 // Bausteine nach UI-STANDARD §8: Info-Karte (Rezept vault-crews renderSummary), Listen-Zeile
-// ueber renderHits (view.ts), Empty-State mit genau einem CTA, Status-Indikator is-checking.
+// ueber renderHitList (Kit hit-list), Empty-State mit genau einem CTA, Status-Indikator is-checking.
 import { setIcon } from "obsidian";
 import type { HubPanel, TabId } from "./hub_panel";
 import type { LinkProposal } from "./integrator_store";
-import { renderHits } from "./view";
+import { renderHitList } from "./vendor/kit-obsidian/hit-list";
 import { t } from "./vendor/kit/i18n";
 
 export type AcceptOutcome =
@@ -96,7 +96,7 @@ export class IntegratorPanel implements HubPanel {
       const re = this.button(warn, "vault-rag-int-recompute", t("panel.integrator.recompute"));
       re.addEventListener("click", () => void this.run(() => this.deps.recompute(p.notePath)));
     }
-    renderHits(card, p.links, path => this.deps.openPath(path), (row, hit) => {
+    renderHitList(card, p.links, path => this.deps.openPath(path), (row, hit) => {
       const acts = row.createSpan({ cls: "vault-rag-int-row-actions" });
       const ok = this.button(acts, "mod-cta vault-rag-int-accept", t("panel.integrator.accept"));
       ok.addEventListener("click", () => void this.run(() => this.acceptOne(p.notePath, hit.path)));

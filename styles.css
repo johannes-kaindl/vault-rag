@@ -1,6 +1,8 @@
-.vault-rag-hit { display: flex; justify-content: space-between; padding: 4px 8px; cursor: pointer; border-radius: 4px; }
-.vault-rag-hit:hover { background: var(--background-modifier-hover); }
-.vault-rag-hit-score { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.okit-hit { display: flex; justify-content: space-between; padding: 4px 8px; cursor: pointer; border-radius: 4px; }
+.okit-hit:hover { background: var(--background-modifier-hover); }
+.okit-hit-score { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.okit-hit-split { cursor: default; }
+.okit-hit-split .okit-hit-title { cursor: pointer; }
 .vault-rag-empty { color: var(--text-muted); padding: 8px; }
 .vault-rag-search-input { width: 100%; margin-bottom: 8px; }
 .vault-rag-search-state { color: var(--text-muted); padding: 4px 0; }

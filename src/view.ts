@@ -1,26 +1,11 @@
-import { Hit } from "./vendor/kit/vector-index";
+import type { Hit } from "./vendor/kit/vector-index";
+import { renderHitList } from "./vendor/kit-obsidian/hit-list";
 import { HubPanel, TabId } from "./hub_panel";
 import { t } from "./vendor/kit/i18n";
 
 export const VIEW_TYPE_RELATED = "vault-rag-related";
 
 export interface ViewDeps { getHits: () => Hit[]; openPath: (path: string) => void; }
-
-export function renderHits(
-  el: HTMLElement, hits: Hit[], openPath: (path: string) => void,
-  actions?: (row: HTMLElement, hit: Hit) => void,
-): void {
-  for (const h of hits) {
-    const row = el.createDiv({ cls: "vault-rag-hit" });
-    const name = h.path.split("/").pop()?.replace(/\.md$/, "") ?? h.path;
-    const title = row.createSpan({ cls: "vault-rag-hit-title", text: name });
-    row.createSpan({ cls: "vault-rag-hit-score", text: h.score.toFixed(2) });
-    // Ohne Aktions-Slot bleibt die ganze Zeile klickbar (Tab „Ähnlich", unverändert). Mit Slot
-    // öffnet nur der Titel — sonst träfe ein Klick auf „Ablehnen" auch openPath.
-    if (actions) { title.addEventListener("click", () => openPath(h.path)); actions(row, h); }
-    else row.addEventListener("click", () => openPath(h.path));
-  }
-}
 
 export class RelatedPanel implements HubPanel {
   readonly id: TabId = "related";
@@ -45,6 +30,6 @@ export class RelatedPanel implements HubPanel {
     const c = this.container; c.empty();
     const hits = this.deps.getHits();
     if (hits.length === 0) { c.createDiv({ cls: "vault-rag-empty", text: t("panel.related.empty") }); return; }
-    renderHits(c, hits, this.deps.openPath);
+    renderHitList(c, hits, this.deps.openPath);
   }
 }

@@ -402,7 +402,7 @@ const SHOTS: Shot[] = [
       // Auf echte Treffer warten — ein leeres Related-Panel ist das Bild, das dieses
       // Plugin am meisten missversteht.
       const treffer = await pollUntil<number>(cdp, `
-        return document.querySelectorAll(".vault-rag-hit").length;
+        return document.querySelectorAll(".okit-hit").length;
       `, 20_000, 500);
       if (!treffer) {
         console.log("      · Related-Panel bleibt leer — Index gebaut? (Reindex-Befehl)");
@@ -433,7 +433,7 @@ const SHOTS: Shot[] = [
       if (!getippt) return null;
       // Debounce 400 ms + Embedding der Anfrage.
       const treffer = await pollUntil<number>(cdp, `
-        return document.querySelectorAll(".vault-rag-search-results .vault-rag-hit").length;
+        return document.querySelectorAll(".vault-rag-search-results .okit-hit").length;
       `, 30_000, 500);
       if (!treffer) {
         const lage = await cdp.evaluate<string>(`

@@ -1,5 +1,5 @@
 import { Hit } from "./vendor/kit/vector-index";
-import { renderHits } from "./view";
+import { renderHitList } from "./vendor/kit-obsidian/hit-list";
 import { HubPanel, TabId } from "./hub_panel";
 import { t } from "./vendor/kit/i18n";
 
@@ -58,7 +58,7 @@ export class SearchPanel implements HubPanel {
     if (result.kind === "no-index") return this.renderState(t("panel.search.noIndex"));
     if (result.hits.length === 0) return this.renderState(t("panel.search.noHits"));
     const el = this.resultsEl!; el.empty();
-    renderHits(el, result.hits, this.deps.openPath);
+    renderHitList(el, result.hits, this.deps.openPath);
   }
 
   private renderState(text: string): void {

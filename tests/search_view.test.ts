@@ -19,7 +19,7 @@ function mkPanel(search: (q: string) => Promise<SearchResult>, openPath = () => 
 const states = (container: any) =>
   container.children.flatMap((c: any) => c.children ?? []).filter((c: any) => c.className?.includes("vault-rag-search-state"));
 const hits = (container: any) =>
-  container.children.flatMap((c: any) => c.children ?? []).filter((c: any) => c.className?.includes("vault-rag-hit"));
+  container.children.flatMap((c: any) => c.children ?? []).filter((c: any) => c.className?.includes("okit-hit"));
 
 describe("SearchPanel", () => {
   it("id ist 'search'", () => {

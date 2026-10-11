@@ -42,6 +42,10 @@ Vaults (andere Sessions) verlieren ihr Fenster nicht.
 (`7adf475`). Ohne Deploy misst der Lauf den alten Build — der Herkunfts-Guard `requireEigenerBuild`
 bricht dann ab, statt eine falsche Bilanz zu liefern.
 
+## Der Smoke braucht einen erreichbaren Embedding-Endpunkt
+
+⚠️ **Läuft der lokale Ollama nicht, sieht der Lauf aus wie ein kaputter Index** (gemessen 2026-10-11, Welle 17): `shots --prepare` baut keinen Index, `status()` meldet `indexed=false`, und ein Dutzend Prüfpunkte (Kontext, Integrator, `related()`, `search()`) werden rot mit „no-index“ oder „Index NICHT geladen“ — kein Befund am Plugin. Vor dem Lauf: `curl -s localhost:11434/v1/embeddings -H 'content-type: application/json' -d '{"model":"qwen3-embedding:8b","input":["x"]}'` muss einen Vektor liefern. Auf dem M5 liegen die Modelle unter `~/Models/ollama`, nicht im Standardpfad: ein Start ohne `OLLAMA_MODELS=$HOME/Models/ollama ollama serve` meldet leere Modelle. Den Dienst, den man selbst gestartet hat, beendet man nach dem Lauf wieder.
+
 ## Staging-Vault auf einer Zweitinstanz — der Normalweg seit 2026-09-03
 
 Im Arbeitsvault `10_Pallas` sind Prüfpunkte **strukturell** nicht messbar: dort ist ein echtes

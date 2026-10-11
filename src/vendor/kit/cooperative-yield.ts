@@ -1,4 +1,4 @@
-// vendored from code-kit@0.22.0, src/ts/pure/cooperative-yield.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.22.1, src/ts/pure/cooperative-yield.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Kooperatives Zeittor für CPU-lange Schleifen im Renderer — obsidian-frei, timer-frei,
  *  in Node testbar (PROF-OBS-03/04).
  *

@@ -1,4 +1,4 @@
-// vendored from code-kit@0.22.0, src/ts/pure/index-container.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.22.1, src/ts/pure/index-container.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/index_container.ts, 2026-10-11 (Änderungen: crc32 aus eigenem Modul, `noUncheckedIndexedAccess`-clean; Format und Fehlermeldungen unverändert)
 /** Codec for the container file of a note index (`<dir>/index.bin`). One file instead of three, so that a file sync
  *  cannot mix generations (vault-rag spec 2026-07-29).

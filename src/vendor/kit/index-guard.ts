@@ -1,4 +1,4 @@
-// vendored from code-kit@0.22.0, src/ts/pure/index-guard.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.22.1, src/ts/pure/index-guard.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/index_guard.ts, 2026-10-11 (Änderungen: `noUncheckedIndexedAccess`-clean; neu `assertDimSafeToPersist` und die Art "dim-mismatch"; sonst Code und Meldungen unverändert)
 // Pure core: decisions where data can be lost, in one place and testable in isolation. Origin: vault-rag (spec 2026-07-10, index robustness).
 // The message texts are German and stay as they were: the consumer's tests and its users' notices carry them.

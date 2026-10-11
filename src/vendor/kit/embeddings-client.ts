@@ -1,4 +1,4 @@
-// vendored from code-kit@0.22.0, src/ts/pure/embeddings-client.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.22.1, src/ts/pure/embeddings-client.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/embedder.ts (nur embed()), 2026-10-11 (Änderungen: Transport injiziert statt requestUrl, Frist und Abbruch neu, Embedder-Interface; Anfrage, Batchgröße 32 und die beiden Fehlertexte unverändert)
 /** Client for `POST <endpoint>/v1/embeddings` (OpenAI-compatible: Ollama, LM Studio, llama.cpp), over an injected transport.
  *
@@ -39,9 +39,15 @@ export interface EmbedRequest {
 }
 export type EmbedTransport = (req: EmbedRequest) => Promise<{ status: number; json: unknown }>;
 
+/** `http`, `schema`, `timeout` and `aborted` are made by {@link createEmbeddingClient}. `no-endpoint` is not: a client always
+ *  has an endpoint. It is the kind for a HOST that wraps the client and has none to hand it (obsidian-kit's embedding
+ *  connection when no endpoint is active), so that its callers catch one error class and read `kind` instead of
+ *  matching the text of a loose `Error`. */
+export type EmbeddingErrorKind = "http" | "schema" | "timeout" | "aborted" | "no-endpoint";
+
 export class EmbeddingError extends Error {
   constructor(
-    readonly kind: "http" | "schema" | "timeout" | "aborted",
+    readonly kind: EmbeddingErrorKind,
     message: string,
     /** Only for `http`. */
     readonly status?: number,

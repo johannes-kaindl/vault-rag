@@ -4,7 +4,7 @@
   "version": "0.20.0",
   "sha": "b6fd3ec",
   "vendored": "backend-probe.ts, capabilities.ts, cooperative-yield.ts, endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error_body.ts, i18n.ts, model-choice.ts, model-list-cache.ts, reasoning.ts, redact.ts, rotation.ts, run-state.ts, sampling-profiles.ts, secrets.ts, settings.ts, sse.ts, think-splitter.ts, timeout.ts, clipboard.ts",
-  "obsidian_kit_version": "0.51.3",
-  "obsidian_kit_sha": "656ab02",
+  "obsidian_kit_version": "0.52.0",
+  "obsidian_kit_sha": "fd1827e",
   "obsidian_kit_vendored": "callout.ts, endpoint-secret-hook.ts, endpoint-source.ts, folder-hide.ts, frontmatter.ts"
 }

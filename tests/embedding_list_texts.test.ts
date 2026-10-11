@@ -18,7 +18,7 @@ describe("Embedding-Liste: Kit-Bündel mit Überschreibungen", () => {
     expect(x.role({ kind: "skipped-model" })).toBe("skipped — model does not match the index");
   });
 
-  it("Status: Überschreibungen für timeout, not-an-llm-api und unknown ohne Rohtext, sonst Kit", () => {
+  it("Status: die reicheren Texte (timeout, not-an-llm-api, unknown ohne Rohtext) kommen aus dem Kit", () => {
     setLang("en");
     const x = embeddingListTexts("en");
     expect(x.statusTooltip(st("timeout"))).toBe("Timeout — network unreachable (wrong network / VPN off?).");

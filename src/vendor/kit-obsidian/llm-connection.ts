@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.51.3, src/obsidian/llm-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.52.0, src/obsidian/llm-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Die LLM-Anbindung eines Fachplugins als EINE Komposition: Endpunkt-Quelle (Manager oder lokale
  *  Liste mit Schlüsselbund), gemerkte Auflösung, Modellliste, Anfrage-Parameter je Modus, Client mit
  *  Transport und Fristen, Prüfung der Antwort und beide Settings-Abschnitte.
@@ -158,6 +158,9 @@ export interface LlmConnectionStrings {
   redactedNote: (n: number) => string;
   /** Hinweis in den Einstellungen mit `managerOnly`, wenn der Manager fehlt. */
   noManager: string;
+  /** Text für ein lokales `kind: "no-endpoint"`. Optional, damit ein volles Bündel ohne dieses Feld
+   *  weiter übersetzt; das Default-Bündel trägt es immer. */
+  noEndpoint?: string;
   /** `endpointSource.managedDesc` für `managerOnly`, ohne den Satz über die lokale Liste. */
   managedDescManagerOnly: string;
   request: RequestSectionStrings;

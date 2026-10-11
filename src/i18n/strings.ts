@@ -423,9 +423,6 @@ export const EN = {
   "settings.thinking.alwaysOn": "Thinking (always on)",
 
   // endpoint_config.ts + Kit-Picker
-  "endpointStatus.timeout": "Timeout — network unreachable (wrong network / VPN off?).",
-  "endpointStatus.notAnLlmApi": "Responds, but is not an OpenAI-compatible endpoint — wrong path/service?",
-  "endpointStatus.unknown": "Not reachable",
   "noteRestructurer.permutation.unknownIds": "unknown IDs: {0}",
   "noteRestructurer.permutation.duplicateIds": "duplicate IDs: {0}",
   "noteRestructurer.permutation.missingIds": "missing IDs: {0}",
@@ -922,9 +919,6 @@ export const DE = {
   "settings.thinking.alwaysOn": "Thinking (immer an)",
 
   // endpoint_config.ts + Kit-Picker
-  "endpointStatus.timeout": "Zeitüberschreitung — Netz nicht erreichbar (falsches Netz / VPN aus?).",
-  "endpointStatus.notAnLlmApi": "Antwortet, ist aber kein OpenAI-kompatibler Endpunkt — falscher Pfad/Dienst?",
-  "endpointStatus.unknown": "Nicht erreichbar",
   "noteRestructurer.permutation.unknownIds": "unbekannte IDs: {0}",
   "noteRestructurer.permutation.duplicateIds": "doppelte IDs: {0}",
   "noteRestructurer.permutation.missingIds": "fehlende IDs: {0}",

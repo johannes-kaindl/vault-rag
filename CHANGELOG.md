@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The embedding endpoint list takes its three richer status texts from the kit** ("Timed out — network unreachable", "not an OpenAI-compatible endpoint", "Not reachable" without a dangling dash) instead of overriding them; the wording does not change. Only the skipped-model state still overrides the kit text, because it names the index.
+- Kit pin `obsidian-kit` 0.51.3 → 0.52.0, `code-kit` 0.17.0 → 0.20.0.
+
 ## [0.39.0] — 2026-10-10
 
 ### Changed

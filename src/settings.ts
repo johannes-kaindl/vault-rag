@@ -109,20 +109,15 @@ export class RestoreBackupModal extends Modal {
  * `infoValue`, `capSetting`, `updateBudgetMax`), die render-Hatches beim Zeichnen neu setzen.
  */
 /** Rollen-, Status- und Warnungstexte der Embedding-Liste: das Kit-Bündel (dasselbe Vokabular wie
- *  die Chat-Liste), mit vier Überschreibungen, wo unsere Fassung reicher ist — der Modell-Guard
- *  nennt den Index, `timeout`/`not-an-llm-api` sagen, was zu prüfen ist, `unknown` ohne Rohtext
- *  endet nicht auf einem hängenden Strich. Sie bleiben, bis das
- *  Kit sie übernimmt (UI-STANDARD §10: die reichere Fassung gewinnt). Sprachneutrale Codes rein,
+ *  die Chat-Liste). Seit obsidian-kit 0.52.0 trägt es auch die reicheren Statustexte
+ *  (`timeout`, `not-an-llm-api`, `unknown` ohne Strich), die hier bis dahin überschrieben waren.
+ *  Eine Überschreibung bleibt: der Modell-Guard nennt den Index („skipped-model"), das Kit sagt nur
+ *  „Modell passt nicht" (UI-STANDARD §10: die reichere Fassung gewinnt). Sprachneutrale Codes rein,
  *  Text raus; `klartext` des Kits wird nie gelesen. */
 export function embeddingListTexts(lang: "en" | "de"): Pick<EndpointListStrings, "statusTooltip" | "role" | "warnings"> {
   const base = resolveLlmConnectionStrings({ lang }).endpointList;
   return {
-    statusTooltip: (status) => {
-      if (status.kind === "timeout") return t("endpointStatus.timeout");
-      if (status.kind === "not-an-llm-api") return t("endpointStatus.notAnLlmApi");
-      if (status.kind === "unknown" && !status.raw) return t("endpointStatus.unknown");   // Kit: „Not reachable — “ mit hängendem Strich
-      return base.statusTooltip(status);
-    },
+    statusTooltip: (status) => base.statusTooltip(status),
     role: (role) => (role.kind === "skipped-model" ? t("endpointRole.skippedModel") : base.role(role)),
     warnings: (warnings) => base.warnings(warnings),
   };

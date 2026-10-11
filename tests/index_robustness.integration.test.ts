@@ -12,7 +12,7 @@ import * as path from "node:path";
 import { VaultAdapter } from "../src/index";
 import { VectorIndex } from "../src/vendor/kit/vector-index";
 import { LiveIndexer } from "../src/vendor/kit/live-indexer";
-import { EmbeddingClient } from "../src/embedder";
+import type { Embedder } from "../src/vendor/kit/embeddings-client";
 import { assertSafeToPersist, isSuspiciousShrink, diffIndexVsVault, PersistBlockedError } from "../src/vendor/kit/index-guard";
 import { migrateIndex, hasAllRequiredFiles } from "../src/index_migrate";
 import { selectBackupsToDelete } from "../src/index_backup";
@@ -38,14 +38,14 @@ function fsAdapter(): VaultAdapter {
 
 // Deterministischer Fake-Embedder: ein nicht-null 256-dim-Vektor pro Chunk (Inhalt egal für
 // Count-/Persistenz-Prüfungen). Keine Netz-Abhängigkeit.
-function fakeEmbedder(): EmbeddingClient {
+function fakeEmbedder(): Embedder {
   return {
     embed: async (texts: string[]) => texts.map((t) => {
       const v = new Float32Array(DIM);
       v[t.length % DIM] = 1;
       return v;
     }),
-  } as unknown as EmbeddingClient;
+  } as unknown as Embedder;
 }
 
 async function countOnDisk(dir: string): Promise<number> {

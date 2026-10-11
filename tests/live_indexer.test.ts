@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { LiveIndexer } from "../src/vendor/kit/live-indexer";
 import { VaultAdapter } from "../src/index";
 import { parseIndex, VectorIndex } from "../src/vendor/kit/vector-index";
-import { EmbeddingClient } from "../src/embedder";
+import type { Embedder } from "../src/vendor/kit/embeddings-client";
 import { PersistBlockedError, findStaleVectorPaths } from "../src/vendor/kit/index-guard";
 import { CONTAINER_FILE, encodeContainer, decodeContainer } from "../src/vendor/kit/index-container";
 
@@ -29,17 +29,17 @@ function makeAdapter(): VaultAdapter & { written: Map<string, ArrayBuffer | stri
   } as any;
 }
 
-function makeEmbedder(vec?: number[]): EmbeddingClient {
+function makeEmbedder(vec?: number[]): Embedder {
   const v = vec ?? [1, ...Array(DIM - 1).fill(0)];
   return {
     ping: vi.fn().mockResolvedValue(true),
     embed: vi.fn().mockResolvedValue([new Float32Array(v)]),
-  } as unknown as EmbeddingClient;
+  } as unknown as Embedder;
 }
 
 /** Embedder, dessen Vektor vom INHALT abhaengt — noetig, wo „alter vs. neuer Vektor derselben
  *  Notiz" unterschieden werden muss (`makeEmbedder` liefert fuer jeden Inhalt denselben). */
-function inhaltsEmbedder(): EmbeddingClient {
+function inhaltsEmbedder(): Embedder {
   return {
     ping: vi.fn().mockResolvedValue(true),
     embed: vi.fn(async (texts: string[]) => {
@@ -49,7 +49,7 @@ function inhaltsEmbedder(): EmbeddingClient {
       v[h + 1] = 1;
       return [v];
     }),
-  } as unknown as EmbeddingClient;
+  } as unknown as Embedder;
 }
 
 function emptyIndex(): VectorIndex {
@@ -1087,7 +1087,7 @@ describe("LiveIndexer — Stempel im Zwischenstand", () => {
  * ist die Aufteilung der Antwort auf die Notizen die Stelle, an der eine Fehlzuordnung
  * entsteht — und die sieht man nur, wenn sich die Vektoren ueberhaupt unterscheiden.
  */
-function proTextEmbedder(): EmbeddingClient {
+function proTextEmbedder(): Embedder {
   return {
     ping: vi.fn().mockResolvedValue(true),
     embed: vi.fn(async (texts: string[]) =>
@@ -1098,7 +1098,7 @@ function proTextEmbedder(): EmbeddingClient {
         v[h + 1] = 1;
         return v;
       })),
-  } as unknown as EmbeddingClient;
+  } as unknown as Embedder;
 }
 
 describe("LiveIndexer — Buendelung ueber Notizgrenzen", () => {

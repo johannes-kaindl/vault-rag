@@ -1,24 +1,19 @@
 import { App, ButtonComponent, Modal, Notice, Plugin, PluginSettingTab, Setting, setIcon } from "obsidian";
 import type { SettingDefinitionItem, SettingDefinitionGroup } from "obsidian";
 import type { ChatClient } from "./chat_client";
-import { EmbeddingClient } from "./embedder";
 import { resolveCapabilities } from "./capabilities";
 import type { LlmConnection } from "./vendor/kit-obsidian/llm-connection";
 import { isDotPath } from "./index_dir";
 import { normalizeFolder } from "./vendor/kit/folder-hide";
-import { ENDPOINT_PRESETS } from "./vendor/kit/endpoint_diagnostics";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { githubHelpUrls, helpSettingDefinition } from "./vendor/kit-obsidian/help-setting";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
-import { rowModel } from "./endpoint_config";
-import { buildEndpointSourceSection } from "./vendor/kit-obsidian/endpoint-source";
-import { buildEndpointList as buildKitEndpointList, type EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
-import { hydrateLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
+import type { EmbeddingConnection } from "./vendor/kit-obsidian/embedding-connection";
+import type { EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
 import { resolveLlmConnectionStrings } from "./vendor/kit-obsidian/llm-connection-strings";
-import { embeddingModelMatchesIndex } from "./vendor/kit/index-guard";
 import { resolveModelChoice, type ModelHintKey } from "./vendor/kit/model-choice";
 import { renderModelPicker } from "./vendor/kit-obsidian/model-picker";
 import { createModelListCache, type ModelListCache } from "./vendor/kit/model-list-cache";
@@ -51,7 +46,8 @@ export interface VaultRagPluginHost extends Plugin {
    *  gegen den Index abzugleichen (`modelFits` in `buildEndpointList`). Schmaler Getter statt
    *  öffentlichem `index`-Feld: die UI braucht nur diesen String. */
   readonly indexEmbeddingModel: string | undefined;
-  embedder: EmbeddingClient;
+  /** Die Embedding-Anbindung (Kit): zeichnet den Abschnitt „Embedding-Endpunkte“. */
+  readonly emb: EmbeddingConnection;
   chatClient: ChatClient;
   /** Die Chat-Anbindung (Kit `createLlmConnection`): zeichnet die Abschnitte „Endpunkte“ und „Anfrage“. */
   readonly llm: LlmConnection;
@@ -404,44 +400,20 @@ export class VaultRagSettingTab extends PluginSettingTab {
     ] };
   }
 
-  /** render-Hatch: Embedding-Endpunkt-Liste. Zeichnet in settingBodyHost über buildEndpointList. */
+  /** render-Hatch: Embedding-Endpunkte. Das Kit zeichnet Quelle (Manager oder lokale Liste mit Schlüsselbund) und Liste in
+   *  einem Zug; die Texte sind unsere (Rollen-Text des Modell-Guards nennt den Index), hier bleibt der eigene Host-Container:
+   *  `renderSettings` leert ihn beim Neuzeichnen. */
   private renderEmbeddingEndpoints = (setting: Setting): void => {
     this.ensureResolvedOnOpen();
-    const host = settingBodyHost(setting);
+    const host = settingBodyHost(setting).createDiv();
     const embeddingLabel = t("settings.embeddingEndpoints.label");
-    // Manager da → Kit-Baustein (Wahl + Modell + Import); sonst die lokale Liste wie bisher.
-    buildEndpointSourceSection({
-      app: this.app, containerEl: host, capability: "embedding", caller: "vault-retrieval",
-      choice: () => this.plugin.settings.embeddingChoice,
-      setChoice: async (c) => { this.plugin.settings.embeddingChoice = c; await this.plugin.saveSettings(); await this.plugin.resolveAndReconnectEmbedder(); },
-      local: () => this.plugin.settings.embeddingEndpoints,
-      strings: this.sourceStrings("settings.source.managedDescEmbedding"),
-      rerender: () => this.refreshUi(),
-      renderLocalList: () => {
-        buildKitEndpointList({
-          containerEl: host,
-          app: this.app,
-          pluginId: this.plugin.manifest.id,
-          label: embeddingLabel,
-          desc: t("settings.embeddingEndpoints.desc"),
-          placeholder: "http://localhost:11434",   // i18n-exempt: URL-Beispiel, sprachneutral
-          strings: this.endpointStrings(embeddingLabel),
-          cache: this.modelCache,
-          get: () => this.plugin.settings.embeddingEndpoints,
-          set: (eps) => { this.plugin.settings.embeddingEndpoints = eps; },
-          active: () => this.plugin.activeEmbeddingEndpoint,
-          // Die Zeile trägt nur `secretId`; der Client braucht den Schlüssel aus dem Schlüsselbund.
-          clientFor: (cfg) => {
-            const hydrated = hydrateLocalEndpoints(this.app, this.plugin.manifest.id, [cfg])[0] ?? cfg;
-            return new EmbeddingClient(hydrated.url, rowModel(hydrated), hydrated.apiKey);
-          },
-          modelFits: (cfg) => embeddingModelMatchesIndex(rowModel(cfg), this.plugin.indexEmbeddingModel),
-          save: () => this.plugin.saveSettings(),
-          reconnect: () => this.plugin.resolveAndReconnectEmbedder(),
-          rerender: () => this.refreshUi(),
-          presets: ENDPOINT_PRESETS,
-        });
-      },
+    this.plugin.emb.renderSettings(host, {
+      lang: getLang(),
+      listLabel: embeddingLabel,
+      listDesc: t("settings.embeddingEndpoints.desc"),
+      listPlaceholder: "http://localhost:11434",   // i18n-exempt: URL-Beispiel, sprachneutral
+      endpointSource: this.sourceStrings("settings.source.managedDescEmbedding"),
+      endpointList: this.endpointStrings(embeddingLabel),
     });
   };
 
@@ -741,6 +713,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
     this.resolvedOnOpen = false;
     this.modelCache.clear();
     this.plugin.llm.hideSettings();
+    this.plugin.emb.hideSettings();
     this.plugin.chatResolvedHook = null;
     super.hide();
   }

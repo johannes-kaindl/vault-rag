@@ -1802,7 +1802,7 @@ async function main(): Promise<void> {
         return {
           leakEmb: disk.includes(${JSON.stringify(W16_KEY)}), leakChat: disk.includes(${JSON.stringify(W16_CHAT_KEY)}),
           embSecret: e.secretId || null, chatSecret: c.secretId || null, embPlain: e.apiKey || null,
-          embedderKey: p.embedder && p.embedder.apiKey || null,
+          embedderKey: ((await p.emb.resolve()).source.config || {}).apiKey || null,
         };
       `);
       try {
@@ -1823,7 +1823,7 @@ async function main(): Promise<void> {
           await main.evaluate(`
             const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
             await p.resolveAndReconnectEmbedder();
-            await p.embedder.embed(["probe"]);
+            await p.emb.embedder().embed(["probe"]);
             return true;
           `);
           const gets = seen16.filter((x) => x.method === "GET");
@@ -1837,9 +1837,10 @@ async function main(): Promise<void> {
           await main.evaluate(`
             const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
             const raw = p.settings.embeddingEndpoints[0];
-            const c = new p.embedder.constructor(raw.url, raw.model, raw.apiKey);
-            await c.ping();
-            await c.embed(["probe"]);
+            // Gegenprobe: dieselben zwei Anfragen aus der NICHT hydrierten Zeile (nur secretId, kein Schlüssel) tragen keinen Bearer.
+            const h = raw.apiKey ? { Authorization: "Bearer " + raw.apiKey } : {};
+            await fetch(raw.url + "/v1/models", { headers: h });
+            await fetch(raw.url + "/v1/embeddings", { method: "POST", headers: { "Content-Type": "application/json", ...h }, body: JSON.stringify({ model: raw.model, input: ["probe"] }) });
             return true;
           `);
           record(W16_PUNKTE[3]!, seen16.length >= 2 && seen16.every((x) => x.auth === undefined),

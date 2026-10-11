@@ -7,10 +7,10 @@ import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
 import { findEndpointManager, onEndpointManagerChanged } from "./vendor/kit-obsidian/endpoint-source";
-import { resolveManagedEmbedding } from "./managed_endpoint";
 import { probeEndpoint } from "./http";
 import { describeModel, type EndpointSourceResult } from "./vendor/kit/endpoint-source";
 import { createLlmConnection, type LlmConnection } from "./vendor/kit-obsidian/llm-connection";
+import type { EmbeddingConnection, EmbeddingResolution } from "./vendor/kit-obsidian/embedding-connection";
 import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import { sanitizeRequestSettings, thinkingFor, onLevelFor, type FamilyId, type ModeId, type RequestSettings } from "./vendor/kit/sampling-profiles";
 import { migrateLegacySampling, MODE_CHAT, MODE_SMART_APPLY, MODE_REFORMAT } from "./request_profile";
@@ -25,7 +25,6 @@ import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { effectiveSystemPrompt, migrateSystemPrompt, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
 import { withTimeout } from "./vendor/kit/timeout";
-import { EmbeddingClient } from "./embedder";
 import { LiveIndexer } from "./vendor/kit/live-indexer";
 import { PendingQueue } from "./pending_queue";
 import { SearchPanel, VIEW_TYPE_SEARCH, SearchResult } from "./search_view";
@@ -91,18 +90,20 @@ export default class VaultRagPlugin extends Plugin {
   api!: VaultRetrievalApi;
   private guardedRead: (rel: string) => Promise<string> = (p) => this.app.vault.adapter.read(p);
   private lastMtime = 0;
-  embedder!: EmbeddingClient;
+  /** Die Embedding-Anbindung (Kit `createLlmConnection({ capability: "embedding" })`, Welle 17): Endpunkt-Quelle,
+   *  gemerkte Auflösung mit Index-Passung (`accept`), Zustände je Zeile, der `Embedder` und der Einstellungs-Abschnitt. */
+  emb!: EmbeddingConnection;
   chatClient!: ChatClient;
   activeEmbeddingEndpoint: string | null = null;
   activeChatEndpoint: string | null = null;
-  /** Modell, mit dem der aktuelle `embedder` gebaut wurde (Endpunkt-Override oder global).
+  /** Modell, mit dem der aktuelle LiveIndexer gebaut wurde (aufgelöstes Modell der Verbindung).
    *  Embedder und LiveIndexer/Manifest MÜSSEN immer dasselbe Modell nennen — sonst behauptet
    *  das Manifest einen Vektorraum, aus dem die Vektoren nicht stammen. */
   private embeddingModelInUse = "";
   /** Die ganze Chat-Anbindung: Endpunkt-Quelle (Manager oder lokale Liste mit Schlüsselbund), gemerkte
    *  Auflösung, Anfrage-Parameter je Modus, Client, Prüfung der Antwort und die Einstellungs-Abschnitte
-   *  „Endpunkte“ und „Anfrage“ (Kit `createLlmConnection`, Welle 15). Der Embedding-Pfad bleibt daneben
-   *  bei seiner eigenen Auflösung (Index-Guard `fits`/`mismatch`). */
+   *  „Endpunkte“ und „Anfrage“ (Kit `createLlmConnection`, Welle 15). Das Embedding hat seine eigene
+   *  Verbindung (`emb`) mit dem Index-Guard als `accept`. */
   llm!: LlmConnection;
   /** Zähler der Chat-Auflösungen: nur der jüngste Lauf schreibt `activeChatEndpoint`. */
   private chatReconnectGen = 0;
@@ -268,11 +269,29 @@ export default class VaultRagPlugin extends Plugin {
     // tiefe Kopie der Endpunkt-Listen oben schon benennt.
     this.settings.embeddingChoice = { ...this.settings.embeddingChoice };
     this.settings.chatChoice = { ...this.settings.chatChoice };
-    // Synchron mit dem ersten Listen-Eintrag instanziieren, damit embedder/chatClient nie undefined
-    // sind; das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
+    // Synchron mit dem ersten Listen-Eintrag starten, damit LiveIndexer und Embedder nie undefined sind;
+    // das Auflösen des aktiven Endpoints folgt asynchron am Ende von onload.
     const e0 = this.hydratedEmbeddingEndpoints()[0] ?? { url: "" };
     this.embeddingModelInUse = rowModel(e0);
-    this.embedder = new EmbeddingClient(e0.url, this.embeddingModelInUse, e0.apiKey);
+    this.emb = createLlmConnection({
+      app: this.app,
+      pluginId: this.manifest.id,
+      caller: "vault-retrieval",
+      capability: "embedding",
+      lang: () => getLang(),
+      getSettings: () => ({ endpoints: this.settings.embeddingEndpoints, choice: this.settings.embeddingChoice }),
+      // Erst in die Settings schreiben, dann speichern: die Endpunkt-Liste liest ihre Zeilen danach zurück.
+      persist: (patch) => {
+        if (patch.endpoints) this.settings.embeddingEndpoints = patch.endpoints;
+        if (patch.choice) this.settings.embeddingChoice = patch.choice;
+        return this.saveSettings();
+      },
+      // Modell-Guard: ein Endpunkt mit fremdem Embedding-Modell darf den geladenen Index NICHT bedienen
+      // (anderer Vektorraum, stille Vergiftung). Das Kit kennt den Index nicht — diese Closure liest ihn live.
+      accept: (_cfg, model) => embeddingModelMatchesIndex(model, this.index?.manifest.embedding_model)
+        ? true : { skip: this.index?.manifest.embedding_model ?? "" },
+      onResolved: (r) => { this.applyEmbeddingResolution(r); },
+    });
     this.llm = createLlmConnection(chatConnectionOptions({
       app: this.app,
       pluginId: this.manifest.id,
@@ -284,12 +303,12 @@ export default class VaultRagPlugin extends Plugin {
     this.chatClient = new ChatClient(this.llm);
     // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
     // fire-and-forget am Ende von onload, der modify-Listener kann davor feuern.
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, this.embeddingModelInUse, { dim: 256 });
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.emb.embedder(), this.embeddingModelInUse, { dim: 256 });
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
     this.facade = new RetrievalFacade({
       getIndex: () => this.index,
       embedderReady: () => this.embedderReady(),
-      embed: (texts) => this.embedder.embed(texts),
+      embed: (texts) => this.emb.embedder().embed(texts),
       settings: () => ({ k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude }),
       readVault: (rel) => this.guardedRead(rel),
     });
@@ -624,68 +643,39 @@ export default class VaultRagPlugin extends Plugin {
     return hydrateLocalEndpoints(this.app, this.manifest.id, this.settings.embeddingEndpoints);
   }
 
+  /** Embedding-Verbindung neu auflösen (erste Zeile, die erreichbar ist, ein Modell trägt und zum Index passt, gewinnt;
+   *  sonst die erste erreichbare mit Modell — der bewusste Modellwechsel — mit Notice). Die Übernahme in LiveIndexer
+   *  und Anzeige macht `applyEmbeddingResolution`, das die Verbindung nach JEDER abgeschlossenen Auflösung ruft, auch
+   *  nach der aus Liste und Wahl im Einstellungs-Tab: hier nur anstoßen, nicht ein zweites Mal übernehmen. */
   async resolveAndReconnectEmbedder(): Promise<void> {
-    // Eigene Schleife statt resolveActiveEndpoint (Kit): das kennt nur URLs und könnte den
-    // Schlüssel/das Modell-Override des Eintrags nicht mitführen.
-    // Modell-Guard: ein Kandidat mit fremdem Embedding-Modell darf den geladenen Index NICHT
-    // bedienen (anderer Vektorraum, stille Vergiftung) — er wird übersprungen, nicht genutzt.
+    await this.emb.resolve({ force: true });
+  }
+
+  /** Übernimmt eine abgeschlossene Auflösung: welcher Endpunkt als „aktiv“ gilt, mit welchem Modell der LiveIndexer
+   *  gebaut wird (Embedder und LiveIndexer/Manifest MÜSSEN dasselbe Modell nennen), und die Meldung zu übersprungenen
+   *  Endpunkten. Synchron, damit der Aufrufer von `resolve` danach den übernommenen Stand sieht. */
+  private applyEmbeddingResolution(r: EmbeddingResolution): void {
     const indexModel = this.index?.manifest.embedding_model;
-    // Ein Modell-leerer Kandidat ("" — neue Zeile, Endpunkt noch nie erreichbar) ist von `fits`
-    // ausgeschlossen: `embeddingModelMatchesIndex("", undefined)` ist true, ein solcher Kandidat
-    // dürfte sonst aktiv werden und würde bei einem Reindex `embedding_model: ""` stempeln — ab
-    // dann ist der Guard für JEDEN Kandidaten dauerhaft aus (leer matcht immer).
-    const fits = (cfg: EndpointConfig): boolean => {
-      const model = rowModel(cfg);
-      return model !== "" && embeddingModelMatchesIndex(model, indexModel);
-    };
-    let active: EndpointConfig | null = null;
-    const skipped: string[] = [];
-    const ohneModell: string[] = [];
-    let cfg: EndpointConfig;
-    const manager = findEndpointManager(this.app);
-    if (manager) {
-      // Der Manager entscheidet (Kit-Vertrag), die lokale Liste ist nur der Rückfall OHNE Manager.
-      // Der Modell-Guard gilt trotzdem: ein Endpunkt aus dem falschen Vektorraum wird nicht aktiv
-      // markiert (siehe `resolveManagedEmbedding`), bleibt aber für die Suche verdrahtet.
-      const res = await resolveManagedEmbedding(manager, this.settings.embeddingChoice, indexModel,
-        (c) => new EmbeddingClient(c.url, rowModel(c), c.apiKey).ping());
-      cfg = res.config ?? { url: "" };
-      if (res.active) active = cfg;
-      if (res.mismatch) skipped.push(`„${cfg.url}" (Modell ${rowModel(cfg)})`);
-      if (res.noModel && res.config) ohneModell.push(cfg.url);
-    } else {
-      const hydrated = this.hydratedEmbeddingEndpoints();
-      for (const candidate of hydrated) {
-        const url = candidate.url?.trim();
-        if (!url) continue;
-        const model = rowModel(candidate);
-        if (model === "") {
-          ohneModell.push(url);
-          continue;
-        }
-        if (!fits(candidate)) {
-          skipped.push(`„${url}" (Modell ${model})`);
-          continue;
-        }
-        if (await new EmbeddingClient(url, model, candidate.apiKey).ping()) {
-          active = candidate;
-          break;
-        }
-      }
-      // Auch die Rückfall-Verdrahtung respektiert den Guard: lieber ein passender, gerade nicht
-      // erreichbarer Endpunkt als ein erreichbarer aus dem falschen Vektorraum (und nie ein
-      // Endpunkt ohne Modell — `fits` schließt das bereits aus).
-      cfg = active ?? hydrated.find(fits) ?? hydrated[0] ?? { url: "" };
+    const cfg = r.source.config;
+    // Ohne aufgelösten Endpunkt bleibt die Zeile mit passendem Modell (sonst die erste) als Modellangabe des LiveIndexers
+    // stehen — nie ein leeres Modell: leer passt auf alles und schaltet den Modell-Guard beim nächsten Persist ab.
+    let m = cfg ? (r.source.sentModel || r.source.model).trim() : "";
+    if (!cfg && !findEndpointManager(this.app)) {
+      const rows = this.hydratedEmbeddingEndpoints();
+      const fits = rows.find((row) => rowModel(row) !== "" && embeddingModelMatchesIndex(rowModel(row), indexModel)) ?? rows[0];
+      m = fits ? rowModel(fits) : "";
     }
-    this.activeEmbeddingEndpoint = active ? normalizeEndpoint(cfg.url) : null;
-    const m = rowModel(cfg);
+    this.activeEmbeddingEndpoint = r.state === "active" && cfg ? normalizeEndpoint(cfg.url) : null;
     this.embeddingModelInUse = m;
-    this.embedder = new EmbeddingClient(cfg.url, m, cfg.apiKey);
     // Die DURCHSETZUNG des Modell-Schutzes hängt nicht hier, sondern an der Schreiboperation
     // (LiveIndexer.persist → assertModelSafeToPersist, Wahrheit aus dem Container auf Platte).
-    // Der Skip oben ist reine Prävention: ein unpassender Endpunkt wird gar nicht erst aktiv.
-    this.noticeSkippedEmbeddingEndpoints(skipped, ohneModell, indexModel);
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.embedder, m, { dim: 256 });
+    // Der Skip ist reine Prävention: ein unpassender Endpunkt wird gar nicht erst aktiv.
+    this.noticeSkippedEmbeddingEndpoints(
+      r.skipped.map((s) => `„${s.cfg.url}" (Modell ${s.model})`),
+      r.state === "no-model" && cfg ? [cfg.url] : [],
+      indexModel,
+    );
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.emb.embedder(), m, { dim: 256 });
     if (this.index) this.liveIndexer.init(this.index);
     else if (this.indexHealthy) this.liveIndexer.markFresh();
     // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
@@ -812,9 +802,17 @@ export default class VaultRagPlugin extends Plugin {
    *  einmal die Fallback-Liste neu auflösen und erneut pingen. Kein Loop.
    *  Public, weil der Settings-Tab denselben Check nutzt (keine Logik-Dopplung). */
   async embedderReady(): Promise<boolean> {
-    if (await this.embedder.ping()) return true;
+    if (await this.embedderPing()) return true;
     await this.resolveAndReconnectEmbedder();
-    return this.embedder.ping();
+    return this.embedderPing();
+  }
+
+  /** Antwortet der aufgelöste Embedding-Endpunkt? Verschärft: 200 allein genügt nicht — `probeEndpoint` verlangt
+   *  die /v1/models-Form. Ohne aufgelösten Endpunkt: nein. */
+  private async embedderPing(): Promise<boolean> {
+    const cfg = (await this.emb.resolve()).source.config;
+    if (!cfg) return false;
+    return (await probeEndpoint(normalizeEndpoint(cfg.url), cfg.apiKey)).reachable;
   }
 
   /** Chat-Reachability mit EINEM Re-Resolve-Retry, analog embedderReady. */
@@ -861,7 +859,7 @@ export default class VaultRagPlugin extends Plugin {
       }
       this.settings.indexDir = target;
       await this.saveSettings();
-      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.embedder, this.embeddingModelInUse, { dim: 256 });
+      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.emb.embedder(), this.embeddingModelInUse, { dim: 256 });
       this.pendingQueue = new PendingQueue(this.app.vault.adapter, target);
       await this.pendingQueue.load();
       await this.loadIndex();

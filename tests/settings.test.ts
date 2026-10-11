@@ -147,6 +147,7 @@ function makeFakeHost() {
     // Chat-Anbindung (Kit `createLlmConnection`): zeichnet „Endpunkte“ und „Anfrage“ in einem Zug.
     chatResolvedHook: null,
     llm: { renderSettings: vi.fn(), hideSettings: vi.fn(), resolve: vi.fn().mockResolvedValue({ config: null }) },
+    emb: { renderSettings: vi.fn(), hideSettings: vi.fn() },
     // Von renderImperative (display-Fallback) synchron aufgerufene render-Hatch-Methoden —
     // ungemockt würden sie beim Walk sofort werfen (undefined ist keine Funktion).
     embedderReady: vi.fn().mockResolvedValue(true),

@@ -9,7 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - **The embedding endpoint list takes its three richer status texts from the kit** ("Timed out — network unreachable", "not an OpenAI-compatible endpoint", "Not reachable" without a dangling dash) instead of overriding them; the wording does not change. Only the skipped-model state still overrides the kit text, because it names the index.
-- Kit pin `obsidian-kit` 0.51.3 → 0.52.0, `code-kit` 0.17.0 → 0.20.0.
+- **The chat model choice goes through the connection** (kit `setModel`/`modelInUse`, obsidian-kit 0.53.0) instead of the plugin's own copy. Behaviour is unchanged: with the LLM Endpoint Manager the choice is stored in the plugin's endpoint choice, without it in the row of the active endpoint. The settings tab now refreshes once per model change.
+- Kit pin `obsidian-kit` 0.51.3 → 0.53.0, `code-kit` 0.17.0 → 0.21.0. The kit's token redaction masks more (`Bearer` followed by eight or more characters, any case), so prose such as "Bearer authentication" in a lab log becomes `Bearer [redacted-token]`.
 
 ## [0.39.0] — 2026-10-10
 

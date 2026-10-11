@@ -16,7 +16,7 @@ import { sanitizeRequestSettings, thinkingFor, onLevelFor, type FamilyId, type M
 import { migrateLegacySampling, MODE_CHAT, MODE_SMART_APPLY, MODE_REFORMAT } from "./request_profile";
 import { chatConnectionOptions } from "./connection_options";
 import { requestText } from "./request_text";
-import { rowModel, migrateEndpointList, applyEndpointEdit, type EndpointConfig } from "./endpoint_config";
+import { rowModel, migrateEndpointList, type EndpointConfig } from "./endpoint_config";
 import { fillMissingRowModels } from "./vendor/kit/endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { hydrateLocalEndpoints, migrateLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
@@ -103,9 +103,6 @@ export default class VaultRagPlugin extends Plugin {
    *  „Endpunkte“ und „Anfrage“ (Kit `createLlmConnection`, Welle 15). Der Embedding-Pfad bleibt daneben
    *  bei seiner eigenen Auflösung (Index-Guard `fits`/`mismatch`). */
   llm!: LlmConnection;
-  /** Modellwahl aus dem Chat-Dropdown, solange die neue Auflösung noch läuft — sonst zeigte
-   *  `chatModelInUse` in der Zwischenzeit das Neutral-Modell (leer). */
-  private pendingChatModel: string | null = null;
   /** Zähler der Chat-Auflösungen: nur der jüngste Lauf schreibt `activeChatEndpoint`. */
   private chatReconnectGen = 0;
   /** Vom Einstellungs-Tab gesetzt, solange er offen ist: zeichnet die Zeilen neu, die dem aufgelösten Endpunkt folgen. */
@@ -536,9 +533,9 @@ export default class VaultRagPlugin extends Plugin {
         ping: () => this.chatReady(),
         listModels: () => this.chatClient.listModels(),
         getModel: () => this.chatModelInUse,
-        // Kein globales Feld: eine Auswahl aus diesem Dropdown schreibt in die Zeile des aktiven
-        // Chat-Endpunkts, mit Manager in `chatChoice` (siehe `setChatModel`).
-        setModel: (m: string) => { void this.setChatModel(m); },
+        // Kein globales Feld: die Verbindung schreibt die Wahl in die Zeile des aktiven Chat-Endpunkts,
+        // mit Manager in `chatChoice` (Kit `setModel`).
+        setModel: (m: string) => { void this.llm.setModel(m); },
         inputPosition: () => this.settings.chatInputPosition,
         getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
         embed: async (q) => {
@@ -751,34 +748,7 @@ export default class VaultRagPlugin extends Plugin {
       && (r.kind === "local" || (await probeEndpoint(normalizeEndpoint(cfg.url), cfg.apiKey)).reachable);
     if (gen !== this.chatReconnectGen) return;
     this.activeChatEndpoint = active && cfg ? normalizeEndpoint(cfg.url) : null;
-    this.pendingChatModel = null;
     this.chatResolvedHook?.();
-  }
-
-  /** Modellwahl aus dem Chat-Dropdown. Mit Manager gehört die Wahl in `chatChoice` (die Zeile im
-   *  Speicher ist nur ein Abbild des Manager-Ergebnisses); ohne ihn schreibt sie in die Zeile des
-   *  aktiven Endpunkts, über Index + `applyEndpointEdit` (Kopie, nie in-place). */
-  private async setChatModel(m: string): Promise<void> {
-    this.pendingChatModel = m;
-    try { await this.applyChatModel(m); }
-    finally { if (this.pendingChatModel === m) this.pendingChatModel = null; }
-  }
-
-  private async applyChatModel(m: string): Promise<void> {
-    if (findEndpointManager(this.app)) {
-      this.settings.chatChoice = { ...this.settings.chatChoice, model: m || undefined };
-      await this.saveSettings();
-      // Familie (und Backend) der neuen Wahl kennt der Manager; der Re-Resolve holt sie.
-      await this.resolveAndReconnectChat();
-      return;
-    }
-    const active = (await this.llm.resolve()).config;
-    const eps = this.settings.chatEndpoints;
-    const i = eps.findIndex((e) => (active?.id !== undefined && e.id === active.id) || (active !== null && e.url === active.url));
-    if (i < 0) return;   // leere Liste / kein Endpunkt: nichts, worauf die Wahl zeigen könnte
-    this.settings.chatEndpoints = applyEndpointEdit(eps, i, "model", m, false);
-    await this.saveSettings();
-    await this.resolveAndReconnectChat();
   }
 
   /** Familie für die Denk-Steuerung eines Panels: weicht das Modell vom aufgelösten ab (Dropdown,
@@ -818,10 +788,10 @@ export default class VaultRagPlugin extends Plugin {
     };
   }
 
-  /** Modell, das eine Chat-Anfrage tatsächlich mitschickt: das aufgelöste der Verbindung (Zeilen-Modell
-   *  bzw. Manager-Wahl). Getter statt Feld: eine Modellauswahl im Dropdown wirkt so sofort. */
+  /** Modell, das eine Chat-Anfrage tatsächlich mitschickt: die Verbindung kennt es, samt der ausstehenden
+   *  Wahl aus dem Dropdown (Kit `modelInUse`, seit 0.53.0). Getter statt Feld, damit eine Wahl sofort wirkt. */
   get chatModelInUse(): string {
-    return this.pendingChatModel ?? this.llm.source().model;
+    return this.llm.modelInUse();
   }
 
   /** `smartApplyModel` schlägt das Zeilen-Modell (E1): kennt ein Fallback-Endpunkt den Namen nicht,
@@ -1078,7 +1048,6 @@ export default class VaultRagPlugin extends Plugin {
       original: core,
       stream: (onToken, signal) => this.chatClient
         .stream(messages, onToken, () => {}, signal, {
-          model: this.chatModelInUse,
           mode: MODE_REFORMAT,
           trace: { feature: `reformat:${def.id}`, app: this.app, contextPaths: [cap.path], promptTemplate: def.promptTemplate(), turnId: newTurnId() },
         })

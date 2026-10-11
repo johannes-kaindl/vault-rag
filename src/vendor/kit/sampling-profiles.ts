@@ -1,4 +1,4 @@
-// vendored from code-kit@0.21.0, src/ts/pure/sampling-profiles.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.22.0, src/ts/pure/sampling-profiles.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Request profiles for local and hosted LLM backends: which sampling values, which
  *  reasoning_effort and which minimum token budget a plugin sends, per model family × mode,
  *  and which of those fields a backend actually honours.
@@ -14,6 +14,7 @@
  *  - model cards as named per value. */
 
 import { reasoningHappened } from "./reasoning";
+import { stripThinkBlocks } from "./think-splitter";
 
 export const FAMILY_IDS = ["qwen3.8", "qwen3.6", "gemma4", "gpt-oss"] as const;
 export type FamilyId = (typeof FAMILY_IDS)[number];
@@ -450,8 +451,6 @@ export function mapTruncated<R extends ChatOutcome>(r: R, policy: TruncatedPolic
   return { ok: true, content: r.partial, reasoning: r.reasoning, finishReason: "length", truncated: true };
 }
 
-const THINK_BLOCK = /<think>[\s\S]*?<\/think>/g;
-
 /** Deviations between what the profile asked for and what came back. No retry logic here:
  *  a silent retry would hide exactly what the settings UI is meant to show. */
 export function checkResponse(ctx: { family: FamilyId | null; thinking: ThinkingLevel }, r: ResponseFacts): Deviation[] {
@@ -460,7 +459,7 @@ export function checkResponse(ctx: { family: FamilyId | null; thinking: Thinking
   const thought = reasoningHappened(r.content, r.reasoning);
   const canTurnOff = ctx.family ? FAMILIES[ctx.family].canTurnOff : true;
   if (ctx.thinking === "off" && canTurnOff && thought) out.push({ kind: "thinking-despite-off", affectsResult: false });
-  const visible = r.content.replace(THINK_BLOCK, "").trim();
+  const visible = stripThinkBlocks(r.content).trim();
   if (visible === "" && thought && r.finishReason === "length") out.push({ kind: "empty-by-budget", affectsResult: true });
   const seen = r.responseModel ? familyFromName(r.responseModel) : null;
   if (seen && ctx.family && seen !== ctx.family) out.push({ kind: "family-mismatch", affectsResult: true, detail: seen });

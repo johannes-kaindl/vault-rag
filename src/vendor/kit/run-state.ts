@@ -1,4 +1,4 @@
-// vendored from code-kit@0.17.0, src/ts/pure/run-state.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.20.0, src/ts/pure/run-state.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Zustandsautomat für abbrechbare Langläufer (Import, Vault-Umschreibung, Export, Download):
  *  eine diskriminierte Union `idle | running | done | aborted | failed` plus sechs **pure,
  *  totale** Übergänge. Jeder Übergang nimmt den vorigen Zustand und gibt den nächsten zurück;

@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.56.0, src/obsidian/hit-list.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.56.2, src/obsidian/hit-list.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/view.ts (renderHits) und vault-rag/styles.css (vault-rag-hit*), 2026-10-11
 import type { Hit } from "../kit/vector-index";
 

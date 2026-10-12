@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.41.0] — 2026-10-12
+
 ### Changed
 
 - **Both endpoint lists (chat and embedding) show the context length.** Under a reachable row with a model it reads "Context: loaded N · max M tokens" (only "max M" when the model is not loaded, nothing when the server names no number). Measured for embedding models too: Ollama reports `max 40,960` for `qwen3-embedding:8b`, LM Studio `2,048` for `text-embedding-nomic-embed-text-v1.5`. That is the longest chunk the model embeds without cutting it off, so it stays on for the embedding list.

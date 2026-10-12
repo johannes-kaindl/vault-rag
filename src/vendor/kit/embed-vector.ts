@@ -1,4 +1,4 @@
-// vendored from code-kit@0.23.0, src/ts/pure/embed-vector.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.24.0, src/ts/pure/embed-vector.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/embed_vector.ts, 2026-10-11 (Änderungen: `dim` ohne Default 256, `noUncheckedIndexedAccess`-clean; gleiche Rechnung Schritt für Schritt)
 /** Embeddings → truncate to `dim` (Matryoshka) → mean → L2-normalise.
  *  The ONE source of this transformation: used by the note path (indexer) AND the query path, so that both land

@@ -8,10 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- **Endpoint lists (chat and embedding): the "move to front" and "remove endpoint" buttons stay together** instead of the trash can standing alone in a second row when the row wraps; the key and model fields are a little narrower, the address stays fully visible (obsidian-kit 0.59.0).
+- **Endpoint lists (chat and embedding): the "move to front" and "remove endpoint" buttons stay together, and the address and the model ID stay fully visible at a normal window width.** When the row is too narrow, the block of model and buttons moves as a whole to a second row, right-aligned; nothing stands alone and nothing is cut off (obsidian-kit 0.59.1).
 - **Smart Apply and the reformat preview follow large blocks to the end.** When a table, a code block or a whole paragraph arrives in one piece, the live answer keeps scrolling as long as you are at the bottom; scrolling up still pauses it and does not pull you back (obsidian-kit 0.59.0, measured with paragraph-sized chunks).
 - **Settings, section "Request": "not detected yet" instead of "unknown".** For an endpoint whose model family is not known yet, the header reads "Family: not detected yet · Backend: not detected yet" with a hint that this is normal for a freshly added endpoint and that the LLM Endpoint Manager records family and backend; the fields read "Not sent yet — waiting for the model family" (obsidian-kit 0.59.0).
-- Kit pin `obsidian-kit` 0.57.0 → 0.59.0 (`code-kit` stays 0.24.0).
+- Kit pin `obsidian-kit` 0.57.0 → 0.59.1 (`code-kit` stays 0.24.0).
 
 ## [0.41.0] — 2026-10-12
 

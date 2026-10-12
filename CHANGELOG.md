@@ -12,7 +12,7 @@ All notable changes to this project are documented here. The format follows
 - **The chat list offers "— (server picks)" again.** The model selection of every chat row has this option (the old "server decides"); choosing it removes the model from that row, and the row sends no model name. **The embedding list does not offer it** (an index needs a named model): with a model set there is no empty option, and a row without a model shows only the placeholder "—". Measured in the DOM: the first embedding row (`qwen3-embedding:8b`) lists three models and no empty value, the first chat row lists "— (server picks)" first.
 - **Clearer status hints in both lists.** The tooltips of the status icons and the input hints use the kit's wording (EN/DE); the three richer texts of the embedding list were already the same.
 - **Long chat answers.** The removal of `<think>` blocks in the check of every chat answer is linear: 50 000 unclosed `<think>` took seconds before (code-kit 0.22.0), under a millisecond now.
-- The shared kit is updated to obsidian-kit 0.56.0 and code-kit 0.23.0 in one step (from 0.54.0 / 0.22.1).
+- The shared kit is updated to obsidian-kit 0.56.2 and code-kit 0.23.0 in one step (from 0.54.0 / 0.22.1).
 
 ## [0.40.0] — 2026-10-11
 

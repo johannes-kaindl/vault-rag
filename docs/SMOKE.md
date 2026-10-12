@@ -13,6 +13,12 @@ Jeder Vault trägt eine Kopie des Plugins und braucht `npm run deploy` (gemessen
 
 Die Bilanz zählt in vier Zuständen (grün · rot · übersprungen · nichts gemessen) gegen die Soll-Liste `PUNKTE`. Was im Staging-Vault nicht herstellbar ist (zweite Endpunkt-Zeile, Embedding-Endpunkt, Probe-Notiz, ein echtes llm-lab oder ein echter Endpoint Manager im Vault), ist „nichts gemessen“ und setzt wie Rot Exit 1. „Übersprungen“ kommt in diesem Treiber nicht vor. Abbruch ist Exit 2.
 
+## Stub-Lage und `--only` (seit Welle 20)
+
+Der volle Lauf schickt keine Anfrage an die Fixture-Endpunkte (Ollama `:11434`, LM Studio `:1234`): Die jeweils erste Zeile beider Listen zeigt auf den zentralen LLM-Stub (`tools/obsidian-cdp/llm-stub.ts`, Anfrage-Vektor ist der gespeicherte Vektor einer indexierten Notiz, die Chat-Zeile 1 trägt einen Schlüssel für das Icon), die zweite Zeile bleibt der tote Fixture-Port. Die Fixture-Listen schreibt das `finally` ganz zuletzt zurück, sonst überschreiben die mitten im Lauf gesicherten Listen (Heal, Reihenfolge) sie mit Stub-Adressen. „Nichts gemessen“ bleiben nur `search()` und die Selbstfindung (Rang 0 braucht das echte Embedding-Modell). Der Index im Staging-Vault entsteht weiterhin nur mit echtem Embedding-Endpunkt (`shots --prepare`).
+
+`--only w15,w16` fährt allein die Schlüsselbund-Sektionen (eigene Stub-Instanzen, Soll = ihre elf Punkte, Exit 0 bei grün). Die Stream-Punkte (Folge-Regel, Kontrolle mit token- und absatzgroßen Stücken, Denkblock live) stehen in Sektion 7j; gültig sind sie nur bei Überlauf ≥ 80 px und laufendem Strom, sonst „nichts gemessen“.
+
 ## Der Smoke braucht einen erreichbaren Embedding-Endpunkt
 
 ⚠️ **Läuft der lokale Ollama nicht, sieht der Lauf aus wie ein kaputter Index** (gemessen 2026-10-11, Welle 17): `shots --prepare` baut keinen Index, `status()` meldet `indexed=false`, und ein Dutzend Prüfpunkte (Kontext, Integrator, `related()`, `search()`) werden rot mit „no-index“ oder „Index NICHT geladen“ — kein Befund am Plugin. Vor dem Lauf: `curl -s localhost:11434/v1/embeddings -H 'content-type: application/json' -d '{"model":"qwen3-embedding:8b","input":["x"]}'` muss einen Vektor liefern. Auf dem M5 liegen die Modelle unter `~/Models/ollama`, nicht im Standardpfad: ein Start ohne `OLLAMA_MODELS=$HOME/Models/ollama ollama serve` meldet leere Modelle. Den Dienst, den man selbst gestartet hat, beendet man nach dem Lauf wieder.

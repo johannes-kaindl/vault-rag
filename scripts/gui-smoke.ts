@@ -45,6 +45,10 @@
  * `qwen/qwen3.6-27b`) und schickt echte Anfragen — bei JIT lädt LM Studio das Modell. Fehlt ein Endpunkt, sind die
  * Punkte daran „nichts gemessen“, kein Rot. LM Studio ist geteilt: vorher beim Master anmelden.
  *
+ * `--only w15,w16` fährt nur die Schlüsselbund-Sektionen (Welle 15/16): beide laufen gegen eigene Fake-Server auf der
+ * Node-Seite und schicken nichts an :1234/:11434. Die Soll-Liste ist dann ihre Teilmenge (Exit 0 bei grün); alle
+ * anderen Sektionen laufen nicht und stehen nicht im Nenner. Ein Gesamtlauf bleibt der Beleg für den Rest.
+ *
  * `--vault` ist optional (Default `vault-rag`, der Staging-Vault) und matcht exakt gegen `app.vault.getName()`.
  *
  * ## Bilanz in vier Zuständen (CORE-TEST-19)
@@ -77,7 +81,7 @@ import { cwd } from "node:process";
 import { createServer, type Server } from "node:http";
 
 import { Cdp, attachTo, bereiteInstanzVor, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
-import { createBilanz, parseArgs, runDriver } from "../../tools/obsidian-cdp/bilanz.js";
+import { createBilanz, parseArgs, runDriver, type Bilanz } from "../../tools/obsidian-cdp/bilanz.js";
 import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
 import { EN, DE } from "../src/i18n/strings";
@@ -235,7 +239,24 @@ interface HubProbe {
   focusable?: number;
   controls?: boolean;
 }
-const bilanz = createBilanz({ punkte: PUNKTE });
+/** `let`, weil `--only` die Soll-Liste auf die gewählte Teilmenge verkleinert (README § Bilanz, Welle-19-Lehre 2). */
+let bilanz: Bilanz = createBilanz({ punkte: PUNKTE });
+
+/** Sektionen, die `--only` einzeln wählbar macht: beide laufen gegen eigene Fake-Server auf der Node-Seite und
+ *  schicken nichts an die Fixture-Endpunkte (:1234/:11434). Alles andere ist der Rest (ohne `--only`). */
+const NUR_SEKTIONEN = { w15: W15_PUNKTE, w16: W16_PUNKTE } as const;
+type NurSektion = keyof typeof NUR_SEKTIONEN;
+
+/** `--only w15,w16` → Menge der Sektionen; `null` ohne Flag (voller Lauf). Unbekannte Namen brechen ab. */
+function parseNur(roh: string | undefined): Set<NurSektion> | null {
+  if (roh === undefined) return null;
+  const namen = roh.split(",").map((n) => n.trim().toLowerCase()).filter(Boolean);
+  const ok = namen.filter((n): n is NurSektion => n in NUR_SEKTIONEN);
+  if (namen.length === 0 || ok.length !== namen.length) {
+    throw new Error(`--only erwartet ${Object.keys(NUR_SEKTIONEN).join(" und/oder ")} (kommagetrennt), bekam ${JSON.stringify(roh)}.`);
+  }
+  return new Set(ok);
+}
 
 function record(name: string, passed: boolean, detail: string): void {
   bilanz.record(name as (typeof PUNKTE)[number], passed, detail);
@@ -343,6 +364,14 @@ async function main(): Promise<void> {
   }
   const vault = args.value("vault") ?? STAGING_VAULT;
   const keep = args.has("keep");
+  // Teillauf: nur die gewählten Sektionen, Soll-Liste = ihre Punkte. Der Rest läuft nicht und steht nicht im Nenner;
+  // er bleibt dem Gesamtlauf vorbehalten, der die LM-Endpunkte der Fixture braucht (Welle 20: LM-Regel).
+  const nur = parseNur(args.value("only"));
+  const laeuft = (s: NurSektion): boolean => nur === null || nur.has(s);
+  if (nur) {
+    bilanz = createBilanz({ punkte: [...nur].flatMap((s) => [...NUR_SEKTIONEN[s]]) });
+    console.log(`Teillauf --only ${[...nur].join(",")}: Soll = nur deren Prüfpunkte; alle anderen Sektionen werden nicht gefahren.\n`);
+  }
 
   console.log(`GUI-Smoke vault-retrieval — Obsidian auf Port ${port}\n`);
   // `attachTo` unterscheidet Haupt- und Einstellungen-Fenster an der Sache (nur das
@@ -505,6 +534,13 @@ async function main(): Promise<void> {
     const isChecking = (state: string | null): boolean => state === L.checking || state === LK.checking;
     console.log(`  (Oberflächensprache: ${uiLang} — Embedding „${L.active}" / „${L.unreachable}", Chat (Kit) „${LK.active}" / „${LK.unreachable}")\n`);
 
+    const MGR = "llm-endpoint-manager";
+    const MGR_MODEL = "w8-manager-modell";
+    const MGR_EMB_MODEL = "w8-fremdes-embedding-modell";
+
+    // Die Sektionen 0 bis 9 laufen nur im vollen Lauf; `--only` springt zu 7e2/7e3.
+    vorlauf: {
+    if (nur) break vorlauf;
     // --- 0. Plugin-API für Fremdplugins ------------------------------------
     // Der Aufruf läuft über CDP im Renderer, also exakt auf dem Weg, den ein anderes
     // Obsidian-Plugin nimmt (`app.plugins.plugins[id].api`) — nicht über internen Code.
@@ -1555,9 +1591,6 @@ async function main(): Promise<void> {
     // keiner zum Index-Modell passt" — der Modell-Guard muss auch fuer den Manager-Endpunkt gelten.
     // Der lokale Endpunkt der Fixture ist erreichbar; der Manager-Endpunkt zeigt bewusst auf
     // dieselbe URL, unterscheidbar bleibt er ueber Modell und Schluessel (nie ueber die URL).
-    const MGR = "llm-endpoint-manager";
-    const MGR_MODEL = "w8-manager-modell";
-    const MGR_EMB_MODEL = "w8-fremdes-embedding-modell";
     const mgrPre = await main.evaluate<{ ok: boolean; reason?: string }>(`
       const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
       if (!p.settings.chatEndpoints[0]?.url || !p.settings.embeddingEndpoints[0]?.url) return { ok: false, reason: "keine lokalen Endpunkte in der Fixture" };
@@ -1653,13 +1686,15 @@ async function main(): Promise<void> {
     }
 
 
+    } // Ende vorlauf
+
     // --- 7e2. Verbindungs-Tausch (Welle 15): Schlüsselbund, Neustarts, Schwärzung ---------------
     // Gegen einen FAKE-Endpunkt auf der Node-Seite: er zeichnet Body und Header auf und spiegelt
     // den Platzhalter, den er im gesendeten Text findet, in seine Antwort (wie ein Modell, das die
     // Stelle zitiert). CORS-Kopfzeilen und Preflight, weil das Plugin per XHR aus app://obsidian.md
     // fragt. Die Chat-Liste wird für den Block auf diesen Endpunkt gestellt und im finally
     // zurückgeschrieben.
-    {
+    if (laeuft("w15")) {
       const W15_KEY = "w15-schluessel-geheim";
       const W15_TOKEN = "Bearer abcdefghijklmnopqrstuvwxyz0123456789";
       const seen: { auth: string | undefined; body: string }[] = [];
@@ -1797,7 +1832,7 @@ async function main(): Promise<void> {
     // schlüssellosen Embedder — deshalb zusätzlich der Bearer an Probe UND embed, nach zwei
     // Neustarts, und eine Gegenprobe mit einer nicht hydrierten Zeile. Der Treiber baut den Vault
     // nicht aus dem Fixture: Listen und Schlüsselbund werden im finally zurückgesetzt.
-    {
+    if (laeuft("w16")) {
       const W16_KEY = "w16-embedding-schluessel";
       const W16_CHAT_KEY = "w16-chat-schluessel";
       const seen16: { method: string; auth: string | undefined }[] = [];
@@ -1920,6 +1955,9 @@ async function main(): Promise<void> {
     }
 
 
+    // Die Sektionen 7f bis 8 laufen nur im vollen Lauf.
+    nachlauf: {
+    if (nur) break nachlauf;
     // --- 7f. Index-Ordner ausblenden: Ziel ist das Hauptfenster, auch mit Pop-out ---------------
     // Kit `folder-hide` (Welle 11). Die alte Bauart hing das Blatt an `activeDocument`; steht beim
     // Laden ein Pop-out im Vordergrund, landet es dort statt beim Explorer (slide-deck 0.4.0 lud so
@@ -2524,6 +2562,7 @@ async function main(): Promise<void> {
           ? `„${healOwn.join(" | ").slice(0, 160)}“`
           : `keine EIGENE Notice waehrend des Laufs${healForeign.length ? ` (${healForeign.length} fremde gesehen und verworfen)` : ""}`);
     }
+    } // Ende nachlauf
 
   } finally {
     if (labStubbed) {

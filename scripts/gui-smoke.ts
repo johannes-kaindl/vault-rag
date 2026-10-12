@@ -915,7 +915,10 @@ async function main(): Promise<void> {
         "Warn-/Schlüssel-Icons bleiben in der Feldzeile",
         misplaced.length === 0,
         misplaced.length ? `${misplaced.length} Zeile(n) mit Icon unter dem Text (order-Fix wirkt nicht)` : `${withWarn.length} Zeile(n) geprüft`,
-      );
+      );    } else {
+      // Der Gegenstand fehlt: keine Zeile trägt ein Warn- oder Schlüssel-Icon (die Fixture-Zeilen tragen weder Schlüssel noch
+      // Warnung). Der alte Treiber ließ den Punkt dann still weg; er gehört als „nichts gemessen“ in die Bilanz.
+      unmeasured("Warn-/Schlüssel-Icons bleiben in der Feldzeile", "keine Zeile mit Warn- oder Schlüssel-Icon in dieser Konfiguration (die Fixture hat keinen Schlüssel)");
     }
 
     // --- 6. Klick: zuerst verwenden -----------------------------------------

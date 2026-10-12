@@ -44,7 +44,7 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 
 | Setting | Effect | Default |
 |---|---|---|
-| Embedding endpoints | OpenAI-compatible servers, local or hosted; each row has a connection test, an optional API key and its model. A candidate endpoint whose model doesn't match the index is skipped, and any write from a mismatched model is blocked rather than mixing vector spaces — see [Explanation → Why an endpoint's model has to match](../explanation/index.md#why-an-endpoints-model-has-to-match) | `http://localhost:11434` · `qwen3-embedding:8b` |
+| Embedding endpoints | OpenAI-compatible servers, local or hosted; each row has a connection test, an optional API key and its model (an index needs a named model, so the model list of an embedding row has no "server picks" entry) and shows the model's context length when the server names it. A candidate endpoint whose model doesn't match the index is skipped, and any write from a mismatched model is blocked rather than mixing vector spaces — see [Explanation → Why an endpoint's model has to match](../explanation/index.md#why-an-endpoints-model-has-to-match) | `http://localhost:11434` · `qwen3-embedding:8b` |
 | Debounce | Debounce between saving a note and re-embedding it | `3000` ms |
 | Progress in status bar | Shows embedding progress; revealed automatically during a reindex | off |
 

@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.41.1] — 2026-10-12
+
 ### Changed
 
 - **Endpoint lists (chat and embedding): the "move to front" and "remove endpoint" buttons stay together, and the address and the model ID stay fully visible at a normal window width.** When the row is too narrow, the block of model and buttons moves as a whole to a second row, right-aligned; nothing stands alone and nothing is cut off (obsidian-kit 0.59.1).

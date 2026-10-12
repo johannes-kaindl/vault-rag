@@ -110,35 +110,7 @@ retrieval_facade.ts  Gemeinsame obsidian-freie Fassade über Retriever/Embedder 
                   getypte Result-Unions (hits/no-index/offline/not-indexed/…), nie throw.
                   resolveNotePath (Path-Guard) lebt hier. Kein this.retriever-Feld mehr.
 chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker.py).
-endpoint_config.ts EndpointConfig { url, apiKey?, model? } · authHeaders (EINZIGE Stelle, an der
-                  ein Bearer aus einem Endpunkt-/Anbieter-Schlüssel gebaut wird — der MCP-Server
-                  baut seinen Loopback-Token-Bearer separat) · rowModel (Zeilen-Modell, getrimmt —
-                  seit 0.31.0 die einzige Quelle; Feature-Modell schlägt Zeile — E1, 2026-09-07, Preis:
-                  laut an fremdem Fallback-Endpunkt — liegt seit Welle 15 in `ChatClient.stream`:
-                  ein nicht leeres `opts.model` gewinnt, leer lässt die Verbindung das Zeilen-Modell
-                  nehmen) · migrateEndpointList (Re-Export aus dem Kit, behält `id`/`secretId`) (alte String-Liste → Configs) ·
-                  applyEndpointEdit (Zeilen-Bearbeitung bei blur, Feld-Diskriminator
-                  "url"|"apiKey"|"model") · carriesApiKey (verlässlicher Drittanbieter-Indikator
-                  für die Settings-UI — der Schlüssel, NICHT die URL: ein eigener Server im LAN/VPN
-                  braucht auch keinen) · moveEndpointToFront (die Liste IST die Priorität —
-                  Umsortieren an Index 0 ist die einzige Wahrheit, welcher Endpunkt bevorzugt wird;
-                  Index 0/außerhalb liefert eine unveränderte Kopie statt Fehler) · endpointRole/
-                  describeEndpointRole (EndpointRole-Ableitung "active"|"standby"|"unreachable"|
-                  "skipped-model" + ihr Zeilentext — reine Ableitung aus Zutaten, die die Settings-UI
-                  bereits kennt, keine eigene Wahrheit über Aktivität; Prüfreihenfolge ist
-                  bedeutungstragend: aktiv schlägt alles, dann nicht-erreichbar vor Modell-Mismatch) ·
-                  endpointStatusText/endpointWarningText/endpointInputWarnings (die Grenze zur
-                  vendorten Kit-Diagnose: sie liefert zu jedem Befund einen Code UND fest deutschen
-                  Klartext — hier wird ausschließlich der Code übersetzt, `klartext` nie gelesen.
-                  `endpointStatusText` switcht `EndpointStatusKind` erschöpfend, ein Kit-Update mit
-                  neuem Code bricht also den Compiler statt still deutschen Text durchzulassen;
-                  `rule` ist im Kit nur `string`, dort fällt eine unbekannte Regel bewusst auf den
-                  Kit-Text zurück. `endpointInputWarnings` kapselt `validateEndpointInput` und gibt
-                  fertige Strings — der einzige Aufruf im Repo, bewacht von
-                  `tests/i18n/diagnostic_codes.test.ts`).
-                  Obsidian-frei. **Einzige öffentliche Fläche** — weder
-                  settings.ts noch settings_core.ts reichen diese Helfer durch; Aufrufer
-                  importieren direkt hier.
+endpoint_config.ts Dünner Re-Export des Kit-Moduls `src/vendor/kit/endpoint_config.ts` (seit Welle 15 und der Verbindung `createLlmConnection` gibt es hier keine eigene Logik mehr): `EndpointConfig { url, apiKey?, model? }`, `authHeaders` (EINZIGE Stelle, an der ein Bearer aus einem Endpunkt-/Anbieter-Schlüssel gebaut wird; der MCP-Server baut seinen Loopback-Token-Bearer separat), `rowModel` (Zeilen-Modell, getrimmt, einzige Quelle seit 0.31.0; ein nicht leeres `opts.model` am Feature gewinnt in `ChatClient.stream`, leer lässt die Verbindung das Zeilen-Modell nehmen), `migrateEndpointList` (alte String-Liste → Configs, behält `id`/`secretId`), `applyEndpointEdit`, `moveEndpointToFront` (die Liste IST die Priorität), `carriesApiKey` (der Schlüssel zeigt den Drittanbieter, nicht die URL), `endpointRole`/`EndpointRole`. Die Texte zu Status und Eingabe-Regeln (`endpointStatusText`, `endpointWarningText`) liegen im vendorten Kit-Modul `src/vendor/kit-obsidian/endpoint-status-text.ts` und kommen über das Kit-Listenbündel in die Oberfläche; `describeEndpointRole` und `endpointInputWarnings` gibt es nicht mehr. Obsidian-frei. Aufrufer importieren direkt hier, settings.ts und settings_core.ts reichen diese Helfer nicht durch.
 managed_endpoint.ts  Obsidian-freie Endpunkt-Wahl des EMBEDDINGS über den LLM Endpoint Manager (Kit `endpoint-source`): `resolveManagedEmbedding` liefert Zeile, `active`, `mismatch`/`noModel`. Nur der Manager-Pfad — ohne Manager läuft die lokale Liste in `main.ts` (`resolveAndReconnectEmbedder`), dort liegen ihre Regeln. Gesendet und gegen den Index geprüft wird die aufgelöste Schreibweise (`sentModel`), nie `config.model` des Managers (der trägt das Standardmodell und würde die Nutzerwahl überschreiben, lingotuner-Fund C1). Die Zeile trägt den Schlüssel nur im Speicher. Die CHAT-Auflösung (Manager oder lokale Liste mit Schlüsselbund) liegt seit Welle 15 in der Kit-Verbindung `createLlmConnection`; `connection_options.ts` hält die Optionen (Modi, Budget je Modus, `levelPicker`, Settings-Abbildung), `tests/chat_manager.test.ts` die Manager-Regeln.
 request_profile.ts  Anfrage-Profile (Welle 14): die Werte, die das Plugin sendet, entscheidet die Kit-Tabelle `sampling-profiles`; hier stehen nur die MODI je Aufrufstelle (`MODE_CHAT` = `grounded`, `MODE_SMART_APPLY` = `structured`, `MODE_REFORMAT` = `transform`, `PLUGIN_MODES`) und die einmalige Legacy-Migration `migrateLegacySampling` (Chat-/Smart-Apply-Temperatur ≠ altem Default → Überschreibung unter `unknown`, die beiden „Thinking unterdrücken“-Schalter → Denk-Stufe je Modus). Seit Welle 15 baut die Kit-Verbindung die Parameter selbst (die Wrapper `build*Params` und `SourceFacts` sind entfallen); die goldenen Requests (`tests/request-golden.test.ts`, 45 Zeilen ausgeschrieben, nicht als Snapshot) messen den Body, der durch die echte Verbindung in den Transport geht. Obsidian-frei.
 request_text.ts   `requestText(gruppe, id)` (aus lingotuner übernommen, Herkunftsstempel): der Schlüssel entsteht erst dort, weil der Schlüssel-Wächter Template-Literale in `t()` nicht auflösen kann; gruppiert ist nur noch `request.level` (Denk-Knopf), die Vollständigkeit bewacht `tests/request_text.test.ts` gegen die Kit-Tabelle. Die Abweichungs-Texte und alle Texte des Abschnitts „Anfrage“ kommen seit Welle 15 aus dem Kit (`llm-connection-strings`).
@@ -481,25 +453,7 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 
 ## Gotchas
 
-**Der Endpunkt-Status-Tooltip ist hart deutsch, auch in englischer Oberfläche.**
-`settings.ts` reicht `status.klartext` aus dem Kit direkt an `setTooltip` — und das
-Kit-Feld `EndpointStatus.klartext` ist **hart deutscher Text**, unabhängig von der
-eingestellten Sprache. Dieses Repo hat eine eigene i18n-Schicht (`src/i18n/`), umgeht sie
-an dieser Stelle aber. Gemessen 2026-08-16 im Consumer-Sweep über alle Repos mit
-gevendortem `endpoint_diagnostics.ts`.
-
-**`applyEndpointEdit` existiert zweimal — lokal (`src/endpoint_config.ts`, vom Chat-Panel
-genutzt) und vendored (`src/vendor/kit/endpoint_config.ts`, vom Kit-Listeneditor). Heute
-byte-gleich (gemessen 2026-09-07); driften sie, editieren Chat-Panel und Einstellungsliste
-dieselbe Liste nach verschiedenen Regeln. Zusammenlegen ist Kit-Arbeit.**
-
-**Fix-Muster:** eigene Statusschlüssel statt des Kit-Klartexts — `statusKindKey(kind)`
-bildet die Statusklasse auf einen i18n-Schlüssel ab, das Wörterbuch führt EN und DE
-(Referenz: `yijing-oracle` und `obsidian-transmute`). Dazu gehört ein
-Vollständigkeits-`Record<EndpointStatusKind, true>` im Test, sonst fehlt beim nächsten
-Kit-Update still eine Klasse (CORE-TEST-04). **Nebeneffekt, der den Aufwand rechtfertigt:**
-danach ist auch die Klasse `unauthorized` (401/403) übersetzbar, die es hier bisher
-gar nicht bis in die Oberfläche schafft.
+**Der Kit-Klartext der Endpunkt-Diagnose ist hart deutsch — gelesen wird nur der Code.** Das Kit-Feld `EndpointStatus.klartext` ist fest deutscher Text, unabhängig von der Sprache (gemessen 2026-08-16 im Consumer-Sweep). Dieses Repo liest es nie: `endpointStatusText(kind, { lang })` und `endpointWarningText` aus dem vendorten Kit (`src/vendor/kit-obsidian/endpoint-status-text.ts`) übersetzen den Code in beide Sprachen, die Embedding-Liste und die Verbindung (`llm-connection-strings`) nutzen sie. Bewacht wird das von `tests/i18n/diagnostic_codes.test.ts` (kein `.klartext` im eigenen Code, kein eigener Aufruf von `validateEndpointInput`); den erschöpfenden Wächter über `EndpointStatusKind` trägt das Kit (`tests/endpoint-status-text.test.ts`, seit obsidian-kit 0.56.0). Ein Kit-Update mit neuer Statusklasse bricht dort am Typcheck, bevor ein roher Schlüssel die Oberfläche erreicht (CORE-TEST-04).
 
 - **`setLang()` läuft in `onload`, Modul-Konstanten werden beim `import` ausgewertet — davor.**
   Ein `t()`, das an Modul-Ebene steht (z.B. `const X = t("foo")` oder in einem Objektliteral,
@@ -533,8 +487,8 @@ gar nicht bis in die Oberfläche schafft.
   Erzeugung und Senke keine Literalstelle mehr — der Sink-Guard kann ihn strukturell nicht
   sehen. Ein Sprach-Scan über Rückgabewerte wäre die naheliegende Erweiterung und **ist die
   falsche Bauart** (in 0.22.0 durchgefallen). Belastbar ist nur, den Text gar nicht erst
-  entstehen zu lassen: `blockedMessage(kind, …)` (`main.ts`), `describeEndpointRole`/
-  `endpointStatusText` (`endpoint_config.ts`), `describeStartError` (`mcp_diagnostics.ts`)
+  entstehen zu lassen: `blockedMessage(kind, …)` (`main.ts`), `endpointStatusText`
+  (Kit, `endpoint-status-text.ts`), `describeStartError` (`mcp_diagnostics.ts`)
   und der `reason`-Code der Plugin-API sind dieselbe Regel in fünf Ausprägungen. Wo der Typ
   das erzwingen kann, ist er der Wächter (`StartErrorReason` ist kein String; `EndpointStatusKind`
   wird erschöpfend geswitcht) — sonst greift `tests/i18n/diagnostic_codes.test.ts`.
@@ -579,9 +533,7 @@ gar nicht bis in die Oberfläche schafft.
   englische Notiz aufräumt, hat den Mismatch weiterhin (eine Notizsprach-Erkennung wäre eine
   Heuristik über Inhalt und damit eine eigene Entscheidung).
 
-  Der Rohzugang zu `validateEndpointInput` ist deshalb in `endpointInputWarnings`
-  gekapselt — solange ein Aufrufer das rohe `EndpointWarning` hält, kann er an der deutschen
-  `message` vorbeigreifen, und ein Wächter kann das nur raten.
+  Der Rohzugang zu `validateEndpointInput` liegt deshalb beim Kit-Listenbündel (`endpointList.warnings` übersetzt die Regeln selbst); eigener Code ruft die Funktion nicht, bewacht von `tests/i18n/diagnostic_codes.test.ts`. Solange ein Aufrufer das rohe `EndpointWarning` hielte, könnte er an der deutschen `message` vorbeigreifen, und ein Wächter kann das nur raten.
 - **`data.json`** ist die von Obsidian persistierte Plugin-Konfig (`saveData`) — maschinen-/vault-spezifisch,
   daher git-ignored (nicht committen).
 - **`_vaultrag/` ist bewusst kein Dot-Ordner:** Obsidian Sync ignoriert Dot-Ordner. Daher braucht

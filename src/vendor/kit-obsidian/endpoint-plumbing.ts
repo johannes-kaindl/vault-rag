@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.54.0, src/obsidian/endpoint-plumbing.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.56.0, src/obsidian/endpoint-plumbing.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Die Verdrahtung der lokalen Endpunkt-Liste, die `createLlmConnection` (Chat) und `createLlmConnection` mit
  *  `capability: "embedding"` gemeinsam brauchen: der synchrone `persist`-Wächter, Erreichbarkeit und Modellliste einer Zeile
  *  (`GET /v1/models`, 5 s), die hydrierte Kopie mit Schlüssel und die Modellwahl eines Panels. Eigenes Modul statt zwei
@@ -8,8 +8,11 @@ import { normalizeEndpoint } from "../kit/endpoint";
 import { applyEndpointEdit, authHeaders, type EndpointConfig } from "../kit/endpoint_config";
 import { classifyEndpointStatus, extractModelIds, type EndpointStatus } from "../kit/endpoint_diagnostics";
 import type { ModelListClient } from "../kit/model-list-cache";
+import type { CapabilityFetch } from "../kit/capabilities";
+import { fetchModelContext, type ModelContext } from "../kit/model-context";
 import type { EndpointChoice, EndpointSourceResult } from "../kit/endpoint-source";
 import type { ClockPort } from "./clock";
+import { requestUrlCapabilityFetch } from "./backend-probe";
 import { hydrateLocalEndpoints } from "./endpoint-secrets";
 import { findEndpointManager } from "./endpoint-source";
 
@@ -26,6 +29,17 @@ export interface EndpointPlumbingOptions<S extends PlumbingSettings> {
   persist(patch: Partial<S>): Promise<void>;
   probe?: (cfg: EndpointConfig) => Promise<boolean>;
   listModels?: (cfg: EndpointConfig) => Promise<string[]>;
+  /** Transport für die Kontextlänge (Default: `requestUrlCapabilityFetch`; die Header der Zeile mischt die Hülle ein). */
+  contextFetch?: CapabilityFetch;
+}
+
+/** Kontextlänge je Zeile, gemerkt je (URL, Modell) — ein Zwischenspeicher der Verbindung, nicht des Zeichnens
+ *  (`renderSettings` leert seinen Container und ruft die Liste neu). */
+export interface EndpointContextSource {
+  load(cfg: EndpointConfig): Promise<ModelContext | null>;
+  /** Vergisst alle Einträge der URL (Knopf „Modelle neu laden“). */
+  invalidate(cfg: EndpointConfig): void;
+  clear(): void;
 }
 
 export interface EndpointPlumbing<S extends PlumbingSettings> {
@@ -37,6 +51,8 @@ export interface EndpointPlumbing<S extends PlumbingSettings> {
   clientFor: (cfg: EndpointConfig) => { probe(): Promise<EndpointStatus> } & ModelListClient;
   /** Modellwahl eines Panels (`setModel`): Manager → nur `choice.model`; lokal → Modell der aktiven Zeile. */
   applyModel: (m: string, resolve: (opts?: { force?: boolean }) => Promise<EndpointSourceResult>) => Promise<void>;
+  /** Kontextlänge des Zeilen-Modells (`model-context`): mit dem Schlüssel der Zeile, 5 s je Versuch, nie ein Fehler. */
+  modelContext: EndpointContextSource;
 }
 
 export function createEndpointPlumbing<S extends PlumbingSettings>(o: EndpointPlumbingOptions<S>): EndpointPlumbing<S> {
@@ -106,5 +122,27 @@ export function createEndpointPlumbing<S extends PlumbingSettings>(o: EndpointPl
     await resolve({ force: true });
   }
 
-  return { persist, probeOf, listOf, clientFor, applyModel };
+  // Die Header der Zeile (Schlüssel) mischt die Hülle ein: `requestUrlCapabilityFetch` sendet von sich aus keine.
+  const baseFetch = o.contextFetch ?? requestUrlCapabilityFetch;
+  const contextCache = new Map<string, Promise<ModelContext | null>>();
+  const contextKey = (cfg: EndpointConfig): string => `${normalizeEndpoint(cfg.url)}\n${cfg.model?.trim() ?? ""}`;
+  const modelContext: EndpointContextSource = {
+    load: (cfg) => {
+      const key = contextKey(cfg);
+      let hit = contextCache.get(key);
+      if (!hit) {
+        const auth = authHeaders(hydrated(cfg).apiKey);
+        hit = fetchModelContext((req) => baseFetch({ ...req, headers: { ...auth, ...(req.headers ?? {}) } }), normalizeEndpoint(cfg.url), cfg.model?.trim() ?? "", { timers: o.clock });
+        contextCache.set(key, hit);
+      }
+      return hit;
+    },
+    invalidate: (cfg) => {
+      const prefix = `${normalizeEndpoint(cfg.url)}\n`;
+      for (const k of [...contextCache.keys()]) if (k.startsWith(prefix)) contextCache.delete(k);
+    },
+    clear: () => { contextCache.clear(); },
+  };
+
+  return { persist, probeOf, listOf, clientFor, applyModel, modelContext };
 }

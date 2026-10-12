@@ -1,30 +1,139 @@
 {
   "sources": {
-    "obsidian-kit": { "ref": "0.54.0" },
-    "code-kit": { "ref": "0.22.1" }
+    "obsidian-kit": {
+      "ref": "0.56.0"
+    },
+    "code-kit": {
+      "ref": "0.23.0"
+    }
   },
   "targets": [
     {
-      "dir": "src/vendor/kit", "source": "code-kit", "from": "src/ts/pure",
-      "modules": ["backend-probe", "capabilities", "chunker", "cooperative-yield", "crc32", "embed-vector", "embeddings-client", "index-container", "index-delta", "index-guard", "index-store", "live-indexer", "retrieval-facade", "vector-index", "endpoint", "endpoint_config", "endpoint_diagnostics", "error_body", "i18n", "model-choice", "model-list-cache", "reasoning", "redact", "rotation", "run-state", "sampling-profiles", "secrets", "settings", "sse", "think-splitter", "timeout"]
+      "dir": "src/vendor/kit",
+      "source": "code-kit",
+      "from": "src/ts/pure",
+      "modules": [
+        "backend-probe",
+        "capabilities",
+        "chunker",
+        "cooperative-yield",
+        "crc32",
+        "embed-vector",
+        "embeddings-client",
+        "index-container",
+        "index-delta",
+        "index-guard",
+        "index-store",
+        "live-indexer",
+        "retrieval-facade",
+        "vector-index",
+        "endpoint",
+        "endpoint_config",
+        "endpoint_diagnostics",
+        "error_body",
+        "i18n",
+        "model-choice",
+        "model-list-cache",
+        "reasoning",
+        "redact",
+        "rotation",
+        "run-state",
+        "sampling-profiles",
+        "secrets",
+        "settings",
+        "sse",
+        "think-splitter",
+        "timeout",
+        "model-context"
+      ]
     },
     {
-      "dir": "src/vendor/kit", "source": "code-kit", "from": "src/ts/web",
-      "modules": ["clipboard"]
+      "dir": "src/vendor/kit",
+      "source": "code-kit",
+      "from": "src/ts/web",
+      "modules": [
+        "clipboard"
+      ]
     },
     {
-      "dir": "src/vendor/kit", "source": "obsidian-kit", "from": "src/pure",
-      "modules": ["callout", "endpoint-secret-hook", "endpoint-source", "folder-hide", "frontmatter"],
-      "rewrite": [["../vendor/code-kit/pure/", "./"], ["../vendor/code-kit/web/", "./"]]
+      "dir": "src/vendor/kit",
+      "source": "obsidian-kit",
+      "from": "src/pure",
+      "modules": [
+        "callout",
+        "endpoint-secret-hook",
+        "endpoint-source",
+        "folder-hide",
+        "frontmatter"
+      ],
+      "rewrite": [
+        [
+          "../vendor/code-kit/pure/",
+          "./"
+        ],
+        [
+          "../vendor/code-kit/web/",
+          "./"
+        ]
+      ]
     },
     {
-      "dir": "src/vendor/kit-obsidian", "source": "obsidian-kit", "from": "src/obsidian",
-      "modules": ["backend-probe", "chat-client", "chat-transport", "clock", "lab-client", "clipboard", "collapsible", "confirm", "embedding-connection", "endpoint-list", "endpoint-plumbing", "endpoint-secrets", "endpoint-source", "folder-hide", "folder-suggest", "help-setting", "hit-list", "hub", "llm-connection", "llm-connection-strings", "model-picker", "request-section", "request-session", "secrets", "settings_walker", "shortcuts-bridge", "stream-area", "thinking-control"],
-      "rewrite": [["../vendor/code-kit/pure/", "../kit/"], ["../vendor/code-kit/web/", "../kit/"], ["../pure/", "../kit/"]]
+      "dir": "src/vendor/kit-obsidian",
+      "source": "obsidian-kit",
+      "from": "src/obsidian",
+      "modules": [
+        "backend-probe",
+        "chat-client",
+        "chat-transport",
+        "clock",
+        "lab-client",
+        "clipboard",
+        "collapsible",
+        "confirm",
+        "embedding-connection",
+        "endpoint-list",
+        "endpoint-plumbing",
+        "endpoint-secrets",
+        "endpoint-source",
+        "folder-hide",
+        "folder-suggest",
+        "help-setting",
+        "hit-list",
+        "hub",
+        "llm-connection",
+        "llm-connection-strings",
+        "model-picker",
+        "request-section",
+        "request-session",
+        "secrets",
+        "settings_walker",
+        "shortcuts-bridge",
+        "stream-area",
+        "thinking-control",
+        "endpoint-status-text"
+      ],
+      "rewrite": [
+        [
+          "../vendor/code-kit/pure/",
+          "../kit/"
+        ],
+        [
+          "../vendor/code-kit/web/",
+          "../kit/"
+        ],
+        [
+          "../pure/",
+          "../kit/"
+        ]
+      ]
     },
     {
-      "dir": "tests/vendor/kit", "source": "obsidian-kit", "from": "src/testing",
-      "modules": ["kit-css"]
+      "dir": "tests/vendor/kit",
+      "source": "obsidian-kit",
+      "from": "src/testing",
+      "modules": [
+        "kit-css"
+      ]
     }
   ]
 }

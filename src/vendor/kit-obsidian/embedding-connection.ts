@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.54.0, src/obsidian/embedding-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.56.0, src/obsidian/embedding-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Die Embedding-Anbindung eines Fachplugins (`createLlmConnection({ capability: "embedding" })`): Endpunkt-Quelle (Manager oder
  *  lokale Liste mit Schlüsselbund), gemerkte Auflösung mit Index-Passung, Modellliste, ein `Embedder` (code-kit) und der
  *  Settings-Abschnitt für Quelle und Liste. Schmaler als die Chat-Verbindung: kein Modus, kein Anfrage-Abschnitt, kein Streaming,
@@ -58,6 +58,9 @@ export interface EmbeddingConnectionOptions {
   probe?: (cfg: EndpointConfig) => Promise<boolean>;
   /** Modell-Ids einer lokalen Zeile (Default: `GET /v1/models`). */
   listModels?: (cfg: EndpointConfig) => Promise<string[]>;
+  /** Zeigt in der lokalen Endpunkt-Liste unter jeder erreichbaren Zeile mit Modell die Kontextlänge („geladen N · max M“),
+   *  wenn der Server sie nennt (LM Studio, Ollama). Default an; `false` schaltet sie ab. */
+  contextLength?: boolean;
   managerOnly?: boolean;
   /** Index-Passung (Closure über den Index-Stand des Plugins). Fehlt sie, passt jede Zeile mit Modell. */
   accept?: (cfg: EndpointConfig, model: string) => EmbeddingAccept;
@@ -311,6 +314,7 @@ export function createEmbeddingConnection(o: EmbeddingConnectionOptions): Embedd
           save: () => saved,
           reconnect: async () => { invalidate(); await resolve().catch(() => undefined); },
           rerender, app: o.app, pluginId: o.pluginId,
+          ...(o.contextLength === false ? {} : { modelContext: plumbing.modelContext }),
         });
       },
       rerender,
@@ -319,6 +323,6 @@ export function createEmbeddingConnection(o: EmbeddingConnectionOptions): Embedd
 
   return {
     resolve, invalidate, models, rowStates, embedder: () => embedder, setModel, modelInUse, renderSettings,
-    hideSettings: () => settingsCache.clear(),
+    hideSettings: () => { settingsCache.clear(); plumbing.modelContext.clear(); },
   };
 }

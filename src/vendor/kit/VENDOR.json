@@ -1,10 +1,10 @@
 {
   "source": "code-kit",
   "note": "Verbatim snapshots (plus Herkunfts-Header in Zeile 1). Der Ordner heisst historisch 'kit'; die pure-Schicht kommt seit dem code-kit-Split aus code-kit, nur callout/frontmatter noch aus obsidian-kit. Never hand-edit. Pins in tools/kit-sync.json, re-vendor via tools/sync-kit.sh (zentrales kit-sync im Dach).",
-  "version": "0.22.1",
-  "sha": "c768f85",
-  "vendored": "backend-probe.ts, capabilities.ts, chunker.ts, cooperative-yield.ts, crc32.ts, embed-vector.ts, embeddings-client.ts, index-container.ts, index-delta.ts, index-guard.ts, index-store.ts, live-indexer.ts, retrieval-facade.ts, vector-index.ts, endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error_body.ts, i18n.ts, model-choice.ts, model-list-cache.ts, reasoning.ts, redact.ts, rotation.ts, run-state.ts, sampling-profiles.ts, secrets.ts, settings.ts, sse.ts, think-splitter.ts, timeout.ts, clipboard.ts",
-  "obsidian_kit_version": "0.54.0",
-  "obsidian_kit_sha": "76e535a",
+  "version": "0.23.0",
+  "sha": "5d9c0d6",
+  "vendored": "backend-probe.ts, capabilities.ts, chunker.ts, cooperative-yield.ts, crc32.ts, embed-vector.ts, embeddings-client.ts, index-container.ts, index-delta.ts, index-guard.ts, index-store.ts, live-indexer.ts, retrieval-facade.ts, vector-index.ts, endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error_body.ts, i18n.ts, model-choice.ts, model-list-cache.ts, reasoning.ts, redact.ts, rotation.ts, run-state.ts, sampling-profiles.ts, secrets.ts, settings.ts, sse.ts, think-splitter.ts, timeout.ts, model-context.ts, clipboard.ts",
+  "obsidian_kit_version": "0.56.0",
+  "obsidian_kit_sha": "8c1be18",
   "obsidian_kit_vendored": "callout.ts, endpoint-secret-hook.ts, endpoint-source.ts, folder-hide.ts, frontmatter.ts"
 }

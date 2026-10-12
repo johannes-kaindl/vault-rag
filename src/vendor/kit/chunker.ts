@@ -1,4 +1,4 @@
-// vendored from code-kit@0.22.1, src/ts/pure/chunker.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.23.0, src/ts/pure/chunker.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/chunker.ts, 2026-10-11 (Änderungen: `FRONTMATTER_RE` durch den linearen `stripFrontmatter` ersetzt, `noUncheckedIndexedAccess`-clean; Ergebnis unverändert)
 /** Splits Markdown into overlapping chunks for embedding: frontmatter off, a cut preferably at a heading, after a
  *  hard cut an overlap for continuity. Offsets refer to the text AFTER `stripFrontmatter` and `trim`.

@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.54.0, src/obsidian/llm-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.56.0, src/obsidian/llm-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Die LLM-Anbindung eines Fachplugins als EINE Komposition: Endpunkt-Quelle (Manager oder lokale
  *  Liste mit Schlüsselbund), gemerkte Auflösung, Modellliste, Anfrage-Parameter je Modus, Client mit
  *  Transport und Fristen, Prüfung der Antwort und beide Settings-Abschnitte.
@@ -52,21 +52,21 @@ import {
 import { requestUrlTransport, transportFor, xhrSseTransport } from "./chat-transport";
 import { realClock, type ClockPort } from "./clock";
 import { createObsidianBackendProbe } from "./backend-probe";
-import { buildEndpointList, type EndpointListStrings } from "./endpoint-list";
+import { buildEndpointList } from "./endpoint-list";
 import { prepareLocalEndpoints } from "./endpoint-secrets";
 import { createEndpointPlumbing } from "./endpoint-plumbing";
 import { createEmbeddingConnection, type EmbeddingConnection, type EmbeddingConnectionOptions } from "./embedding-connection";
-import { buildEndpointSourceSection, findEndpointManager, type EndpointSourceSectionStrings } from "./endpoint-source";
-import { buildRequestSection, type RequestSectionState, type RequestSectionStrings } from "./request-section";
+import { buildEndpointSourceSection, findEndpointManager } from "./endpoint-source";
+import { buildRequestSection, type RequestSectionState } from "./request-section";
 import { createRequestSession, type RequestSession } from "./request-session";
-import { LLM_CONNECTION_STRINGS_DE, LLM_CONNECTION_STRINGS_EN, resolveLlmConnectionStrings, type LlmConnectionStringsOverride } from "./llm-connection-strings";
+import { LLM_CONNECTION_STRINGS_DE, LLM_CONNECTION_STRINGS_EN, resolveLlmConnectionStrings, type LlmConnectionStrings, type LlmConnectionStringsOverride } from "./llm-connection-strings";
+
+export type { LlmConnectionStrings };
 
 export interface LlmConnectionSettings {
   endpoints: EndpointConfig[];
   /** Wahl am Manager; ohne Manager ohne Wirkung. */
   choice?: EndpointChoice;
-  /** Globales Modell der lokalen Liste (Rückfall nach dem Zeilen-Modell). */
-  model?: string;
   request?: RequestSettings;
 }
 
@@ -103,6 +103,9 @@ export interface LlmConnectionOptions {
   probe?: (cfg: EndpointConfig) => Promise<boolean>;
   /** Modell-Ids einer lokalen Zeile (Default: `GET /v1/models`). */
   listModels?: (cfg: EndpointConfig) => Promise<string[]>;
+  /** Zeigt in der lokalen Endpunkt-Liste unter jeder erreichbaren Zeile mit Modell die Kontextlänge („geladen N · max M“),
+   *  wenn der Server sie nennt (LM Studio, Ollama). Default an; `false` schaltet sie ab. */
+  contextLength?: boolean;
   /** Backend des Endpunkts, wenn der Manager es nicht nennt. Default: `createObsidianBackendProbe()`
    *  (je Verbindung ein eigener 30-s-Zwischenspeicher); überschreibbar. */
   backendOf?: (cfg: EndpointConfig) => Promise<BackendId | null>;
@@ -151,25 +154,6 @@ export interface LlmConnectionOptions {
   clock?: ClockPort;
 }
 
-export interface LlmConnectionStrings {
-  endpointSource: EndpointSourceSectionStrings;
-  endpointList: EndpointListStrings;
-  listLabel: string;
-  listDesc: string;
-  listPlaceholder: string;
-  /** Notice-Text einer Abweichung, die das Ergebnis ändert (Satz plus Verweis auf den Abschnitt). */
-  deviationNotice: (d: Deviation) => string;
-  /** Hinweiszeile unter einer Vorschau des GESENDETEN Textes: „N Stellen geschwärzt“ (`redactions`). */
-  redactedNote: (n: number) => string;
-  /** Hinweis in den Einstellungen mit `managerOnly`, wenn der Manager fehlt. */
-  noManager: string;
-  /** Text für ein lokales `kind: "no-endpoint"`. Optional, damit ein volles Bündel ohne dieses Feld
-   *  weiter übersetzt; das Default-Bündel trägt es immer. */
-  noEndpoint?: string;
-  /** `endpointSource.managedDesc` für `managerOnly`, ohne den Satz über die lokale Liste. */
-  managedDescManagerOnly: string;
-  request: RequestSectionStrings;
-}
 
 export interface NoEndpointResult {
   ok: false;
@@ -273,7 +257,7 @@ function createChatConnection(o: LlmConnectionOptions): LlmConnection {
     ...(message ? (o.notice ? { notice: o.notice } : {}) : { notice: () => {} }),
   });
   const backendProbe = createObsidianBackendProbe();
-  const backendOf = o.backendOf ?? ((cfg: EndpointConfig) => backendProbe(cfg.url, cfg.model ?? o.getSettings().model ?? "", cfg.apiKey));
+  const backendOf = o.backendOf ?? ((cfg: EndpointConfig) => backendProbe(cfg.url, cfg.model ?? "", cfg.apiKey));
   const modelCache = createModelListCache();
   const settingsCache = createModelListCache();
 
@@ -298,7 +282,6 @@ function createChatConnection(o: LlmConnectionOptions): LlmConnection {
       });
     const r = await resolveEndpointSource({
       manager, local, capability: o.capability, caller: o.caller,
-      ...(s.model !== undefined ? { localModel: s.model } : {}),
       ...(manager && s.choice ? { choice: s.choice } : {}),
       backendOf,
     }, async (cfg) => (o.managerOnly ? false : probeOf(cfg)));
@@ -497,10 +480,10 @@ function createChatConnection(o: LlmConnectionOptions): LlmConnection {
           set: (eps) => { saved = persist({ endpoints: eps }); },
           active: () => shown?.config?.url ?? null,
           clientFor,
-          ...(o.getSettings().model !== undefined ? { globalModel: () => o.getSettings().model ?? "" } : {}),
           save: () => saved,
           reconnect: async () => { invalidate(); await resolve().catch(() => undefined); },
           rerender, app: o.app, pluginId: o.pluginId,
+          ...(o.contextLength === false ? {} : { modelContext: plumbing.modelContext }),
         });
       },
       rerender,
@@ -518,7 +501,7 @@ function createChatConnection(o: LlmConnectionOptions): LlmConnection {
 
   return {
     resolve, invalidate, models, source, complete, renderSettings, setModel, modelInUse,
-    hideSettings: () => settingsCache.clear(),
+    hideSettings: () => { settingsCache.clear(); plumbing.modelContext.clear(); },
     session,
   };
 }

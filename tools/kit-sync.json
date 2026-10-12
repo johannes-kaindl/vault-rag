@@ -134,6 +134,14 @@
       "modules": [
         "kit-css"
       ]
+    },
+    {
+      "dir": "scripts/vendor",
+      "source": "obsidian-kit",
+      "from": "src/build",
+      "modules": [
+        "node-builtin-require.mjs"
+      ]
     }
   ]
 }

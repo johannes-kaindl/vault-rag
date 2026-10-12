@@ -174,6 +174,8 @@ const STREAM_PUNKTE = {
   rfKontrolle: "Umformulieren: der Ergebnisbereich folgt dem Strom ohne Störung (Kontrolle)",
   rfFolge: "Umformulieren: Hochscrollen mitten im Strom wird respektiert (Folge-Regel)",
   rfDenk: "Umformulieren: der Denkblock ist während des Stroms sichtbar und wächst (Denkblock live)",
+  saAbsatz: "Smart Apply: der Stream-Bereich folgt auch bei absatzgroßen Stücken (Kontrolle)",
+  rfAbsatz: "Umformulieren: der Ergebnisbereich folgt auch bei absatzgroßen Stücken (Kontrolle)",
 } as const;
 
 const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch wenn beim Laden ein Pop-out aktiv ist";
@@ -265,6 +267,28 @@ const NUR_SEKTIONEN = { w15: W15_PUNKTE, w16: W16_PUNKTE } as const;
 type NurSektion = keyof typeof NUR_SEKTIONEN;
 
 type StubHandle = Awaited<ReturnType<typeof startLlmStub>>;
+
+/** Sicht der Einstellungen auf den Manager: die ZEILE des Bausteins (Name „Endpoints come from the LLM Endpoint Manager“) und
+ *  die Zahl lokaler Endpunkt-Zeilen. Nicht der Produktname im Seitentext: der Request-Abschnitt nennt den Manager seit
+ *  obsidian-kit 0.59.0 immer im Hinweis, auch ohne Manager (Befund ln-w20, neurovim R5-3) — eine Textsuche über den Body
+ *  meldete damit „managed“ in jeder Lage. */
+async function liesManagerSicht(main: Cdp, port: number, vault: string): Promise<{ baustein: boolean; rows: number } | null> {
+  await main.evaluate(`app.setting.close();`);
+  await openSettings(main);
+  const sicht = await attachTo("settings", port, vault);
+  if (!sicht) { await main.evaluate(`app.setting.close();`); return null; }
+  try {
+    return await sicht.evaluate<{ baustein: boolean; rows: number }>(`
+      return {
+        baustein: [...document.querySelectorAll(".setting-item-name")].some((e) => /come from the LLM Endpoint Manager|kommen vom LLM Endpoint Manager/.test(e.textContent ?? "")),
+        rows: document.querySelectorAll(".okit-ep-row").length,
+      };
+    `);
+  } finally {
+    sicht.close();
+    await main.evaluate(`app.setting.close();`);
+  }
+}
 interface FolgeErgebnis { art: "ok" | "rot" | "ungueltig"; detail: string }
 
 /** Folge-Regel eines Stream-Bereichs, in einem Strom: erst die KONTROLLE (ohne Störung folgt der Bereich dem Strom), dann
@@ -316,8 +340,8 @@ async function messeFolge(cdp: Cdp, scrollSel: string, stub: StubHandle): Promis
   return { kontrolle, folge };
 }
 
-function zeichneFolge(namen: { kontrolle: string; folge: string }, r: { kontrolle: FolgeErgebnis; folge: FolgeErgebnis }): void {
-  for (const [name, e] of [[namen.kontrolle, r.kontrolle], [namen.folge, r.folge]] as const) {
+function zeichneFolge(namen: { kontrolle: string; folge: string }, r: { kontrolle: FolgeErgebnis; folge: FolgeErgebnis }, nurKontrolle = false): void {
+  for (const [name, e] of nurKontrolle ? [[namen.kontrolle, r.kontrolle] as const] : [[namen.kontrolle, r.kontrolle], [namen.folge, r.folge]] as const) {
     if (e.art === "ungueltig") unmeasured(name, `Messung ungültig: ${e.detail}`);
     else record(name, e.art === "ok", e.detail);
   }
@@ -1735,6 +1759,8 @@ async function main(): Promise<void> {
       try {
         // Fake-Manager aus der zentralen Brücke: beide Rollen, `config.model` = Standardmodell (wie der echte Manager,
         // lingotuner-Fund C1), der Schlüssel kommt in `resolve().config.apiKey` zurück; `caller` im Aufrufmitschnitt.
+        // Gegenprobe VOR dem Einbau: ohne Manager darf die Zeile des Bausteins nicht stehen, die lokalen Zeilen schon.
+        const ohneMgr = await liesManagerSicht(main, port, vault);
         await installFakeManager(main, {
           pluginId: MGR,
           endpunkte: [
@@ -1768,22 +1794,12 @@ async function main(): Promise<void> {
           m1.embActive === null && m1.embModel === MGR_EMB_MODEL,
           `active=${String(m1.embActive)} · Embedding-Modell ${String(m1.embModel)} (Index trägt ein anderes)`);
 
-        // Die Einstellungen leben seit 1.13 in einem eigenen Target: oeffnen im Hauptfenster,
-        // lesen dort (im Hauptfenster ist `app.setting.containerEl` leer).
-        await main.evaluate(`app.setting.close();`);
-        await openSettings(main);
-        const mgrSettings = await attachTo("settings", port, vault);
-        let m4 = { managed: false, rows: -1 };
-        if (mgrSettings) {
-          try {
-            m4 = await mgrSettings.evaluate<{ managed: boolean; rows: number }>(`
-              const body = document.body.textContent || "";
-              return { managed: /LLM Endpoint Manager/.test(body), rows: document.querySelectorAll(".okit-ep-row").length };
-            `);
-          } finally { mgrSettings.close(); }
-        }
-        await main.evaluate(`app.setting.close();`);
-        record(MGR_PUNKTE[3]!, m4.managed && m4.rows === 0, `Manager-Text ${m4.managed ? "da" : "fehlt"} · ${m4.rows} lokale Endpunkt-Zeilen`);
+        // Die Einstellungen leben seit 1.13 in einem eigenen Target (liesManagerSicht). Gegenprobe: ohne Manager keine
+        // Bausteinzeile und lokale Zeilen da — sonst misst der Punkt nur den Produktnamen im Seitentext.
+        const mitMgr = (await liesManagerSicht(main, port, vault)) ?? { baustein: false, rows: -1 };
+        const gegenOk = ohneMgr !== null && !ohneMgr.baustein && ohneMgr.rows > 0;
+        record(MGR_PUNKTE[3]!, mitMgr.baustein && mitMgr.rows === 0 && gegenOk,
+          `mit Manager: Bausteinzeile ${mitMgr.baustein ? "da" : "fehlt"} · ${mitMgr.rows} lokale Zeilen; Gegenprobe ohne Manager: Bausteinzeile ${ohneMgr?.baustein ? "DA" : "fehlt (richtig)"} · ${ohneMgr?.rows ?? "?"} lokale Zeilen`);
 
         const disk = await main.evaluate<string>(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
@@ -2558,6 +2574,8 @@ async function main(): Promise<void> {
       } else {
         const stub = stubLage;
         const zeilen = (k: number): string => Array.from({ length: k }, (_, i) => `Zeile ${String(i + 1).padStart(3, "0")}: abcdefghij klmnopqrs\n`).join("");
+        // Absatzgroße Stücke: fünf Zeilen je Stück.
+        const absaetze = (k: number): string[] => Array.from({ length: k }, (_, j) => Array.from({ length: 5 }, (_, i) => `Absatz ${String(j + 1).padStart(2, "0")} Zeile ${i + 1}: abcdefghij klmnopqrs\n`).join("") + "\n");
         const denken = "Ich ordne die Abschnitte der Vorlage zu und prüfe ihre Reihenfolge. ".repeat(10);
         // --- Smart Apply -----------------------------------------------------------------------------
         let saWas = false;
@@ -2587,7 +2605,7 @@ async function main(): Promise<void> {
             run.click();
             return true;`);
           if (!gestartet) {
-            for (const n of [N.saKontrolle, N.saFolge, N.saDenk]) unmeasured(n, "Lauf-Knopf nicht bedienbar (keine Vorlage/Notiz im Fixture?) — nichts gemessen");
+            for (const n of [N.saKontrolle, N.saFolge, N.saDenk, N.saAbsatz]) unmeasured(n, "Lauf-Knopf nicht bedienbar (keine Vorlage/Notiz im Fixture?) — nichts gemessen");
           } else {
             // Denkblock live: Reasoning wächst, bevor die Antwort beginnt.
             const denkSel = `const r = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning pre"); const t = document.querySelector(".vault-rag-sa-running-stream .okit-stream-tail"); const d = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning");
@@ -2603,9 +2621,24 @@ async function main(): Promise<void> {
             }
             // Folge-Regel in der Antwortphase (der Bereich selbst scrollt: .okit-stream-body, 220 px hoch).
             zeichneFolge({ kontrolle: N.saKontrolle, folge: N.saFolge }, await messeFolge(main, ".vault-rag-sa-running-stream .okit-stream-body", stub));
+            // Zweiter Lauf mit absatzgroßen Stücken (fünf Zeilen je Stück, jedes mehr als die Folge-Schwelle von 40 px): vor
+            // obsidian-kit 0.59.0 maß `followTail` „unten?“ erst NACH dem Wachsen und gab nach dem ersten Absatz auf.
+            await main.evaluate(`document.querySelector(".vault-rag-sa-stop")?.click(); return true;`);
+            await stub.trenneAlle();
+            await new Promise((r) => setTimeout(r, 1500));
+            stub.antworten([{ stuecke: absaetze(24), takt: 300, nachlaufMs: 6000 }]);
+            const nochmal = await main.evaluate<boolean>(`
+              const run = document.querySelector(".vault-rag-sa-run");
+              if (!run || run.disabled || run.classList.contains("is-disabled")) return false;
+              run.click(); return true;`);
+            if (!nochmal) unmeasured(N.saAbsatz, "Lauf-Knopf nach dem Abbruch nicht bedienbar — nichts gemessen");
+            else {
+              const ab = await messeFolge(main, ".vault-rag-sa-running-stream .okit-stream-body", stub);
+              zeichneFolge({ kontrolle: N.saAbsatz, folge: "" }, ab, true);
+            }
           }
         } catch (e) {
-          for (const n of [N.saKontrolle, N.saFolge, N.saDenk]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+          for (const n of [N.saKontrolle, N.saFolge, N.saDenk, N.saAbsatz]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
         } finally {
           await main.evaluate(`
             document.querySelector(".vault-rag-sa-stop")?.click();
@@ -2627,7 +2660,8 @@ async function main(): Promise<void> {
         // --- Umformulieren-Modal ---------------------------------------------------------------------
         skipped(N.rfDenk, "in dieser Lage nicht anwendbar: das Modal zeigt kein Reasoning (stream kennt nur onToken)");
         try {
-          stub.antworten([{ text: zeilen(120), laenge: 8, takt: 40, nachlaufMs: 6000 }]);
+          for (const variante of ["token", "absatz"] as const) {
+          stub.antworten([variante === "token" ? { text: zeilen(120), laenge: 8, takt: 40, nachlaufMs: 6000 } : { stuecke: absaetze(24), takt: 300, nachlaufMs: 6000 }]);
           const gestartet = await main.evaluate<boolean>(`
             let f = app.vault.getAbstractFileByPath("w14-body-probe.md");
             if (!f) f = await app.vault.create("w14-body-probe.md", "Ein kurzer Satz zum Umformen.\\n");
@@ -2651,10 +2685,21 @@ async function main(): Promise<void> {
             if (!usable.length) return false;
             usable[0].click();
             return true;`);
-          if (!gestartet) for (const n of [N.rfKontrolle, N.rfFolge]) unmeasured(n, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
-          else zeichneFolge({ kontrolle: N.rfKontrolle, folge: N.rfFolge }, await messeFolge(main, ".vault-rag-reformat-modal", stub));
+          if (!gestartet) for (const n of variante === "token" ? [N.rfKontrolle, N.rfFolge] : [N.rfAbsatz]) unmeasured(n, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
+          else if (variante === "token") zeichneFolge({ kontrolle: N.rfKontrolle, folge: N.rfFolge }, await messeFolge(main, ".vault-rag-reformat-modal", stub));
+          else zeichneFolge({ kontrolle: N.rfAbsatz, folge: "" }, await messeFolge(main, ".vault-rag-reformat-modal", stub), true);
+          // Modal verwerfen, Strom kappen, Notiz-Tab schließen, bevor die nächste Variante startet.
+          await main.evaluate(`
+            const m = document.querySelector(".vault-rag-reformat-result")?.closest(".modal");
+            const d = m && [...m.querySelectorAll("button")].find(b => /verwerf|discard/i.test(b.textContent || ""));
+            if (d) d.click();
+            try { window.__w20Leaf?.detach(); } catch {} delete window.__w20Leaf;
+            return true;`).catch(() => undefined);
+          await stub.trenneAlle();
+          await new Promise((r) => setTimeout(r, 800));
+          }
         } catch (e) {
-          for (const n of [N.rfKontrolle, N.rfFolge]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+          for (const n of [N.rfKontrolle, N.rfFolge, N.rfAbsatz]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
         } finally {
           await main.evaluate(`
             const m = document.querySelector(".vault-rag-reformat-result")?.closest(".modal");

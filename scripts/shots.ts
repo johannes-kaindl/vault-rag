@@ -16,22 +16,22 @@
  * durch ~20 Rezept-Koepfe und wurde dabei aus einem Beispiel zur Anweisung, bis die Vaults in zwei
  * konkurrierenden Verzeichnissen lagen (Dach-AGENTS.md, "Staging-Vaults: ein Ort, eine Variable").
  *
+ * Aufgenommen wird in einer **Zweitinstanz** mit eigenem Profil und eigenem Port; die reguläre Instanz (9222) wird nie
+ * angefasst und nie beendet. Der Port ist PFLICHT (`--port <n>`, Wert dieses Rezepts: 9399), es gibt keinen Standardport.
+ * Je Bild-Lauf ein frischer Prozess; die Oberfläche steht auf Englisch (`"language":"en"` in `$UD/obsidian.json`).
+ *
  * ```bash
  * npm run build && npm run shots -- --setup         # Vault aus dem Fixture bauen
+ * UD=/tmp/obs-test-vault-rag; mkdir -p "$UD"
+ * lsof -nP -iTCP:9399 -sTCP:LISTEN && echo "Port belegt — anderen nehmen"
+ * cp ~/Library/Application\ Support/obsidian/obsidian-<version>.asar "$UD"/
+ * node -e 'const p=process.env.STAGING_VAULTS_DIR+"/vault-rag";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{v:{path:p,ts:Date.now(),open:true}},language:"en"}))' "$UD"
+ * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 &
+ * #   ... beim ersten Mal dem Vault-Autor vertrauen, Reindex laufen lassen (oder `npm run shots -- --port 9399 --prepare`)
+ * python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-rag --intent "Bilder" --exclusive focus --port 9399 --ttl 900
  *
- * # Debug-Port — ⚠️ ERST FRAGEN, WER SONST AN DER INSTANZ HAENGT.
- * # Anders als beim GUI-Smoke ist Mitnutzen hier KEINE Alternative: das Rezept braucht
- * # einen echten Neustart (ein Bild pro Obsidian-Start, s. u.). Ein Quit trifft aber ALLE
- * # Fenster aller Sessions — am 2026-08-30 waren zeitweise zehn Fenster aus neun Sessions
- * # offen, und ein Quit haette einem laufenden Reindex vier Stunden gekostet. Der CDP-Lock
- * # hilft dabei nicht: er kennt nur "gehalten/frei", nicht "strukturell exklusiv".
- * # Also: vorher abstimmen, dann quitten.
- * osascript -e 'quit app "Obsidian"'
- * open -a Obsidian --args --remote-debugging-port=9222
- * #   ... Aufnahme-Vault oeffnen, als vertrauenswuerdig markieren, Reindex laufen lassen
- *
- * npm run shots                                     # alles aufnehmen
- * npm run shots -- --only hero.png                  # ein Bild nachziehen
+ * npm run shots -- --port 9399                      # alles aufnehmen
+ * npm run shots -- --port 9399 --only hero.png      # ein Bild nachziehen
  * ```
  *
  * ## Was dieses Plugin von den Nachbarn unterscheidet
@@ -1046,19 +1046,24 @@ async function main(): Promise<void> {
     copyFileSync(join(repoRoot, "docs/images/fixture/plugin/settings.json"), join(pluginDir(vaultDir), "data.json"));
     console.log("   Plugin-Einstellungen aus docs/images/fixture/plugin/settings.json (je zwei Endpunkt-Zeilen)");
     console.log(`\nVault steht: ${vaultDir}`);
-    console.log("Jetzt Obsidian mit Debug-Port starten, den Vault oeffnen, als");
-    console.log("vertrauenswuerdig markieren und einmal \"Reindex vault\" laufen lassen.");
+    console.log("Jetzt die Zweitinstanz mit diesem Vault starten (Rezept im Dateikopf: eigenes Profil, eigener Port),");
+    console.log("als vertrauenswuerdig markieren und einmal \"Reindex vault\" laufen lassen.");
     return;
   }
 
-  const port = Number(arg("port", "9222"));
+  const portRoh = arg("port");
+  const port = Number(portRoh);
+  if (portRoh === undefined || !Number.isInteger(port) || port < 1024 || port > 65535) {
+    console.error(`--port <Zahl> fehlt oder ist ungueltig (${JSON.stringify(portRoh)}). Den Port der eigenen Zweitinstanz angeben (Rezept im Dateikopf, z. B. 9399).`);
+    exit(2);
+  }
   const vaultName = arg("vault", basename(vaultDir)) as string;
   const nur = arg("only");
 
   const cdp = await attachTo("workspace", port, vaultName);
   if (!cdp) {
     console.error(`Kein Obsidian-Fenster fuer Vault »${vaultName}« auf Port ${port}.`);
-    console.error("Laeuft Obsidian mit --remote-debugging-port? Ist der Aufnahme-Vault offen?");
+    console.error("Laeuft die Zweitinstanz (Rezept im Dateikopf) mit dem Aufnahme-Vault?");
     exit(1);
   }
 

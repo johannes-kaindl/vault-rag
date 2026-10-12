@@ -7,40 +7,11 @@ nicht von „anders grün" zu unterscheiden.
 
 ## Voraussetzung
 
-⚠️ **Erst prüfen, ob schon eine Instanz läuft — nicht blind quitten.** Obsidian ist
-Single-Instance: ein `quit` beendet die Fenster *aller* Sessions. Am 2026-08-30 hätte genau
-diese Anweisung beinahe zwei Stunden Reindex einer parallel arbeitenden Session vernichtet —
-der eigene Lauf wäre danach sauber grün gewesen, der Schaden entstand woanders.
+Der Lauf gehört in eine **Zweitinstanz** mit eigenem Profil und eigenem Port auf dem **Staging-Vault** `vault-rag`; die reguläre Instanz (9222) wird weder genutzt noch beendet. Der Port ist Pflicht (`--port`, Rezept-Wert 9399), der Treiber hat keinen Default und bricht ohne ihn mit Exit 2 ab. Das vollständige Rezept steht im Kopf von `scripts/gui-smoke.ts` und weiter unten. Gegen den Arbeits-Vault `10_Pallas` ist der Lauf nicht vorgesehen: dort sind die Punkte des llm-lab-Zweigs und der zweiten Endpunkt-Zeile strukturell nicht messbar und zählen als „nichts gemessen“.
 
-```bash
-curl -s http://127.0.0.1:9222/json/version >/dev/null && echo "laeuft schon — MITNUTZEN"
-```
+Jeder Vault trägt eine Kopie des Plugins und braucht `npm run deploy` (gemessen 2026-09-03: der Plugin-Ordner ist kein Symlink aufs Repo, `7adf475`). Ohne Deploy bricht der Herkunfts-Guard `requireEigenerBuild` ab, statt eine falsche Bilanz zu liefern.
 
-**Läuft schon eins: mitnutzen** (der Smoke braucht keinen Neustart). Ein eigenes Vault-Fenster
-öffnet man per `vault-open` über IPC; gewählt wird über den Vault-Filter von
-`attachTo("workspace", port, "<vault>")`, nicht über die Fenster-Reihenfolge.
-
-**Läuft keins** — oder nur nach Absprache mit dem, der es benutzt:
-
-```bash
-osascript -e 'quit app "Obsidian"'
-open -a Obsidian --args --remote-debugging-port=9222
-```
-
-Dann der Lauf:
-
-```bash
-npm run smoke:gui -- --port 9222 --vault 10_Pallas
-```
-
-Läuft Obsidian bereits mit offenem Port, aber ohne den Ziel-Vault: `open "obsidian://open?vault=10_Pallas"`
-öffnet ihn als **zusätzliches Fenster derselben Instanz** — der Port bleibt, und parallel geöffnete
-Vaults (andere Sessions) verlieren ihr Fenster nicht.
-
-⚠️ **Jeder Vault trägt eine Kopie und braucht `npm run deploy` — auch `10_Pallas`.** Hier stand bis
-2026-09-03, dessen Plugin-Ordner sei ein Symlink aufs Repo; gemessen ist er ein echtes Verzeichnis
-(`7adf475`). Ohne Deploy misst der Lauf den alten Build — der Herkunfts-Guard `requireEigenerBuild`
-bricht dann ab, statt eine falsche Bilanz zu liefern.
+Die Bilanz zählt in vier Zuständen (grün · rot · übersprungen · nichts gemessen) gegen die Soll-Liste `PUNKTE`. Was im Staging-Vault nicht herstellbar ist (zweite Endpunkt-Zeile, Embedding-Endpunkt, Probe-Notiz, ein echtes llm-lab oder ein echter Endpoint Manager im Vault), ist „nichts gemessen“ und setzt wie Rot Exit 1. „Übersprungen“ kommt in diesem Treiber nicht vor. Abbruch ist Exit 2.
 
 ## Der Smoke braucht einen erreichbaren Embedding-Endpunkt
 
@@ -61,27 +32,18 @@ Kopfkommentar des Treibers) und die reguläre Instanz fremden Sessions gehört, 
 einer **Zweitinstanz mit eigenem Profil** (Dach-AGENTS.md § Staging-Vaults):
 
 ```bash
-python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-rag --intent "GUI-Smoke Zweitinstanz" --exclusive quit-reload --ttl 900
+python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-rag --intent "GUI-Smoke :9399" --exclusive focus --port 9399 --ttl 900
 npm run build && npm run shots -- --setup            # Vault aus dem Fixture — der Index ist danach weg
-UD=/tmp/obs-vault-rag; mkdir -p "$UD"
-cp ~/Library/Application\ Support/obsidian/obsidian-*.asar "$UD"/   # sonst startet die gebündelte 1.12.4
-# WARNUNG: liegen MEHRERE .asar im Profil, ist unbestimmt welche laeuft — fuer einen belegbaren
-# Lauf alle ausser der gewuenschten entfernen. Stand 2026-09-04 liegt dort 1.14.0, nicht 1.13.7.
-# $UD/obsidian.json: {"vaults":{"<id>":{"path":"$STAGING_VAULTS_DIR/vault-rag","ts":0,"open":true}}}
-/Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9333 &
-# WARNUNG: ein frisch gebauter Vault startet im RESTRICTED MODE. Das Plugin steht dann in
-# `enabledPlugins` UND in `manifests`, ist aber NICHT in `app.plugins.plugins` — `--prepare`
-# scheitert mit "Cannot read properties of undefined (reading 'settings')", was wie ein
-# Plugin-Defekt aussieht. Einmal ueber CDP freischalten (gemessen 2026-09-04):
-#   await app.plugins.setEnable(true); await app.plugins.enablePlugin("vault-retrieval");
-npm run shots -- --port 9333 --prepare               # Index bauen (18 Notizen, Sekunden)
-npm run smoke:gui -- --port 9333 --vault vault-rag
+UD=/tmp/obs-test-vault-rag; mkdir -p "$UD"
+cp ~/Library/Application\ Support/obsidian/obsidian-<version>.asar "$UD"/   # genau eine .asar, sonst ist unbestimmt, welche läuft
+node -e 'const p=process.env.STAGING_VAULTS_DIR+"/vault-rag";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{v:{path:p,ts:Date.now(),open:true}},language:"en"}))' "$UD"
+/Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 &
+npm run shots -- --port 9399 --prepare               # Index bauen (18 Notizen, Sekunden)
+npm run smoke:gui -- --port 9399
 python3 ~/.claude/hooks/obsidian-cdp-lock.py release
 ```
 
-`quit-reload` statt `focus`: der Lauf fasst die reguläre Instanz nicht an, aber ein fremdes
-`pkill -f Obsidian` träfe auch die Zweitinstanz. Der Guard gatet den Kommandotext, der Lock bleibt
-also die Eintrittskarte — auch für Port 9333.
+Ein frischer Vault startet im Restricted Mode (das Plugin steht in `enabledPlugins` und `manifests`, aber nicht in `app.plugins.plugins`; `--prepare` scheitert dann mit „Cannot read properties of undefined (reading 'settings')“, was wie ein Plugin-Defekt aussieht). Den Vertrauensdialog und den Restricted Mode hebt `bereiteInstanzVor` im Smoke-Treiber auf, nur im Staging-Vault; für `--prepare` auf einem ganz frischen Profil einmal den Smoke starten oder die Zeile `await app.plugins.setEnable(true); await app.plugins.enablePlugin("vault-retrieval");` über CDP absetzen. Der Lock gilt je Port; ein fremdes `pkill -f Obsidian` träfe auch die Zweitinstanz, deshalb `--exclusive focus`.
 
 ## Läufe
 

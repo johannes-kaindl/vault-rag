@@ -426,10 +426,10 @@ npm run shots -- --prepare        # Chat-Modell setzen + Index bauen (einmalig j
 npm run shots -- --deploy         # gebautes Plugin in den Aufnahme-Vault + Reload
 npm run shots -- --only hero.png  # ein README-Bild aufnehmen (Vertrag: docs/images/README.md)
 npm run shots:check               # Bild-Standard pruefen (readme_lint, maintainer-lokal)
-npm run smoke:gui -- --port 9333 --vault vault-rag   # GUI-Smoke gegen den Staging-Vault auf einer
-                                  #  ZWEITINSTANZ (Rezept: docs/SMOKE.md). In 10_Pallas sind acht
-                                  #  Pruefpunkte strukturell nicht messbar (llm-lab installiert, je
-                                  #  eine Endpunkt-Zeile) — die Bilanz nennt sie als uebersprungen.
+npm run smoke:gui -- --port 9399   # GUI-Smoke gegen den Staging-Vault auf einer ZWEITINSTANZ
+                                  #  (Port Pflicht, Rezept: docs/SMOKE.md). In 10_Pallas sind Punkte
+                                  #  strukturell nicht messbar (llm-lab installiert, je eine
+                                  #  Endpunkt-Zeile) — die Bilanz nennt sie als nichts gemessen.
 ```
 
 esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electron`, Output `main.js`

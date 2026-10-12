@@ -141,22 +141,17 @@ schon einmal gegabelt worden — eine `export`-Zeile lief durch ~20 Rezept-Köpf
 einem Beispiel zur Anweisung, bis die Vaults in zwei konkurrierenden Verzeichnissen lagen
 (Dach-`AGENTS.md`, „Staging-Vaults: ein Ort, eine Variable").
 
+Aufgenommen wird in einer **Zweitinstanz** mit eigenem Profil und eigenem Port; die reguläre Instanz (9222) wird nie angefasst und nie beendet. Der Port ist Pflicht (`--port`, Wert dieses Rezepts: 9399), es gibt keinen Standardport. Das Rezept steht im Kopf von `scripts/shots.ts`.
+
 ```bash
 npm run build && npm run shots -- --setup         # Vault aus dem Fixture bauen
+UD=/tmp/obs-test-vault-rag; mkdir -p "$UD"
+lsof -nP -iTCP:9399 -sTCP:LISTEN && echo "Port belegt — anderen nehmen"
+/Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 &
+#   ... den Aufnahme-Vault öffnen und einmalig als vertrauenswürdig markieren, Reindex laufen lassen
 
-# Debug-Port — ⚠️ ERST FRAGEN, WER SONST AN DER INSTANZ HAENGT.
-# Anders als beim GUI-Smoke ist Mitnutzen hier KEINE Alternative: das Rezept braucht einen
-# echten Neustart (ein Bild pro Obsidian-Start). Ein Quit trifft aber ALLE Fenster aller
-# Sessions — am 2026-08-30 waren zeitweise zehn Fenster aus neun Sessions offen, und ein Quit
-# haette einem laufenden Reindex vier Stunden gekostet. Der CDP-Lock hilft dabei nicht: er
-# kennt nur "gehalten/frei", nicht "strukturell exklusiv". Also: vorher abstimmen, dann quitten.
-osascript -e 'quit app "Obsidian"'
-open -a Obsidian --args --remote-debugging-port=9222
-#   ... den Aufnahme-Vault oeffnen und einmalig als vertrauenswuerdig markieren
-#   ... einmalig: Reindex-Befehl aus der Befehlspalette
-
-npm run shots                                     # alles aufnehmen
-npm run shots -- --only hero.png                  # ein Bild nachziehen
+npm run shots -- --port 9399                      # alles aufnehmen
+npm run shots -- --port 9399 --only hero.png      # ein Bild nachziehen
 npm run shots -- --list                           # Vertrag anzeigen
 npm run shots:check                               # Bild-Standard pruefen
 ```

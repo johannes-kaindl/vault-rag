@@ -11,90 +11,48 @@
  * ob die Zeile im echten Flex-Layout so umbricht wie gedacht, und ob ein Klick durch die
  * ganze Kette geht (Speichern → Resolve → Neuzeichnen).
  *
- * ## Voraussetzung
+ * ## Wo der Lauf hingehört: Staging-Vault auf einer ZWEITINSTANZ (eigenes Profil, eigener Port)
  *
- * Obsidian muss mit offenem Debug-Port laufen.
+ * Der Port ist PFLICHT (`--port <n>`, Wert dieses Rezepts: 9399); der Treiber hat keinen Default, damit ein vergessener
+ * Port nie die reguläre Instanz (9222) trifft. Die reguläre Instanz wird weder genutzt noch beendet: ein `quit` träfe
+ * die Sitzungen anderer, und `app.setting.close()` schließt nur die Ansicht, nicht das Target — ein zweiter Lauf in
+ * derselben Sitzung ist nicht sauber (Target-Leichen, `attachTo("settings", …)` wird mehrdeutig). Darum je Messlauf
+ * ein frischer Prozess. Die Single-Instance-Sperre hängt am Profil (Dach-AGENTS § Staging-Vaults).
  *
- * ⚠️ **ERST PRUEFEN, OB SCHON EINS LAEUFT — nicht blind quitten.** Obsidian ist
- * Single-Instance: es gibt keinen Weg, "mein eigenes Obsidian daneben" zu starten, und ein
- * `quit` beendet das der anderen mit. Am 2026-08-30 haette diese Anweisung beinahe zwei
- * Stunden Reindex einer parallel arbeitenden Session vernichtet — der eigene Lauf waere
- * danach sauber gruen gewesen, der Schaden entstand woanders und waere nicht aufgefallen.
- *
- * ```bash
- * curl -s http://127.0.0.1:9222/json/version >/dev/null && echo "laeuft schon — MITNUTZEN"
- * ```
- *
- * Laeuft schon eins: mitnutzen. Ein eigenes Vault-Fenster oeffnet man per `vault-open` ueber
- * IPC (`open -a Obsidian` und `obsidian://open?path=` tun es NICHT), gewaehlt wird ueber
- * `attachTo("workspace", port, "<vault>")` — der Vault-Filter trennt sauber.
- *
- * Laeuft keins (oder nur nach Absprache mit dem, der es benutzt):
+ * Im Arbeitsvault `10_Pallas` sind Prüfpunkte STRUKTURELL nicht messbar: dort ist ein echtes llm-lab installiert (der
+ * Meldestrecken-Zweig würde dessen Aufzeichnung verunreinigen) und die Endpunkt-Listen tragen je EINE Zeile. Der
+ * Staging-Vault `vault-rag` (Fixture `docs/images/fixture/`, Einstellungen mit je ZWEI Zeilen aus
+ * `docs/images/fixture/plugin/settings.json`) hat beides nicht — dort läuft der ganze Treiber.
  *
  * ```bash
- * osascript -e 'quit app "Obsidian"'
- * open -a Obsidian --args --remote-debugging-port=9222
+ * echo "$STAGING_VAULTS_DIR"                                    # muss gesetzt sein (~/.zshenv)
+ * npm run build && npm run shots -- --setup                     # Vault aus dem Fixture (Index ist danach weg)
+ * UD=/tmp/obs-test-vault-rag; mkdir -p "$UD"
+ * lsof -nP -iTCP:9399 -sTCP:LISTEN && echo "Port belegt — anderen nehmen"
+ * pgrep -f "user-data-dir=$UD" && echo "Profil belegt — $UD-w19 nehmen"
+ * cp ~/Library/Application\ Support/obsidian/obsidian-<version>.asar "$UD"/      # (a) sonst startet die gebündelte, ältere Version
+ * # (b)+(c) Restricted Mode und Vertrauensdialog macht `bereiteInstanzVor` im Treiber (nur im Staging-Vault)
+ * node -e 'const p=process.env.STAGING_VAULTS_DIR+"/vault-rag";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{v:{path:p,ts:Date.now(),open:true}},language:"en"}))' "$UD"
+ * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 &
+ * # PID merken: beendet wird NUR sie, nie pkill/killall
+ * python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-rag --intent "GUI-Smoke :9399" --exclusive focus --port 9399 --ttl 900
+ * npm run shots -- --port 9399 --prepare                        # Index bauen (18 Notizen, Sekunden; braucht den Embedding-Endpunkt)
+ * npm run smoke:gui -- --port 9399
+ * python3 ~/.claude/hooks/obsidian-cdp-lock.py release
  * ```
  *
- * **Leichen zaehlen — aber am richtigen Merkmal:**
+ * Der Lauf braucht die Endpunkte der Fixture (Embedding: Ollama `:11434`/`:11435`; Chat: LM Studio `:1234` mit
+ * `qwen/qwen3.6-27b`) und schickt echte Anfragen — bei JIT lädt LM Studio das Modell. Fehlt ein Endpunkt, sind die
+ * Punkte daran „nichts gemessen“, kein Rot. LM Studio ist geteilt: vorher beim Master anmelden.
  *
- * ```bash
- * curl -s http://127.0.0.1:9222/json/list \
- *   | python3 -c "import json,sys; d=json.load(sys.stdin); print(sum(1 for t in d if t.get('title')==t.get('url')), 'von', len(d))"
- * ```
+ * `--vault` ist optional (Default `vault-rag`, der Staging-Vault) und matcht exakt gegen `app.vault.getName()`.
  *
- * ⚠️ **Nicht auf `about:blank` filtern.** Das liegt nahe und ist zu schwach: gemessen am
- * 2026-08-30 an einer Instanz mit 22 Targets waren **14 Leichen** — davon trug genau **eine**
- * `about:blank`. Der `about:blank`-Test haette „1" gemeldet und die Lage harmlos aussehen
- * lassen. Das tragfaehige Merkmal ist `title === url` (CDP setzt die URL als Titel ein, wenn
- * `document.title` fehlt); so filtert sie auch die zentrale Bruecke seit `0ae3cef`/`8364009`.
+ * ## Bilanz in vier Zuständen (CORE-TEST-19)
  *
- * ⚠️ **Und: ein zweiter Lauf in derselben Obsidian-Sitzung ist nicht sauber.**
- * `app.setting.close()` schliesst die **Ansicht**, nicht das **Target** — gemessen an 1.13.7:
- * nach dem Schliessen steht das `about:blank`-Target weiter in `/json/list`, und
- * `/json/close` raeumt es nicht weg (antwortet `Target is closing`, danach ist es noch da).
- * Jeder Lauf hinterlaesst also einen Settings-Kandidaten; beim naechsten Lauf ist
- * `attachTo("settings", …)` mehrdeutig und nimmt den erstbesten — moeglicherweise die tote
- * Ansicht des Vorlaufs, was die Endpunkt-Pruefpunkte falsch-rot macht. Das braucht **keine**
- * zweite Session, es passiert im Normalbetrieb eines einzigen Repos.
- * **Deshalb: vor einem erneuten Lauf Obsidian neu starten** (dann sind alle Target-Leichen weg).
- * Das einzige, was sie sonst raeumt, ist das Schliessen des zugehoerigen Vault-Fensters.
- *
- * ## Wo der Lauf hingehoert: Staging-Vault auf einer ZWEITINSTANZ (seit 2026-09-03)
- *
- * Im Arbeitsvault `10_Pallas` sind Pruefpunkte STRUKTURELL nicht messbar: dort ist ein echtes
- * llm-lab installiert (der ganze Meldestrecken-Zweig wird uebersprungen, damit der Smoke dessen
- * Aufzeichnung nicht verunreinigt), und die Endpunkt-Listen tragen je EINE Zeile (Prioritaets-Knopf
- * und „Zuerst verwenden" haben nichts zu messen). Der Staging-Vault `vault-rag` (Fixture
- * `docs/images/fixture/`, Plugin-Einstellungen mit je ZWEI Zeilen aus
- * `docs/images/fixture/plugin/settings.json`) hat beides nicht — dort laeuft der ganze Treiber.
- *
- * Und weil ein zweiter Lauf in derselben Obsidian-Sitzung nicht sauber ist (Target-Leichen, s. o.),
- * die regulaere Instanz aber vier fremden Sessions gehoert, laeuft er auf einer ZWEITINSTANZ mit
- * eigenem Profil (Dach-AGENTS.md § Staging-Vaults: die Single-Instance-Sperre haengt am Profil):
- *
- * ```bash
- * npm run build && npm run shots -- --setup        # Vault aus dem Fixture (Index ist danach weg)
- * UD=/tmp/obs-vault-rag; mkdir -p "$UD"
- * cp ~/Library/Application\ Support/obsidian/obsidian-1.13.7.asar "$UD"/   # sonst startet 1.12.4
- * # $UD/obsidian.json: {"vaults":{"<id>":{"path":"$STAGING_VAULTS_DIR/vault-rag","ts":0,"open":true}}}
- * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9333 &
- * npm run shots -- --port 9333 --prepare          # Index bauen (18 Notizen, Sekunden)
- * npm run smoke:gui -- --port 9333 --vault vault-rag
- * ```
- *
- * Der CDP-Lock (`obsidian-cdp-lock.py acquire --exclusive quit-reload`) bleibt Pflicht: der Guard
- * gatet den Kommandotext, und ein fremdes `pkill -f Obsidian` traefe auch die Zweitinstanz.
- *
- * Gegen die regulaere Instanz (Port 9222) geht es weiterhin — dann mit den Skips in der Bilanz:
- *
- * ```bash
- * npm run smoke:gui -- --port 9222 --vault 10_Pallas
- * ```
- *
- * `--vault` matcht seit der zentralen CDP-Brücke exakt gegen `app.vault.getName()`
- * (den Vault-**Ordnernamen**), nicht mehr als Teilstring des Fenstertitels — `10_Pallas`
- * genügt also nicht mehr, es muss `10_Pallas` heißen.
+ * grün · rot · übersprungen · nichts gemessen; `PUNKTE` ist der Nenner. Hier gibt es keinen „übersprungen“-Fall: der
+ * vorgesehene Ort ist der Staging-Vault mit Fixture, und was dort nicht herstellbar ist (zweite Endpunkt-Zeile, Embedding-
+ * Endpunkt, Notiz, Auswahl, ein echtes llm-lab oder ein echter Endpoint Manager im Vault) ist „nichts gemessen“ und setzt
+ * Exit 1. Abbruch vor oder während der Messung: Exit 2.
  *
  * Der Klick-Prüfpunkt verändert die Endpunkt-Reihenfolge in den Einstellungen. Der Treiber
  * sichert sie vorher und schreibt sie im `finally` zurück — auch nach einem Abbruch mitten
@@ -118,13 +76,16 @@ import { join } from "node:path";
 import { cwd } from "node:process";
 import { createServer, type Server } from "node:http";
 
-import { Cdp, attachTo, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { Cdp, attachTo, bereiteInstanzVor, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { createBilanz, parseArgs, runDriver } from "../../tools/obsidian-cdp/bilanz.js";
 import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
 import { EN, DE } from "../src/i18n/strings";
 import { LLM_CONNECTION_STRINGS_EN, LLM_CONNECTION_STRINGS_DE } from "../src/vendor/kit-obsidian/llm-connection-strings";
 
 const PLUGIN_ID = "vault-retrieval";
+/** Name des Staging-Vaults (= Repo-Verzeichnis, verglichen mit `app.vault.getName()`); `manifest.id` weicht ab. */
+const STAGING_VAULT = "vault-rag";
 /** Muss zu `setIcon(...)` in `buildEndpointList` passen. */
 const PRIORITY_ICON = "arrow-up-to-line";
 const FALLBACK_ICON = "chevrons-up";
@@ -168,9 +129,103 @@ const LAB_PRUEFPUNKTE = [
   "Ohne Lab läuft der Chat vollständig durch und meldet nichts",
 ];
 
+/** Namen der Punkte, die im Ablauf an mehreren Stellen vorkommen — auf Modulebene, damit `PUNKTE` sie enthält. */
+const MGR_PUNKTE = [
+  "Manager da: Chat-Endpunkt und Standardmodell kommen vom Manager, der Schlüssel bleibt im Speicher",
+  "Manager da: die Nutzerwahl (chatChoice.model) schlägt Standardmodell und config.model",
+  "Manager da: ein Embedding-Endpunkt mit fremdem Modell wird nicht aktiv markiert (Modell-Guard)",
+  "Manager da: die Einstellungen zeigen den Manager-Baustein statt der lokalen Listen",
+  "Manager weg: beide Rollen fallen auf die lokale Liste zurück",
+  "Der Manager-Weg schreibt weder Schlüssel noch Manager-Modell in data.json",
+];
+
+const W15_PUNKTE = [
+  "Schlüsselbund: nach dem ersten Auflösen steht kein apiKey mehr in data.json, die Zeile trägt secretId",
+  "Schlüsselbund: nach ZWEI Neustarts (Plugin neu geladen) trägt die Zeile weiter secretId und der Schlüssel löst auf",
+  "Schlüsselbund: der Bearer erreicht den Endpunkt",
+  "Schwärzung: das Modell sieht einen Platzhalter statt des Tokens, der Aufrufer bekommt das Original zurück",
+  "Neutralisierung: eine Antwort mit Bild-URL und Platzhalter erzeugt in der Chat-Oberfläche kein img-Element",
+  "onResolved: eine Auflösung, die das Kit selbst anstößt, erreicht die Plugin-Zeilen im offenen Tab (Gegenprobe: eine gemerkte nicht)",
+];
+
+const W16_PUNKTE = [
+  "Schlüsselbund (Embedding): nach dem Plugin-Start steht in data.json bei BEIDEN Listen kein apiKey, beide Zeilen tragen secretId",
+  "Schlüsselbund (Embedding): nach ZWEI Neustarts trägt die Zeile weiter secretId und der Embedder hält den Schlüssel",
+  "Schlüsselbund (Embedding): der Bearer erreicht die Probe UND embed",
+  "Gegenprobe: ein Client aus der nicht hydrierten Zeile sendet keinen Bearer (der Punkt davor kann also rot werden)",
+  "Schlüsselbund (Embedding) mit installiertem Manager: die Migration läuft beim Laden trotzdem",
+];
+
+const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch wenn beim Laden ein Pop-out aktiv ist";
+
+  const PUNKT_TREU = "Umformulieren: zum Modell gehen nur Platzhalter, ein Ergebnis mit allen Links bleibt anwendbar";
+
+  const PUNKT_SPERRE = "Umformulieren: ein Ergebnis, das einen Wikilink zerstört, sperrt Anwenden und nennt den Grund";
+
+  const PUNKT_UMBRUCH = "Umformulieren: „Absatz-Umbrüche entfernen“ zieht den Absatz zusammen und lässt den Codeblock stehen";
+
+  const W7I = {
+    n1: "Anfrage-Abschnitt: klappt auf und zeigt Familie, Backend und die drei Modi",
+    n2: "Anfrage-Abschnitt: eine Überschreibung setzen und zurücksetzen — der Abschnitt bleibt dabei offen",
+    n3: "Chat: der Denk-Knopf schaltet die Stufe um (Text, aria-pressed und gespeicherte Stufe stimmen überein)",
+    n4: "Chat: die Stufenwahl zeigt ein Dropdown und speichert die gewählte Stufe",
+    chat: "Gesendeter Body: der Chat (grounded) trägt die Modus-Temperatur 0,4",
+    reformat: "Gesendeter Body: Umformatieren (transform) trägt die Modus-Temperatur 0,2 und ein Budget",
+    smart: "Gesendeter Body: Smart Apply (structured) trägt die Modus-Temperatur 0,1 und das Plugin-Budget",
+  };
+
+/** Soll-Liste aller Prüfpunkte (der Nenner der Bilanz): ein Name, der hier fehlt, lässt `createBilanz` werfen; ein
+ *  Punkt, der nie aufgezeichnet wird, zählt als „nichts gemessen“. */
+const PUNKTE = [
+  "Plugin-API hängt am Plugin-Objekt und nennt ihre Version",
+  "Fläche ist auf status/search/related/proposeLinks/applyLink begrenzt",
+  "status() ist synchron und meldet einen Index",
+  "Keine Alt-Schlüssel des globalen Modells und der Sampling-Regler in den Einstellungen",
+  "related() liefert Treffer für eine indexierte Notiz",
+  "Rückgaben überstehen die Renderer-Grenze (JSON-tauglich)",
+  "search() liefert semantische Treffer",
+  "Notizen finden sich ueber ihren eigenen Wortlaut",
+  "Hub rendert die Kit-Grammatik",
+  "Tab-Leiste ist eine ARIA-Tabliste",
+  "Genau ein Tab ist als ausgewaehlt gemeldet",
+  "Roving tabindex: nur der aktive Tab ist tabbar",
+  "Jeder Tab zeigt auf ein existierendes Panel",
+  "Tab-Leiste bricht bei schmaler Sidebar um, statt zu stauchen",
+  "Kein Tab rutscht aus der Leiste heraus",
+  "Hilfe-Zeile ist die erste Zeile im Einstellungs-Tab",
+  "Endpunkt-Zeilen gefunden",
+  "Zeile 1 trägt keinen Prioritäts-Knopf",
+  "Zeile 2 trägt den Prioritäts-Knopf",
+  `Icon "${PRIORITY_ICON}" rendert tatsächlich ein SVG`,
+  "Embedding: genau eine Zeile als aktiv markiert (keine, wenn nichts erreichbar ist)",
+  "Chat: genau eine Zeile als aktiv markiert (keine, wenn nichts erreichbar ist)",
+  "Alle Zustandstexte sind bekannte Formulierungen",
+  "Alle Proben abgeschlossen",
+  "Zustandszeile bricht auf volle Breite um",
+  "Zustandszeile steht unter den Feldern",
+  "Warn-/Schlüssel-Icons bleiben in der Feldzeile",
+  "Klick setzt die Zeile an die Spitze",
+  "Die nach oben geholte Zeile meldet danach ihren Zustand",
+  "Die nach oben geholte Zeile trägt keinen Prioritäts-Knopf mehr",
+  "Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau",
+  "Kein liegen gebliebener llm-lab-Stub aus einem abgebrochenen Lauf",
+  "Gesperrter Anwenden-Knopf ist sichtbar gesperrt (nicht nur per Klasse)",
+  "Defekter Container heilt sich ohne Endpunkt aus dem Backup",
+  "Die Heilung meldet sich, statt still einen aelteren Stand zu benutzen",
+  ...LAB_PRUEFPUNKTE,
+  ...INTEGRATOR_PRUEFPUNKTE,
+  ...MGR_PUNKTE,
+  ...W15_PUNKTE,
+  ...W16_PUNKTE,
+  POPOUT_PUNKT,
+  PUNKT_TREU,
+  PUNKT_SPERRE,
+  PUNKT_UMBRUCH,
+  ...Object.values(W7I),
+] as const;
+
 // --- Prüfpunkte -------------------------------------------------------------
 
-interface Check { name: string; passed: boolean; detail: string }
 
 interface HubProbe {
   present: boolean;
@@ -180,26 +235,19 @@ interface HubProbe {
   focusable?: number;
   controls?: boolean;
 }
-const results: Check[] = [];
+const bilanz = createBilanz({ punkte: PUNKTE });
 
 function record(name: string, passed: boolean, detail: string): void {
-  results.push({ name, passed, detail });
-  console.log(`${passed ? "  ✓" : "  ✗"} ${name}${detail ? ` — ${detail}` : ""}`);
+  bilanz.record(name as (typeof PUNKTE)[number], passed, detail);
 }
 
-/** Uebersprungene Pruefpunkte — bewusst eine EIGENE Liste, nicht `results`. Ein Punkt, der nicht
- *  gelaufen ist, ist weder bestanden noch durchgefallen, und beide Zuordnungen sind belegt
- *  falsch: obsidian-transmute zaehlte ihn als gruen, dieser Treiber bis 2026-09-03 als rot
- *  („nur eine Endpunkt-Zeile konfiguriert — nicht pruefbar" stand als ✗ in der Bilanz). Er
- *  gehoert aber IN die Bilanz: „23/25 gruen" las sich am 2026-09-02 wie ein vollstaendiger Lauf,
- *  waehrend 15 weitere Punkte im llm-lab-Zweig nie erreicht wurden. Uebernommen aus
- *  yijing-oracle `c0a6f6e`. Der zweite Parameter nennt den GRUND — ein Skip ohne Grund ist von
- *  einem vergessenen Pruefpunkt nicht zu unterscheiden. */
-const uebersprungen: { name: string; reason: string }[] = [];
-
-function skipped(name: string, reason: string): void {
-  uebersprungen.push({ name, reason });
-  console.log(`  – ${name} — übersprungen: ${reason}`);
+/** Der Gegenstand des Punkts wurde nicht erreicht (Vorbedingung oder Konfiguration fehlt) — „nichts gemessen“,
+ *  nie grün, Exit 1. Der zweite Parameter nennt den GRUND: ein Eintrag ohne Grund ist von einem vergessenen
+ *  Prüfpunkt nicht zu unterscheiden. (Bis 2026-10-12 hieß das `skipped`; der Treiber führte die Konfigurationsfälle
+ *  als „übersprungen“, obwohl nichts gemessen war. Übersprungen im Sinn von CORE-TEST-19 — „in dieser Lage nicht
+ *  anwendbar“ — gibt es hier keinen Fall: der vorgesehene Ort ist der Staging-Vault mit Fixture.) */
+function unmeasured(name: string, reason: string): void {
+  bilanz.unmeasured(name as (typeof PUNKTE)[number], reason);
 }
 
 /** Liest die sichtbaren Endpunkt-Zeilen der zuletzt geöffneten Einstellungs-Seite. */
@@ -287,14 +335,14 @@ async function openSettings(main: Cdp): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
-  const flag = (name: string): string | undefined => {
-    const index = argv.indexOf(`--${name}`);
-    return index === -1 ? undefined : argv[index + 1];
-  };
-  const port = Number(flag("port") ?? 9222);
-  const vault = flag("vault");
-  const keep = argv.includes("--keep");
+  const args = parseArgs(process.argv.slice(2));
+  const portRoh = args.value("port");
+  const port = Number(portRoh);
+  if (portRoh === undefined || !Number.isInteger(port) || port < 1024 || port > 65535) {
+    throw new Error(`--port <Zahl> fehlt oder ist ungültig (${JSON.stringify(portRoh)}). Den Port der eigenen Zweitinstanz angeben (Rezept im Dateikopf, z. B. 9399).`);
+  }
+  const vault = args.value("vault") ?? STAGING_VAULT;
+  const keep = args.has("keep");
 
   console.log(`GUI-Smoke vault-retrieval — Obsidian auf Port ${port}\n`);
   // `attachTo` unterscheidet Haupt- und Einstellungen-Fenster an der Sache (nur das
@@ -375,10 +423,20 @@ async function main(): Promise<void> {
     // Chromium drosselt nicht-fokussierte Fenster — ohne bringToFront misst man Phantome.
     await main.send("Page.bringToFront");
 
-    const active = await main.evaluate<boolean>(
+    let active = await main.evaluate<boolean>(
       `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];`,
     );
-    if (!active) throw new Error(`Plugin ${PLUGIN_ID} ist nicht aktiv — Obsidian neu laden (Cmd+R)?`);
+    // Ein frischer Staging-Vault startet im Restricted Mode, ein frisches Profil fragt „Dem Ersteller vertrauen“ —
+    // ein Neuladen (Cmd+R) hebt beides nicht auf. `bereiteInstanzVor` bestätigt den Dialog und lädt das Plugin,
+    // aber nur im eigenen Staging-Vault (`nurVault`); in einem fremden Vault bleibt es bei der Meldung unten.
+    let hinweis = "";
+    if (!active) {
+      const r = await bereiteInstanzVor(main, { pluginIds: [PLUGIN_ID], nurVault: STAGING_VAULT });
+      hinweis = r.hinweis;
+      console.log(`  Instanz vorbereitet: ${r.hinweis}`);
+      active = r.plugins[PLUGIN_ID] === "geladen";
+    }
+    if (!active) throw new Error(`Plugin ${PLUGIN_ID} ist nicht aktiv (${hinweis || "keine Vorbereitung"}). Frischer Vault im Restricted Mode? Der Treiber schaltet nur im Staging-Vault „${STAGING_VAULT}“ frei; sonst erst \`npm run deploy\`.`);
 
     // Laeuft dieser Lauf ueberhaupt gegen den eigenen Stand? `manifest.version` ist dagegen
     // STRUKTURELL blind — Store- und Repo-Build tragen dieselbe Nummer.
@@ -514,7 +572,7 @@ async function main(): Promise<void> {
       record("search() liefert semantische Treffer", (probe.search.hits?.length ?? 0) > 0,
         `${probe.search.hits?.length ?? 0} Treffer`);
     } else if (probe.search?.reason === "offline") {
-      skipped("search() liefert semantische Treffer", "Embedding-Endpunkt nicht erreichbar (korrekte Antwort, aber der Erfolgsfall bleibt ungeprüft)");
+      unmeasured("search() liefert semantische Treffer", "Embedding-Endpunkt nicht erreichbar (korrekte Antwort, aber der Erfolgsfall bleibt ungeprüft)");
     } else {
       record("search() liefert semantische Treffer", false, `reason=${String(probe.search?.reason)}`);
     }
@@ -582,7 +640,7 @@ async function main(): Promise<void> {
     } else if (selfFind.offline || selfFind.tried.length === 0) {
       // Falle 16 der REGISTRY: ohne Embedding-Endpunkt ist "keine Antwort" die RICHTIGE
       // Antwort und kein Befund — dann uebersprungen statt falsch-gruen oder falsch-rot.
-      skipped("Notizen finden sich ueber ihren eigenen Wortlaut", "kein Embedding-Endpunkt oder keine kurze indexierte Notiz gefunden");
+      unmeasured("Notizen finden sich ueber ihren eigenen Wortlaut", "kein Embedding-Endpunkt oder keine kurze indexierte Notiz gefunden");
     } else {
       const hit = selfFind.tried.filter(t => t.rank === 0);
       // Schwelle statt Perfektion: zwei Notizen mit (fast) gleichem Wortlaut duerfen sich
@@ -672,7 +730,7 @@ async function main(): Promise<void> {
       return !!app.workspace.rightSplit?.containerEl?.contains(document.querySelector(".okit-hub-root"));
     `);
     if (!inRight) {
-      skipped("Umbruch der Tab-Leiste", "Hub liegt nicht in der rechten Sidebar");
+      for (const n of ["Tab-Leiste bricht bei schmaler Sidebar um, statt zu stauchen", "Kein Tab rutscht aus der Leiste heraus"] as const) unmeasured(n, "Hub liegt nicht in der rechten Sidebar");
     } else {
       // Die Breite ist eine Einstellung des Nutzers — vorher merken, im finally zurueckgeben.
       const userWidth = await main.evaluate<number>(`
@@ -795,8 +853,8 @@ async function main(): Promise<void> {
       // Kein ✗: mit nur einer Zeile gibt es nichts zu messen. Bis 2026-09-03 zaehlte das als
       // Fehlschlag und hielt jede Bilanz im Arbeitsvault dauerhaft rot — der Staging-Vault traegt
       // deshalb zwei Zeilen je Liste (docs/images/fixture/plugin/settings.json).
-      skipped("Zeile 2 trägt den Prioritäts-Knopf", "nur eine Endpunkt-Zeile konfiguriert — nicht prüfbar");
-      skipped(`Icon "${PRIORITY_ICON}" rendert tatsächlich ein SVG`, "braucht eine zweite Endpunkt-Zeile");
+      unmeasured("Zeile 2 trägt den Prioritäts-Knopf", "nur eine Endpunkt-Zeile konfiguriert — nicht prüfbar");
+      unmeasured(`Icon "${PRIORITY_ICON}" rendert tatsächlich ein SVG`, "braucht eine zweite Endpunkt-Zeile");
     }
 
     // --- 4. Zustandstexte ---------------------------------------------------
@@ -811,7 +869,7 @@ async function main(): Promise<void> {
       // Ist gar nichts erreichbar, ist „keine aktive Zeile" die ehrliche Anzeige, kein Fehler.
       const expected = reachable.length === 0 ? 0 : 1;
       record(
-        `${name}: genau ${expected === 0 ? "keine" : "eine"} Zeile als aktiv markiert`,
+        `${name}: genau eine Zeile als aktiv markiert (keine, wenn nichts erreichbar ist)`,
         activeRows.length === expected,
         activeRows.length === 1 ? `„${activeRows[0].url}"` : `${activeRows.length} aktive Zeilen von ${inList.length}`,
       );
@@ -835,9 +893,8 @@ async function main(): Promise<void> {
     record("Alle Zustandstexte sind bekannte Formulierungen", unknown.length === 0,
       unknown.length ? unknown.map(r => `"${r.state}"`).join(", ") : `${withState.length} Zeilen geprüft`);
     const stillProbing = withState.filter(r => isChecking(r.state));
-    if (stillProbing.length) {
-      record("Alle Proben abgeschlossen", false, `${stillProbing.length} Zeilen noch bei „${L.checking}" — Timeout zu kurz?`);
-    }
+    record("Alle Proben abgeschlossen", stillProbing.length === 0,
+      stillProbing.length ? `${stillProbing.length} Zeilen noch bei „${L.checking}" — Timeout zu kurz?` : `${withState.length} Zeilen abgeschlossen`);
 
     // --- 5. Layout ----------------------------------------------------------
     const layoutRow = withState.find(r => r.stateWidthRatio !== null);
@@ -917,9 +974,9 @@ async function main(): Promise<void> {
         top?.hasPriorityButton ? "Knopf noch da" : "korrekt entfernt");
     } else {
       const grund = inChatList ? "kein zweiter Chat-Endpunkt mit Knopf" : "Chat-Liste hat weniger als zwei Einträge";
-      skipped("Klick setzt die Zeile an die Spitze", grund);
-      skipped("Die nach oben geholte Zeile meldet danach ihren Zustand", grund);
-      skipped("Die nach oben geholte Zeile trägt keinen Prioritäts-Knopf mehr", grund);
+      unmeasured("Klick setzt die Zeile an die Spitze", grund);
+      unmeasured("Die nach oben geholte Zeile meldet danach ihren Zustand", grund);
+      unmeasured("Die nach oben geholte Zeile trägt keinen Prioritäts-Knopf mehr", grund);
     }
 
     // --- 7. Rolle folgt dem Zeilen-Modell -----------------------------------
@@ -942,7 +999,7 @@ async function main(): Promise<void> {
       `);
       const other = options.find(v => v && v !== original);
       if (other === undefined) {
-        skipped("Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau", "Endpunkt listet nur ein Modell — kein Wechsel möglich");
+        unmeasured("Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau", "Endpunkt listet nur ein Modell — kein Wechsel möglich");
       } else {
         const setModel = async (value: string): Promise<string | null> => {
           await settings!.evaluate(`
@@ -977,7 +1034,7 @@ async function main(): Promise<void> {
         );
       }
     } else {
-      skipped("Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau", "kein Embedding-Endpunkt mit Modell konfiguriert");
+      unmeasured("Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau", "kein Embedding-Endpunkt mit Modell konfiguriert");
     }
 
     // --- 7b. llm-lab-Meldestrecke (KONSUMENTEN-Seite) -----------------------
@@ -1024,7 +1081,7 @@ async function main(): Promise<void> {
       // sagen, wie viele Punkte fehlen, nicht wie viele Abschnitte. Am 2026-09-02 verbarg genau
       // diese Zeile 15 von 40 Punkten hinter einem einzigen Gedankenstrich.
       const grund = "echtes llm-lab installiert — der Smoke hängt kein Stub ein, um dessen Aufzeichnung nicht zu verfälschen; im Staging-Vault (ohne llm-lab) fahren";
-      for (const name of LAB_PRUEFPUNKTE) skipped(name, grund);
+      for (const name of LAB_PRUEFPUNKTE) unmeasured(name, grund);
     } else {
       // Den Chat-Endpunkt AUFWAERMEN, bevor ein Pruefpunkt an seiner Antwort haengt: LM Studio
       // laedt das Modell erst beim ersten Request (JIT) und entlaedt es nach Leerlauf wieder;
@@ -1160,7 +1217,7 @@ async function main(): Promise<void> {
       // gemessen", nicht grün.
       const realLabVersion = readConstant(REAL_LAB_FILE, "LLM_LAB_API_VERSION");
       if (realLabVersion === null) {
-        skipped("Der Lab-Client spricht dieselbe apiVersion wie das echte llm-lab",
+        unmeasured("Der Lab-Client spricht dieselbe apiVersion wie das echte llm-lab",
           "llm-lab-Quelltext nicht gefunden (../llm-lab/src/plugin_api.ts) — nichts gemessen");
       } else {
         record("Der Lab-Client spricht dieselbe apiVersion wie das echte llm-lab",
@@ -1244,7 +1301,7 @@ async function main(): Promise<void> {
         return true;
       `);
       if (!rfStarted) {
-        skipped("Reformat meldet sich mit der Transform-ID im feature", "keine geeignete Notiz/Auswahl herstellbar");
+        unmeasured("Reformat meldet sich mit der Transform-ID im feature", "keine geeignete Notiz/Auswahl herstellbar");
       } else {
         await pollUntil(main, `return window.__vaultRagLabSeen.length > ${rfBefore};`, 180_000, 1_000).catch(() => false);
         const rfTrace = await main.evaluate<{ features: string[] }>(`
@@ -1329,7 +1386,7 @@ async function main(): Promise<void> {
         return { enabled: !!p.settings.smartApplyEnabled, templateDir: p.settings.templateDir };
       `);
       if (!saPre.enabled) {
-        skipped("Gesperrter Anwenden-Knopf ist sichtbar gesperrt (nicht nur per Klasse)", "smartApplyEnabled ist aus — Fixture-Einstellungen nicht geladen?");
+        unmeasured("Gesperrter Anwenden-Knopf ist sichtbar gesperrt (nicht nur per Klasse)", "smartApplyEnabled ist aus — Fixture-Einstellungen nicht geladen?");
       } else {
         templateDirRestore = saPre.templateDir;
         await main.evaluate(`
@@ -1392,7 +1449,7 @@ async function main(): Promise<void> {
         };
       `);
       if (!intPre.enabled) {
-        for (const n of INTEGRATOR_PRUEFPUNKTE) skipped(n, "integratorEnabled ist aus — Fixture-Einstellungen nicht geladen?");
+        for (const n of INTEGRATOR_PRUEFPUNKTE) unmeasured(n, "integratorEnabled ist aus — Fixture-Einstellungen nicht geladen?");
       } else {
         integratorRestore = { plain: intPre.plain, rel: intPre.rel };
         record("Tab „Integrator“ steht in der Leiste, vor „Umformatieren“",
@@ -1461,7 +1518,7 @@ async function main(): Promise<void> {
           const links = r.kind === "proposal" ? r.proposal.links.map(l => l.path) : [];
           return { before: cur.links.length, after: links.length, has: links.includes(tgt), tgt };
         `);
-        if (rejected.before === 0) skipped("Abgelehntes Ziel kommt beim Neuberechnen nicht wieder", "nach dem Annehmen blieb kein weiteres Ziel zum Ablehnen");
+        if (rejected.before === 0) unmeasured("Abgelehntes Ziel kommt beim Neuberechnen nicht wieder", "nach dem Annehmen blieb kein weiteres Ziel zum Ablehnen");
         else record("Abgelehntes Ziel kommt beim Neuberechnen nicht wieder", !rejected.has, `${rejected.tgt} · vorher ${rejected.before}, nachher ${rejected.after} Ziele`);
 
         // Frontmatter-Modus an der Notiz mit `related: []` — nur diese Zeilen duerfen sich aendern.
@@ -1504,16 +1561,8 @@ async function main(): Promise<void> {
       if (app.plugins.plugins[${JSON.stringify(MGR)}]) return { ok: false, reason: "ein echter Endpoint Manager ist installiert — der Smoke haengt keinen Fake daneben" };
       return { ok: true };
     `);
-    const MGR_PUNKTE = [
-      "Manager da: Chat-Endpunkt und Standardmodell kommen vom Manager, der Schlüssel bleibt im Speicher",
-      "Manager da: die Nutzerwahl (chatChoice.model) schlägt Standardmodell und config.model",
-      "Manager da: ein Embedding-Endpunkt mit fremdem Modell wird nicht aktiv markiert (Modell-Guard)",
-      "Manager da: die Einstellungen zeigen den Manager-Baustein statt der lokalen Listen",
-      "Manager weg: beide Rollen fallen auf die lokale Liste zurück",
-      "Der Manager-Weg schreibt weder Schlüssel noch Manager-Modell in data.json",
-    ];
     if (!mgrPre.ok) {
-      for (const n of MGR_PUNKTE) skipped(n, mgrPre.reason ?? "Voraussetzung fehlt");
+      for (const n of MGR_PUNKTE) unmeasured(n, mgrPre.reason ?? "Voraussetzung fehlt");
     } else {
       const mgrLocal = await main.evaluate<{ chatUrl: string; embUrl: string; chatModel: string }>(`
         const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
@@ -1607,14 +1656,6 @@ async function main(): Promise<void> {
     // Stelle zitiert). CORS-Kopfzeilen und Preflight, weil das Plugin per XHR aus app://obsidian.md
     // fragt. Die Chat-Liste wird für den Block auf diesen Endpunkt gestellt und im finally
     // zurückgeschrieben.
-    const W15_PUNKTE = [
-      "Schlüsselbund: nach dem ersten Auflösen steht kein apiKey mehr in data.json, die Zeile trägt secretId",
-      "Schlüsselbund: nach ZWEI Neustarts (Plugin neu geladen) trägt die Zeile weiter secretId und der Schlüssel löst auf",
-      "Schlüsselbund: der Bearer erreicht den Endpunkt",
-      "Schwärzung: das Modell sieht einen Platzhalter statt des Tokens, der Aufrufer bekommt das Original zurück",
-      "Neutralisierung: eine Antwort mit Bild-URL und Platzhalter erzeugt in der Chat-Oberfläche kein img-Element",
-      "onResolved: eine Auflösung, die das Kit selbst anstößt, erreicht die Plugin-Zeilen im offenen Tab (Gegenprobe: eine gemerkte nicht)",
-    ];
     {
       const W15_KEY = "w15-schluessel-geheim";
       const W15_TOKEN = "Bearer abcdefghijklmnopqrstuvwxyz0123456789";
@@ -1753,13 +1794,6 @@ async function main(): Promise<void> {
     // schlüssellosen Embedder — deshalb zusätzlich der Bearer an Probe UND embed, nach zwei
     // Neustarts, und eine Gegenprobe mit einer nicht hydrierten Zeile. Der Treiber baut den Vault
     // nicht aus dem Fixture: Listen und Schlüsselbund werden im finally zurückgesetzt.
-    const W16_PUNKTE = [
-      "Schlüsselbund (Embedding): nach dem Plugin-Start steht in data.json bei BEIDEN Listen kein apiKey, beide Zeilen tragen secretId",
-      "Schlüsselbund (Embedding): nach ZWEI Neustarts trägt die Zeile weiter secretId und der Embedder hält den Schlüssel",
-      "Schlüsselbund (Embedding): der Bearer erreicht die Probe UND embed",
-      "Gegenprobe: ein Client aus der nicht hydrierten Zeile sendet keinen Bearer (der Punkt davor kann also rot werden)",
-      "Schlüsselbund (Embedding) mit installiertem Manager: die Migration läuft beim Laden trotzdem",
-    ];
     {
       const W16_KEY = "w16-embedding-schluessel";
       const W16_CHAT_KEY = "w16-chat-schluessel";
@@ -1807,7 +1841,7 @@ async function main(): Promise<void> {
       `);
       try {
         if (!(await setPlain())) {
-          for (const n of W16_PUNKTE) skipped(n, "Vorbedingung nicht herstellbar: der Klartext-Schlüssel steht nicht in data.json");
+          for (const n of W16_PUNKTE) unmeasured(n, "Vorbedingung nicht herstellbar: der Klartext-Schlüssel steht nicht in data.json");
         } else {
           const r1 = await reload();
           record(W16_PUNKTE[0]!, r1.leakEmb === false && r1.leakChat === false && !!r1.embSecret && !!r1.chatSecret,
@@ -1848,7 +1882,7 @@ async function main(): Promise<void> {
 
           // Mit Manager: weder Kit-Resolver noch Listen-UI migrieren dann.
           if (!(await setPlain())) {
-            skipped(W16_PUNKTE[4]!, "Klartext-Zustand nicht herstellbar");
+            unmeasured(W16_PUNKTE[4]!, "Klartext-Zustand nicht herstellbar");
           } else {
             await main.evaluate(`
               app.plugins.plugins[${JSON.stringify(MGR)}] = { api: {
@@ -1889,7 +1923,6 @@ async function main(): Promise<void> {
     // gar nicht mehr). Der Punkt stellt genau diese Lage her: Pop-out öffnen, Plugin neu laden,
     // nachsehen, WO das Blatt hängt. Vorbedingung, sonst „nichts gemessen“: `activeDocument` ist
     // während der Messung tatsächlich das Pop-out — sonst unterschiede der Punkt beide Bauarten nicht.
-    const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch wenn beim Laden ein Pop-out aktiv ist";
     const popSaved = await main.evaluate<boolean>(`
       const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
       const was = p.settings.hideIndexFolder;
@@ -1921,7 +1954,7 @@ async function main(): Promise<void> {
         return { root: count(app.workspace.rootSplit.doc), pop: count(popDoc) };
       `);
       if (!popMeta.popIsOther || !popMeta.popIsActive) {
-        skipped(POPOUT_PUNKT, `Vorbedingung fehlt (Pop-out ≠ Hauptfenster: ${popMeta.popIsOther}, Pop-out ist activeDocument: ${popMeta.popIsActive}) — nichts gemessen`);
+        unmeasured(POPOUT_PUNKT, `Vorbedingung fehlt (Pop-out ≠ Hauptfenster: ${popMeta.popIsOther}, Pop-out ist activeDocument: ${popMeta.popIsActive}) — nichts gemessen`);
       } else {
         record(POPOUT_PUNKT, where.root === 1 && where.pop === 0,
           `activeDocument war das Pop-out · Blatt im Hauptfenster: ${where.root} · im Pop-out: ${where.pop}`);
@@ -1953,8 +1986,6 @@ async function main(): Promise<void> {
       await requireVisible(main);
       const W14_NOTE = "w14-link-probe.md";
       const W14_TEXT = "Siehe [[Notes/Semantic search|Suche]] und `[[im Code]]` sowie ![[bild.png]] zum Vergleich.";
-      const PUNKT_TREU = "Umformulieren: zum Modell gehen nur Platzhalter, ein Ergebnis mit allen Links bleibt anwendbar";
-      const PUNKT_SPERRE = "Umformulieren: ein Ergebnis, das einen Wikilink zerstört, sperrt Anwenden und nennt den Grund";
       type LinkProbe = { started: boolean; sentUser: string; applyDisabled: boolean | null; status: string; result: string; diag?: unknown };
       // Ein Timeout in der Bruecke nennt den Schritt nicht — hier wird er beschriftet.
       const schritt = async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
@@ -2055,8 +2086,8 @@ async function main(): Promise<void> {
         const kept = await linkProbe("keep");
         const prefix = W["reformatPreview.linksChanged"].split("{0}")[0] ?? "";
         if (!destroyed.started || !kept.started) {
-          skipped(PUNKT_TREU, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
-          skipped(PUNKT_SPERRE, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
+          unmeasured(PUNKT_TREU, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
+          unmeasured(PUNKT_SPERRE, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
         } else {
           const nurPlatzhalter = !kept.sentUser.includes("[[") && !kept.sentUser.includes("`") && /ZQX\d+QXZ/.test(kept.sentUser);
           const linkWieder = kept.result.includes("[[Notes/Semantic search|Suche]]") && kept.result.includes("`[[im Code]]`") && kept.result.includes("![[bild.png]]");
@@ -2082,7 +2113,6 @@ async function main(): Promise<void> {
       const W14_NOTE2 = "w14-breaks-probe.md";
       const W14_VORHER = "Erste Zeile\nzweite Zeile\ndritte Zeile\n\n```\ncode a\ncode b\n```\n";
       const W14_NACHHER = "Erste Zeile zweite Zeile dritte Zeile\n\n```\ncode a\ncode b\n```\n";
-      const PUNKT_UMBRUCH = "Umformulieren: „Absatz-Umbrüche entfernen“ zieht den Absatz zusammen und lässt den Codeblock stehen";
       try {
         const res = await main.evaluate<{ started: boolean; after: string; notices?: string[] }>(`
           let f = app.vault.getAbstractFileByPath(${JSON.stringify(W14_NOTE2)});
@@ -2108,7 +2138,7 @@ async function main(): Promise<void> {
           await new Promise(r => setTimeout(r, 600));
           return { started: true, after: ed.getValue(), notices: [...document.querySelectorAll(".notice")].map(n => (n.textContent || "").slice(0, 80)) };
         `);
-        if (!res.started) skipped(PUNKT_UMBRUCH, "Knopf oder Auswahl nicht herstellbar — nichts gemessen");
+        if (!res.started) unmeasured(PUNKT_UMBRUCH, "Knopf oder Auswahl nicht herstellbar — nichts gemessen");
         else record(PUNKT_UMBRUCH, res.after === W14_NACHHER, `Notiz danach: ${JSON.stringify(res.after)}` + (res.after === W14_NACHHER ? "" : ` · Notices: ${JSON.stringify(res.notices)}`));
       } finally {
         await main.evaluate(`
@@ -2128,15 +2158,6 @@ async function main(): Promise<void> {
     // der gesendete Body die Modus-Temperatur traegt. Den Body greift ein Haken auf
     // XMLHttpRequest.prototype.send ab und bricht die Anfrage ab: kein Modell wird geladen.
     {
-      const W7I = {
-        n1: "Anfrage-Abschnitt: klappt auf und zeigt Familie, Backend und die drei Modi",
-        n2: "Anfrage-Abschnitt: eine Überschreibung setzen und zurücksetzen — der Abschnitt bleibt dabei offen",
-        n3: "Chat: der Denk-Knopf schaltet die Stufe um (Text, aria-pressed und gespeicherte Stufe stimmen überein)",
-        n4: "Chat: die Stufenwahl zeigt ein Dropdown und speichert die gewählte Stufe",
-        chat: "Gesendeter Body: der Chat (grounded) trägt die Modus-Temperatur 0,4",
-        reformat: "Gesendeter Body: Umformatieren (transform) trägt die Modus-Temperatur 0,2 und ein Budget",
-        smart: "Gesendeter Body: Smart Apply (structured) trägt die Modus-Temperatur 0,1 und das Plugin-Budget",
-      };
       // Der Abschnitt „Anfrage“ kommt seit Welle 15 vom Kit (`llm.renderSettings`): Titel, Kopfzeile und
       // Modus-Überschriften stammen aus SEINEM Wortschatz in der Sprache der Oberfläche.
       const KR = (uiLang.startsWith("de") ? LLM_CONNECTION_STRINGS_DE : LLM_CONNECTION_STRINGS_EN).request;
@@ -2197,8 +2218,8 @@ async function main(): Promise<void> {
         record(W7I.n2, setOverride && gesetzt && n2a.open && afterReset === null && n2b.open,
           `gesetzt: ${gesetzt} (Familie ${String(afterSet.family)}) · nach dem Setzen offen: ${n2a.open} · nach dem Zurücksetzen gelöscht: ${afterReset === null} · offen: ${n2b.open}`);
       } catch (e) {
-        skipped(W7I.n1, `Einstellungen nicht erreichbar: ${String(e)} — nichts gemessen`);
-        skipped(W7I.n2, `Einstellungen nicht erreichbar: ${String(e)} — nichts gemessen`);
+        unmeasured(W7I.n1, `Einstellungen nicht erreichbar: ${String(e)} — nichts gemessen`);
+        unmeasured(W7I.n2, `Einstellungen nicht erreichbar: ${String(e)} — nichts gemessen`);
       } finally {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
@@ -2247,8 +2268,8 @@ async function main(): Promise<void> {
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           await p.saveRequestSettings(${JSON.stringify(saved)}); return true;`);
       } catch (e) {
-        skipped(W7I.n3, `Chat-Panel nicht erreichbar: ${String(e)} — nichts gemessen`);
-        skipped(W7I.n4, `Chat-Panel nicht erreichbar: ${String(e)} — nichts gemessen`);
+        unmeasured(W7I.n3, `Chat-Panel nicht erreichbar: ${String(e)} — nichts gemessen`);
+        unmeasured(W7I.n4, `Chat-Panel nicht erreichbar: ${String(e)} — nichts gemessen`);
       }
 
       // Gesendeter Body. Haken auf XMLHttpRequest.prototype.send: die Anfrage wird gelesen und
@@ -2305,7 +2326,7 @@ async function main(): Promise<void> {
           if (!usable.length) return false;
           usable[0].click();
           return true;`);
-        if (!started) skipped(W7I.reformat, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
+        if (!started) unmeasured(W7I.reformat, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
         else {
           await pollUntil(main, `return window.__w14Bodies.length > ${before};`, 20_000, 250).catch(() => false);
           const rb = await main.evaluate<Record<string, unknown> | null>(`return window.__w14Bodies[${before}] ?? null;`);
@@ -2365,7 +2386,7 @@ async function main(): Promise<void> {
           record(W7I.smart, smartBody.temperature === 0.1 && typeof smartBody.max_tokens === "number" && (smartBody.max_tokens as number) >= 4096,
             `temperature=${String(smartBody.temperature)} · max_tokens=${String(smartBody.max_tokens)}`);
         } else {
-          skipped(W7I.smart, `${smartWhy} — nichts gemessen`);
+          unmeasured(W7I.smart, `${smartWhy} — nichts gemessen`);
         }
       } finally {
         await main.evaluate(`
@@ -2561,33 +2582,18 @@ async function main(): Promise<void> {
     main.close();
   }
 
-  const failed = results.filter(r => !r.passed);
-  // Die Bilanz nennt, was NICHT gelaufen ist — sonst liest sich „23/25 grün" wie ein
-  // vollstaendiger Lauf, waehrend 15 Punkte nie erreicht wurden (2026-09-02).
-  const skipNachsatz = uebersprungen.length
-    ? ` · ${uebersprungen.length} übersprungen (weder grün noch rot)`
-    : "";
-  console.log(`\n${results.length - failed.length}/${results.length} Prüfpunkte grün${skipNachsatz}`);
-  if (uebersprungen.length) {
-    console.log("\nNicht gelaufen:");
-    for (const u of uebersprungen) console.log(`  – ${u.name} — ${u.reason}`);
+  // Die Abschlusszeile trägt alle vier Zustände: ein nie erreichter Punkt gehört IN sie (CORE-TEST-19), sonst liest sich
+  // „23 grün“ wie ein vollständiger Lauf. `abschluss()` setzt Exit 1 bei Rot ODER nichts gemessen.
+  bilanz.abschluss();
+  for (const p of bilanz.eintraege()) {
+    if (p.zustand === "rot" || p.zustand === "nichts-gemessen") console.log(`  ${p.zustand === "rot" ? "✗" : "?"} ${p.name} — ${p.detail}`);
   }
-  // Die Herkunfts-Warnung steht NACH der Bilanz, nicht davor: sie erscheint sonst am Anfang
-  // eines mehrminütigen Laufs und ist beim Ablesen des Ergebnisses längst weggescrollt. Ein
-  // „18/18 grün“ ohne diesen Zusatz hätte am 2026-08-30 workspace-weit 69 Prüfpunkte auf
-  // nicht belegtem Code beglaubigt.
+  // Die Herkunfts-Warnung steht NACH der Bilanz, nicht davor: sie erscheint sonst am Anfang eines mehrminütigen Laufs
+  // und ist beim Ablesen des Ergebnisses längst weggescrollt (2026-08-30: 69 Prüfpunkte auf nicht belegtem Code).
   if (herkunftsWarnung) {
     console.log(`\n⚠️  Herkunft des gemessenen Builds UNGEKLÄRT — die Bilanz oben belegt nicht,`);
     console.log(`   dass sie für den Repo-Stand gilt:\n   ${herkunftsWarnung}`);
   }
-  if (failed.length) {
-    console.log("\nOffen:");
-    for (const f of failed) console.log(`  ✗ ${f.name} — ${f.detail}`);
-    process.exit(1);
-  }
 }
 
-main().catch((error: unknown) => {
-  console.error(`\nAbbruch: ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
-});
+runDriver(main);

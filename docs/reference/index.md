@@ -116,7 +116,7 @@ Chat, Smart Apply and reformat requests are masked before they are sent: tokens,
 |---|---|---|
 | Enable MCP server | Starts the loopback HTTP server while Obsidian runs | off |
 | Port | Listening port on `127.0.0.1` | `8123` |
-| Token | Bearer token required on every request | generated |
+| Token | Bearer token required on every request; stored in Obsidian's keychain, not in `data.json` (device-local: another device generates its own) | generated |
 
 ## MCP tools
 

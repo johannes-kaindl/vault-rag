@@ -24,6 +24,9 @@ import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { effectiveSystemPrompt, migrateSystemPrompt, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
+import { loadSecretValue, persistSecretValue } from "./vendor/kit/secret-value";
+import { secretIdFor } from "./vendor/kit/secrets";
+import { obsidianSecretStore, secretStorageAvailable } from "./vendor/kit-obsidian/secrets";
 import { withTimeout } from "./vendor/kit/timeout";
 import { LiveIndexer } from "./vendor/kit/live-indexer";
 import { PendingQueue } from "./pending_queue";
@@ -133,6 +136,8 @@ export default class VaultRagPlugin extends Plugin {
    *  gegenüber extern geänderten Dateien) und in-Session von den Live-Handlern gepflegt. */
   private emptyNotePaths = new Set<string>();
   private settingTab: VaultRagSettingTab | null = null;
+  /** Was `data.json` für `mcpToken` trägt: `""`, sobald das Token im Schlüsselbund liegt. Das Token selbst steht nur in `settings.mcpToken` (Speicher). */
+  private mcpTokenInFile = "";
   /** Auto-Heal höchstens einmal je Gefahrenzustand-Episode (Reset bei gesundem Load). */
   private autoHealAttempted = false;
   private indexOpChain: Promise<void> = Promise.resolve();
@@ -245,6 +250,13 @@ export default class VaultRagPlugin extends Plugin {
     // sonst bleiben die Alt-Schlüssel bis zum nächsten beliebigen Speichern in data.json — die
     // Migration ist idempotent, aber die CHANGELOG-Zusage "entfernt" wäre bis dahin unwahr.
     if (hadLegacyGlobalModels) await this.saveSettings();
+    // MCP-Token (einzelner Wert) in den Schlüsselbund; erzeugt wird nur bei `empty` (ensureMcpToken). Das Token
+    // bleibt im Speicher (`settings.mcpToken`), `saveSettings` schreibt nur `mcpTokenInFile` in die Datei.
+    const mcpLoaded = loadSecretValue(this.settings.mcpToken, this.mcpSecretStore(), this.mcpSecretId());
+    this.settings.mcpToken = mcpLoaded.value;
+    this.mcpTokenInFile = mcpLoaded.persisted;
+    if (mcpLoaded.error) console.warn("vault-retrieval: MCP-Token im Schluesselbund:", mcpLoaded.error);
+    if (mcpLoaded.dirty) await this.saveSettings();
     // Schlüssel in den Schlüsselbund (beide Listen), unabhängig vom Manager: mit installiertem
     // Manager migriert weder der Kit-Resolver noch die Listen-UI (renderLocalList läuft nur ohne
     // Manager). Muss VOR dem ersten Embedder stehen, sonst startet er mit einer Zeile ohne Schlüssel.
@@ -1926,8 +1938,18 @@ export default class VaultRagPlugin extends Plugin {
 
   /** Generiert bei Bedarf einen Token, speichert ihn und gibt ihn zurück. */
   ensureMcpToken(): string {
-    if (!this.settings.mcpToken) { this.settings.mcpToken = generateToken(); void this.saveSettings(); }
+    if (!this.settings.mcpToken) { this.storeMcpToken(generateToken()); void this.saveSettings(); }
     return this.settings.mcpToken;
+  }
+
+  private mcpSecretId(): string { return secretIdFor(this.manifest.id, "mcp-token"); }
+  private mcpSecretStore() { return secretStorageAvailable(this.app) ? obsidianSecretStore(this.app) : null; }
+  /** Legt ein Token in den Schlüsselbund und merkt, was die Datei tragen darf (nie das Token, solange er es hält). */
+  private storeMcpToken(token: string): void {
+    const r = persistSecretValue(token, this.mcpSecretStore(), this.mcpSecretId());
+    if (r.error) console.warn("vault-retrieval: MCP-Token im Schluesselbund:", r.error);
+    this.settings.mcpToken = r.value;
+    this.mcpTokenInFile = r.persisted;
   }
 
   mcpServerRunning(): boolean { return this.mcpServer !== null; }
@@ -1939,7 +1961,7 @@ export default class VaultRagPlugin extends Plugin {
 
   /** Neuen Token erzeugen, persistieren, Server neu starten. Alte Clients werden ungültig. */
   async rotateMcpToken(): Promise<void> {
-    this.settings.mcpToken = generateToken();
+    this.storeMcpToken(generateToken());
     await this.saveSettings();
     await this.restartMcpServer();
   }
@@ -2018,5 +2040,5 @@ export default class VaultRagPlugin extends Plugin {
     return this.runMcpOp(() => this.doStartMcpServer());
   }
 
-  async saveSettings() { await this.saveData(this.settings); }
+  async saveSettings() { await this.saveData({ ...this.settings, mcpToken: this.mcpTokenInFile }); }
 }

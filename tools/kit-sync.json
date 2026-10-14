@@ -39,6 +39,7 @@
         "rotation",
         "run-state",
         "sampling-profiles",
+        "secret-value",
         "secrets",
         "settings",
         "sse",

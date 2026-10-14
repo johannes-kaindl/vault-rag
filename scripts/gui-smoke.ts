@@ -139,6 +139,7 @@ const LAB_PRUEFPUNKTE = [
 ];
 
 /** Namen der Punkte, die im Ablauf an mehreren Stellen vorkommen — auf Modulebene, damit `PUNKTE` sie enthält. */
+const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
 const MGR_PUNKTE = [
   "Manager da: Chat-Endpunkt und Standardmodell kommen vom Manager, der Schlüssel bleibt im Speicher",
   "Manager da: die Nutzerwahl (chatChoice.model) schlägt Standardmodell und config.model",
@@ -204,7 +205,9 @@ const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch w
  *  Punkt, der nie aufgezeichnet wird, zählt als „nichts gemessen“. */
 const PUNKTE = [
   "Plugin-API hängt am Plugin-Objekt und nennt ihre Version",
-  "Fläche ist auf status/search/related/proposeLinks/applyLink begrenzt",
+  "Fläche trägt mindestens status/search/related/proposeLinks/applyLink und tools/executeTool, keine Interna",
+  "tools() liefert search und related als Definitionen, executeTool() antwortet als Wert",
+  "Der Anbieter besteht den Wirts-Guard des Kits (version, tools, executeTool)",
   "status() ist synchron und meldet einen Index",
   "Keine Alt-Schlüssel des globalen Modells und der Sampling-Regler in den Einstellungen",
   "related() liefert Treffer für eine indexierte Notiz",
@@ -243,6 +246,7 @@ const PUNKTE = [
   ...MGR_PUNKTE,
   ...W15_PUNKTE,
   ...W16_PUNKTE,
+  MCP_TOKEN_PUNKT,
   POPOUT_PUNKT,
   PUNKT_TREU,
   PUNKT_SPERRE,
@@ -383,13 +387,14 @@ interface ApiProbe {
   present: boolean;
   apiVersion?: number;
   keys?: string[];
+  providerVersion?: unknown;
   status?: { apiVersion: number; indexed: boolean; noteCount: number };
   statusIsSync?: boolean;
   related?: { ok: boolean; reason?: string; hits?: { path: string; score: number }[] } | null;
   relatedPath?: string | null;
   search?: { ok: boolean; reason?: string; hits?: { path: string; score: number }[] };
   serialisable?: boolean;
-  tools?: { name: string; writes?: boolean; parameters?: { type?: string } }[] | null;
+  tools?: { name: string; description?: string; writes?: boolean; parameters?: { type?: string } }[] | null;
   toolExec?: { ok: boolean } | null;
   toolBad?: unknown;
 }
@@ -716,6 +721,7 @@ async function main(): Promise<void> {
         tools, toolExec, toolBad,
         present: true,
         apiVersion: api.apiVersion,
+        providerVersion: api.version,
         keys: Object.keys(api).sort(),
         status,
         statusIsSync: !(status && typeof status.then === "function"),
@@ -740,11 +746,15 @@ async function main(): Promise<void> {
       apiPflicht.every(k => apiKeys.includes(k)) && !apiVerboten.some(k => apiKeys.includes(k)),
       apiKeys.join(", "));
     const toolNames = (probe.tools ?? []).map(d => d.name);
-    record("tools() liefert search und related als Definitionen, execute() antwortet als Wert",
+    record("tools() liefert search und related als Definitionen, executeTool() antwortet als Wert",
       JSON.stringify(toolNames) === JSON.stringify(["semantic_search", "related_notes"])
         && (probe.tools ?? []).every(d => d.writes === false && d.parameters?.type === "object")
         && probe.toolExec?.ok === true && (probe.toolBad as { reason?: string } | null)?.reason === "unknown-tool",
       `tools ${toolNames.join(", ")} · related_notes ok=${String(probe.toolExec?.ok)} · unbekannt → ${String((probe.toolBad as { reason?: string } | null)?.reason)}`);
+    record("Der Anbieter besteht den Wirts-Guard des Kits (version, tools, executeTool)",
+      probe.providerVersion === 1 && apiKeys.includes("tools") && apiKeys.includes("executeTool")
+        && (probe.tools ?? []).every(d => typeof d.name === "string" && typeof d.description === "string" && typeof d.writes === "boolean"),
+      `version ${String(probe.providerVersion)} · ${(probe.tools ?? []).length} Definitionen mit name/description/writes`);
     record("status() ist synchron und meldet einen Index",
       probe.statusIsSync === true && probe.status?.indexed === true && (probe.status?.noteCount ?? 0) > 0,
       `indexed=${String(probe.status?.indexed)} · ${probe.status?.noteCount ?? 0} Notizen`);
@@ -1874,6 +1884,34 @@ async function main(): Promise<void> {
 
 
     } // Ende vorlauf
+
+    // --- 7e1. MCP-Token im Schlüsselbund (Welle 22) ---------------------------------------------
+    // Erzeugen und Neu-Erzeugen laufen ohne laufenden Server (mcpEnabled ist im Fixture aus). Gegenprobe im selben Zug:
+    // vor dem Erzeugen steht nichts im Schlüsselbund, danach trägt es genau das Token im Speicher und data.json bleibt leer.
+    {
+      const tok = await main.evaluate<Record<string, unknown>>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const id = "${PLUGIN_ID}-mcp-token";
+        const vorher = app.secretStorage.getSecret(id) || "";
+        p.settings.mcpToken = ""; p.mcpTokenInFile = ""; app.secretStorage.setSecret(id, "");
+        const t1 = p.ensureMcpToken();
+        await p.saveSettings();
+        const file1 = JSON.parse(await app.vault.adapter.read(app.vault.configDir + "/plugins/" + ${JSON.stringify(PLUGIN_ID)} + "/data.json")).mcpToken;
+        const store1 = app.secretStorage.getSecret(id) || "";
+        await p.rotateMcpToken();
+        const t2 = p.settings.mcpToken;
+        const file2 = JSON.parse(await app.vault.adapter.read(app.vault.configDir + "/plugins/" + ${JSON.stringify(PLUGIN_ID)} + "/data.json")).mcpToken;
+        const store2 = app.secretStorage.getSecret(id) || "";
+        // aufraeumen: Fixture-Zustand = kein Token
+        p.settings.mcpToken = ""; p.mcpTokenInFile = ""; app.secretStorage.setSecret(id, "");
+        await p.saveSettings();
+        return { vorher, t1, file1, store1, t2, file2, store2 };
+      `);
+      const ok = typeof tok.t1 === "string" && /^[0-9a-f]{32}$/.test(tok.t1) && tok.store1 === tok.t1 && tok.file1 === ""
+        && tok.t2 !== tok.t1 && tok.store2 === tok.t2 && tok.file2 === "";
+      record(MCP_TOKEN_PUNKT, ok,
+        `erzeugt ${String(tok.t1).length} Zeichen · Schlüsselbund = Speicher: ${tok.store1 === tok.t1} · data.json leer: ${tok.file1 === ""}; neu erzeugt: anders ${tok.t2 !== tok.t1}, Schlüsselbund folgt ${tok.store2 === tok.t2}, data.json leer ${tok.file2 === ""}`);
+    }
 
     // --- 7e2. Verbindungs-Tausch (Welle 15): Schlüsselbund, Neustarts, Schwärzung ---------------
     // Gegen einen FAKE-Endpunkt auf der Node-Seite: er zeichnet Body und Header auf und spiegelt

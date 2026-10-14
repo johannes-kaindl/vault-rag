@@ -60,7 +60,7 @@ import { CONTAINER_FILE, decodeContainer } from "./vendor/kit/index-container";
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { pickTransform, promptInstruction } from "./reformat_picker";
-import type { TransformDef } from "./reformat_transforms";
+import { buildTransforms, transformLabel, type TransformDef } from "./reformat_transforms";
 import { splitSelectionAffix } from "./reformat_mechanical";
 import { ReformatPreviewModal } from "./reformat_preview_modal";
 import { maskProtected, integrityProblem } from "./protect_markup";
@@ -691,6 +691,7 @@ export default class VaultRagPlugin extends Plugin {
     const reformat = new ReformatPanel({
       getReadiness: () => this.reformatReadiness(),
       run: (def, instruction) => void this.runTransform(def, instruction),
+      transforms: () => buildTransforms(this.settings.reformatPresets),
     });
     this.reformatPanel = reformat;
     panels.push(reformat);
@@ -1085,7 +1086,7 @@ export default class VaultRagPlugin extends Plugin {
   private async reformatFromCommand(): Promise<void> {
     this.captureSelection();
     if (!canRun(this.lastReadiness)) { new Notice(readinessMessage(this.lastReadiness)); return; }
-    const def = await pickTransform(this.app);
+    const def = await pickTransform(this.app, buildTransforms(this.settings.reformatPresets));
     if (!def) return;
     await this.runTransform(def);
   }
@@ -1105,7 +1106,7 @@ export default class VaultRagPlugin extends Plugin {
 
     if (def.kind === "mechanical") {
       const result = def.run(core);
-      if (result == null) { new Notice(t("main.transformDoesNotFit", t(def.labelKey))); return; }
+      if (result == null) { new Notice(t("main.transformDoesNotFit", transformLabel(def))); return; }
       cap.editor.replaceRange(lead + result + trail, cap.from, cap.to);
       return;
     }
@@ -1937,6 +1938,9 @@ export default class VaultRagPlugin extends Plugin {
       if (v instanceof VaultRetrievalView) v.refreshContext();
     }
   }
+
+  /** Eigene Umformatier-Funktionen geändert: die Leiste im offenen Hub neu aufbauen. */
+  refreshReformatTransforms(): void { this.reformatPanel?.rebuild(); }
 
   /** Offene Smart-Apply-Cockpits sofort neu ranken (z.B. nach Vorlagenpfad-Änderung). */
   refreshSmartApplyRanking(): void {

@@ -160,6 +160,7 @@ const PAUSE_PUNKTE = [
   "Fortsetzen: pendingNotes fällt auf 0, und der Zähler steigt (Gegenprobe zu „0 Anfragen“)",
   "Stub-Lage-Hygiene: nach dem Aufräumen erreicht eine ausstehende Änderung einen „echten“ Endpunkt nicht (Gegenprobe ohne Aufräumen: sie erreicht ihn)",
 ];
+const REFORMAT_PRESET_PUNKT = "Umformatieren: eine eigene Funktion (Titel + Anweisung) erscheint als Knopf in der Leiste und verschwindet beim Löschen";
 const EMBED_ZAEHLER_PUNKT = "Embedding-Zähler: eine Suche über die Plugin-API steht unter „api“, der Befehl zeigt die Zählung";
 const CHAT_MD_PUNKT = "Chat: eine fertige Antwort erscheint als Markdown (Liste, Fettung), Fernbild bleibt draußen, die Frage bleibt Text";
 const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
@@ -272,6 +273,7 @@ const PUNKTE = [
   MCP_TOKEN_PUNKT,
   CHAT_MD_PUNKT,
   EMBED_ZAEHLER_PUNKT,
+  REFORMAT_PRESET_PUNKT,
   ...PAUSE_PUNKTE,
   POPOUT_PUNKT,
   PUNKT_TREU,
@@ -2210,6 +2212,30 @@ async function main(): Promise<void> {
           p.setEmbeddingPaused(false); await p.resolveAndReconnectEmbedder(); return true;`).catch(() => undefined);
         await echt.stop().catch(() => undefined);
       }
+    }
+
+    // --- 7e1e. Eigene Umformatier-Funktionen (Welle 22) --------------------------------------------
+    // Gegenprobe im selben Zug: vorher steht kein Knopf mit dem Titel in der Leiste, nach dem Löschen wieder nicht.
+    if (nur === null) {
+      const TITEL = "Protokoll-Probe";
+      const knoepfe = `[...document.querySelectorAll(".vault-rag-reformat-panel .vault-rag-reformat-btn")].map(b => b.textContent)`;
+      const r = await main.evaluate<{ vorher: string[]; mit: string[]; nach: string[]; gespeichert: boolean }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const gesichert = JSON.parse(JSON.stringify(p.settings.reformatPresets));
+        try {
+          p.settings.reformatPresets = [];
+          await p.openHub("reformat"); await new Promise(r => setTimeout(r, 600));
+          const vorher = ${knoepfe};
+          p.settings.reformatPresets = [{ id: "smoke1", title: ${JSON.stringify(TITEL)}, prompt: "Schreibe als Protokoll um." }, { id: "smoke2", title: "", prompt: "halb" }];
+          await p.saveSettings(); p.refreshReformatTransforms(); await new Promise(r => setTimeout(r, 300));
+          const mit = ${knoepfe};
+          const data = JSON.parse(await app.vault.adapter.read(app.vault.configDir + "/plugins/" + ${JSON.stringify(PLUGIN_ID)} + "/data.json"));
+          const gespeichert = Array.isArray(data.reformatPresets) && data.reformatPresets.some(x => x.title === ${JSON.stringify(TITEL)});
+          p.settings.reformatPresets = []; await p.saveSettings(); p.refreshReformatTransforms(); await new Promise(r => setTimeout(r, 300));
+          return { vorher, mit, nach: ${knoepfe}, gespeichert };
+        } finally { p.settings.reformatPresets = gesichert; await p.saveSettings(); p.refreshReformatTransforms(); }`);
+      record(REFORMAT_PRESET_PUNKT, !r.vorher.includes(TITEL) && r.mit.includes(TITEL) && !r.mit.includes("") && !r.nach.includes(TITEL) && r.gespeichert,
+        `vorher ${r.vorher.length} Knöpfe ohne Titel · mit Funktion ${r.mit.length} (Titel ${r.mit.includes(TITEL) ? "da" : "FEHLT"}, halb ausgefüllte Zeile ${r.mit.length === r.vorher.length + 1 ? "nicht angeboten" : "ANGEBOTEN?"}) · nach Löschen ${r.nach.length} · in data.json ${r.gespeichert ? "ja" : "NEIN"}`);
     }
 
     // --- 7e2. Verbindungs-Tausch (Welle 15): Schlüsselbund, Neustarts, Schwärzung ---------------

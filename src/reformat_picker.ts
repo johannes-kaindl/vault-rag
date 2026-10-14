@@ -1,16 +1,16 @@
 import { App, FuzzySuggestModal, Modal, ButtonComponent } from "obsidian";
-import { TRANSFORMS, TransformDef } from "./reformat_transforms";
+import { TransformDef, transformLabel } from "./reformat_transforms";
 import { t } from "./vendor/kit/i18n";
 
 class TransformPicker extends FuzzySuggestModal<TransformDef> {
   private settled = false;
-  constructor(app: App, private done: (d: TransformDef | null) => void) {
+  constructor(app: App, private items: TransformDef[], private done: (d: TransformDef | null) => void) {
     super(app);
     this.setPlaceholder(t("picker.transform.placeholder"));
   }
   private settle(d: TransformDef | null): void { if (!this.settled) { this.settled = true; this.done(d); } }
-  getItems(): TransformDef[] { return TRANSFORMS; }
-  getItemText(d: TransformDef): string { return t(d.labelKey); }
+  getItems(): TransformDef[] { return this.items; }
+  getItemText(d: TransformDef): string { return transformLabel(d); }
   onChooseItem(d: TransformDef): void { this.settle(d); }
   onClose(): void {
     super.onClose();
@@ -21,8 +21,8 @@ class TransformPicker extends FuzzySuggestModal<TransformDef> {
 }
 
 /** Öffnet den Fuzzy-Picker über die Transform-Registry; gewählter TransformDef oder null. */
-export function pickTransform(app: App): Promise<TransformDef | null> {
-  return new Promise(resolve => new TransformPicker(app, resolve).open());
+export function pickTransform(app: App, items: TransformDef[]): Promise<TransformDef | null> {
+  return new Promise(resolve => new TransformPicker(app, items, resolve).open());
 }
 
 class InstructionModal extends Modal {

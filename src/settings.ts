@@ -10,7 +10,7 @@ import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { githubHelpUrls, helpSettingDefinition } from "./vendor/kit-obsidian/help-setting";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
-import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
+import { DEFAULT_SETTINGS, type ReformatPreset, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import type { EmbeddingConnection } from "./vendor/kit-obsidian/embedding-connection";
 import type { EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
 import { resolveLlmConnectionStrings } from "./vendor/kit-obsidian/llm-connection-strings";
@@ -62,6 +62,7 @@ export interface VaultRagPluginHost extends Plugin {
   saveSettings(): Promise<void>;
   refresh(): void;
   refreshSmartApplyRanking(): void;
+  refreshReformatTransforms(): void;
   resolveAndReconnectEmbedder(): Promise<void>;
   resolveAndReconnectChat(): Promise<void>;
   embedderReady(): Promise<boolean>;
@@ -208,7 +209,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         reportIssue: t("settings.help.reportIssue"),
       },
     });
-    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.smartApplyGroup(), this.integratorGroup()];
+    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.reformatGroup(), this.smartApplyGroup(), this.integratorGroup()];
   }
 
   /** Einmal-pro-Öffnen die aktiven Endpunkte auflösen. An ein echtes Render-Signal (erster
@@ -362,6 +363,45 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  templateDir ist ein natives folder-Control (Vault-Ordner-Suggester); die Trailing-Slash-
    *  Normalisierung passiert bereits in setControlValue (Task 2). Nur das Modell-Dropdown bleibt
    *  ein render-Hatch (Cross-Referenz auf plugin.chatClient, Online/Offline-Fallback). */
+  /** Umformatieren: eigene LLM-Funktionen (Titel + Anweisung) neben den eingebauten. */
+  private reformatGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: t("settings.reformat.group"), items: [
+      { name: t("settings.reformat.presets.name"), desc: t("settings.reformat.presets.desc"), render: this.renderReformatPresets },
+    ] };
+  }
+
+  /** render-Hatch: Liste der eigenen Umformatier-Funktionen. Eine Zeile: Titel, Anweisung, Löschen. Jede Eingabe speichert und
+   *  baut die Leiste im offenen Hub neu auf; halb ausgefüllte Zeilen werden dort nicht angeboten (`buildTransforms`).
+   *  Vorbild: die Preset-Liste in obsidian-transmute (`settings-tab.ts`, Name/Muster/…, eine Zeile je Preset). */
+  private renderReformatPresets = (setting: Setting): void => {
+    const host = settingBodyHost(setting).createDiv({ cls: "vault-rag-reformat-presets" });
+    host.createDiv({ cls: "setting-item-name", text: t("settings.reformat.presets.name") });
+    host.createDiv({ cls: "setting-item-description", text: t("settings.reformat.presets.desc") });
+    const list = host.createDiv();
+    const changed = async (): Promise<void> => { await this.plugin.saveSettings(); this.plugin.refreshReformatTransforms(); };
+    const renderRow = (preset: ReformatPreset): void => {
+      const row = new Setting(list);
+      row.addText(txt => txt.setPlaceholder(t("settings.reformat.presetTitle")).setValue(preset.title)
+        .onChange(async (v: string) => { preset.title = v; await changed(); }));
+      row.addTextArea(ta => {
+        ta.setPlaceholder(t("settings.reformat.presetPrompt")).setValue(preset.prompt)
+          .onChange(async (v: string) => { preset.prompt = v; await changed(); });
+        ta.inputEl.rows = 3;
+      });
+      row.addExtraButton(b => b.setIcon("trash").setTooltip(t("settings.reformat.presetDelete")).onClick(async () => {
+        this.plugin.settings.reformatPresets = this.plugin.settings.reformatPresets.filter(p => p.id !== preset.id);
+        await changed();
+        this.refreshUi();
+      }));
+    };
+    for (const p of this.plugin.settings.reformatPresets) renderRow(p);
+    new Setting(host).addButton(b => b.setButtonText(t("settings.reformat.presetAdd")).onClick(async () => {
+      this.plugin.settings.reformatPresets = [...this.plugin.settings.reformatPresets, { id: `p${Date.now()}-${this.plugin.settings.reformatPresets.length}`, title: "", prompt: "" }];
+      await changed();
+      this.refreshUi();
+    }));
+  };
+
   private smartApplyGroup(): SettingDefinitionGroup {
     return { type: "group", heading: t("settings.smartApply.group"), items: [
       { name: t("settings.smartApply.enable.name"),

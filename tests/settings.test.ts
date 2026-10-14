@@ -139,6 +139,7 @@ function makeFakeHost() {
     saveSettings: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn(),
     refreshSmartApplyRanking: vi.fn(),
+    refreshReformatTransforms: vi.fn(),
     setStatusBarVisible: vi.fn(),
     embeddingPaused: vi.fn(() => false),
     setEmbeddingPaused: vi.fn(),
@@ -370,6 +371,33 @@ describe("resolvedOnOpen – Re-Resolve beim Tab-Öffnen", () => {
     tab.display();
     expect(host.resolveAndReconnectChat).toHaveBeenCalledTimes(2);
     tab.hide();   // räumt den 2s-Poll aus renderEmbeddingStatus ab (sonst Timer-Leak über das Test-Teardown)
+  });
+});
+
+describe("Umformatieren-Gruppe: eigene Funktionen", () => {
+  function hatch(tab: any) {
+    const holder = new Setting(makeFakeEl() as any);
+    tab.renderReformatPresets(holder);
+    return holder.settingEl as any;
+  }
+  it("die Gruppe steht vor Smart Apply und trägt einen render-Hatch", () => {
+    const { tab } = makeTab();
+    const defs = tab.getSettingDefinitions().filter((d: any) => d.type === "group") as any[];
+    const i = defs.findIndex(g => g.heading === "Reformat");
+    expect(i).toBeGreaterThan(0);
+    expect(defs[i + 1].heading).toBe("Smart Apply");
+    expect(defs[i].items.filter((x: any) => typeof x.render === "function").length).toBe(1);
+  });
+  it("„Funktion hinzufügen“ legt eine leere Zeile an, speichert und baut die Leiste neu auf", async () => {
+    const { tab, host } = makeTab();
+    hatch(tab);
+    const add = (Setting as any).__last.components[0];     // die zuletzt gebaute Zeile ist die mit dem Knopf
+    expect(add.textValue).toBe("Add function");
+    await add.clickCB();
+    expect(host.settings.reformatPresets.length).toBe(1);
+    expect(host.settings.reformatPresets[0]).toMatchObject({ title: "", prompt: "" });
+    expect(host.saveSettings).toHaveBeenCalled();
+    expect(host.refreshReformatTransforms).toHaveBeenCalled();
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TRANSFORMS } from "../src/reformat_transforms";
+import { TRANSFORMS, buildTransforms, transformLabel, type LlmTransform } from "../src/reformat_transforms";
 import "../src/i18n/strings"; // Register i18n strings
 import { t } from "../src/vendor/kit/i18n";
 
@@ -50,5 +50,50 @@ describe("TRANSFORMS labelKey", () => {
     const byId = Object.fromEntries(TRANSFORMS.map(d => [d.id, t(d.labelKey)]));
     expect(byId["transpose"]).toBe("Transpose table");
     expect(byId["freetext"]).toBe("Custom instruction…");
+  });
+});
+
+describe("buildTransforms — eigene Funktionen aus den Einstellungen", () => {
+  const preset = { id: "a1", title: "Protokoll", prompt: "Schreibe als Protokoll mit Beschlüssen um." };
+
+  it("ohne eigene Funktionen ist es genau die feste Registry", () => {
+    expect(buildTransforms([]).map(d => d.id)).toEqual(TRANSFORMS.map(d => d.id));
+    expect(buildTransforms().map(d => d.id)).toEqual(TRANSFORMS.map(d => d.id));
+  });
+  it("eine eigene Funktion steht nach den eingebauten und VOR der freien Anweisung (freetext bleibt die letzte)", () => {
+    const ids = buildTransforms([preset]).map(d => d.id);
+    expect(ids[ids.length - 1]).toBe("freetext");
+    expect(ids[ids.length - 2]).toBe("preset:a1");
+    expect(ids.length).toBe(TRANSFORMS.length + 1);
+  });
+  it("der Titel des Nutzers ist das Label; eingebaute behalten die Übersetzung", () => {
+    const defs = buildTransforms([preset]);
+    expect(transformLabel(defs.find(d => d.id === "preset:a1")!)).toBe("Protokoll");
+    expect(transformLabel(defs.find(d => d.id === "to-list")!)).toBe(t("transform.toList"));
+  });
+  it("sie läuft wie freetext, nur mit der gespeicherten Anweisung, und trägt sie in den Prompt-Fassungs-Text für llm-lab", () => {
+    const d = buildTransforms([preset]).find(x => x.id === "preset:a1") as LlmTransform;
+    const msgs = d.buildMessages("Text");
+    expect(msgs[0]!.role).toBe("system");
+    expect(msgs[0]!.content).toContain("Schreibe als Protokoll mit Beschlüssen um.");
+    expect(msgs[1]).toEqual({ role: "user", content: "Text" });
+    expect(d.promptTemplate()).toContain("Schreibe als Protokoll mit Beschlüssen um.");
+    expect(d.freetext).toBeUndefined();            // keine Rückfrage nach einer Anweisung
+    expect(d.custom).toBe(true);
+  });
+  it("halb ausgefüllte oder kaputte Zeilen werden nicht angeboten (Gegenprobe: die vollständige schon)", () => {
+    const kaputt = [
+      { id: "b", title: "  ", prompt: "x" },
+      { id: "c", title: "T", prompt: "   " },
+      { id: "d" } as never,
+      null as never,
+    ];
+    expect(buildTransforms(kaputt).length).toBe(TRANSFORMS.length);
+    expect(buildTransforms([...kaputt, preset]).length).toBe(TRANSFORMS.length + 1);
+  });
+  it("ändert die feste Registry nicht (keine gemeinsame Mutation)", () => {
+    const vorher = TRANSFORMS.map(d => d.id).join(",");
+    buildTransforms([preset]);
+    expect(TRANSFORMS.map(d => d.id).join(",")).toBe(vorher);
   });
 });

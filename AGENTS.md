@@ -263,7 +263,7 @@ reformat_prompts.ts     Pure Prompt-Builder je LLM-Zielformat (`buildTransformMe
                   s. u.) + `REFORMAT_MAX_TOKENS`. Anti-Fabrication im System-Prompt; NICHT verwandt mit
                   `note_restructurer.antiFabrication()` (das ist SmartApplys JSON-Protokoll; dort eine
                   Funktion, weil sie erst zur Prompt-Bauzeit übersetzt werden darf).
-reformat_transforms.ts  `TRANSFORMS`-Registry — **einzige Wahrheit** für Picker UND Sidebar-Panel.
+reformat_transforms.ts  (seit Welle 22: `buildTransforms(presets)` ergänzt die Registry um eigene LLM-Funktionen aus `settings.reformatPresets` — Titel + feste Anweisung, laufen wie `freetext`, `label` statt `labelKey`, `transformLabel(def)` für die Anzeige; Eingebaute bleiben fest, halb ausgefüllte Zeilen werden nicht angeboten) `TRANSFORMS`-Registry — **einzige Wahrheit** für Picker UND Sidebar-Panel.
                   Diskriminierte Union über `kind`; jeder Eintrag trägt `labelKey` (nicht das
                   fertige Label) — die Registry ist eine Modul-Konstante, ihre Labels müssen
                   deshalb erst zur Zeichenzeit übersetzt werden. Mechanisch trägt zusätzlich

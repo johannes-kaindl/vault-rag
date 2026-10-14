@@ -44,6 +44,8 @@ Two kinds of transform:
   applied instantly, no LLM involved. Undo with Cmd/Ctrl+Z.
 - **LLM-backed** (→ list, → prose, → table, → Mermaid, or a free-text instruction) — streamed
   into a preview window. Nothing is replaced until you click apply; you can regenerate first.
+- **Your own functions** — under **Settings → Vault Retrieval → Reformat** add a title and an instruction; the function
+  appears next to the built-in LLM ones and works the same way.
 
 Reformatting requires editing mode. In reading mode Obsidian exposes no editor state, so the
 buttons stay disabled and tell you why. If you edit the note while a preview is open, the

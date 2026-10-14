@@ -1,5 +1,5 @@
 import { HubPanel } from "./hub_panel";
-import { TRANSFORMS, TransformDef } from "./reformat_transforms";
+import { TransformDef, transformLabel } from "./reformat_transforms";
 import {
   ReformatReadiness, canRun, readinessMessage, selectionPreview, groupTransforms,
 } from "./reformat_selection_state";
@@ -10,6 +10,8 @@ export interface ReformatPanelDeps {
   getReadiness: () => ReformatReadiness;
   /** Führt den Transform auf der gemerkten Auswahl aus. */
   run: (def: TransformDef, instruction?: string) => void;
+  /** Die aktuelle Registry samt eigener Funktionen aus den Einstellungen. */
+  transforms: () => TransformDef[];
 }
 
 /** Sidebar-Tab: launcht die Transforms aus der Registry. Buttons sind deaktiviert,
@@ -25,11 +27,17 @@ export class ReformatPanel implements HubPanel {
 
   constructor(private deps: ReformatPanelDeps) {}
 
+  private container: HTMLElement | null = null;
+
   mount(container: HTMLElement): void {
+    this.container = container;
+    container.empty();
+    this.buttons = [];
+    this.instructionEl = null;
     container.addClass("vault-rag-reformat-panel");
     this.statusEl = container.createDiv({ cls: "vault-rag-reformat-status" });
 
-    const groups = groupTransforms(TRANSFORMS);
+    const groups = groupTransforms(this.deps.transforms());
     const freetext = groups.llm.filter(d => d.freetext);
     const plainLlm = groups.llm.filter(d => !d.freetext);
 
@@ -61,7 +69,7 @@ export class ReformatPanel implements HubPanel {
     if (!defs.length) return;
     container.createDiv({ cls: "vault-rag-reformat-group-title", text: title });
     for (const def of defs) {
-      const btn = container.createEl("button", { cls: "vault-rag-reformat-btn", text: t(def.labelKey) });
+      const btn = container.createEl("button", { cls: "vault-rag-reformat-btn", text: transformLabel(def) });
       btn.addEventListener("click", () => this.deps.run(def));
       this.buttons.push(btn);
     }
@@ -89,6 +97,9 @@ export class ReformatPanel implements HubPanel {
     for (const b of this.buttons) b.disabled = !enabled;
     if (this.instructionEl) this.instructionEl.disabled = !enabled;
   }
+
+  /** Die Registry hat sich geändert (Einstellungen): Knöpfe neu aufbauen. */
+  rebuild(): void { if (this.container) this.mount(this.container); }
 
   onShow(): void { this.refresh(); }
 

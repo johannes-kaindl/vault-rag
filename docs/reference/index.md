@@ -89,6 +89,12 @@ One collapsible section **Request** covers all three call sites: chat (*grounded
 
 Chat, Smart Apply and reformat requests are masked before they are sent: tokens, `Bearer …` headers, private-key blocks and similar secrets in the text are replaced by placeholders (`[redacted-token-1]`), and the same value always gets the same placeholder. The answer is translated back, so you see and get your original text; Smart Apply's JSON result is restored with escaping, so a multi-line value stays valid JSON. The LLM Lab log records the masked text — what the server actually saw. Images are not masked.
 
+### Reformat
+
+| Setting | Effect | Default |
+|---|---|---|
+| Your own reformat functions | A list of title + instruction pairs. Each one appears in the sidebar's reformat tab and in the command's picker, next to the built-in LLM functions, and runs with a preview like them. The built-in functions (list, prose, table, Mermaid, free instruction) and the mechanical ones (transpose, table to list, callout, remove line breaks) are fixed. A row needs both fields to be offered | empty |
+
 ### Smart Apply *(opt-in)*
 
 | Setting | Effect | Default |

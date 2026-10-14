@@ -12,6 +12,9 @@ import type { EndpointChoice } from "./vendor/kit/endpoint-source";
 // Endpunkt-Wahrheit (Struktur, Auth, Modellwahl, Migration) lebt in endpoint_config.ts und wird
 // von dort importiert — bewusst NICHT durchgereicht: eine öffentliche Fläche pro Wahrheit.
 
+/** Eine selbst angelegte Umformatier-Funktion: Titel (Knopf/Picker) und Anweisung an das Modell. */
+export interface ReformatPreset { id: string; title: string; prompt: string }
+
 export interface VaultRagSettings {
   k: number;
   minSim: number;
@@ -39,6 +42,8 @@ export interface VaultRagSettings {
   smartApplyMaxTokens: number;
   smartApplyDefaultMode: ApplyMode;
   // Integrator (Spec 2026-09-07, §5)
+  /** Eigene LLM-Funktionen der Umformatieren-Leiste (Titel + Anweisung); die eingebauten bleiben fest und stehen nicht hier. */
+  reformatPresets: ReformatPreset[];
   integratorEnabled: boolean;
   /** Pfad-Praefixe wie `exclude`. Leer = automatischer Ausloeser aus, nur Kommandos. */
   integratorFolders: string[];
@@ -152,6 +157,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   smartApplyModel: "",
   smartApplyMaxTokens: 4096,
   smartApplyDefaultMode: "deterministisch",
+  reformatPresets: [],
   integratorEnabled: false,
   integratorFolders: [],
   linkTarget: "section",

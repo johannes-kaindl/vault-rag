@@ -1750,30 +1750,39 @@ async function main(): Promise<void> {
           const cur = p.integratorStore.get(${JSON.stringify(PLAIN)});
           return { links: cur ? cur.links.length : 0 };
         `);
-        if (zweiter.links < 3) {
-          unmeasured(INTEGRATOR_PRUEFPUNKTE[6]!, `nach Annehmen und Ablehnen blieben ${zweiter.links} Ziele (nötig: 3, je eines für Klick, Ablehnen und Annehmen)`);
-          unmeasured(INTEGRATOR_PRUEFPUNKTE[7]!, "zu wenige Ziele");
+        if (zweiter.links < 2) {
+          unmeasured(INTEGRATOR_PRUEFPUNKTE[6]!, `nach Annehmen und Ablehnen blieben ${zweiter.links} Ziele (nötig: 2, zwei Klicks)`);
         } else {
           await pollUntil<number>(main, `const n = document.querySelectorAll(".vault-rag-int-accept").length; return n > 0 ? n : null;`, 5000, 250);
+          // ZWEI Klicks hintereinander ohne Neuberechnung dazwischen: der zweite sieht den Text, den der erste geschrieben hat.
           const klick = await main.evaluate<{ before: number }>(`
             const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
             const before = p.integratorStore.get(${JSON.stringify(PLAIN)}).links.length;
             document.querySelector(".vault-rag-int-card .vault-rag-int-accept").click();
             return { before };
           `);
-          const nach = await pollUntil<{ links: number; stale: boolean; staleEl: boolean }>(main, `
-            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-            const cur = p.integratorStore.get(${JSON.stringify(PLAIN)});
-            return cur && cur.links.length < ${klick.before} ? { links: cur.links.length, stale: cur.stale, staleEl: !!document.querySelector(".vault-rag-int-stale") } : null;
+          const erst = await pollUntil<number>(main, `
+            const cur = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].integratorStore.get(${JSON.stringify(PLAIN)});
+            return cur && cur.links.length < ${klick.before} ? cur.links.length + 1 : null;
           `, 5000, 250);
-          record(INTEGRATOR_PRUEFPUNKTE[6]!, !!nach && !nach.stale && !nach.staleEl,
-            nach ? `Ziele ${klick.before} → ${nach.links} · stale=${String(nach.stale)} · Stale-Hinweis ${nach.staleEl ? "DA" : "fehlt (richtig)"}` : "der zweite Klick änderte nichts");
+          await main.evaluate(`document.querySelector(".vault-rag-int-card .vault-rag-int-accept").click();`);
+          const nach = await pollUntil<{ links: number; stale: boolean; staleEl: boolean }>(main, `
+            const cur = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].integratorStore.get(${JSON.stringify(PLAIN)});
+            return cur && cur.links.length < ${klick.before - 1} ? { links: cur.links.length, stale: cur.stale, staleEl: !!document.querySelector(".vault-rag-int-stale") } : null;
+          `, 5000, 250);
+          record(INTEGRATOR_PRUEFPUNKTE[6]!, erst !== null && !!nach && !nach.stale && !nach.staleEl,
+            nach ? `Ziele ${klick.before} → ${klick.before - 1} → ${nach.links} · stale=${String(nach.stale)} · Stale-Hinweis ${nach.staleEl ? "DA" : "fehlt (richtig)"}` : "der zweite Klick änderte nichts (veraltet?)");
 
           // Hotkey-Commands über die Palette (executeCommandById): erst ablehnen, dann annehmen — beide an der aktiven Notiz.
           const hk = await main.evaluate<Record<string, unknown>>(`
             const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
             await app.workspace.openLinkText(${JSON.stringify(PLAIN)}, "", false);
+            // frischer Stand (der Text hat sich durch die Klicks geändert) mit weitem Netz, damit zwei Ziele da sind
+            const keep = { k: p.settings.linkK, m: p.settings.linkMinSim };
+            p.settings.linkK = 20; p.settings.linkMinSim = 0;
+            try { await p.proposeFor(${JSON.stringify(PLAIN)}); } finally { p.settings.linkK = keep.k; p.settings.linkMinSim = keep.m; }
             const c0 = p.integratorStore.get(${JSON.stringify(PLAIN)});
+            if (!c0 || c0.links.length < 2) return { first: null, second: null, rejectedOk: false, written: false, zuWenig: c0 ? c0.links.length : 0 };
             const first = c0.links[0].path;
             await app.commands.executeCommandById("vault-retrieval:integrator-reject-next");
             const c1 = p.integratorStore.get(${JSON.stringify(PLAIN)});
@@ -1786,7 +1795,8 @@ async function main(): Promise<void> {
             const base = second ? second.replace(/\.md$/, "") : "";
             return { first, second, rejectedOk, written: !!second && textAfter !== textBefore && textAfter.includes("[[" + base) };
           `);
-          record(INTEGRATOR_PRUEFPUNKTE[7]!, hk.rejectedOk === true && hk.written === true,
+          if (hk.zuWenig !== undefined) unmeasured(INTEGRATOR_PRUEFPUNKTE[7]!, `nach dem Neuberechnen ${String(hk.zuWenig)} Ziele (nötig: 2, Ablehnen und Annehmen)`);
+          else record(INTEGRATOR_PRUEFPUNKTE[7]!, hk.rejectedOk === true && hk.written === true,
             `abgelehnt ${String(hk.first)}: ${String(hk.rejectedOk)} · angenommen ${String(hk.second)}: ${String(hk.written)}`);
         }
 

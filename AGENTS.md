@@ -63,7 +63,7 @@ obsidian-frei + in Node testbar. **Streaming:** `ChatClient.stream` ruft seit We
 
 ### Modul-Layout (`src/`)
 
-**Seit Welle 17 (2026-10-11) liegt der Index-Kern in code-kit 0.22.x (`src/vendor/kit/`, nie von Hand ändern):** `vector-index` (`VectorIndex`, `IndexStorage`, `parseIndex`, `Retriever`; früher `VaultIndex`/`VaultAdapter`/`retriever.ts`), `index-container` und `crc32`, `chunker`, `embed-vector`, `index-guard`, `index-delta` (Rechnung), `index-store` (`loadContainerIndex`), `live-indexer`, `embeddings-client` und `retrieval-facade`. Die gleichnamigen Einträge unten (`index.ts` mit `parseIndex`, `index_container.ts`, `index_guard.ts`, `retriever.ts`, `chunker.ts`, `live_indexer.ts`, `index_delta.ts`-Rechnung) beschreiben das Verhalten weiter, die Dateien sind entfallen. Lokal bleiben: `index.ts` (nur `VaultAdapter` mit Text-Lesen/-Schreiben), `index_store.ts` (dünne Hülle um `loadContainerIndex` mit dem Prä-0.18-Tripel, `verifyBackupCandidate`), `index_delta.ts` (Anzeige-Texte), `http.ts` (`probeEndpoint`; der `EmbeddingClient` und `managed_endpoint.ts` sind seit der Embedding-Hülle entfallen), `retrieval_facade.ts` (Unterklasse mit `readNote`/`resolveNotePath`), `index_backup.ts`. Die Embedding-Anbindung ist `createLlmConnection({ capability: "embedding" })` (Kit `embedding-connection`, in `main.ts` als `emb`): Auflösung, Zustände je Zeile, der `Embedder` für `LiveIndexer` und Fassade und der Einstellungs-Abschnitt; der Index-Guard ist die `accept`-Closure über `manifest.embedding_model`, `applyEmbeddingResolution` übernimmt jede Auflösung (LiveIndexer, aktiver Endpunkt, Notice). Die Trefferzeile ist `renderHitList` aus dem Kit. Die Tests der vendorten Kerne (`tests/chunker`, `index_guard`, `index_container`, `live_indexer`, …) laufen weiter gegen die Kit-Module und sind der Differentialbeleg zum alten Verhalten.
+**Seit Welle 17 (2026-10-11) liegt der Index-Kern in code-kit 0.22.x (`src/vendor/kit/`, nie von Hand ändern):** `vector-index` (`VectorIndex`, `IndexStorage`, `parseIndex`, `Retriever`; früher `VaultIndex`/`VaultAdapter`/`retriever.ts`), `index-container` und `crc32`, `chunker`, `embed-vector`, `index-guard`, `index-delta` (Rechnung), `index-store` (`loadContainerIndex`), `live-indexer`, `embeddings-client` und `retrieval-facade`. Die gleichnamigen Einträge unten (`index.ts` mit `parseIndex`, `index-container`, `index-guard`, `retriever.ts`, `chunker.ts`, `live-indexer`, `index_delta.ts`-Rechnung) beschreiben das Verhalten weiter, die Dateien sind entfallen. Lokal bleiben: `index.ts` (nur `VaultAdapter` mit Text-Lesen/-Schreiben), `index_store.ts` (dünne Hülle um `loadContainerIndex` mit dem Prä-0.18-Tripel, `verifyBackupCandidate`), `index_delta.ts` (Anzeige-Texte), `http.ts` (`probeEndpoint`; der `EmbeddingClient` und `managed_endpoint.ts` sind seit der Embedding-Hülle entfallen), `retrieval_facade.ts` (Unterklasse mit `readNote`/`resolveNotePath`), `index_backup.ts`. Die Embedding-Anbindung ist `createLlmConnection({ capability: "embedding" })` (Kit `embedding-connection`, in `main.ts` als `emb`): Auflösung, Zustände je Zeile, der `Embedder` für `LiveIndexer` und Fassade und der Einstellungs-Abschnitt; der Index-Guard ist die `accept`-Closure über `manifest.embedding_model`, `applyEmbeddingResolution` übernimmt jede Auflösung (LiveIndexer, aktiver Endpunkt, Notice). Die Trefferzeile ist `renderHitList` aus dem Kit. Die Tests der vendorten Kerne (`tests/chunker`, `index_guard`, `index_container`, `live_indexer`, …) laufen weiter gegen die Kit-Module und sind der Differentialbeleg zum alten Verhalten.
 
 ```
 i18n/strings.ts   EN/DE-Wörterbücher (`EN`/`DE`, 471 Keys je Sprache) für `t()`
@@ -78,7 +78,7 @@ index.ts          VaultAdapter-Interface · IndexManifest · VaultIndex · parse
                   validiert neben `count == paths` auch `notes.i8.byteLength == count × dim`
                   (Byte-Guard) — wirft laut statt stillem Clobber/NaN. Wird von `index_store.ts`
                   für die byte-level Migration alter Indizes genutzt.
-index_container.ts  Container-Codec (seit 0.18.0): kodiert/dekodiert `_vaultrag/index.bin` —
+index-container  Container-Codec (seit 0.18.0): kodiert/dekodiert `_vaultrag/index.bin` —
                   `"VRIX"`-Magic · u32 headerLen LE · Header-JSON (Manifest inkl. `paths`,
                   `schema_version: 2`) · Int8-Matrix · CRC32 über den Payload. Pure encode/decode,
                   kein Datei-I/O.
@@ -93,7 +93,7 @@ index_delta.ts    Pure Delta-/Heal-Anzeige-Logik (keine Obsidian-Abhängigkeit):
                   classifyChunkless (chunk-lose Pfade erkennen; unlesbar ≠ leer) · splitHealTargets
                   (bekannte Leere fliegen aus dem Heal-Lauf) · healResultMessage (ehrliche Notice:
                   „X ergänzt · Y leere übersprungen · Z fehlgeschlagen").
-index_guard.ts    Pure-core Datenverlust-Entscheidungen: classifyLoadResult (no-index/loaded-ok/
+index-guard    Pure-core Datenverlust-Entscheidungen: classifyLoadResult (no-index/loaded-ok/
                   load-failed-index-present) · assertSafeToPersist (Live-Persist darf Count nur
                   ±1 senken) · isSuspiciousShrink (Cross-Device-Clobber-Heuristik) ·
                   diffIndexVsVault (missing/stale) · PersistBlockedError · planAutoHeal
@@ -111,7 +111,7 @@ retrieval_facade.ts  Gemeinsame obsidian-freie Fassade über Retriever/Embedder 
                   resolveNotePath (Path-Guard) lebt hier. Kein this.retriever-Feld mehr.
 chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker.py).
 endpoint_config.ts Dünner Re-Export des Kit-Moduls `src/vendor/kit/endpoint_config.ts` (seit Welle 15 und der Verbindung `createLlmConnection` gibt es hier keine eigene Logik mehr): `EndpointConfig { url, apiKey?, model? }`, `authHeaders` (EINZIGE Stelle, an der ein Bearer aus einem Endpunkt-/Anbieter-Schlüssel gebaut wird; der MCP-Server baut seinen Loopback-Token-Bearer separat), `rowModel` (Zeilen-Modell, getrimmt, einzige Quelle seit 0.31.0; ein nicht leeres `opts.model` am Feature gewinnt in `ChatClient.stream`, leer lässt die Verbindung das Zeilen-Modell nehmen), `migrateEndpointList` (alte String-Liste → Configs, behält `id`/`secretId`), `applyEndpointEdit`, `moveEndpointToFront` (die Liste IST die Priorität), `carriesApiKey` (der Schlüssel zeigt den Drittanbieter, nicht die URL), `endpointRole`/`EndpointRole`. Die Texte zu Status und Eingabe-Regeln (`endpointStatusText`, `endpointWarningText`) liegen im vendorten Kit-Modul `src/vendor/kit-obsidian/endpoint-status-text.ts` und kommen über das Kit-Listenbündel in die Oberfläche; `describeEndpointRole` und `endpointInputWarnings` gibt es nicht mehr. Obsidian-frei. Aufrufer importieren direkt hier, settings.ts und settings_core.ts reichen diese Helfer nicht durch.
-managed_endpoint.ts  Obsidian-freie Endpunkt-Wahl des EMBEDDINGS über den LLM Endpoint Manager (Kit `endpoint-source`): `resolveManagedEmbedding` liefert Zeile, `active`, `mismatch`/`noModel`. Nur der Manager-Pfad — ohne Manager läuft die lokale Liste in `main.ts` (`resolveAndReconnectEmbedder`), dort liegen ihre Regeln. Gesendet und gegen den Index geprüft wird die aufgelöste Schreibweise (`sentModel`), nie `config.model` des Managers (der trägt das Standardmodell und würde die Nutzerwahl überschreiben, lingotuner-Fund C1). Die Zeile trägt den Schlüssel nur im Speicher. Die CHAT-Auflösung (Manager oder lokale Liste mit Schlüsselbund) liegt seit Welle 15 in der Kit-Verbindung `createLlmConnection`; `connection_options.ts` hält die Optionen (Modi, Budget je Modus, `levelPicker`, Settings-Abbildung), `tests/chat_manager.test.ts` die Manager-Regeln.
+(entfallen) Die Endpunkt-Wahl des EMBEDDINGS über den LLM Endpoint Manager liegt in der Kit-Verbindung `createLlmConnection` (Kit `embedding-connection`, in `main.ts` als `emb`; Auflösung über Kit `endpoint-source`). Gesendet und gegen den Index geprüft wird die aufgelöste Schreibweise (`sentModel`), nie `config.model` des Managers (der trägt das Standardmodell und würde die Nutzerwahl überschreiben, lingotuner-Fund C1). Die Zeile trägt den Schlüssel nur im Speicher. Die CHAT-Auflösung liegt ebenfalls in `createLlmConnection`; `connection_options.ts` hält die Optionen (Modi, Budget je Modus, `levelPicker`, Settings-Abbildung), `tests/chat_manager.test.ts` die Manager-Regeln.
 request_profile.ts  Anfrage-Profile (Welle 14): die Werte, die das Plugin sendet, entscheidet die Kit-Tabelle `sampling-profiles`; hier stehen nur die MODI je Aufrufstelle (`MODE_CHAT` = `grounded`, `MODE_SMART_APPLY` = `structured`, `MODE_REFORMAT` = `transform`, `PLUGIN_MODES`) und die einmalige Legacy-Migration `migrateLegacySampling` (Chat-/Smart-Apply-Temperatur ≠ altem Default → Überschreibung unter `unknown`, die beiden „Thinking unterdrücken“-Schalter → Denk-Stufe je Modus). Seit Welle 15 baut die Kit-Verbindung die Parameter selbst (die Wrapper `build*Params` und `SourceFacts` sind entfallen); die goldenen Requests (`tests/request-golden.test.ts`, 45 Zeilen ausgeschrieben, nicht als Snapshot) messen den Body, der durch die echte Verbindung in den Transport geht. Obsidian-frei.
 request_text.ts   `requestText(gruppe, id)` (aus lingotuner übernommen, Herkunftsstempel): der Schlüssel entsteht erst dort, weil der Schlüssel-Wächter Template-Literale in `t()` nicht auflösen kann; gruppiert ist nur noch `request.level` (Denk-Knopf), die Vollständigkeit bewacht `tests/request_text.test.ts` gegen die Kit-Tabelle. Die Abweichungs-Texte und alle Texte des Abschnitts „Anfrage“ kommen seit Welle 15 aus dem Kit (`llm-connection-strings`).
 capabilities.ts   Reine Vision/Thinking-Erkennung, geschichtet L1 Metadaten (Ollama /api/show,
@@ -121,8 +121,8 @@ embedder.ts       EmbeddingClient → Ollama/MLX HTTP-Endpoint; ping() + Batch-E
                   listModels() + fetchCapabilities().
 http.ts           httpJson() über Obsidians requestUrl — einziger obsidian-Import der Netz-Schicht.
 pending_queue.ts  PendingQueue → Dirty-List in pending.json; drain-on-reconnect.
-live_indexer.ts   LiveIndexer → note-level Vektor-Map; update/remove/rename · buildIndex ·
-                  persist(reason) schreibt EINE Datei (`index_container.ts` → `index.bin`, kein
+live-indexer   LiveIndexer → note-level Vektor-Map; update/remove/rename · buildIndex ·
+                  persist(reason) schreibt EINE Datei (`index-container` → `index.bin`, kein
                   Multi-File-Write mehr), gegen `index_guard` geguarded (ready + Live-Disk-Read des
                   tatsächlichen Counts vor jedem live-Persist statt gecachtem Zustand) ·
                   reindexAll buendelt seit 2026-09-05 die Chunks MEHRERER Notizen in eine
@@ -547,11 +547,11 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   erkennt das als Gefahrenzustand (Schreibschutz, keine Live-Persists) statt still zu clobbern
   oder NaN-Vektoren zu produzieren. Der Guard gilt für Plugin **und** MCP-Server gleichermaßen
   (beide nutzen `IndexLoader`/`parseIndex`) — seit 0.18.0 aber nur noch für die byte-level
-  Legacy-Migration in `index_store.ts`; der reguläre Load-Pfad ist der Container (`index_container.ts`),
+  Legacy-Migration in `index_store.ts`; der reguläre Load-Pfad ist der Container (`index-container`),
   dessen CRC32 dieselbe Rolle übernimmt: eine CRC-Mismatch beim Load ist der Gefahrenzustand-Trigger,
   nicht mehr der Byte-Guard.
 - **`persist` ist gegen Clobber/Shrink geguarded und schreibt seit 0.18.0 EINE Datei:**
-  `LiveIndexer.persist(reason)` kodiert den kompletten Container (`index_container.ts` →
+  `LiveIndexer.persist(reason)` kodiert den kompletten Container (`index-container` →
   `index.bin`, CRC32 inklusive) und schreibt ihn in einem Zug — kein Write-Order-Problem mehr
   (früher `notes.i8` → `paths.json` → `manifest.json`, drei Dateien, drei Gelegenheiten für Sync,
   eine Mischgeneration zu erzeugen). `reason="live"` darf den Notiz-Count nur um ±1 senken, sonst
@@ -588,7 +588,7 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   nur der Delta-Reindex braucht einen. Vorher stand ein `if (!ready) return` davor, und damit hing die
   Übernahme am Reindex: wer offline war, blieb dauerhaft auf dem defekten Container sitzen, obwohl die
   CRC-bewiesene Rettung lokal danebenlag (so gemeldet 2026-08-14, ein manuelles `restore-index-backup`
-  heilte es in Sekunden). `planAutoHeal` (`index_guard.ts`, pure) macht die Aufteilung explizit:
+  heilte es in Sekunden). `planAutoHeal` (`index-guard`, pure) macht die Aufteilung explizit:
   `restore-and-reindex` · `restore-only` · `wait-for-sync` · `no-backup`.
   **`restore-only` persistiert ebenfalls** — die Basis ist CRC-bewiesen und in sich vollständig, sie
   kann nur älter sein; sie nur im Speicher zu halten hieße, den defekten Container liegen zu lassen und
@@ -620,13 +620,13 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   Ähnlichkeitssuche wird still schlechter — und nur ein vollständiger Neuaufbau (`reason="reindex"`)
   heilt es. **Vorbeugend:** `resolveAndReconnectEmbedder` überspringt jeden Endpunkt-Kandidaten,
   dessen Modell nicht zu `this.index.manifest.embedding_model` passt
-  (`embeddingModelMatchesIndex`, `index_guard.ts`) — auch in der Rückfall-Verdrahtung, die sonst
+  (`embeddingModelMatchesIndex`, `index-guard`) — auch in der Rückfall-Verdrahtung, die sonst
   einen erreichbaren, aber falschen Kandidaten aktiv geschaltet hätte; nur wenn **kein** Kandidat
   passt, gewinnt trotzdem der erste (bewusster Modellwechsel), mit Notice.
   **Durchsetzend:** `LiveIndexer.persist("live"|"heal")` liest bei **jedem** Aufruf das Modell
   frisch vom Container auf der Platte (nie den In-Memory-Stand — ein zuvor geblockter Persist kann
   die Prüfung also nicht vergiften) und blockt bei Abweichung mit
-  `PersistBlockedError("model-mismatch")` (`assertModelSafeToPersist`, `index_guard.ts`).
+  `PersistBlockedError("model-mismatch")` (`assertModelSafeToPersist`, `index-guard`).
   Die Auto-Heal-Kaskade prüft ihn **nur noch vor `restore-and-reindex`** — dem einzigen Zweig, der
   fremde Vektoren einmischt; `restore-only` schreibt ausschließlich Backup-Vektoren und stempelt sie
   mit dem Modell des Backups, dort erzeugte der Guard nur eine Sackgasse auf genau dem Gerät, das er
@@ -670,7 +670,7 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   Heal/Delta helfen nicht, weil kein Pfad *fehlt*. **Erkennbar ist es nur an einer Probe:**
   findet sich eine kurze Notiz über ihren eigenen Wortlaut auf Rang 0? Genau dafür gibt es
   seit `ce08211` den Selbstfindungs-Prüfpunkt im GUI-Smoke — und `findDeadVectorPaths`
-  (`index_guard.ts`) für den verwandten Fall der Nullvektor-Zeilen (dort 4 Stück, darunter
+  (`index-guard`) für den verwandten Fall der Nullvektor-Zeilen (dort 4 Stück, darunter
   drei zuvor als „nicht auffindbar" gemeldete Notizen).
   ⚠️ **Die naheliegende Fehldiagnose ist dokumentiert und falsch:** der Befund wurde zuerst als
   „`mean` verwässert lange Notizen" gelesen. Gegengemessen ist beides widerlegt — mit der

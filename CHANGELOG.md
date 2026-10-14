@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.42.0] — 2026-10-14
+
 ### Changed
 
 - **Chat: "Context notes" can be set to 0 ("Off").** Then no note is retrieved and no embedding request is made — a plain chat without your notes. The built-in default system prompt follows what really goes along: with notes it answers from them, without notes it no longer claims to (a prompt you wrote is never changed).

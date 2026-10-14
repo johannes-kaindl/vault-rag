@@ -482,6 +482,8 @@ export default class VaultRagPlugin extends Plugin {
         callback: () => void this.proposeActiveNote().then(() => this.openHub("integrator")) });
       this.addCommand({ id: "integrator-propose-scope", name: t("command.integratorProposeScope"),
         callback: () => void this.proposeScope().then(() => this.openHub("integrator")) });
+      this.addCommand({ id: "integrator-accept-next", name: t("command.integratorAcceptNext"), callback: () => void this.resolveNextProposal("accept") });
+      this.addCommand({ id: "integrator-reject-next", name: t("command.integratorRejectNext"), callback: () => void this.resolveNextProposal("reject") });
     }
     this.addCommand({
       id: "smart-apply-active-note",
@@ -1392,13 +1394,13 @@ export default class VaultRagPlugin extends Plugin {
    *  `save=false` (Batch-Aufruf aus proposeScope) spart den Store-Write UND das Panel-Refresh
    *  pro Notiz — sonst wäre ein Scope-Lauf über n Notizen O(n²) im Store-Write. Der Aufrufer
    *  ist dann selbst dafür verantwortlich, am Ende EINMAL zu speichern/zu refreshen. */
-  async proposeFor(path: string, save = true): Promise<ProposeResult | { kind: "outside-scope" } | { kind: "disabled" }> {
+  async proposeFor(path: string, save = true): Promise<ProposeResult | { kind: "disabled" }> {
     if (!this.settings.integratorEnabled) return { kind: "disabled" };
     let text: string;
     try { text = await this.app.vault.adapter.read(path); } catch { return { kind: "not-indexed" }; }
     const r = proposeLinks(path, text, this.proposeDeps());
     if (r.kind === "proposal") this.integratorStore.upsert(r.proposal);
-    else if (r.kind === "nothing-new") this.integratorStore.remove(path);   // alter Vorschlag ist erledigt
+    else if (r.kind === "nothing-new") this.integratorStore.clearProposal(path);   // alter Vorschlag ist erledigt
     if (save) { await this.saveIntegratorStore(); this.integratorPanel?.refresh(); }
     return r;
   }
@@ -1478,6 +1480,27 @@ export default class VaultRagPlugin extends Plugin {
     return { ok: true, changed: r.changed };
   }
 
+  /** Hotkey-Weg durch die Inbox: die Karte der aktiven Notiz zuerst, sonst die neueste; darin das erste Ziel.
+   *  Gleiche Wege wie die Knöpfe im Panel (`acceptLink` mit Hash-Guard, `rejectLink`), Rückmeldung als Notice. */
+  private async resolveNextProposal(action: "accept" | "reject"): Promise<void> {
+    const active = this.app.workspace.getActiveFile()?.path;
+    const cards = this.integratorStore.list();   // neueste zuerst
+    const card = cards.find(c => c.notePath === active) ?? cards[0];
+    const link = card?.links[0];
+    if (!card || !link) { new Notice(t("integrator.next.none")); return; }
+    const names = `${card.notePath} → ${link.path}`;
+    if (action === "reject") {
+      await this.rejectLink(card.notePath, link.path);
+      new Notice(t("integrator.next.rejected", names));
+    } else {
+      const r = await this.acceptLink(card.notePath, link.path);
+      if (r.kind === "stale") new Notice(t("integrator.reason.stale"));
+      else if (r.kind === "error") { const reasonKey = `integrator.reason.${r.reason}`; new Notice(t(reasonKey)); }
+      else new Notice(t("integrator.next.accepted", names));
+    }
+    this.integratorPanel?.refresh();
+  }
+
   private async rejectLink(path: string, target: string): Promise<void> {
     this.integratorStore.resolve(path, target, "rejected");
     await this.saveIntegratorStore();
@@ -1549,8 +1572,7 @@ export default class VaultRagPlugin extends Plugin {
   private async handleDelete(path: string): Promise<void> {
     if (path.startsWith(".")) return;
     // Vor jedem Early-Return: die Inbox muss dem Vault folgen, auch waehrend eines Index-Ordner-Wechsels.
-    this.integratorStore.remove(path);
-    void this.saveIntegratorStore();
+    if (this.integratorStore.remove(path)) void this.saveIntegratorStore();
     if (this.isSwitchingIndexDir) return;
     if (!(await this.embedderReady())) return;
     // liveIndexer VOR der Serialisierung snapshotten (Minor 6): ein paralleler Instanz-Swap
@@ -1578,8 +1600,7 @@ export default class VaultRagPlugin extends Plugin {
   private async handleRename(newPath: string, oldPath: string): Promise<void> {
     if (newPath.startsWith(".") || oldPath.startsWith(".")) return;
     // Vor jedem Early-Return: die Inbox muss dem Vault folgen, auch waehrend eines Index-Ordner-Wechsels.
-    this.integratorStore.rename(oldPath, newPath);
-    void this.saveIntegratorStore();
+    if (this.integratorStore.rename(oldPath, newPath)) void this.saveIntegratorStore();
     if (this.isSwitchingIndexDir) return;
     if (await this.embedderReady()) {
       // liveIndexer VOR der Serialisierung snapshotten (Minor 6, analog handleDelete).

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { IntegratorPanel, IntegratorPanelDeps } from "../src/integrator_panel";
 import { makeFakeEl } from "./__mocks__/obsidian";
+import type { WriteResult } from "../src/link_writer";
 import type { LinkProposal } from "../src/integrator_store";
 import { EN } from "../src/i18n/strings";
 import "../src/i18n/strings";
@@ -79,8 +80,22 @@ describe("IntegratorPanel", () => {
     all(el, "vault-rag-int-card-title")[0].click();
     expect(deps.openPath).toHaveBeenCalledWith("Notes/A.md");
   });
+  it("der Kartentitel ist per Tastatur erreichbar: Tab-Fokus, Enter und Leertaste öffnen die Notiz", () => {
+    const { el, deps } = mk([prop("Notes/A.md", ["x.md"])]);
+    const title = all(el, "vault-rag-int-card-title")[0]!;
+    expect(title.getAttribute("tabindex")).toBe("0");
+    expect(title.getAttribute("role")).toBe("button");
+    title.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    title.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+    title.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
+    expect(deps.openPath).toHaveBeenCalledTimes(2);
+  });
   it("jeder WriteResult-/Accept-Fehlercode hat einen i18n-Key", () => {
-    for (const code of ["unlinkable", "block-scalar", "not-a-list", "frontmatter-unparseable", "write-failed", "not-found", "disabled"]) {
+    // Record<Reason, true>: ein neuer `WriteResult.reason` bricht hier den Typcheck, statt durch eine Handliste zu rutschen.
+    type WriteReason = Extract<WriteResult, { ok: false }>["reason"];
+    const write: Record<WriteReason, true> = { "unlinkable": true, "block-scalar": true, "not-a-list": true, "frontmatter-unparseable": true };
+    const accept: Record<"write-failed" | "not-found" | "disabled", true> = { "write-failed": true, "not-found": true, "disabled": true };
+    for (const code of [...Object.keys(write), ...Object.keys(accept)]) {
       expect((EN as Record<string, string>)[`integrator.reason.${code}`]).toBeTypeOf("string");
     }
   });

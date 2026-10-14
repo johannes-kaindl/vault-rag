@@ -61,4 +61,39 @@ describe("IntegratorStore", () => {
     expect(() => IntegratorStore.parse('{"version":2,"proposals":{},"rejected":{}}')).toThrow(/version/);
     expect(() => IntegratorStore.parse("nope")).toThrow();
   });
+  it("remove meldet Änderung und nimmt das Ziel aus fremden Karten und Ablehnungen", () => {
+    const s = new IntegratorStore();
+    s.upsert(p("a.md", ["b.md", "c.md"])); s.upsert(p("x.md", ["b.md"]));
+    s.resolve("a.md", "b.md", "rejected"); s.resolve("y.md", "b.md", "rejected");
+    expect(s.remove("b.md")).toBe(true);
+    expect(s.get("a.md")?.links.map(l => l.path)).toEqual(["c.md"]);
+    expect(s.get("x.md")).toBeUndefined();                 // letztes Ziel weg → Karte weg
+    expect(s.rejectedFor("a.md").size).toBe(0);
+    expect(s.rejectedFor("y.md").size).toBe(0);
+  });
+  it("remove einer unbekannten Notiz ändert nichts und meldet false (kein Store-Write)", () => {
+    const s = new IntegratorStore();
+    s.upsert(p("a.md", ["b.md"]));
+    const vorher = s.serialize();
+    expect(s.remove("nie-gesehen.md")).toBe(false);
+    expect(s.serialize()).toBe(vorher);
+  });
+  it("rename zieht Karte, Gedächtnis und Erwähnungen als Ziel nach und meldet Änderung", () => {
+    const s = new IntegratorStore();
+    s.upsert(p("a.md", ["b.md"])); s.upsert(p("b.md", ["c.md"])); s.upsert(p("e.md", ["b.md", "f.md"]));
+    s.resolve("e.md", "f.md", "rejected"); s.resolve("e.md", "b.md", "rejected");
+    expect(s.rename("b.md", "z.md")).toBe(true);
+    expect(s.get("a.md")?.links.map(l => l.path)).toEqual(["z.md"]);
+    expect(s.get("z.md")?.notePath).toBe("z.md");
+    expect(s.get("b.md")).toBeUndefined();
+    expect([...s.rejectedFor("e.md")].sort()).toEqual(["f.md", "z.md"]);
+    expect(s.rename("nie.md", "q.md")).toBe(false);
+  });
+  it("clearProposal lässt das Ablehnungs-Gedächtnis stehen", () => {
+    const s = new IntegratorStore();
+    s.upsert(p("a.md", ["b.md", "c.md"])); s.resolve("a.md", "b.md", "rejected");
+    s.clearProposal("a.md");
+    expect(s.get("a.md")).toBeUndefined();
+    expect([...s.rejectedFor("a.md")]).toEqual(["b.md"]);
+  });
 });

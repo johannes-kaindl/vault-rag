@@ -85,8 +85,14 @@ export class IntegratorPanel implements HubPanel {
 
   private renderCard(c: HTMLElement, p: LinkProposal): void {
     const card = c.createDiv({ cls: "vault-rag-int-card" });
-    const title = card.createEl("h3", { cls: "vault-rag-int-card-title", text: nameOf(p.notePath) });
+    // Tastaturerreichbar (Spec §7): Fokus per Tab, Enter und Leertaste öffnen die Notiz wie ein Klick.
+    const title = card.createEl("h3", { cls: "vault-rag-int-card-title", text: nameOf(p.notePath), attr: { tabindex: "0", role: "button" } });
     title.addEventListener("click", () => this.deps.openPath(p.notePath));
+    title.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      this.deps.openPath(p.notePath);
+    });
     card.createDiv({ cls: "vault-rag-int-card-meta", text: t("panel.integrator.meta", String(p.links.length)) });
     if (p.stale) {
       const warn = card.createDiv({ cls: "vault-rag-int-stale" });

@@ -56,12 +56,45 @@ export class IntegratorStore {
     const p = this.state.proposals[path];
     if (p) { p.noteHash = hash; p.stale = false; }
   }
-  remove(path: string): void { delete this.state.proposals[path]; delete this.state.rejected[path]; }
-  rename(oldPath: string, newPath: string): void {
+  /** Nur die Karte dieser Notiz weg (alter Vorschlag erledigt): das Ablehnungs-Gedächtnis bleibt, sonst tauchten
+   *  abgelehnte Ziele beim nächsten Berechnen wieder auf. */
+  clearProposal(path: string): void { delete this.state.proposals[path]; }
+  /** Notiz gelöscht: ihre Karte, ihr Ablehnungs-Gedächtnis UND jede Erwähnung als Ziel anderer Karten/Ablehnungen
+   *  gehen weg (sonst listet eine Karte weiter die tote Datei und annehmen schriebe einen toten Link). Meldet, ob sich
+   *  etwas geändert hat — nur dann muss der Aufrufer speichern. */
+  remove(path: string): boolean {
+    let changed = false;
+    if (path in this.state.proposals) { delete this.state.proposals[path]; changed = true; }
+    if (path in this.state.rejected) { delete this.state.rejected[path]; changed = true; }
+    for (const [notePath, p] of Object.entries(this.state.proposals)) {
+      const links = p.links.filter(l => l.path !== path);
+      if (links.length === p.links.length) continue;
+      changed = true;
+      if (links.length === 0) delete this.state.proposals[notePath]; else p.links = links;
+    }
+    for (const [notePath, targets] of Object.entries(this.state.rejected)) {
+      if (!targets.includes(path)) continue;
+      changed = true;
+      const rest = targets.filter(x => x !== path);
+      if (rest.length === 0) delete this.state.rejected[notePath]; else this.state.rejected[notePath] = rest;
+    }
+    return changed;
+  }
+  /** Notiz umbenannt/verschoben: Karte und Gedächtnis ziehen um, und jede Erwähnung als Ziel folgt. Meldet, ob sich
+   *  etwas geändert hat. */
+  rename(oldPath: string, newPath: string): boolean {
+    let changed = false;
     const p = this.state.proposals[oldPath];
-    if (p) { delete this.state.proposals[oldPath]; this.state.proposals[newPath] = { ...p, notePath: newPath }; }
+    if (p) { delete this.state.proposals[oldPath]; this.state.proposals[newPath] = { ...p, notePath: newPath }; changed = true; }
     const r = this.state.rejected[oldPath];
-    if (r) { delete this.state.rejected[oldPath]; this.state.rejected[newPath] = r; }
+    if (r) { delete this.state.rejected[oldPath]; this.state.rejected[newPath] = r; changed = true; }
+    for (const q of Object.values(this.state.proposals)) {
+      for (const l of q.links) if (l.path === oldPath) { l.path = newPath; changed = true; }
+    }
+    for (const [notePath, targets] of Object.entries(this.state.rejected)) {
+      if (targets.includes(oldPath)) { this.state.rejected[notePath] = targets.map(x => (x === oldPath ? newPath : x)); changed = true; }
+    }
+    return changed;
   }
   serialize(): string { return JSON.stringify(this.state); }
 }

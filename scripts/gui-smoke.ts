@@ -117,6 +117,8 @@ const INTEGRATOR_PRUEFPUNKTE = [
   "Zweites Anwenden desselben Ziels lässt die Datei byte-identisch",
   "Abgelehntes Ziel kommt beim Neuberechnen nicht wieder",
   "Frontmatter-Modus: related: [] wird zur Blockliste, Rest byte-identisch",
+  "Zweiter Klick auf Annehmen derselben Karte gilt nicht als veraltet (Hash nach eigenem Schreiben nachgezogen)",
+  "Hotkey-Commands: nächsten Vorschlag ablehnen und annehmen (aktive Notiz zuerst)",
 ];
 /** Liest eine `<NAME> = <Zahl>`-Konstante aus einer Quelldatei; null, wenn Datei oder Konstante fehlt. */
 function readConstant(file: string, name: string): number | null {
@@ -1738,6 +1740,55 @@ async function main(): Promise<void> {
         `);
         if (rejected.before === 0) unmeasured("Abgelehntes Ziel kommt beim Neuberechnen nicht wieder", "nach dem Annehmen blieb kein weiteres Ziel zum Ablehnen");
         else record("Abgelehntes Ziel kommt beim Neuberechnen nicht wieder", !rejected.has, `${rejected.tgt} · vorher ${rejected.before}, nachher ${rejected.after} Ziele`);
+
+        // Zweiter Klick auf derselben Karte: die Naht acceptLink → updateHash. Ohne sie wäre jeder zweite Klick „veraltet",
+        // und „Alle annehmen" lieferte N−1 falsche Warnungen. Gemessen am Panel (Knopf), nicht an applyLinkNow.
+        const zweiter = await main.evaluate<{ links: number }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          await app.workspace.openLinkText(${JSON.stringify(PLAIN)}, "", false);
+          await app.commands.executeCommandById("vault-retrieval:open-integrator");
+          const cur = p.integratorStore.get(${JSON.stringify(PLAIN)});
+          return { links: cur ? cur.links.length : 0 };
+        `);
+        if (zweiter.links < 3) {
+          unmeasured(INTEGRATOR_PRUEFPUNKTE[6]!, `nach Annehmen und Ablehnen blieben ${zweiter.links} Ziele (nötig: 3, je eines für Klick, Ablehnen und Annehmen)`);
+          unmeasured(INTEGRATOR_PRUEFPUNKTE[7]!, "zu wenige Ziele");
+        } else {
+          await pollUntil<number>(main, `const n = document.querySelectorAll(".vault-rag-int-accept").length; return n > 0 ? n : null;`, 5000, 250);
+          const klick = await main.evaluate<{ before: number }>(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            const before = p.integratorStore.get(${JSON.stringify(PLAIN)}).links.length;
+            document.querySelector(".vault-rag-int-card .vault-rag-int-accept").click();
+            return { before };
+          `);
+          const nach = await pollUntil<{ links: number; stale: boolean; staleEl: boolean }>(main, `
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            const cur = p.integratorStore.get(${JSON.stringify(PLAIN)});
+            return cur && cur.links.length < ${klick.before} ? { links: cur.links.length, stale: cur.stale, staleEl: !!document.querySelector(".vault-rag-int-stale") } : null;
+          `, 5000, 250);
+          record(INTEGRATOR_PRUEFPUNKTE[6]!, !!nach && !nach.stale && !nach.staleEl,
+            nach ? `Ziele ${klick.before} → ${nach.links} · stale=${String(nach.stale)} · Stale-Hinweis ${nach.staleEl ? "DA" : "fehlt (richtig)"}` : "der zweite Klick änderte nichts");
+
+          // Hotkey-Commands über die Palette (executeCommandById): erst ablehnen, dann annehmen — beide an der aktiven Notiz.
+          const hk = await main.evaluate<Record<string, unknown>>(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            await app.workspace.openLinkText(${JSON.stringify(PLAIN)}, "", false);
+            const c0 = p.integratorStore.get(${JSON.stringify(PLAIN)});
+            const first = c0.links[0].path;
+            await app.commands.executeCommandById("vault-retrieval:integrator-reject-next");
+            const c1 = p.integratorStore.get(${JSON.stringify(PLAIN)});
+            const rejectedOk = p.integratorStore.rejectedFor(${JSON.stringify(PLAIN)}).has(first) && (!c1 || !c1.links.some(l => l.path === first));
+            const second = c1 ? c1.links[0].path : null;
+            const textBefore = await app.vault.adapter.read(${JSON.stringify(PLAIN)});
+            await app.commands.executeCommandById("vault-retrieval:integrator-accept-next");
+            await new Promise(r => setTimeout(r, 800));
+            const textAfter = await app.vault.adapter.read(${JSON.stringify(PLAIN)});
+            const base = second ? second.replace(/\.md$/, "") : "";
+            return { first, second, rejectedOk, written: !!second && textAfter !== textBefore && textAfter.includes("[[" + base) };
+          `);
+          record(INTEGRATOR_PRUEFPUNKTE[7]!, hk.rejectedOk === true && hk.written === true,
+            `abgelehnt ${String(hk.first)}: ${String(hk.rejectedOk)} · angenommen ${String(hk.second)}: ${String(hk.written)}`);
+        }
 
         // Frontmatter-Modus an der Notiz mit `related: []` — nur diese Zeilen duerfen sich aendern.
         const fm = await main.evaluate<{ ok: boolean; detail: string; text: string }>(`

@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Werkzeug-Anbieter an `plugin.api`** : `tools(opts?)` beschreibt `semantic_search` und `related_notes` als LLM-Werkzeug-Definitionen, `executeTool(name, args, opts?)` führt sie aus (Vertrag `ToolProviderApi` aus obsidian-kit 0.60.0; die API trägt `version: 1`) und liefert Text fürs Modell (`content`/`message`, in `opts.lang` oder der Oberflächensprache) plus `data` für die Oberfläche; Fehler sind Werte. Ein schreibendes Werkzeug müsste `confirm` rufen und endet sonst mit `needs-confirm`. Additiv, `apiVersion` bleibt 1.
+
+### Fixed
+- **Die Aufzeichnung im LLM Lab war still aus.** `lab_client.ts` prüfte `apiVersion === 3`, llm-lab liefert seit 2026-09-03 die 4 — `readLabApi` gab deshalb `null` zurück, und Chat, Smart Apply und Umformatieren meldeten nichts mehr. Jetzt auf 4 gehoben; jede Nutzer-Handlung (eine Chat-Nachricht, ein Smart-Apply-Lauf, eine Umformung) trägt eine frische `turnId`. Am laufenden Obsidian 1.14.2 gegen das echte llm-lab 0.6.0 gemessen: der Aufruf landet in dessen Trace mit `turnId`.
+
 ## [0.41.1] — 2026-10-12
 
 ### Changed

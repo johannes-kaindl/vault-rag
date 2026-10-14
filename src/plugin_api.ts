@@ -1,6 +1,8 @@
 import { VectorIndex } from "./vendor/kit/vector-index";
 import { RetrievalFacade } from "./retrieval_facade";
 import type { ProposeResult } from "./integrator";
+import { toolDefinitions, runTool, type ApiToolDefinition, type ApiToolResult, type ToolCallOptions, type ToolsOptions } from "./tool_provider";
+export type { ApiToolDefinition, ApiToolResult, ToolCallOptions, ToolsOptions, ToolConfirmPreview, ToolLang } from "./tool_provider";
 
 /** Version des öffentlichen Vertrags. Wird bei jeder brechenden Änderung erhöht;
  *  Konsumenten prüfen sie, bevor sie sich auf die Form der Rückgaben verlassen. */
@@ -76,6 +78,8 @@ export interface IntegratorPort {
  *  kann fehlen oder deaktiviert sein). */
 export interface VaultRetrievalApi {
   readonly apiVersion: number;
+  /** Version des Werkzeug-Anbieter-Vertrags (obsidian-kit `ToolProviderApi.version`, derzeit 1); der Leser des Wirts prüft sie. */
+  readonly version: 1;
   /** Synchron und netzfrei — gedacht für die Frage „kann ich Retrieval überhaupt anbieten?". */
   status(): ApiStatus;
   /** Freitext → semantisch ähnliche Notizen. Braucht einen erreichbaren Embedding-Endpunkt. */
@@ -86,6 +90,14 @@ export interface VaultRetrievalApi {
   proposeLinks(path: string): Promise<ApiLinkResult>;
   /** Schreibt EINEN Wikilink im eingestellten Modus, sofort und ohne Hash-Guard. */
   applyLink(path: string, target: string): Promise<ApiApplyResult>;
+  /** Werkzeug-Anbieter (additiv, `apiVersion` bleibt 1): die LESENDEN Fähigkeiten als
+   *  LLM-Werkzeug-Definitionen (`semantic_search`, `related_notes`), in der Oberflächensprache.
+   *  Leer, solange kein Index geladen ist — ein Werkzeug, das nicht laufen kann, kostet nur Kontext.
+   *  Synchron und netzfrei wie `status()`. */
+  tools(opts?: ToolsOptions): ApiToolDefinition[];
+  /** Führt eines dieser Werkzeuge aus. Wirft nie: Fehler und erwartbare Zustände sind Werte
+   *  (`{ok:false, reason, message}`), auch ein unbekanntes Werkzeug oder unbrauchbare Argumente. `content`/`message` sind Text fürs Modell in `opts.lang` (Rückfall: Oberflächensprache). */
+  executeTool(name: string, args: Record<string, unknown>, opts?: ToolCallOptions): Promise<ApiToolResult>;
 }
 
 /** Dünner Adapter über die geteilte RetrievalFacade — dasselbe Muster wie `mcp/tools.ts`.
@@ -98,8 +110,9 @@ export function createVaultRetrievalApi(
   isReindexing: () => boolean,
   integrator: IntegratorPort,
 ): VaultRetrievalApi {
-  return {
+  const api: VaultRetrievalApi = {
     apiVersion: VAULT_RETRIEVAL_API_VERSION,
+    version: 1,
 
     status() {
       const index = getIndex();
@@ -132,7 +145,16 @@ export function createVaultRetrievalApi(
       if (!integrator.enabled()) return { ok: false, reason: "disabled" };
       return integrator.apply(path, target);
     },
+
+    tools(opts) {
+      return getIndex() === null ? [] : toolDefinitions(opts);
+    },
+
+    executeTool(name, args, opts) {
+      return runTool(name, args, api, opts);
+    },
   };
+  return api;
 }
 
 /** Nur k/minSim durchreichen. Ein Fremdplugin darf uns kein `exclude` unterschieben —

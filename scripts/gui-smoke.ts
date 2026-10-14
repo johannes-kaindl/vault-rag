@@ -389,6 +389,9 @@ interface ApiProbe {
   relatedPath?: string | null;
   search?: { ok: boolean; reason?: string; hits?: { path: string; score: number }[] };
   serialisable?: boolean;
+  tools?: { name: string; writes?: boolean; parameters?: { type?: string } }[] | null;
+  toolExec?: { ok: boolean } | null;
+  toolBad?: unknown;
 }
 
 interface SelfFindProbe {
@@ -704,7 +707,13 @@ async function main(): Promise<void> {
         if (r.ok || r.reason !== "not-indexed") { related = r; relatedPath = f.path; break; }
       }
       const search = await api.search("Notiz");
+      // Werkzeug-Anbieter (Branch feat/tool-provider): dieselbe Renderer-Grenze wie oben.
+      const tools = typeof api.tools === "function" ? api.tools() : null;
+      const toolExec = typeof api.executeTool === "function" && relatedPath
+        ? await api.executeTool("related_notes", { path: relatedPath }) : null;
+      const toolBad = typeof api.executeTool === "function" ? await api.executeTool("nope", {}) : null;
       return {
+        tools, toolExec, toolBad,
         present: true,
         apiVersion: api.apiVersion,
         keys: Object.keys(api).sort(),
@@ -722,9 +731,20 @@ async function main(): Promise<void> {
     // Seit 0.32.0 kommen `proposeLinks`/`applyLink` dazu (Integrator, Spec 2026-09-07 §8) —
     // additiv, apiVersion bleibt 1. Die Liste bleibt vollstaendig aufgezaehlt, damit eine
     // versehentliche Ausweitung (etwa `this.api = this.facade`) weiter auffaellt.
-    record("Fläche ist auf status/search/related/proposeLinks/applyLink begrenzt",
-      JSON.stringify(probe.keys) === JSON.stringify(["apiVersion", "applyLink", "proposeLinks", "related", "search", "status"]),
-      (probe.keys ?? []).join(", "));
+    // Auf dem Branch feat/tool-provider: NICHT mehr „exakt diese Schluessel" (das ist auf `main`
+    // der API-Schutz), sondern „mindestens diese, dazu tools/executeTool, und nie die Interna".
+    const apiKeys = probe.keys ?? [];
+    const apiPflicht = ["apiVersion", "applyLink", "executeTool", "proposeLinks", "related", "search", "status", "tools", "version"];
+    const apiVerboten = ["readNote", "embedQuery", "searchVector"];
+    record("Fläche trägt mindestens status/search/related/proposeLinks/applyLink und tools/executeTool, keine Interna",
+      apiPflicht.every(k => apiKeys.includes(k)) && !apiVerboten.some(k => apiKeys.includes(k)),
+      apiKeys.join(", "));
+    const toolNames = (probe.tools ?? []).map(d => d.name);
+    record("tools() liefert search und related als Definitionen, execute() antwortet als Wert",
+      JSON.stringify(toolNames) === JSON.stringify(["semantic_search", "related_notes"])
+        && (probe.tools ?? []).every(d => d.writes === false && d.parameters?.type === "object")
+        && probe.toolExec?.ok === true && (probe.toolBad as { reason?: string } | null)?.reason === "unknown-tool",
+      `tools ${toolNames.join(", ")} · related_notes ok=${String(probe.toolExec?.ok)} · unbekannt → ${String((probe.toolBad as { reason?: string } | null)?.reason)}`);
     record("status() ist synchron und meldet einen Index",
       probe.statusIsSync === true && probe.status?.indexed === true && (probe.status?.noteCount ?? 0) > 0,
       `indexed=${String(probe.status?.indexed)} · ${probe.status?.noteCount ?? 0} Notizen`);

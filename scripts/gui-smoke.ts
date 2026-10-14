@@ -1743,9 +1743,21 @@ async function main(): Promise<void> {
 
         // Zweiter Klick auf derselben Karte: die Naht acceptLink → updateHash. Ohne sie wäre jeder zweite Klick „veraltet",
         // und „Alle annehmen" lieferte N−1 falsche Warnungen. Gemessen am Panel (Knopf), nicht an applyLinkNow.
+        // Der automatische Auslöser (integratorFolders) rechnet nach jedem Schreiben neu und würde den Hash selbst frisch
+        // setzen — die Naht bliebe unsichtbar (Mutationsprobe 2026-10-14: updateHash entfernt, Punkt blieb grün). Darum
+        // für diesen Abschnitt aus; der Wert steht danach wieder da.
+        const foldersGesichert = await main.evaluate<string[]>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const f = [...p.settings.integratorFolders]; p.settings.integratorFolders = []; return f;
+        `);
         const zweiter = await main.evaluate<{ links: number }>(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          // Frisch aus dem Fixture: sonst sind Ziele der Karte schon im Text (die Karte rechnet mit dem Link-Stand des
+          // Metadaten-Caches), der Klick schreibt nichts, und der zweite Klick prüft den Hash nicht gegen einen neuen Text.
+          await app.vault.adapter.write(${JSON.stringify(PLAIN)}, ${JSON.stringify(fixtureNote(PLAIN))});
+          await new Promise(r => setTimeout(r, 1200));
           await app.workspace.openLinkText(${JSON.stringify(PLAIN)}, "", false);
+          await p.proposeFor(${JSON.stringify(PLAIN)});
           await app.commands.executeCommandById("vault-retrieval:open-integrator");
           const cur = p.integratorStore.get(${JSON.stringify(PLAIN)});
           return { links: cur ? cur.links.length : 0 };
@@ -1755,23 +1767,25 @@ async function main(): Promise<void> {
         } else {
           await pollUntil<number>(main, `const n = document.querySelectorAll(".vault-rag-int-accept").length; return n > 0 ? n : null;`, 5000, 250);
           // ZWEI Klicks hintereinander ohne Neuberechnung dazwischen: der zweite sieht den Text, den der erste geschrieben hat.
-          const klick = await main.evaluate<{ before: number }>(`
+          const klick = await main.evaluate<{ before: number; len0: number }>(`
             const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
             const before = p.integratorStore.get(${JSON.stringify(PLAIN)}).links.length;
+            const len0 = (await app.vault.adapter.read(${JSON.stringify(PLAIN)})).length;
             document.querySelector(".vault-rag-int-card .vault-rag-int-accept").click();
-            return { before };
+            return { before, len0 };
           `);
           const erst = await pollUntil<number>(main, `
             const cur = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].integratorStore.get(${JSON.stringify(PLAIN)});
             return cur && cur.links.length < ${klick.before} ? cur.links.length + 1 : null;
           `, 5000, 250);
+          const len1 = await main.evaluate<number>(`return (await app.vault.adapter.read(${JSON.stringify(PLAIN)})).length;`);
           await main.evaluate(`document.querySelector(".vault-rag-int-card .vault-rag-int-accept").click();`);
           const nach = await pollUntil<{ links: number; stale: boolean; staleEl: boolean }>(main, `
             const cur = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].integratorStore.get(${JSON.stringify(PLAIN)});
             return cur && cur.links.length < ${klick.before - 1} ? { links: cur.links.length, stale: cur.stale, staleEl: !!document.querySelector(".vault-rag-int-stale") } : null;
           `, 5000, 250);
           record(INTEGRATOR_PRUEFPUNKTE[6]!, erst !== null && !!nach && !nach.stale && !nach.staleEl,
-            nach ? `Ziele ${klick.before} → ${klick.before - 1} → ${nach.links} · stale=${String(nach.stale)} · Stale-Hinweis ${nach.staleEl ? "DA" : "fehlt (richtig)"}` : "der zweite Klick änderte nichts (veraltet?)");
+            nach ? `Text ${klick.len0} → ${len1} Zeichen (nach Klick 1) · Ziele ${klick.before} → ${klick.before - 1} → ${nach.links} · stale=${String(nach.stale)} · Stale-Hinweis ${nach.staleEl ? "DA" : "fehlt (richtig)"}` : "der zweite Klick änderte nichts (veraltet?)");
 
           // Hotkey-Commands über die Palette (executeCommandById): erst ablehnen, dann annehmen — beide an der aktiven Notiz.
           const hk = await main.evaluate<Record<string, unknown>>(`
@@ -1799,6 +1813,8 @@ async function main(): Promise<void> {
           else record(INTEGRATOR_PRUEFPUNKTE[7]!, hk.rejectedOk === true && hk.written === true,
             `abgelehnt ${String(hk.first)}: ${String(hk.rejectedOk)} · angenommen ${String(hk.second)}: ${String(hk.written)}`);
         }
+
+        await main.evaluate(`app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.integratorFolders = ${JSON.stringify(foldersGesichert)};`);
 
         // Frontmatter-Modus an der Notiz mit `related: []` — nur diese Zeilen duerfen sich aendern.
         const fm = await main.evaluate<{ ok: boolean; detail: string; text: string }>(`

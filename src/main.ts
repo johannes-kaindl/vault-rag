@@ -1697,6 +1697,7 @@ export default class VaultRagPlugin extends Plugin {
     this.embeddingProgress.isEmbedding = true;
     this.embeddingProgress.reindex = { done: 0, total };
     this.updateStatusBar();
+    const emptyBefore = new Set(this.emptyNotePaths);
     try {
       const report = await this.liveIndexer.reindexAll(
         allPaths,
@@ -1712,8 +1713,17 @@ export default class VaultRagPlugin extends Plugin {
       // ABBRUCH gilt das nicht: `skippedEmpty` kennt dann nur die bis dahin gesehenen leeren
       // Notizen, und ein Ersetzen wuerfe alle uebrigen bekannten Leeren weg — sie erschienen
       // danach als Phantom-Defizit in der Delta-Anzeige. Bei Abbruch wird deshalb ergaenzt.
+      // Auch ohne Abbruch kennt `skippedEmpty` nur den Snapshot vom Start: was die Live-Handler WAEHREND des
+      // Laufs veraendert haben (leer geworden / wieder gefuellt), steht im Unterschied zu `emptyBefore`
+      // und bleibt erhalten, statt von der Zuweisung ueberschrieben zu werden.
       if (report.cancelled) for (const p of report.skippedEmpty) this.emptyNotePaths.add(p);
-      else this.emptyNotePaths = new Set(report.skippedEmpty);
+      else {
+        const liveAdded = [...this.emptyNotePaths].filter(p => !emptyBefore.has(p));
+        const liveRemoved = [...emptyBefore].filter(p => !this.emptyNotePaths.has(p));
+        const next = new Set([...report.skippedEmpty, ...liveAdded]);
+        for (const p of liveRemoved) next.delete(p);
+        this.emptyNotePaths = next;
+      }
       this.index = this.liveIndexer.buildIndex();
       await this.liveIndexer.persist("reindex");
       this.indexHealthy = true;

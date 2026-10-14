@@ -98,6 +98,18 @@ Chat, Smart Apply and reformat requests are masked before they are sent: tokens,
 | Smart Apply max tokens | Output cap for a restructuring run | `4096` |
 | Smart Apply default mode | Deterministic (assign only) · Additive (infer + add); a third mode, transformative, is reserved and disabled in the panel | Deterministic |
 
+### Integrator *(opt-in)*
+
+| Setting | Effect | Default |
+|---|---|---|
+| Enable Integrator | Adds the sixth tab (review inbox) and the automatic trigger; applies at the next plugin reload. Nothing is written until you accept a suggestion | off |
+| Folders | Comma-separated path prefixes; notes under them get suggestions automatically after each change. Empty: commands only | empty |
+| Where to write links | Section at the end of the note, or a frontmatter list property (only the lines of that one property are touched) | Section at the end |
+| Section heading | Heading written into the note as-is, not translated | `Verwandte Notizen` |
+| Frontmatter property | Name of the list property; a block scalar is left untouched and reported | `related` |
+| Suggestions per note | Maximum number of link candidates per note (1–20) | `5` |
+| Minimum similarity | Candidates below this cosine similarity are not suggested; independent of the search threshold (0–1) | `0.50` |
+
 ### MCP server *(desktop only)*
 
 | Setting | Effect | Default |

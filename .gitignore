@@ -13,3 +13,4 @@ index-backups/
 # waehrend eines Laufs gebraucht werden, duerfen sie auch nicht weggestasht werden:
 # tsx liest die Quelle zur Laufzeit weiter, ein `rm` toetet den Prozess verzoegert.
 scripts/_tmp_*
+.fresh-vault.mjs

@@ -23,6 +23,15 @@ Der volle Lauf schickt keine Anfrage an die Fixture-Endpunkte (Ollama `:11434`, 
 
 ⚠️ **Läuft der lokale Ollama nicht, sieht der Lauf aus wie ein kaputter Index** (gemessen 2026-10-11, Welle 17): `shots --prepare` baut keinen Index, `status()` meldet `indexed=false`, und ein Dutzend Prüfpunkte (Kontext, Integrator, `related()`, `search()`) werden rot mit „no-index“ oder „Index NICHT geladen“ — kein Befund am Plugin. Vor dem Lauf: `curl -s localhost:11434/v1/embeddings -H 'content-type: application/json' -d '{"model":"qwen3-embedding:8b","input":["x"]}'` muss einen Vektor liefern. Auf dem M5 liegen die Modelle unter `~/Models/ollama`, nicht im Standardpfad: ein Start ohne `OLLAMA_MODELS=$HOME/Models/ollama ollama serve` meldet leere Modelle. Den Dienst, den man selbst gestartet hat, beendet man nach dem Lauf wieder.
 
+## Staging-Vault frisch aus dem Fixture, mit dem Index-Schnappschuss (seit Welle 22)
+
+`npm run fresh-vault -- --port 9420` baut den Vault aus dem Fixture (wie `shots -- --setup`) und setzt den Index aus einem **Schnappschuss** wieder ein, statt ihn neu zu embedden (`buildVault` löscht `_vaultrag/index.bin`, und ein neuer Index braucht das echte Modell). Der Aufbau bricht ab, wenn auf dem Port noch eine Instanz lauscht (sie hält den Vault offen).
+
+- **Ort:** `$STAGING_VAULTS_DIR/_snapshots/vault-rag/` (`index.bin`, `meta.json`), außerhalb des Repos, nicht getrackt.
+- **Gültig,** solange Fixture-Fingerprint (Pfade + Inhalt von `docs/images/fixture/notes`) und Modell zum Fixture passen. Ändert sich eine Notiz, meldet `--status` „ungültig“ und der Aufbau läuft ohne Index (die Index-Punkte sind dann „nichts gemessen“, nie falsch grün).
+- **Erneuert** wird er von Hand nach einem guten Lauf mit dem echten Modell: `npm run shots -- --prepare`, dann `npm run fresh-vault -- --snapshot` (prüft Container-CRC, dass jeder Pfad eine Fixture-Notiz ist und das Modell stimmt).
+- **Belegt 2026-10-14:** `--status` ohne Schnappschuss „ungültig“, nach `--snapshot` „gültig“, mit einer um ein Leerzeichen geänderten Fixture-Notiz wieder „ungültig“ (zurückgeschrieben); frisch gebauter Vault + Schnappschuss-Index: Smoke 99 grün · 0 rot · 1 übersprungen · 2 nichts gemessen (von 102), identisch zum Lauf davor.
+
 ## Staging-Vault auf einer Zweitinstanz — der Normalweg seit 2026-09-03
 
 Im Arbeitsvault `10_Pallas` sind Prüfpunkte **strukturell** nicht messbar: dort ist ein echtes

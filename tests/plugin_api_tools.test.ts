@@ -4,6 +4,7 @@ import { RetrievalFacade } from "../src/retrieval_facade";
 import { parseIndex, VectorIndex } from "../src/vendor/kit/vector-index";
 import { getLang, setLang } from "../src/vendor/kit/i18n";
 import { runTool, TOOL_REGISTRY } from "../src/tool_provider";
+import { isToolProviderApi, toolProviderRejection, TOOL_PROVIDER_API_VERSION } from "../src/vendor/kit/tool-provider";
 import "../src/i18n/strings";
 
 function idx(): VectorIndex {
@@ -78,6 +79,16 @@ describe("Plugin-API — Werkzeug-Anbieter: tools()", () => {
     expect(a.version).toBe(1);
     expect(typeof a.executeTool).toBe("function");
     expect("execute" in a).toBe(false);
+    expect(a.version).toBe(TOOL_PROVIDER_API_VERSION);
+  });
+
+  it("besteht den Anbieter-Guard des Wirts (Kit isToolProviderApi), und eine Ablehnung hätte einen Grund", () => {
+    const a = api();
+    expect(toolProviderRejection(a)).toBeNull();
+    expect(isToolProviderApi(a)).toBe(true);
+    const ohneVersion = { ...a } as Record<string, unknown>;
+    delete ohneVersion.version;
+    expect(toolProviderRejection(ohneVersion)?.reason).toBe("version");
   });
 });
 

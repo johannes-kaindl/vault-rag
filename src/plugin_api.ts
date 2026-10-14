@@ -1,3 +1,4 @@
+import { TOOL_PROVIDER_API_VERSION } from "./vendor/kit/tool-provider";
 import { VectorIndex } from "./vendor/kit/vector-index";
 import { RetrievalFacade } from "./retrieval_facade";
 import type { ProposeResult } from "./integrator";
@@ -79,7 +80,7 @@ export interface IntegratorPort {
 export interface VaultRetrievalApi {
   readonly apiVersion: number;
   /** Version des Werkzeug-Anbieter-Vertrags (obsidian-kit `ToolProviderApi.version`, derzeit 1); der Leser des Wirts prüft sie. */
-  readonly version: 1;
+  readonly version: typeof TOOL_PROVIDER_API_VERSION;
   /** Synchron und netzfrei — gedacht für die Frage „kann ich Retrieval überhaupt anbieten?". */
   status(): ApiStatus;
   /** Freitext → semantisch ähnliche Notizen. Braucht einen erreichbaren Embedding-Endpunkt. */
@@ -112,7 +113,7 @@ export function createVaultRetrievalApi(
 ): VaultRetrievalApi {
   const api: VaultRetrievalApi = {
     apiVersion: VAULT_RETRIEVAL_API_VERSION,
-    version: 1,
+    version: TOOL_PROVIDER_API_VERSION,
 
     status() {
       const index = getIndex();

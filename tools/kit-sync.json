@@ -64,7 +64,8 @@
         "endpoint-secret-hook",
         "endpoint-source",
         "folder-hide",
-        "frontmatter"
+        "frontmatter",
+        "tool-provider"
       ],
       "rewrite": [
         [

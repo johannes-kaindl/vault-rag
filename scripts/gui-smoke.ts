@@ -83,8 +83,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
 
-import { Cdp, attachTo, bereiteInstanzVor, entferneFakeManager, fakeManagerAufrufe, installFakeManager, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { Cdp, attachTo, beimAbbruch, bereiteInstanzVor, istAbgebrochen, entferneFakeManager, fakeManagerAufrufe, installFakeManager, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
 import { startLlmStub } from "../../tools/obsidian-cdp/llm-stub.js";
+import { messeFolge, zeichneFolge } from "../../tools/obsidian-cdp/folge.js";
 import { createBilanz, parseArgs, runDriver, type Bilanz } from "../../tools/obsidian-cdp/bilanz.js";
 import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
@@ -170,9 +171,11 @@ const W16_PUNKTE = [
 const STREAM_PUNKTE = {
   saKontrolle: "Smart Apply: der Stream-Bereich folgt dem Strom ohne Störung (Kontrolle)",
   saFolge: "Smart Apply: Hochscrollen mitten im Strom wird respektiert (Folge-Regel)",
+  saWieder: "Smart Apply: steht der Nutzer wieder unten, folgt der Bereich dem Strom wieder (Wiederaufnahme)",
   saDenk: "Smart Apply: der Denkblock ist während des Stroms sichtbar und wächst (Denkblock live)",
   rfKontrolle: "Umformulieren: der Ergebnisbereich folgt dem Strom ohne Störung (Kontrolle)",
   rfFolge: "Umformulieren: Hochscrollen mitten im Strom wird respektiert (Folge-Regel)",
+  rfWieder: "Umformulieren: steht der Nutzer wieder unten, folgt der Ergebnisbereich dem Strom wieder (Wiederaufnahme)",
   rfDenk: "Umformulieren: der Denkblock ist während des Stroms sichtbar und wächst (Denkblock live)",
   saAbsatz: "Smart Apply: der Stream-Bereich folgt auch bei absatzgroßen Stücken (Kontrolle)",
   rfAbsatz: "Umformulieren: der Ergebnisbereich folgt auch bei absatzgroßen Stücken (Kontrolle)",
@@ -289,64 +292,6 @@ async function liesManagerSicht(main: Cdp, port: number, vault: string): Promise
     await main.evaluate(`app.setting.close();`);
   }
 }
-interface FolgeErgebnis { art: "ok" | "rot" | "ungueltig"; detail: string }
-
-/** Folge-Regel eines Stream-Bereichs, in einem Strom: erst die KONTROLLE (ohne Störung folgt der Bereich dem Strom), dann
- *  die STÖRUNG (`scrollTop = 0` mitten im Strom wird respektiert, der Bereich springt nicht wieder nach unten).
- *  Gültigkeit (CORE-TEST-22): der Überlauf des scrollenden Elements ist bei der Messung ≥ 80 px (Folge-Schwelle 40 px plus 40 px
- *  Spielraum), der Strom läuft bei der letzten Ablesung noch (`unterwegs > 0`) und der Text ist seit der Störung um mindestens
- *  drei Stücke gewachsen. Sonst „ungültig“, nie grün. Stücke tokengroß (8 Zeichen) und kurzer Takt: absatzgroße Stücke
- *  messen die Stückgröße statt den Bereich (Kit-Befund kuro-w20, Rundschreiben 3). */
-async function messeFolge(cdp: Cdp, scrollSel: string, stub: StubHandle): Promise<{ kontrolle: FolgeErgebnis; folge: FolgeErgebnis }> {
-  const lies = `const el = document.querySelector(${JSON.stringify(scrollSel)}); if (!el) return null;
-    return { top: el.scrollTop, hoehe: el.scrollHeight, sicht: el.clientHeight, laenge: (el.textContent || "").length };`;
-  type M = { top: number; hoehe: number; sicht: number; laenge: number } | null;
-  const ungueltig = (grund: string): { kontrolle: FolgeErgebnis; folge: FolgeErgebnis } =>
-    ({ kontrolle: { art: "ungueltig", detail: grund }, folge: { art: "ungueltig", detail: grund } });
-  const voll = await pollUntil<NonNullable<M>>(cdp, `const m = (() => { ${lies} })(); return m && m.hoehe - m.sicht >= 80 ? m : null;`, 40_000, 100);
-  if (!voll) return ungueltig(`der Überlauf von ${scrollSel} erreichte in 40 s nie 80 px — Gültigkeitsbedingung nicht hergestellt`);
-  const lesen = (): Promise<M> => cdp.evaluate<M>(lies);
-  const proben: NonNullable<M>[] = [voll];
-  for (let i = 0; i < 2; i++) {
-    await new Promise((r) => setTimeout(r, 400));
-    const m = await lesen();
-    if (m) proben.push(m);
-  }
-  const letzte = proben[proben.length - 1]!;
-  const gewachsen = letzte.laenge > voll.laenge && letzte.hoehe > voll.hoehe;
-  const laeuft = stub.zaehler().unterwegs > 0;
-  const abstaende = proben.map((m) => Math.round(m.hoehe - m.top - m.sicht));
-  let kontrolle: FolgeErgebnis;
-  if (!gewachsen || !laeuft) kontrolle = { art: "ungueltig", detail: `Strom wuchs nicht (Text ${voll.laenge} → ${letzte.laenge}, Höhe ${voll.hoehe} → ${letzte.hoehe}) oder lief nicht mehr (unterwegs ${stub.zaehler().unterwegs})` };
-  else {
-    const ok = abstaende.every((d) => d <= 24);
-    kontrolle = { art: ok ? "ok" : "rot", detail: `Abstand zum Ende ${abstaende.join(" / ")} px (≤ 24), Text ${voll.laenge} → ${letzte.laenge} Zeichen, Überlauf ${Math.round(voll.hoehe - voll.sicht)} px` };
-  }
-  // Störung: nach oben scrollen und auf mindestens drei weitere Stücke warten.
-  const z0 = await cdp.evaluate<{ top: number; laenge: number; ueberlauf: number } | null>(`
-    const el = document.querySelector(${JSON.stringify(scrollSel)}); if (!el) return null;
-    el.scrollTop = 0;
-    return { top: el.scrollTop, laenge: (el.textContent || "").length, ueberlauf: el.scrollHeight - el.clientHeight };`);
-  if (!z0) return { kontrolle, folge: { art: "ungueltig", detail: "Scroll-Element verschwunden" } };
-  const danach = await pollUntil<NonNullable<M>>(cdp, `const m = (() => { ${lies} })(); return m && m.laenge >= ${z0.laenge + 24} ? m : null;`, 4_000, 100);
-  const nochDa = stub.zaehler().unterwegs > 0;
-  let folge: FolgeErgebnis;
-  if (z0.ueberlauf < 80) folge = { art: "ungueltig", detail: `Überlauf bei der Störung nur ${Math.round(z0.ueberlauf)} px (< 80)` };
-  else if (!danach || !nochDa) folge = { art: "ungueltig", detail: `nach der Störung kamen keine drei weiteren Stücke oder der Strom war zu Ende (unterwegs ${stub.zaehler().unterwegs})` };
-  else {
-    const ok = danach.top <= z0.top + 4;
-    folge = { art: ok ? "ok" : "rot", detail: `scrollTop zur Störung ${Math.round(z0.top)} → ${Math.round(danach.top)} nach ${danach.laenge - z0.laenge} weiteren Zeichen, Überlauf ${Math.round(z0.ueberlauf)} px` };
-  }
-  return { kontrolle, folge };
-}
-
-function zeichneFolge(namen: { kontrolle: string; folge: string }, r: { kontrolle: FolgeErgebnis; folge: FolgeErgebnis }, nurKontrolle = false): void {
-  for (const [name, e] of nurKontrolle ? [[namen.kontrolle, r.kontrolle] as const] : [[namen.kontrolle, r.kontrolle], [namen.folge, r.folge]] as const) {
-    if (e.art === "ungueltig") unmeasured(name, `Messung ungültig: ${e.detail}`);
-    else record(name, e.art === "ok", e.detail);
-  }
-}
-
 /** `--only w15,w16` → Menge der Sektionen; `null` ohne Flag (voller Lauf). Unbekannte Namen brechen ab. */
 function parseNur(roh: string | undefined): Set<NurSektion> | null {
   if (roh === undefined) return null;
@@ -530,31 +475,82 @@ async function main(): Promise<void> {
   let stubLage: Awaited<ReturnType<typeof startLlmStub>> | null = null;
   let stubLageSaved: { emb: unknown; chat: unknown } | null = null;
 
-  // Ein Ctrl-C mitten im Lauf ueberspringt das `finally` unten NICHT im try/catch-Sinn, sondern
-  // beendet den Node-Prozess sofort — ohne eigenen Handler laueft das anhaengige `await` nie zu
-  // Ende, und der Stub bleibt im Renderer stehen (gemessen: naechster Lauf liest ihn als "echtes
-  // llm-lab installiert" und ueberspringt seinen ganzen Zweig, still, ~15 Pruefpunkte). Der
-  // Handler spiegelt nur DIESE eine Aufraeumzeile aus dem `finally` — die anderen Zustandssorten
-  // (Index-Backup, Endpunkt-Reihenfolge, Integrator-Fixtures, Vorlagen-Ordner) sind ein separater,
-  // noch offener Befund (Dach-Task „Kein GUI-Smoke-Treiber raeumt bei Ctrl-C auf").
-  let signalCleanupRunning = false;
-  const onAbortSignal = (signal: NodeJS.Signals) => {
-    if (signalCleanupRunning) return;
-    signalCleanupRunning = true;
-    void (async () => {
-      console.log(`\n\nAbbruch durch ${signal} — raeume den llm-lab-Stub auf...`);
-      if (labStubbed) {
-        await main.evaluate(`
-          delete app.plugins.plugins["llm-lab"];
-          delete window.__vaultRagLabSeen;
-          delete window.__vaultRagLabBaseline;
-        `).catch(() => { console.log("  ! llm-lab-Stub konnte nicht entfernt werden — Obsidian neu laden (Cmd+R)"); });
-      }
-      process.exit(130);
-    })();
+
+  // Alles, was dieser Lauf am Wirt verändert, räumt EIN Schritt zurück: der Normalweg im `finally` (`zustand.schliesse()`),
+  // Ctrl-C/SIGTERM über das Abbruch-Modul der Brücke (Hauptzweig gesperrt, dieser Schritt darf noch senden, danach Bilanz, Exit 130).
+  const zustandZurueck = async (): Promise<void> => {
+    if (labStubbed) {
+      await main.evaluate(`
+        delete app.plugins.plugins["llm-lab"];
+        delete window.__vaultRagLabSeen;
+        delete window.__vaultRagLabBaseline;
+      `).catch(() => { console.log("  ! llm-lab-Stub konnte nicht entfernt werden — Obsidian neu laden (Cmd+R)"); });
+    }
+    if (healRestore) {
+      // Reihenfolge zaehlt: erst die Original-Bytes zurueck, dann die Endpunkte, dann EIN
+      // Reload — sonst laeuft die Kaskade auf dem Rueckweg noch einmal an.
+      await main.evaluate(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        if (window.__vaultRagSmokeIndex) {
+          await app.vault.adapter.writeBinary(${JSON.stringify("__PATH__")}, window.__vaultRagSmokeIndex);
+          delete window.__vaultRagSmokeIndex;
+        }
+        const saved = __ENDPOINTS__;
+        if (saved) { p.settings.embeddingEndpoints = saved; await p.saveSettings(); }
+        await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+        await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+      `.replace("__PATH__", healRestore.indexPath).replace("__ENDPOINTS__", JSON.stringify(healRestore.savedEndpoints)))
+        .catch(() => { console.log("  ! Index/Endpunkte konnten nicht zurückgeschrieben werden — Auto-Heal-Kaskade oder „Index-Backup wiederherstellen“ holt den Index zurück"); });
+      console.log("\n  Index-Datei und Embedding-Endpunkte wiederhergestellt.");
+    }
+    if (templateDirRestore !== null) {
+      await main.evaluate(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        p.settings.templateDir = ${JSON.stringify(templateDirRestore)}; await p.saveSettings(); p.refreshSmartApplyRanking();
+      `).catch(() => { console.log("  ! templateDir konnte nicht zurückgeschrieben werden"); });
+    }
+    if (integratorRestore) {
+      await main.evaluate(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        await app.vault.adapter.write("Notes/Integrator plain.md", ${JSON.stringify(integratorRestore.plain)});
+        await app.vault.adapter.write("Notes/Integrator related.md", ${JSON.stringify(integratorRestore.rel)});
+        p.integratorStore.remove("Notes/Integrator plain.md");
+        p.integratorStore.remove("Notes/Integrator related.md");
+        await p.saveIntegratorStore();
+      `).catch(() => { console.log("  ! Integrator-Fixture-Notizen konnten nicht zurückgeschrieben werden — `npm run shots -- --setup` stellt sie her"); });
+      console.log("\n  Integrator-Fixture-Notizen und Inbox zurückgesetzt.");
+    }
+    if (savedChatOrder && !keep) {
+      // Reihenfolge zurückschreiben: der Smoke soll die Konfiguration des Nutzers nicht
+      // verändern. Über die Plugin-API statt über die UI, damit auch ein Abbruch mitten
+      // im Lauf sauber aufräumt.
+      await main.evaluate(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const order = ${JSON.stringify(savedChatOrder)};
+        const byUrl = new Map(p.settings.chatEndpoints.map(e => [e.url, e]));
+        p.settings.chatEndpoints = order.map(u => byUrl.get(u)).filter(Boolean);
+        await p.saveSettings();
+        await p.resolveAndReconnectChat();
+      `).catch(() => { console.log("  ! Reihenfolge konnte nicht zurückgeschrieben werden"); });
+      console.log("\n  Reihenfolge wiederhergestellt.");
+    }
+    // ZULETZT: die Blöcke davor (Heal, Reihenfolge) schreiben Listen zurück, die sie MITTEN im Lauf gesichert haben — also mit
+    // den Stub-URLs. Würde dies vorher laufen, überschrieben sie die Fixture-Listen mit Stub-Adressen (gemessen im ersten Vollauf).
+    if (stubLageSaved) {
+      await main.evaluate(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const v = ${JSON.stringify(stubLageSaved)};
+        for (const l of [p.settings.embeddingEndpoints, p.settings.chatEndpoints]) {
+          for (const e of l) if (e && e.secretId) app.secretStorage.setSecret(e.secretId, "");
+        }
+        p.settings.embeddingEndpoints = v.emb; p.settings.chatEndpoints = v.chat;
+        await p.saveSettings();
+        return true;
+      `).catch(() => { console.log("  ! Fixture-Endpunkt-Listen konnten nicht zurückgeschrieben werden — `npm run shots -- --setup` stellt sie her"); });
+    }
+    if (stubLage) await stubLage.stop().catch(() => undefined);
   };
-  process.on("SIGINT", onAbortSignal);
-  process.on("SIGTERM", onAbortSignal);
+  const zustand = beimAbbruch(zustandZurueck, "Wirt-Zustand zurücksetzen");
 
   try {
     // Chromium drosselt nicht-fokussierte Fenster — ohne bringToFront misst man Phantome.
@@ -1244,8 +1240,8 @@ async function main(): Promise<void> {
     //
     // Ein Objekt an diesem Slot ist aber NICHT automatisch ein echtes Lab — ein per Ctrl-C
     // abgebrochener vorheriger Lauf laesst genau hier den eigenen Stub stehen (der
-    // SIGINT/SIGTERM-Handler oben faengt das fuer NEUE Abbrueche ab, ein Rest aus der Zeit VOR
-    // diesem Handler bzw. aus einem SIGKILL bleibt trotzdem moeglich). Ohne Unterscheidung liest
+    // Abbruch-Modul der Bruecke (`zustand`) faengt das fuer NEUE Abbrueche ab, ein Rest aus der Zeit VOR
+    // dem Modul bzw. aus einem SIGKILL bleibt trotzdem moeglich). Ohne Unterscheidung liest
     // `labReal` den eigenen Stub als "echtes Lab installiert" und ueberspringt seinen ganzen
     // Zweig — still, ~15 Pruefpunkte (Dach-Task „Kein GUI-Smoke-Treiber raeumt bei Ctrl-C auf").
     // Der Marker `__vaultRagSmokeStub` (gesetzt beim Einhaengen weiter unten) macht das laut.
@@ -2579,6 +2575,26 @@ async function main(): Promise<void> {
         const denken = "Ich ordne die Abschnitte der Vorlage zu und prüfe ihre Reihenfolge. ".repeat(10);
         // --- Smart Apply -----------------------------------------------------------------------------
         let saWas = false;
+        const saZurueck = async (): Promise<void> => {
+          await main.evaluate(`
+            document.querySelector(".vault-rag-sa-stop")?.click();
+            try { window.__w20Leaf?.detach(); } catch {} delete window.__w20Leaf;
+            return true;`).catch(() => undefined);
+          await stub.trenneAlle();
+          if (saWas) {
+            await main.evaluate(`
+              const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+              p.settings.smartApplyEnabled = !!window.__w20SmartWas; delete window.__w20SmartWas;
+              await p.saveSettings();
+              await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+              await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+              return true;`).catch(() => console.log("  ! Smart Apply konnte nicht zurückgestellt werden"));
+            // Im Abbruch nur zurückschreiben, nicht warten: der Schritt hat höchstens eine Sekunde.
+            if (!istAbgebrochen()) await pollUntil(main, `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]?.api?.status().indexed;`, 30_000, 500).catch(() => false);
+          }
+          stub.antworten([]);
+        };
+        const saZustand = beimAbbruch(saZurueck, "Smart Apply zurückstellen");
         try {
           stub.antworten([{ reasoning: denken, text: zeilen(120), laenge: 8, takt: 40, nachlaufMs: 6000 }]);
           await main.evaluate(`
@@ -2605,7 +2621,7 @@ async function main(): Promise<void> {
             run.click();
             return true;`);
           if (!gestartet) {
-            for (const n of [N.saKontrolle, N.saFolge, N.saDenk, N.saAbsatz]) unmeasured(n, "Lauf-Knopf nicht bedienbar (keine Vorlage/Notiz im Fixture?) — nichts gemessen");
+            for (const n of [N.saKontrolle, N.saFolge, N.saWieder, N.saDenk, N.saAbsatz]) unmeasured(n, "Lauf-Knopf nicht bedienbar (keine Vorlage/Notiz im Fixture?) — nichts gemessen");
           } else {
             // Denkblock live: Reasoning wächst, bevor die Antwort beginnt.
             const denkSel = `const r = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning pre"); const t = document.querySelector(".vault-rag-sa-running-stream .okit-stream-tail"); const d = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning");
@@ -2620,7 +2636,7 @@ async function main(): Promise<void> {
                 `Denktext ${erst.denk} → ${zweit.denk} Zeichen, Antwort ${erst.tail} → ${zweit.tail} Zeichen, Block offen: ${erst.offen ? "ja" : "nein"}`);
             }
             // Folge-Regel in der Antwortphase (der Bereich selbst scrollt: .okit-stream-body, 220 px hoch).
-            zeichneFolge({ kontrolle: N.saKontrolle, folge: N.saFolge }, await messeFolge(main, ".vault-rag-sa-running-stream .okit-stream-body", stub));
+            zeichneFolge(bilanz, { kontrolle: N.saKontrolle, folge: N.saFolge, wiederaufnahme: N.saWieder }, await messeFolge(main, { selector: ".vault-rag-sa-running-stream .okit-stream-body", laeuft: () => stub.zaehler().unterwegs > 0, wiederaufnahme: true }));
             // Zweiter Lauf mit absatzgroßen Stücken (fünf Zeilen je Stück, jedes mehr als die Folge-Schwelle von 40 px): vor
             // obsidian-kit 0.59.0 maß `followTail` „unten?“ erst NACH dem Wachsen und gab nach dem ersten Absatz auf.
             await main.evaluate(`document.querySelector(".vault-rag-sa-stop")?.click(); return true;`);
@@ -2633,32 +2649,28 @@ async function main(): Promise<void> {
               run.click(); return true;`);
             if (!nochmal) unmeasured(N.saAbsatz, "Lauf-Knopf nach dem Abbruch nicht bedienbar — nichts gemessen");
             else {
-              const ab = await messeFolge(main, ".vault-rag-sa-running-stream .okit-stream-body", stub);
-              zeichneFolge({ kontrolle: N.saAbsatz, folge: "" }, ab, true);
+              const ab = await messeFolge(main, { selector: ".vault-rag-sa-running-stream .okit-stream-body", laeuft: () => stub.zaehler().unterwegs > 0, stoerung: false });
+              zeichneFolge(bilanz, { kontrolle: N.saAbsatz }, ab);
             }
           }
         } catch (e) {
-          for (const n of [N.saKontrolle, N.saFolge, N.saDenk, N.saAbsatz]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+          for (const n of [N.saKontrolle, N.saFolge, N.saWieder, N.saDenk, N.saAbsatz]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
         } finally {
-          await main.evaluate(`
-            document.querySelector(".vault-rag-sa-stop")?.click();
-            try { window.__w20Leaf?.detach(); } catch {} delete window.__w20Leaf;
-            return true;`).catch(() => undefined);
-          await stub.trenneAlle();
-          if (saWas) {
-            await main.evaluate(`
-              const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-              p.settings.smartApplyEnabled = !!window.__w20SmartWas; delete window.__w20SmartWas;
-              await p.saveSettings();
-              await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
-              await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
-              return true;`).catch(() => console.log("  ! Smart Apply konnte nicht zurückgestellt werden"));
-            await pollUntil(main, `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]?.api?.status().indexed;`, 30_000, 500).catch(() => false);
-          }
-          stub.antworten([]);
+          await saZustand.schliesse();
         }
         // --- Umformulieren-Modal ---------------------------------------------------------------------
         skipped(N.rfDenk, "in dieser Lage nicht anwendbar: das Modal zeigt kein Reasoning (stream kennt nur onToken)");
+        const rfZurueck = async (): Promise<void> => {
+          await main.evaluate(`
+            const m = document.querySelector(".vault-rag-reformat-result")?.closest(".modal");
+            const d = m && [...m.querySelectorAll("button")].find(b => /verwerf|discard/i.test(b.textContent || ""));
+            if (d) d.click();
+            try { window.__w20Leaf?.detach(); } catch {} delete window.__w20Leaf;
+            return true;`).catch(() => undefined);
+          await stub.trenneAlle();
+          stub.antworten([]);
+        };
+        const rfZustand = beimAbbruch(rfZurueck, "Umformulieren-Modal schließen");
         try {
           for (const variante of ["token", "absatz"] as const) {
           stub.antworten([variante === "token" ? { text: zeilen(120), laenge: 8, takt: 40, nachlaufMs: 6000 } : { stuecke: absaetze(24), takt: 300, nachlaufMs: 6000 }]);
@@ -2685,9 +2697,9 @@ async function main(): Promise<void> {
             if (!usable.length) return false;
             usable[0].click();
             return true;`);
-          if (!gestartet) for (const n of variante === "token" ? [N.rfKontrolle, N.rfFolge] : [N.rfAbsatz]) unmeasured(n, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
-          else if (variante === "token") zeichneFolge({ kontrolle: N.rfKontrolle, folge: N.rfFolge }, await messeFolge(main, ".vault-rag-reformat-modal", stub));
-          else zeichneFolge({ kontrolle: N.rfAbsatz, folge: "" }, await messeFolge(main, ".vault-rag-reformat-modal", stub), true);
+          if (!gestartet) for (const n of variante === "token" ? [N.rfKontrolle, N.rfFolge, N.rfWieder] : [N.rfAbsatz]) unmeasured(n, "Probe-Notiz/Auswahl nicht herstellbar — nichts gemessen");
+          else if (variante === "token") zeichneFolge(bilanz, { kontrolle: N.rfKontrolle, folge: N.rfFolge, wiederaufnahme: N.rfWieder }, await messeFolge(main, { selector: ".vault-rag-reformat-modal", laeuft: () => stub.zaehler().unterwegs > 0, wiederaufnahme: true }));
+          else zeichneFolge(bilanz, { kontrolle: N.rfAbsatz }, await messeFolge(main, { selector: ".vault-rag-reformat-modal", laeuft: () => stub.zaehler().unterwegs > 0, stoerung: false }));
           // Modal verwerfen, Strom kappen, Notiz-Tab schließen, bevor die nächste Variante startet.
           await main.evaluate(`
             const m = document.querySelector(".vault-rag-reformat-result")?.closest(".modal");
@@ -2699,16 +2711,9 @@ async function main(): Promise<void> {
           await new Promise((r) => setTimeout(r, 800));
           }
         } catch (e) {
-          for (const n of [N.rfKontrolle, N.rfFolge, N.rfAbsatz]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+          for (const n of [N.rfKontrolle, N.rfFolge, N.rfWieder, N.rfAbsatz]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
         } finally {
-          await main.evaluate(`
-            const m = document.querySelector(".vault-rag-reformat-result")?.closest(".modal");
-            const d = m && [...m.querySelectorAll("button")].find(b => /verwerf|discard/i.test(b.textContent || ""));
-            if (d) d.click();
-            try { window.__w20Leaf?.detach(); } catch {} delete window.__w20Leaf;
-            return true;`).catch(() => undefined);
-          await stub.trenneAlle();
-          stub.antworten([]);
+          await rfZustand.schliesse();
         }
       }
     }
@@ -2835,76 +2840,9 @@ async function main(): Promise<void> {
     } // Ende nachlauf
 
   } finally {
-    if (labStubbed) {
-      await main.evaluate(`
-        delete app.plugins.plugins["llm-lab"];
-        delete window.__vaultRagLabSeen;
-        delete window.__vaultRagLabBaseline;
-      `).catch(() => { console.log("  ! llm-lab-Stub konnte nicht entfernt werden — Obsidian neu laden (Cmd+R)"); });
-    }
-    if (healRestore) {
-      // Reihenfolge zaehlt: erst die Original-Bytes zurueck, dann die Endpunkte, dann EIN
-      // Reload — sonst laeuft die Kaskade auf dem Rueckweg noch einmal an.
-      await main.evaluate(`
-        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-        if (window.__vaultRagSmokeIndex) {
-          await app.vault.adapter.writeBinary(${JSON.stringify("__PATH__")}, window.__vaultRagSmokeIndex);
-          delete window.__vaultRagSmokeIndex;
-        }
-        const saved = __ENDPOINTS__;
-        if (saved) { p.settings.embeddingEndpoints = saved; await p.saveSettings(); }
-        await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
-        await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
-      `.replace("__PATH__", healRestore.indexPath).replace("__ENDPOINTS__", JSON.stringify(healRestore.savedEndpoints)))
-        .catch(() => { console.log("  ! Index/Endpunkte konnten nicht zurückgeschrieben werden — Auto-Heal-Kaskade oder „Index-Backup wiederherstellen“ holt den Index zurück"); });
-      console.log("\n  Index-Datei und Embedding-Endpunkte wiederhergestellt.");
-    }
-    if (templateDirRestore !== null) {
-      await main.evaluate(`
-        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-        p.settings.templateDir = ${JSON.stringify(templateDirRestore)}; await p.saveSettings(); p.refreshSmartApplyRanking();
-      `).catch(() => { console.log("  ! templateDir konnte nicht zurückgeschrieben werden"); });
-    }
-    if (integratorRestore) {
-      await main.evaluate(`
-        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-        await app.vault.adapter.write("Notes/Integrator plain.md", ${JSON.stringify(integratorRestore.plain)});
-        await app.vault.adapter.write("Notes/Integrator related.md", ${JSON.stringify(integratorRestore.rel)});
-        p.integratorStore.remove("Notes/Integrator plain.md");
-        p.integratorStore.remove("Notes/Integrator related.md");
-        await p.saveIntegratorStore();
-      `).catch(() => { console.log("  ! Integrator-Fixture-Notizen konnten nicht zurückgeschrieben werden — `npm run shots -- --setup` stellt sie her"); });
-      console.log("\n  Integrator-Fixture-Notizen und Inbox zurückgesetzt.");
-    }
-    if (savedChatOrder && !keep) {
-      // Reihenfolge zurückschreiben: der Smoke soll die Konfiguration des Nutzers nicht
-      // verändern. Über die Plugin-API statt über die UI, damit auch ein Abbruch mitten
-      // im Lauf sauber aufräumt.
-      await main.evaluate(`
-        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-        const order = ${JSON.stringify(savedChatOrder)};
-        const byUrl = new Map(p.settings.chatEndpoints.map(e => [e.url, e]));
-        p.settings.chatEndpoints = order.map(u => byUrl.get(u)).filter(Boolean);
-        await p.saveSettings();
-        await p.resolveAndReconnectChat();
-      `).catch(() => { console.log("  ! Reihenfolge konnte nicht zurückgeschrieben werden"); });
-      console.log("\n  Reihenfolge wiederhergestellt.");
-    }
-    // ZULETZT: die Blöcke davor (Heal, Reihenfolge) schreiben Listen zurück, die sie MITTEN im Lauf gesichert haben — also mit
-    // den Stub-URLs. Würde dies vorher laufen, überschrieben sie die Fixture-Listen mit Stub-Adressen (gemessen im ersten Vollauf).
-    if (stubLageSaved) {
-      await main.evaluate(`
-        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-        const v = ${JSON.stringify(stubLageSaved)};
-        for (const l of [p.settings.embeddingEndpoints, p.settings.chatEndpoints]) {
-          for (const e of l) if (e && e.secretId) app.secretStorage.setSecret(e.secretId, "");
-        }
-        p.settings.embeddingEndpoints = v.emb; p.settings.chatEndpoints = v.chat;
-        await p.saveSettings();
-        return true;
-      `).catch(() => { console.log("  ! Fixture-Endpunkt-Listen konnten nicht zurückgeschrieben werden — `npm run shots -- --setup` stellt sie her"); });
-    }
-    if (stubLage) await stubLage.stop().catch(() => undefined);
+    await zustand.schliesse();
+    // Nach Ctrl-C druckt das Abbruch-Modul die Bilanz und beendet den Prozess selbst; hier weiterzulaufen hieße, sie zweimal zu drucken.
+    if (istAbgebrochen()) return;
     settings?.close();
     main.close();
   }

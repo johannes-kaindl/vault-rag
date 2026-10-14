@@ -62,6 +62,7 @@ import {
   closeExtraLeaves,
   openExisting,
   pollUntil,
+  requireUntil,
   setAppConfig,
   setPluginSetting,
 } from "../../tools/obsidian-cdp/cdp.js";
@@ -690,11 +691,9 @@ const SHOTS: Shot[] = [
     async run(cdp) {
       // Die Rollen-Zeilen werden asynchron nach der Probe befuellt — auf Text warten,
       // nicht auf die Zeile.
-      await pollUntil<boolean>(cdp, `
-        const zeilen = [...document.querySelectorAll(".okit-ep-state")]
-          .filter((e) => (e.textContent ?? "").trim().length > 0);
-        return zeilen.length >= 2;
-      `, 30_000, 500);
+      await requireUntil(cdp, `[...document.querySelectorAll(".okit-ep-state")]
+          .filter((e) => (e.textContent ?? "").trim().length > 0).length >= 2`,
+        "Die Rollen-Zeilen der Endpunkte blieben leer — das Bild zeigte sie ohne Text", 30_000, 500);
       // Alle Endpunkt-Zeilen zusammen, plus ihre Rollen-Zeilen: die Aussage ist der
       // Unterschied zwischen den Rollen, nicht eine einzelne Zeile.
       // NUR die Embedding-Liste, nicht jede Endpunkt-Zeile des Tabs.

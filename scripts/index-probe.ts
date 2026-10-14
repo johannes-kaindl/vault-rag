@@ -31,9 +31,9 @@
  *    Laufs und stellt die Raenge gegenueber. Nur DAS erlaubt „diese Notiz ist geheilt".
  *
  * Aufruf (Obsidian muss mit Debug-Port laufen):
- *   npx tsx scripts/index-probe.ts --port 9222 --vault 10_Pallas
- *   npx tsx scripts/index-probe.ts --port 9222 --vault 10_Pallas --n 40 --json vorher.json
- *   npx tsx scripts/index-probe.ts --port 9222 --vault 10_Pallas --wie vorher.json --json nachher.json
+ *   npx tsx scripts/index-probe.ts --port <Port der Zweitinstanz> --vault 10_Pallas
+ *   npx tsx scripts/index-probe.ts --port <Port der Zweitinstanz> --vault 10_Pallas --n 40 --json vorher.json
+ *   npx tsx scripts/index-probe.ts --port <Port der Zweitinstanz> --vault 10_Pallas --wie vorher.json --json nachher.json
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { Cdp, attachTo, pollUntil } from "../../tools/obsidian-cdp/cdp.js";
@@ -64,7 +64,12 @@ const median = (xs: number[]): number | null => {
 const datum = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 
 async function main(): Promise<void> {
-  const port = Number(arg("port", "9222"));
+  const portRoh = arg("port");
+  const port = Number(portRoh);
+  if (portRoh === undefined || !Number.isInteger(port) || port < 1024 || port > 65535) {
+    console.error(`--port <Zahl> fehlt oder ist ungültig (${JSON.stringify(portRoh)}). Den Port der eigenen Zweitinstanz angeben; 9222 gehört der regulären Instanz.`);
+    process.exit(2);
+  }
   const vault = arg("vault");
   const n = Number(arg("n", "40"));
   const seed = Number(arg("seed", "20260903"));

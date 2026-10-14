@@ -308,10 +308,14 @@ describe("SmartApplyPanel — Cockpit", () => {
   it("start() mit aktiver Notiz geht in running und ruft build mit dem Pfad", async () => {
     let resolveBuild: (p: ApplyProposal) => void = () => {};
     const build = vi.fn((_path: string, _templatePath: string) => new Promise<ApplyProposal>((res) => { resolveBuild = res; }));
-    const { container } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
+    const { container, panel } = mkPanel({ build: build as unknown as SmartApplyViewDeps["build"] });
     await clickRun(container);
     await flush(2);
-    expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(String), expect.any(String), expect.any(Function), expect.any(Function));
+    expect(build).toHaveBeenCalledWith("Inbox/roh.md", expect.any(String), expect.any(String), expect.any(Function), expect.any(Function), expect.any(Function));
+    // Der dritte Rückruf leert den gezeigten Antworttext (Gemma 4: Denken ohne Öffner im Text) und der Strom schreibt danach weiter.
+    const [, , , onTok, , onReset] = build.mock.calls[0] as unknown as [string, string, string, (t: string) => void, unknown, () => void];
+    onTok("Thinking"); onReset(); onTok("Antwort");
+    expect(((panel as unknown as { streamText: string }).streamText)).toBe("Antwort");
     expect(first(container, "vault-rag-sa-running")).toBeTruthy();
     // Aufräumen: build auflösen, damit kein hängender Timer bleibt
     resolveBuild(mkProposal());

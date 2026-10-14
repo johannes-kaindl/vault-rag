@@ -189,6 +189,7 @@ export class SmartApply {
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
     preDetection?: TypeSuggestion,
+    onContentReset?: () => void,
   ): Promise<ApplyProposal> {
     this.controller = new AbortController();
     // If caller passed an external signal, forward its abort into our controller
@@ -264,7 +265,7 @@ export class SmartApply {
       // Beispiele im Prompt (Step 6, buildRestructurePrompt) stammen aus der Vorlage, nicht
       // nur aus der Notiz — wer seinen Vorlagen-Ordner ausschliesst, soll dessen Inhalt nicht
       // trotzdem aufgezeichnet bekommen.
-      { model: p.model, mode: MODE_SMART_APPLY, restoreContent: "json", trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath], turnId: newTurnId(), ...(promptTemplate ? { promptTemplate } : {}) } },
+      { model: p.model, mode: MODE_SMART_APPLY, restoreContent: "json", ...(onContentReset ? { onContentReset } : {}), trace: { feature: "smart-apply", app: this.deps.app(), contextPaths: [notePath, templatePath], turnId: newTurnId(), ...(promptTemplate ? { promptTemplate } : {}) } },
     );
 
     // Ins Token-Budget gelaufen: das erklaert einen anschliessenden Fehlschlag und nennt die

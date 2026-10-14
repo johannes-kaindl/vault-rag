@@ -127,6 +127,13 @@ try {
     await new Promise(r => setTimeout(r, 300));
     const ta = document.querySelector(".vault-rag-chat-input"); ta.value = "Antworte in einem Satz: Worauf stuetzt du dich bei deinen Antworten?";
     ta.dispatchEvent(new Event("input", { bubbles: true })); await new Promise(r => setTimeout(r, 1200));
+    window.__tp = { seen: 0, ticks: 0, reasoningSeen: false };
+    window.__tpTimer = setInterval(() => {
+      window.__tp.ticks++;
+      const a = document.querySelector(".vault-rag-chat-msg.is-assistant");
+      if (a && /Thinking Process|<channel\\|>/.test(a.textContent)) window.__tp.seen++;
+      if (document.querySelector(".vault-rag-chat-reasoning-body")?.textContent?.trim()) window.__tp.reasoningSeen = true;
+    }, 40);
     document.querySelector(".vault-rag-chat-send").click(); return true;`);
   const antwort = await pollUntil<{ text: string; k: string; sendLabel: string }>(main, `
     const a = document.querySelector(".vault-rag-chat-msg.is-assistant");
@@ -135,6 +142,8 @@ try {
     return { text: a.textContent.trim(), k: document.querySelector(".vault-rag-ctx-kval")?.textContent ?? "", sendLabel: send ? send.textContent : "" };`, 240_000, 2_000);
   const bodies = await main.evaluate<{ model: string; system: string; n: number }[]>(`return window.__bodies.map(b => ({ model: b.model, system: (b.messages.find(m => m.role === "system") || {}).content || "", n: b.messages.length }));`);
   const z4 = await main.evaluate<number>(summe);
+  const tp = await main.evaluate<{ seen: number; ticks: number; reasoningSeen: boolean }>(`clearInterval(window.__tpTimer); return window.__tp;`);
+  console.log(`Denktext im ANGEZEIGTEN Antworttext während des Streams: ${tp.seen} von ${tp.ticks} Messungen (alle 40 ms) · Denkblock zeigt Text: ${tp.reasoningSeen} · „Thinking Process“/<channel|> in der fertigen Antwort: ${/Thinking Process|<channel\|>/.test(antwort?.text ?? "")}`);
   console.log(`Auto-Anzeige: „${antwort?.k}“ · Anfragen an den Chat-Endpunkt: ${bodies.length} (Modell: ${[...new Set(bodies.map((b) => b.model))].join(", ")})`);
   console.log(`System-Prompt gesendet: „${bodies[0]?.system.slice(0, 200)}“`);
   console.log(`Embedding-Anfragen während des Chats (Plugin-Zähler): ${z3} → ${z4}`);

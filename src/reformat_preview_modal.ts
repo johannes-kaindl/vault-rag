@@ -11,7 +11,7 @@ export interface ReformatPreviewOpts {
    *  `finish_reason` des Servers, bricht bei signal ab. `blocked` ist ein fertiger Grund-Text,
    *  wenn der Aufrufer das Ergebnis nicht anwendbar findet (Link-Zaehlung, Welle 14): dann
    *  bleibt „Anwenden" gesperrt und die Statuszeile nennt den Grund. */
-  stream: (onToken: (t: string) => void, signal: AbortSignal) => Promise<{ text: string; finishReason?: string; blocked?: string }>;
+  stream: (onToken: (t: string) => void, signal: AbortSignal, onReset?: () => void) => Promise<{ text: string; finishReason?: string; blocked?: string }>;
   /** Wird bei „Anwenden" mit dem finalen Ergebnis aufgerufen. */
   onApply: (result: string) => void;
 }
@@ -103,7 +103,12 @@ export class ReformatPreviewModal extends Modal {
         this.result += tok;
         this.area?.setTail(this.result);
         this.area?.followTail();
-      }, ctrl.signal);
+      }, ctrl.signal, () => {
+        // Der bisher gezeigte Text war Denken (Gemma 4 ohne Öffner): verwerfen, der Antwortteil kommt danach.
+        if (this.controller !== ctrl) return;
+        this.result = "";
+        this.area?.setTail("");
+      });
       if (this.controller !== ctrl) return;
       this.stopWaitTimer();
       this.result = out.text;

@@ -15,9 +15,9 @@ export type { ApplyProposal, ApplyResult, SectionDiff } from "./smart_apply";
 // ── Deps ────────────────────────────────────────────────────────────────────
 
 export interface SmartApplyViewDeps {
-  build: (notePath: string, templatePath: string, mode: ApplyMode, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
+  build: (notePath: string, templatePath: string, mode: ApplyMode, onToken: (t: string) => void, onReasoning: (t: string) => void, onContentReset?: () => void) => Promise<ApplyProposal>;
   accept: (p: ApplyProposal, selection: ApplySelection, auditTrail: boolean) => Promise<ApplyResult>;
-  reroll: (p: ApplyProposal, templatePath: string, mode: ApplyMode, onToken: (t: string) => void, onReasoning: (t: string) => void) => Promise<ApplyProposal>;
+  reroll: (p: ApplyProposal, templatePath: string, mode: ApplyMode, onToken: (t: string) => void, onReasoning: (t: string) => void, onContentReset?: () => void) => Promise<ApplyProposal>;
   openPath: (p: string) => void;
   abort: () => void;
   activeNotePath: () => string | null;
@@ -424,6 +424,12 @@ export class SmartApplyPanel implements HubPanel {
     this.streamArea?.followTail();
   }
 
+  /** Der bisher gezeigte Antworttext war Denken (Gemma 4 ohne Öffner): Anzeige leeren, der Rest kommt über `onToken`. */
+  private onContentReset(): void {
+    this.streamText = "";
+    this.streamArea?.setTail("");
+  }
+
   private onReasoning(chunk: string): void {
     this.reasoningText += chunk;
     this.streamArea?.appendReasoning(chunk);
@@ -757,7 +763,7 @@ export class SmartApplyPanel implements HubPanel {
       return;
     }
     const templatePath = this.selectedTemplate;
-    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (chunk) => this.onToken(chunk), (chunk) => this.onReasoning(chunk)));
+    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (chunk) => this.onToken(chunk), (chunk) => this.onReasoning(chunk), () => this.onContentReset()));
   }
 
   /** Shared build→diff pipeline used by start(), reroll() and stale-rebuild. */
@@ -838,7 +844,7 @@ export class SmartApplyPanel implements HubPanel {
 
   private async onReroll(p: ApplyProposal): Promise<void> {
     const templatePath = this.selectedTemplate || p.templatePath;
-    await this.runBuild(() => this.deps.reroll(p, templatePath, this.selectedMode, (chunk) => this.onToken(chunk), (chunk) => this.onReasoning(chunk)));
+    await this.runBuild(() => this.deps.reroll(p, templatePath, this.selectedMode, (chunk) => this.onToken(chunk), (chunk) => this.onReasoning(chunk), () => this.onContentReset()));
   }
 
   /** Stale rebuild: re-build against current note, accept again if hardOk. */
@@ -851,7 +857,7 @@ export class SmartApplyPanel implements HubPanel {
       return;
     }
     const templatePath = this.selectedTemplate || (this.proposal?.templatePath ?? "");
-    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (chunk) => this.onToken(chunk), (chunk) => this.onReasoning(chunk)));
+    await this.runBuild(() => this.deps.build(path, templatePath, this.selectedMode, (chunk) => this.onToken(chunk), (chunk) => this.onReasoning(chunk), () => this.onContentReset()));
     if (this.state === "diff" && this.proposal && this.proposal.hardOk) {
       await this.onAccept(this.proposal);
     }

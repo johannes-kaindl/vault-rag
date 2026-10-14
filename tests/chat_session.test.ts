@@ -125,7 +125,7 @@ describe("ChatSession", () => {
     const stream = async (_m: any, _c: any, _r: any, _sig: any, o: any) => { opts = o; return { content: "ok", reasoning: "" }; };
     const s = new ChatSession({ client: () => ({ stream }) as never, assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", model: () => "mx", app: () => ({}) });
     await s.send("frage", [], () => {});
-    expect(opts).toEqual({ model: "mx", mode: "grounded", trace: { feature: "chat", app: {}, contextPaths: [], promptTemplate: "SYS", turnId: expect.any(String) } });
+    expect(opts).toEqual({ model: "mx", mode: "grounded", onContentReset: expect.any(Function), trace: { feature: "chat", app: {}, contextPaths: [], promptTemplate: "SYS", turnId: expect.any(String) } });
   });
   it("meldet als promptTemplate nur das systemPreamble — nicht die System-Message mit Kontext", async () => {
     let opts: unknown;
@@ -161,5 +161,21 @@ describe("ChatSession", () => {
     await mk(["a.md"]).send("frage", [], () => {});
     await mk([]).send("frage", [], () => {});
     expect(seen).toEqual([true, false]);
+  });
+  it("onContentReset leert den bisher gezeigten Antworttext (Gemma 4 schreibt das Denken ohne Öffner in den Text)", async () => {
+    let seen = "";
+    const stream = async (_m: unknown, onC: (t: string) => void, _r: unknown, _s: unknown, o: { onContentReset?: () => void }) => {
+      onC("Thinking Process: ..."); seen = (s.messages[1] as { content: string }).content;
+      o.onContentReset?.();
+      const nachReset = (s.messages[1] as { content: string }).content;
+      onC("Antwort");
+      return { content: "Antwort", reasoning: "Thinking Process: ...", nachReset } as never;
+    };
+    const s = new ChatSession({ client: () => ({ stream }) as never, assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", model: () => "m", app: () => ({}) });
+    let repaints = 0;
+    await s.send("frage", [], () => { repaints++; });
+    expect(seen).toBe("Thinking Process: ...");
+    expect((s.messages[1] as { content: string }).content).toBe("Antwort");
+    expect(repaints).toBeGreaterThanOrEqual(3);   // Token, Reset, Token
   });
 });

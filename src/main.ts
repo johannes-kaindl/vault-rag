@@ -654,9 +654,9 @@ export default class VaultRagPlugin extends Plugin {
     if (this.settings.smartApplyEnabled && this.smartApply && this.templateRanker) {
       panels.push(new SmartApplyPanel({
         // SEAM-VERTRAG (7): build/reroll tragen templatePath + mode + die Live-Stream-Callbacks der View.
-        build: (notePath, templatePath, mode, onToken, onReasoning) => this.proposeSmartApply(notePath, templatePath, mode, onToken, onReasoning),
+        build: (notePath, templatePath, mode, onToken, onReasoning, onContentReset) => this.proposeSmartApply(notePath, templatePath, mode, onToken, onReasoning, onContentReset),
         accept: (p, selection, auditTrail) => this.smartApply!.persistApply(p, selection, auditTrail),
-        reroll: (p, templatePath, mode, onToken, onReasoning) => this.proposeSmartApply(p.notePath, templatePath, mode, onToken, onReasoning),
+        reroll: (p, templatePath, mode, onToken, onReasoning, onContentReset) => this.proposeSmartApply(p.notePath, templatePath, mode, onToken, onReasoning, onContentReset),
         openPath: this.openPath,
         abort: () => { this.smartApply?.abort(); },
         activeNotePath: () => {
@@ -1124,9 +1124,10 @@ export default class VaultRagPlugin extends Plugin {
 
     new ReformatPreviewModal(this.app, {
       original: core,
-      stream: (onToken, signal) => this.chatClient
+      stream: (onToken, signal, onReset) => this.chatClient
         .stream(messages, onToken, () => {}, signal, {
           mode: MODE_REFORMAT,
+          ...(onReset ? { onContentReset: onReset } : {}),
           trace: { feature: `reformat:${def.id}`, app: this.app, contextPaths: [cap.path], promptTemplate: def.promptTemplate(), turnId: newTurnId() },
         })
         .then(r => {
@@ -2038,12 +2039,13 @@ export default class VaultRagPlugin extends Plugin {
     mode: ApplyMode,
     onToken: (t: string) => void,
     onReasoning: (t: string) => void,
+    onContentReset?: () => void,
   ): Promise<ApplyProposal> {
     const core = this.smartApply;
     if (!core) throw new Error(t("main.smartApplyDisabled"));
     if (templatePath !== "") {
       // Explizite Vorlage aus dem Cockpit-Dropdown — direkt verwenden, kein detect().
-      return core.propose(notePath, templatePath, mode, onToken, onReasoning);
+      return core.propose(notePath, templatePath, mode, onToken, onReasoning, undefined, undefined, onContentReset);
     }
     // Auto-detect: detect() ONCE — avoid double embed+search sweep.
     const detection = await core.detect(notePath);
@@ -2060,7 +2062,7 @@ export default class VaultRagPlugin extends Plugin {
       }
     }
     // SEAM-VERTRAG (7): Live-Stream-Callbacks der View durchreichen (genau ein Stream in propose).
-    return core.propose(notePath, tpl, mode, onToken, onReasoning, undefined, detection);
+    return core.propose(notePath, tpl, mode, onToken, onReasoning, undefined, detection, onContentReset);
   }
 
   /** Liest+parst die Vorlage und liefert ihren defaultMode; Fallback auf den Settings-Default,

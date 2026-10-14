@@ -98,11 +98,13 @@ export class ChatClient {
     onContent: (t: string) => void,
     onReasoning: (t: string) => void,
     signal?: AbortSignal,
-    opts?: { model?: string; mode?: ModeId; restoreContent?: "text" | "json"; trace?: ChatTrace },
+    opts?: { model?: string; mode?: ModeId; restoreContent?: "text" | "json"; trace?: ChatTrace; onContentReset?: () => void },
   ): Promise<{ content: string; reasoning: string; finishReason?: string }> {
     const res = await this.llm.complete({ messages }, {
       onToken: onContent,
       onReasoning,
+      // Gemma 4 schreibt das Denken ohne Öffner in den Antworttext; erweist es sich als Denken, verwirft der Aufrufer den bisher gezeigten Text.
+      ...(opts?.onContentReset ? { onContentReset: opts.onContentReset } : {}),
       ...(signal ? { signal } : {}),
       // Ein leeres Feature-Modell (Smart Apply ohne eigene Wahl) lässt die Verbindung das Zeilen-Modell nehmen.
       ...(opts?.model?.trim() ? { model: opts.model.trim() } : {}),

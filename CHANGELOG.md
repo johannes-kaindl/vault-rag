@@ -9,7 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - **Chat: "Context notes" can be set to 0 ("Off").** Then no note is retrieved and no embedding request is made — a plain chat without your notes. The built-in default system prompt follows what really goes along: with notes it answers from them, without notes it no longer claims to (a prompt you wrote is never changed).
-- Kit pin `obsidian-kit` 0.59.1 → 0.60.1 and `code-kit` 0.24.0 → 0.27.1.
+- Kit pin `obsidian-kit` 0.59.1 → 0.60.3 and `code-kit` 0.24.0 → 0.27.2.
+- **Gemma 4 models no longer show their thinking as part of the answer.** `google/gemma-4-*` ignores "thinking off" and wrote its reasoning into the answer text, ending it with `<channel|>`; chat, Smart Apply and reformat now move that part into the thinking block (and clear what was already shown while streaming).
 - **Messages name a missing API key or a switched-off endpoint instead of "no endpoint"** (with the LLM Endpoint Manager; obsidian-kit 0.60.0).
 - **The thinking button has a visible gap between icon and label** (obsidian-kit 0.60.0, `THINKING_CONTROL_CSS` copied into `styles.css`).
 - **A warning about discarded request settings lists them sorted** (code-kit 0.26.0).

@@ -60,7 +60,7 @@ export class ChatSession {
         c => { assistant.content += c; onToken(c); },
         r => { assistant.reasoning = (assistant.reasoning ?? "") + r; onToken(r); },
         this.controller.signal,
-        { model: this.deps.model(), mode: MODE_CHAT, trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: preamble, turnId: newTurnId() } },
+        { model: this.deps.model(), mode: MODE_CHAT, onContentReset: () => { assistant.content = ""; onToken(""); }, trace: { feature: "chat", app: this.deps.app(), contextPaths: ctx.sources, promptTemplate: preamble, turnId: newTurnId() } },
       );
       assistant.content = result.content;
       assistant.reasoning = result.reasoning || undefined;

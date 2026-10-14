@@ -146,6 +146,7 @@ const MGR_PUNKTE = [
   "Manager da: die Einstellungen zeigen den Manager-Baustein statt der lokalen Listen",
   "Manager weg: beide Rollen fallen auf die lokale Liste zurück",
   "Der Manager-Weg schreibt weder Schlüssel noch Manager-Modell in data.json",
+  "Manager kommt bei offenem Einstellungs-Fenster: beim Zurückwechseln auf den Tab erscheint der Baustein (und verschwindet wieder)",
 ];
 
 const W15_PUNKTE = [
@@ -1757,13 +1758,41 @@ async function main(): Promise<void> {
         // lingotuner-Fund C1), der Schlüssel kommt in `resolve().config.apiKey` zurück; `caller` im Aufrufmitschnitt.
         // Gegenprobe VOR dem Einbau: ohne Manager darf die Zeile des Bausteins nicht stehen, die lokalen Zeilen schon.
         const ohneMgr = await liesManagerSicht(main, port, vault);
-        await installFakeManager(main, {
+        const fakeOpts = {
           pluginId: MGR,
           endpunkte: [
-            { id: "w8-chat", label: "w8-chat", url: mgrLocal.chatUrl, models: [MGR_MODEL], defaultModel: MGR_MODEL, capabilities: ["chat"], apiKey: "w8-schluessel", configModel: "default" },
-            { id: "w8-embedding", label: "w8-embedding", url: mgrLocal.embUrl, models: [MGR_EMB_MODEL], defaultModel: MGR_EMB_MODEL, capabilities: ["embedding"], apiKey: "w8-schluessel", configModel: "default" },
+            { id: "w8-chat", label: "w8-chat", url: mgrLocal.chatUrl, models: [MGR_MODEL], defaultModel: MGR_MODEL, capabilities: ["chat" as const], apiKey: "w8-schluessel", configModel: "default" as const },
+            { id: "w8-embedding", label: "w8-embedding", url: mgrLocal.embUrl, models: [MGR_EMB_MODEL], defaultModel: MGR_EMB_MODEL, capabilities: ["embedding" as const], apiKey: "w8-schluessel", configModel: "default" as const },
           ],
-        });
+        };
+        // Offenes Einstellungs-Fenster: Manager einhängen, das Fenster bleibt offen, nur der Tab wechselt weg und zurück
+        // (Obsidians renderTab() ist ein Cache-Kurzschluss nach Zeilenzahl; ohne `installTabRefreshOnOpen` bleibt der
+        // alte Inhalt stehen). Einen Event gibt es dafuer nicht: ohne Manager beim Start ist das `changed`-Abo ein No-op
+        // (Kit `onEndpointManagerChanged`). Danach wieder entfernen.
+        // Gegenprobe im selben Zug: vor dem Einhängen steht keine Bausteinzeile, nach dem Entfernen wieder die lokalen Zeilen.
+        const lesen = `return { baustein: [...document.querySelectorAll(".setting-item-name")].some((e) => /come from the LLM Endpoint Manager|kommen vom LLM Endpoint Manager/.test(e.textContent ?? "")), rows: document.querySelectorAll(".okit-ep-row").length };`;
+        await main.evaluate(`app.setting.close();`);
+        await openSettings(main);
+        const offen = await attachTo("settings", port, vault);
+        if (!offen) unmeasured(MGR_PUNKTE[6]!, "Einstellungs-Fenster nicht erreichbar");
+        else {
+          try {
+            const vorher = await offen.evaluate<{ baustein: boolean; rows: number }>(lesen);
+            const wechsel = `app.setting.openTabById("appearance"); await new Promise(r => setTimeout(r, 400)); app.setting.openTabById(${JSON.stringify(PLUGIN_ID)}); await new Promise(r => setTimeout(r, 600));`;
+            await installFakeManager(main, fakeOpts);
+            await main.evaluate(wechsel);
+            const erscheint = await pollUntil(offen, `const m = (() => { ${lesen} })(); return m.baustein ? true : null;`, 5000, 250);
+            await entferneFakeManager(main, { pluginId: MGR });
+            await main.evaluate(wechsel);
+            const weg = await pollUntil(offen, `const m = (() => { ${lesen} })(); return !m.baustein && m.rows > 0 ? true : null;`, 5000, 250);
+            record(MGR_PUNKTE[6]!, !vorher.baustein && vorher.rows > 0 && !!erscheint && !!weg,
+              `vorher: Baustein ${vorher.baustein ? "DA" : "fehlt"} · ${vorher.rows} Zeilen; nach Einhängen: Baustein ${erscheint ? "erscheint" : "ERSCHEINT NICHT"}; nach Entfernen: lokale Zeilen ${weg ? "wieder da" : "FEHLEN"}`);
+          } finally {
+            offen.close();
+            await main.evaluate(`app.setting.close();`);
+          }
+        }
+        await installFakeManager(main, fakeOpts);
         const m1 = await main.evaluate<Record<string, unknown>>(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           await p.resolveAndReconnectChat();

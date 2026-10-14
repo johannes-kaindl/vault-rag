@@ -132,6 +132,7 @@ export default class VaultRagPlugin extends Plugin {
    *  Bewusst NICHT persistiert: wird bei jedem loadIndex frisch klassifiziert (selbstheilend
    *  gegenüber extern geänderten Dateien) und in-Session von den Live-Handlern gepflegt. */
   private emptyNotePaths = new Set<string>();
+  private settingTab: VaultRagSettingTab | null = null;
   /** Auto-Heal höchstens einmal je Gefahrenzustand-Episode (Reset bei gesundem Load). */
   private autoHealAttempted = false;
   private indexOpChain: Promise<void> = Promise.resolve();
@@ -329,7 +330,8 @@ export default class VaultRagPlugin extends Plugin {
       },
     );
 
-    this.addSettingTab(new VaultRagSettingTab(this.app, this));
+    this.settingTab = new VaultRagSettingTab(this.app, this);
+    this.addSettingTab(this.settingTab);
 
     // File-Events
     this.registerEvent(this.app.vault.on("modify", (file: TAbstractFile) => {
@@ -447,6 +449,7 @@ export default class VaultRagPlugin extends Plugin {
       const off = onEndpointManagerChanged(this.app, () => {
         void this.resolveAndReconnectEmbedder();
         void this.resolveAndReconnectChat();
+        this.settingTab?.refreshIfOpen();
       });
       this.register(off);
     });

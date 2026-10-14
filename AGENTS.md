@@ -238,7 +238,7 @@ plugin_api.ts     Öffentlicher Vertrag für ANDERE Obsidian-Plugins, hängt als
                   ein Boolean ohne Fortschrittszahl: eine Zahl lädt zu einer Schwelle ein
                   („ab 80 % vertraue ich den Treffern wieder"). `indexed` bleibt dabei `true` —
                   das Feld qualifiziert es, es widerspricht ihm nicht.
-tool_provider.ts  (Branch feat/tool-provider, nicht gemergt) Werkzeug-Anbieter an `plugin.api`, additiv, `apiVersion` bleibt 1; Festlegungen mit koda-agent 2026-09-25. `TOOL_REGISTRY` ist die einzige Stelle, an der Namen entstehen (`semantic_search`, `related_notes`; der Name ist Wire-Identität, Eindeutigkeit je Anbieter ist getestet). `tools(opts?: {lang})` liefert OpenAI-Function-Definitionen (`name`/`description`/`parameters`/`writes`), leer ohne Index. `execute(name, args, opts?: {lang, confirm})` wirft nie und liefert `{ok:true, content, data?}` bzw. `{ok:false, reason, message}` — `content`/`message` sind der Text fürs Modell (die Sätze aus koda-agents `formatRelatedResult`, hier i18n), `data` (`{hits}`) ist für die Oberfläche des Wirts. `reason`: `unknown-tool`, `bad-args`+`field`, `failed`, `needs-confirm`, `unavailable`+`detail` (`no-index`/`offline`), zusätzlich `not-indexed`+`path`. Ein `writes:true`-Werkzeug ruft `confirm` mit nebenwirkungsfreier Vorschau und endet ohne `confirm` oder bei `false` mit `needs-confirm` (per Test-Werkzeug bewiesen; `applyLink` ist noch kein Werkzeug). Die Sprache wird nur synchron um die Textbildung gesetzt (`run` rechnet, `render` formuliert), nie über ein await. `exclude` bleibt Nutzergrenze.
+tool_provider.ts  Werkzeug-Anbieter an `plugin.api` (seit Welle 22 auf `main`), additiv, `apiVersion` bleibt 1; Vertrag `ToolProviderApi` aus obsidian-kit 0.60.x: `version` ist `TOOL_PROVIDER_API_VERSION` (Kit `tool-provider`, der Wirt prüft sie mit `isToolProviderApi`), die Methode heißt `executeTool`; Festlegungen mit koda-agent 2026-09-25. `TOOL_REGISTRY` ist die einzige Stelle, an der Namen entstehen (`semantic_search`, `related_notes`; der Name ist Wire-Identität, Eindeutigkeit je Anbieter ist getestet). `tools(opts?: {lang})` liefert OpenAI-Function-Definitionen (`name`/`description`/`parameters`/`writes`), leer ohne Index. `executeTool(name, args, opts?: {lang, confirm})` wirft nie und liefert `{ok:true, content, data?}` bzw. `{ok:false, reason, message}` — `content`/`message` sind der Text fürs Modell (die Sätze aus koda-agents `formatRelatedResult`, hier i18n), `data` (`{hits}`) ist für die Oberfläche des Wirts. `reason`: `unknown-tool`, `bad-args`+`field`, `failed`, `needs-confirm`, `unavailable`+`detail` (`no-index`/`offline`), zusätzlich `not-indexed`+`path`. Ein `writes:true`-Werkzeug ruft `confirm` mit nebenwirkungsfreier Vorschau und endet ohne `confirm` oder bei `false` mit `needs-confirm` (per Test-Werkzeug bewiesen; `applyLink` ist noch kein Werkzeug). Die Sprache wird nur synchron um die Textbildung gesetzt (`run` rechnet, `render` formuliert), nie über ein await. `exclude` bleibt Nutzergrenze.
 settings_core.ts  Obsidian-freie Settings-Wahrheit: VaultRagSettings (embeddingEndpoints/
                   chatEndpoints als EndpointConfig[]) · DEFAULT_SETTINGS · migrateGlobalModels
                   (Prä-0.31-Altwert der entfallenen globalen Modell-Felder in die Zeilen, die noch
@@ -401,10 +401,11 @@ für Kit-Konsistenz (obsidian-kit-Vendoring als Einheit, nicht Datei-für-Datei 
 npm install                       # Deps
 npm run dev                       # esbuild watch  (= node esbuild.config.mjs)
 npm run build                     # baut main.js
-npm test                          # vitest run     (1224 Tests, 76 Files)
+npm test                          # vitest run     (1236 Tests, 80 Files)
 npm run lint                      # eslint src     (typescript-eslint + eslint-plugin-obsidianmd)
 npm run check:pure                # obsidian-Import nur an der Kante (EDGE in scripts/check-pure.mjs)
 npm run typecheck                 # tsc --noEmit
+npm run typecheck:test            # tsc -p tsconfig.test.json (Tests gegen die echten obsidian-Typen, Teil des Gates)
 OBSIDIAN_PLUGIN_DIR=… npm run deploy   # build + main.js/manifest.json/styles.css ins Vault-Plugin-Verzeichnis
                                   # ⚠️ AUCH fuer den Arbeits-Vault noetig.
                                   # ⚠️ Der Vault-NAME ist kein Fixpunkt: am 2026-09-06 hiess er
@@ -439,7 +440,7 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 ## Conventions
 
 - **TS strict + `noImplicitAny`** — keine `any`-Casts für neue Typen.
-- **Tests:** vitest + happy-dom; Obsidian-Mock unter `tests/__mocks__/obsidian.ts` (kein echter
+- **Tests:** vitest + happy-dom; Obsidian-Mock ist der Kit-Mock (`tests/vendor/kit/obsidian-mock.ts`, vendort), `tests/__mocks__/obsidian.ts` re-exportiert ihn und überschreibt als einzige deklarierte Abweichung `requestUrl` mit `vi.fn()` (kein echter
   obsidian-Import im Test). `describe/it/expect`, kein `.only`/`.skip` im Commit. Nach jeder
   Änderung müssen **alle Tests grün** bleiben.
 - **`isEmbedding` immer via `try/finally`** klammern (kein vergessenes `finally`).
@@ -737,6 +738,7 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
   vollständig ist, und löscht den alten Ordner nur dann — und nur, wenn er ausschließlich Index-Dateien
   enthält (`onlyContainsIndexFiles`). Hatte der alte einen vollständigen Index und der neue nicht →
   nichts geändert (Datenverlust-Schutz, B-vor-A).
+- **Das MCP-Token liegt im Schlüsselbund, nicht in `data.json` (seit Welle 22, Kit `secret-value`).** `settings.mcpToken` ist nur der Speicherwert; `saveSettings()` schreibt `mcpTokenInFile` (`""`, solange der Schlüsselbund das Token hält). Jeder Weg, der Settings serialisiert, muss darüber laufen — wer `saveData(this.settings)` schriebe, trüge das Token beim nächsten Speichern zurück in die Datei (Smoke-Punkt „MCP-Token liegt im Schlüsselbund“, Mutationsprobe rot). Erzeugt wird nur bei leerem Stand (`ensureMcpToken`); der Schlüsselbund ist je Gerät, `data.json` wird synchronisiert: ein zweites Gerät erzeugt sein eigenes Token.
 - **MCP-Server läuft in-Plugin (HTTP)** statt als separater stdio-CLI: desktop-only via
   `Platform.isMobile`-Gate, Loopback (`127.0.0.1`) + Bearer-Token, läuft nur solange Obsidian
   offen ist (kein eigenständiger Prozess); Spec im Vault-Cockpit unter `_SDD/`: `2026-07-09-mcp-server-design.md`.

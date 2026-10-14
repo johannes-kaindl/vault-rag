@@ -23,7 +23,7 @@ All notable changes to this project are documented here. The format follows
 - **Command "Show embedding requests of the last hour":** counts the requests sent to the embedding endpoint per caller (indexer: modify, drain, reindex, heal; chat context; search panel; Smart Apply; template ranking; plugin API; MCP) with a rate per minute. Nothing is stored or sent anywhere; it helps to find out where a steady load on the embedding server comes from.
 - **Chat answers are shown as Markdown** once they are finished (lists, bold text, headings, code); the answer that is still streaming stays plain text, so nothing is redrawn per token. Your own question stays plain text. Remote images in an answer are not loaded (they show as a link), and code blocks that would run scripts are rendered inert (obsidian-kit `neutralizeModelMarkdown` and DOM guard).
 - **Integrator: two commands, "Accept next link suggestion" and "Reject next link suggestion"** (hotkeys can be bound in Obsidian). They take the first target of the active note's card, otherwise of the newest card, the same way as the buttons in the inbox (accepting keeps the stale-note guard).
-- **Werkzeug-Anbieter an `plugin.api`:** `tools(opts?)` beschreibt `semantic_search` und `related_notes` als LLM-Werkzeug-Definitionen, `executeTool(name, args, opts?)` führt sie aus (Vertrag `ToolProviderApi` aus obsidian-kit 0.60.0; die API trägt `version: 1`) und liefert Text fürs Modell (`content`/`message`, in `opts.lang` oder der Oberflächensprache) plus `data` für die Oberfläche; Fehler sind Werte. Ein schreibendes Werkzeug müsste `confirm` rufen und endet sonst mit `needs-confirm`. Additiv, `apiVersion` bleibt 1.
+- **Tool provider on `plugin.api`:** `tools(opts?)` describes `semantic_search` and `related_notes` as LLM tool definitions for a host with an agent loop (koda-agent), `executeTool(name, args, opts?)` runs them (contract `ToolProviderApi` from obsidian-kit 0.60; the API carries `version: 1`) and answers with text for the model (`content`/`message`, in `opts.lang` or the interface language) plus `data` for the host's interface; errors are values. `apiVersion` stays 1, only methods are added.
 
 ### Fixed
 
@@ -31,7 +31,6 @@ All notable changes to this project are documented here. The format follows
 - **Integrator: a recompute that finds nothing new no longer forgets what you rejected**, so rejected targets do not come back with the next change.
 - **Integrator: the card title can be reached with Tab and opened with Enter or Space.**
 - **A note that became empty during a full reindex stays classified as empty**, instead of showing up as a gap in the index count until the next heal.
-- **Die Aufzeichnung im LLM Lab war still aus.** `lab_client.ts` prüfte `apiVersion === 3`, llm-lab liefert seit 2026-09-03 die 4 — `readLabApi` gab deshalb `null` zurück, und Chat, Smart Apply und Umformatieren meldeten nichts mehr. Jetzt auf 4 gehoben; jede Nutzer-Handlung (eine Chat-Nachricht, ein Smart-Apply-Lauf, eine Umformung) trägt eine frische `turnId`. Am laufenden Obsidian 1.14.2 gegen das echte llm-lab 0.6.0 gemessen: der Aufruf landet in dessen Trace mit `turnId`.
 
 ## [0.41.1] — 2026-10-12
 

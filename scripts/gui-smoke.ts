@@ -1795,9 +1795,10 @@ async function main(): Promise<void> {
             { id: "w8-embedding", label: "w8-embedding", url: mgrLocal.embUrl, models: [MGR_EMB_MODEL], defaultModel: MGR_EMB_MODEL, capabilities: ["embedding" as const], apiKey: "w8-schluessel", configModel: "default" as const },
           ],
         };
-        // Offenes Einstellungs-Fenster: Manager einhängen, das Fenster bleibt offen, nur der Tab wechselt weg und zurück
-        // (Obsidians renderTab() ist ein Cache-Kurzschluss nach Zeilenzahl; ohne `installTabRefreshOnOpen` bleibt der
-        // alte Inhalt stehen). Einen Event gibt es dafuer nicht: ohne Manager beim Start ist das `changed`-Abo ein No-op
+        // Offenes Einstellungs-Fenster: Manager einhängen, das Fenster bleibt offen, nur der Tab wechselt weg und zurück.
+        // Regressionswächter, KEIN Beleg für `installTabRefreshOnOpen`: Mutationsprobe 2026-10-14 (Hook ausgebaut) blieb
+        // grün, Obsidian 1.14.4 zeichnet den Tab beim Zurückwechseln auch ohne den Hook neu (die Messung von yijing-oracle
+        // stammt von 1.14.2). Einen Event gibt es dafuer nicht: ohne Manager beim Start ist das `changed`-Abo ein No-op
         // (Kit `onEndpointManagerChanged`). Danach wieder entfernen.
         // Gegenprobe im selben Zug: vor dem Einhängen steht keine Bausteinzeile, nach dem Entfernen wieder die lokalen Zeilen.
         const lesen = `return { baustein: [...document.querySelectorAll(".setting-item-name")].some((e) => /come from the LLM Endpoint Manager|kommen vom LLM Endpoint Manager/.test(e.textContent ?? "")), rows: document.querySelectorAll(".okit-ep-row").length };`;

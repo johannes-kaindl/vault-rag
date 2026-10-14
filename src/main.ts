@@ -135,7 +135,6 @@ export default class VaultRagPlugin extends Plugin {
    *  Bewusst NICHT persistiert: wird bei jedem loadIndex frisch klassifiziert (selbstheilend
    *  gegenüber extern geänderten Dateien) und in-Session von den Live-Handlern gepflegt. */
   private emptyNotePaths = new Set<string>();
-  private settingTab: VaultRagSettingTab | null = null;
   /** Was `data.json` für `mcpToken` trägt: `""`, sobald das Token im Schlüsselbund liegt. Das Token selbst steht nur in `settings.mcpToken` (Speicher). */
   private mcpTokenInFile = "";
   /** Auto-Heal höchstens einmal je Gefahrenzustand-Episode (Reset bei gesundem Load). */
@@ -342,8 +341,7 @@ export default class VaultRagPlugin extends Plugin {
       },
     );
 
-    this.settingTab = new VaultRagSettingTab(this.app, this);
-    this.addSettingTab(this.settingTab);
+    this.addSettingTab(new VaultRagSettingTab(this.app, this));
 
     // File-Events
     this.registerEvent(this.app.vault.on("modify", (file: TAbstractFile) => {
@@ -461,7 +459,6 @@ export default class VaultRagPlugin extends Plugin {
       const off = onEndpointManagerChanged(this.app, () => {
         void this.resolveAndReconnectEmbedder();
         void this.resolveAndReconnectChat();
-        this.settingTab?.refreshIfOpen();
       });
       this.register(off);
     });

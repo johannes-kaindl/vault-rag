@@ -14,7 +14,6 @@ All notable changes to this project are documented here. The format follows
 - **A warning about discarded request settings lists them sorted** (code-kit 0.26.0).
 - **Indexing notes with very many headings is faster** (`chunkMarkdown` is linear, code-kit 0.27.1; the result is unchanged).
 - **The MCP token moves from `data.json` into Obsidian's keychain** on the first start after the update (the value carries over unchanged, so client snippets keep working). The keychain is per device and `data.json` is synced: another device generates its own token the first time the MCP server is enabled there.
-- **The settings tab redraws when you switch back to it**, so an LLM Endpoint Manager installed or reconfigured meanwhile shows up without closing the window.
 
 ### Added
 

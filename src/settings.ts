@@ -9,7 +9,7 @@ import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { githubHelpUrls, helpSettingDefinition } from "./vendor/kit-obsidian/help-setting";
-import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab, installTabRefreshOnOpen } from "./vendor/kit-obsidian/settings_walker";
+import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
 import { DEFAULT_SETTINGS, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
 import type { EmbeddingConnection } from "./vendor/kit-obsidian/embedding-connection";
 import type { EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
@@ -159,19 +159,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  „offline" von „gibt keine Liste heraus" zu trennen. */
   private modelCache: ModelListCache = createModelListCache();
 
-  constructor(app: App, private plugin: VaultRagPluginHost) {
-    super(app, plugin);
-    // Obsidians renderTab() ist ein Cache-Kurzschluss nach Zeilenzahl (gemessen yijing-oracle, 1.14.2): ein
-    // neu installierter oder umkonfigurierter Endpoint Manager wuerde beim Oeffnen nicht gezeichnet. Der Hook
-    // bleibt fuer die Lebenszeit des Tabs installiert (hide() baut ihn nicht ab, sonst wirkt er nur einmal).
-    installTabRefreshOnOpen(this, () => this.renderImperative());
-  }
-
-  /** Zeichnet den Tab neu, aber nur wenn er gerade sichtbar ist (sonst starteten die Hatches Polls fuer einen
-   *  Tab, den niemand sieht). Aufrufer: Manager-Wechsel in `main.ts`. */
-  refreshIfOpen(): void {
-    if (this.containerEl.isShown()) this.refreshUi();
-  }
+  constructor(app: App, private plugin: VaultRagPluginHost) { super(app, plugin); }
 
   // ── Deklarative Settings-API (Obsidian 1.13) ────────────────────────────
   // Fundament für die schrittweise Migration von display() auf

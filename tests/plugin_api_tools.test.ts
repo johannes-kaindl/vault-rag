@@ -162,6 +162,11 @@ describe("Plugin-API — Werkzeug-Anbieter: executeTool()", () => {
     expect(await field("related_notes", "a.md")).toBe("path");
   });
 
+  it("paused heißt unavailable mit detail paused und eigenem Text (nicht offline)", async () => {
+    const r = await api({ isPaused: () => true }).executeTool("semantic_search", { query: "x" }, { lang: "en" });
+    expect(r).toMatchObject({ ok: false, reason: "unavailable", detail: "paused" });
+    expect((r as { message: string }).message).toMatch(/paused/);
+  });
   it("no-index und offline heissen unavailable (Voraussetzung fehlt), mit detail und Text", async () => {
     await expect(api({ getIndex: () => null }).executeTool("related_notes", { path: "a.md" }, { lang: "de" }))
       .resolves.toMatchObject({ ok: false, reason: "unavailable", detail: "no-index", message: expect.stringContaining("kein Index") });

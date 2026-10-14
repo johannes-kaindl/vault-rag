@@ -8,11 +8,14 @@ export const VIEW_TYPE_SEARCH = "vault-rag-search";
 export type SearchResult =
   | { kind: "hits"; hits: Hit[] }
   | { kind: "offline" }
+  | { kind: "paused" }
   | { kind: "no-index" };
 
 export interface SearchDeps {
   search: (query: string) => Promise<SearchResult>;
   openPath: (path: string) => void;
+  /** Pause beenden (der Knopf im Pause-Zustand). Fehlt der Anschluss, zeigt der Zustand nur den Text. */
+  resume?: () => void;
 }
 
 const MIN_QUERY = 3;
@@ -55,15 +58,33 @@ export class SearchPanel implements HubPanel {
 
   renderResult(result: SearchResult): void {
     if (result.kind === "offline") return this.renderState(t("panel.search.offline"));
+    if (result.kind === "paused") return this.renderPaused();
     if (result.kind === "no-index") return this.renderState(t("panel.search.noIndex"));
     if (result.hits.length === 0) return this.renderState(t("panel.search.noHits"));
     const el = this.resultsEl!; el.empty();
     renderHitList(el, result.hits, this.deps.openPath);
   }
 
+  /** Empty-State nach UI-STANDARD §8 mit genau einem CTA: die Pause ist eine Entscheidung, der Weg zurück steht daneben. */
+  private renderPaused(): void {
+    const el = this.resultsEl!; el.empty();
+    const empty = el.createDiv({ cls: "vault-rag-empty", text: t("panel.search.paused") });
+    if (this.deps.resume) {
+      const btn = empty.createEl("button", { cls: "mod-cta", text: t("panel.search.resume") });
+      btn.addEventListener("click", () => this.deps.resume?.());
+    }
+  }
+
   private renderState(text: string): void {
     const el = this.resultsEl!; el.empty();
     el.createDiv({ cls: "vault-rag-search-state", text });
+  }
+
+  /** Pause an: laufende Eingabe zeigt den Pause-Zustand; Fortsetzen: dieselbe Eingabe läuft neu. */
+  onEmbeddingPause(paused: boolean): void {
+    const q = (this.inputEl?.value ?? "").trim();
+    if (q.length < MIN_QUERY) return;
+    if (paused) this.renderPaused(); else void this.runQuery(q);
   }
 
   destroy(): void {

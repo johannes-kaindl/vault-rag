@@ -31,6 +31,12 @@ describe("McpTools.search", () => {
   it("wirft bei offline", async () => {
     await expect(tools({ embedderReady: async () => false }).search({ query: "x" })).rejects.toThrow(/not reachable/);
   });
+  it("bei Pause ein eigener Hinweis (nicht „not reachable“), related läuft weiter", async () => {
+    const t = tools({ isPaused: () => true });
+    await expect(t.search({ query: "x" })).rejects.toThrow(/paused/);
+    await expect(t.search({ query: "x" })).rejects.not.toThrow(/not reachable/);
+    expect((await t.related({ path: "a.md" })).hits.length).toBeGreaterThan(0);
+  });
 });
 
 describe("McpTools.related", () => {

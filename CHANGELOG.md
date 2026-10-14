@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Chat: "Context notes" can be set to 0 ("Off").** Then no note is retrieved and no embedding request is made — a plain chat without your notes. The built-in default system prompt follows what really goes along: with notes it answers from them, without notes it no longer claims to (a prompt you wrote is never changed).
 - Kit pin `obsidian-kit` 0.59.1 → 0.60.1 and `code-kit` 0.24.0 → 0.27.1.
 - **Messages name a missing API key or a switched-off endpoint instead of "no endpoint"** (with the LLM Endpoint Manager; obsidian-kit 0.60.0).
 - **The thinking button has a visible gap between icon and label** (obsidian-kit 0.60.0, `THINKING_CONTROL_CSS` copied into `styles.css`).
@@ -17,6 +18,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Embedding pause.** One switch for this device and all vaults on it — the command "Pause embedding"/"Resume embedding", the setting "Embedding paused" or a click on the status-bar item (shown with ⏸ while paused, even if the status bar is off) — stops every embedding request: indexing, search, automatic chat context, Smart Apply ranking, MCP and the plugin API. The embedding model stays unloaded. Notes you change meanwhile queue up and are caught up on resume; a running reindex waits at its next batch and carries on. The search tab shows a "Resume" button, related notes carry a hint that the state predates the pause, and the chat adds only pinned notes ("Auto ⏸"). The plugin API answers `search` with `reason: "paused"` and `status()` gains `paused` (`apiVersion` stays 1); MCP `search` says so in plain text; related notes keep working.
 - **Command "Show embedding requests of the last hour":** counts the requests sent to the embedding endpoint per caller (indexer: modify, drain, reindex, heal; chat context; search panel; Smart Apply; template ranking; plugin API; MCP) with a rate per minute. Nothing is stored or sent anywhere; it helps to find out where a steady load on the embedding server comes from.
 - **Chat answers are shown as Markdown** once they are finished (lists, bold text, headings, code); the answer that is still streaming stays plain text, so nothing is redrawn per token. Your own question stays plain text. Remote images in an answer are not loaded (they show as a link), and code blocks that would run scripts are rendered inert (obsidian-kit `neutralizeModelMarkdown` and DOM guard).
 - **Integrator: two commands, "Accept next link suggestion" and "Reject next link suggestion"** (hotkeys can be bound in Obsidian). They take the first target of the active note's card, otherwise of the newest card, the same way as the buttons in the inbox (accepting keeps the stale-note guard).

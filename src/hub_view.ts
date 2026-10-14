@@ -34,6 +34,8 @@ export class VaultRetrievalView extends ItemView {
   // ── Public API für main.ts ────────────────────────────────────────────────
   showTab(id: TabId): void { this.ctrl?.setTab(id); this.navState = id; }
   refreshContext(): void { this.emitFileOpen(); }
+  /** Pause-Zustand an alle Panels weitergeben, die ihn anzeigen. */
+  emitEmbeddingPause(paused: boolean): void { for (const p of this.panels) p.onEmbeddingPause?.(paused); }
   refreshRanking(): void {
     const sa = this.panels.find(p => p.id === "smart-apply") as { refreshRanking?: () => void } | undefined;
     sa?.refreshRanking?.();

@@ -236,6 +236,9 @@ export class ChatPanel implements HubPanel {
     render(box, m.content).catch(() => { box.empty(); box.setText(m.content); });
   }
 
+  /** Pause an/aus: Auto-Kontext ruht bzw. sucht die letzte Eingabe neu (Spec 2026-09-17 §3.3). */
+  onEmbeddingPause(paused: boolean): void { if (paused) this.panel.onPause(); else this.panel.onResume(); }
+
   /** Tab wird sichtbar: Stufe und Stufenwahl koennen in den Einstellungen geaendert worden sein. */
   onShow(): void { this.renderThinkToggle(); }
 

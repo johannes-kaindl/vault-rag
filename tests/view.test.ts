@@ -18,6 +18,18 @@ function mountPanel(deps: ConstructorParameters<typeof RelatedPanel>[0]) {
   return { panel, container };
 }
 
+describe("RelatedPanel — Pause", () => {
+  it("zeigt über den Treffern den Hinweis, dass der Stand von vor der Pause stammt; ohne Pause fehlt er", () => {
+    let paused = true;
+    const { panel, container } = mountPanel({ getHits: () => [{ path: "A.md", score: 0.9 } as any], openPath: () => {}, isPaused: () => paused });
+    const hint = () => container.children.filter((c: any) => c.className?.includes("vault-rag-paused-hint"));
+    expect(hint().length).toBe(1);
+    expect(container.children.filter((c: any) => c.className?.includes("okit-hit")).length).toBe(1);   // Treffer bleiben
+    paused = false; panel.onEmbeddingPause();
+    expect(hint().length).toBe(0);
+  });
+});
+
 describe("RelatedPanel", () => {
   it("zeigt Treffer", () => {
     const { container } = mountPanel({ getHits: () => [{ path: "A.md", score: 0.9 } as any], openPath: () => {} });

@@ -23,6 +23,8 @@ export type ApiResult =
   | { ok: true; hits: ApiHit[] }
   | { ok: false; reason: "no-index" }
   | { ok: false; reason: "offline" }
+  /** Der Nutzer hat das Embedding pausiert (Entscheidung, kein Ausfall): `search` wartet nicht und fragt kein Modell. `related` bleibt verfügbar. */
+  | { ok: false; reason: "paused" }
   | { ok: false; reason: "not-indexed"; path: string };
 
 export interface ApiStatus {
@@ -49,6 +51,8 @@ export interface ApiStatus {
    *  dazu, weil ein zusaetzliches Feld die Form des Vertrags nicht aendert (abgestimmt mit dem
    *  einzigen Konsumenten, koda-agent, 2026-08-30). */
   reindexing: boolean;
+  /** Embedding ist pausiert (pro Rechner, alle Vaults). Synchron und netzfrei wie der Rest von `status()`. `search` antwortet dann mit `reason: "paused"`. */
+  paused: boolean;
 }
 
 /** Pro Anfrage überschreibbar. `exclude` fehlt hier absichtlich: die Ausschluss-Liste
@@ -110,6 +114,7 @@ export function createVaultRetrievalApi(
   getIndex: () => VectorIndex | null,
   isReindexing: () => boolean,
   integrator: IntegratorPort,
+  isPaused: () => boolean = () => false,
 ): VaultRetrievalApi {
   const api: VaultRetrievalApi = {
     apiVersion: VAULT_RETRIEVAL_API_VERSION,
@@ -124,6 +129,7 @@ export function createVaultRetrievalApi(
         // Bei JEDEM Aufruf frisch gelesen, nie beim Bauen der API eingefroren: der Zustand beim
         // Plugin-Start ist nie „Reindex laeuft", ein eingefrorener Wert bliebe also ewig false.
         reindexing: isReindexing(),
+        paused: isPaused(),
       };
     },
 
@@ -168,6 +174,7 @@ type FacadeResult =
   | { kind: "hits"; hits: ApiHit[] }
   | { kind: "no-index" }
   | { kind: "offline" }
+  | { kind: "paused" }
   | { kind: "not-indexed"; path: string };
 
 /** Interne Unions (Compile-Zeit) → laufzeit-lesbarer Diskriminator.
@@ -177,6 +184,7 @@ function toApiResult(r: FacadeResult): ApiResult {
     case "hits": return { ok: true, hits: r.hits.map(h => ({ path: h.path, score: h.score })) };
     case "not-indexed": return { ok: false, reason: "not-indexed", path: r.path };
     case "offline": return { ok: false, reason: "offline" };
+    case "paused": return { ok: false, reason: "paused" };
     case "no-index": return { ok: false, reason: "no-index" };
   }
 }

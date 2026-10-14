@@ -21,6 +21,37 @@ const states = (container: any) =>
 const hits = (container: any) =>
   container.children.flatMap((c: any) => c.children ?? []).filter((c: any) => c.className?.includes("okit-hit"));
 
+describe("SearchPanel — Pause", () => {
+  const emptyStates = (container: any) => container.children.flatMap((c: any) => c.children ?? []).filter((c: any) => c.className?.includes("vault-rag-empty"));
+  it("paused zeigt den Empty-State mit genau einem CTA, der die Pause beendet", async () => {
+    const resume = vi.fn();
+    const container = makeFakeEl();
+    const panel = new SearchPanel({ search: async () => ({ kind: "paused" }) as SearchResult, openPath: () => {}, resume });
+    panel.mount(container);
+    await panel.runQuery("eine suche");
+    const es = emptyStates(container);
+    expect(es.length).toBe(1);
+    const btns = es[0].children.filter((c: any) => c.className?.includes("mod-cta"));
+    expect(btns.length).toBe(1);
+    btns[0].click();
+    expect(resume).toHaveBeenCalledTimes(1);
+    expect(states(container).length).toBe(0);     // nicht als Offline-Zeile
+  });
+  it("Pause an und aus: die laufende Eingabe zeigt den Pause-Zustand bzw. läuft neu", async () => {
+    const search = vi.fn(async () => ({ kind: "hits", hits: [] }) as SearchResult);
+    const container = makeFakeEl();
+    const panel = new SearchPanel({ search, openPath: () => {} });
+    panel.mount(container);
+    (panel as any).inputEl.value = "meine suche";
+    panel.onEmbeddingPause(true);
+    expect(emptyStates(container).length).toBe(1);
+    expect(search).not.toHaveBeenCalled();
+    panel.onEmbeddingPause(false);
+    await Promise.resolve();
+    expect(search).toHaveBeenCalledWith("meine suche");
+  });
+});
+
 describe("SearchPanel", () => {
   it("id ist 'search'", () => {
     const { panel } = mkPanel(async () => ({ kind: "hits", hits: [] }));

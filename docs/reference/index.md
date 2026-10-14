@@ -46,7 +46,8 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 |---|---|---|
 | Embedding endpoints | OpenAI-compatible servers, local or hosted; each row has a connection test, an optional API key and its model (an index needs a named model, so the model list of an embedding row has no "server picks" entry) and shows the model's context length when the server names it. A candidate endpoint whose model doesn't match the index is skipped, and any write from a mismatched model is blocked rather than mixing vector spaces — see [Explanation → Why an endpoint's model has to match](../explanation/index.md#why-an-endpoints-model-has-to-match) | `http://localhost:11434` · `qwen3-embedding:8b` |
 | Debounce | Debounce between saving a note and re-embedding it | `3000` ms |
-| Progress in status bar | Shows embedding progress; revealed automatically during a reindex | off |
+| Embedding paused | Stops every embedding request on this device (all vaults): indexing, search, automatic chat context, Smart Apply ranking, MCP and plugin API. The model stays unloaded; changes to notes queue up and are caught up on resume. Also a command ("Pause embedding" / "Resume embedding") and a status-bar button. Not synced, survives restarts | off |
+| Progress in status bar | Shows embedding progress; revealed automatically during a reindex and while paused | off |
 
 ### Index
 
@@ -68,9 +69,9 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 | Setting | Effect | Default |
 |---|---|---|
 | Chat endpoints / model | LLM used for chat, Smart Apply and LLM reformatting; each row may add its own API key (kept in Obsidian's keychain, not in `data.json`) and model (no model-guard here — chat has no index to protect). The list is tried in order and the first reachable row is used; if none answers, chat reports “No chat endpoint is reachable” instead of trying a dead row | `http://localhost:1234` · `qwen3` |
-| Context notes | How many retrieved notes are offered as context | `5` |
+| Context notes | How many retrieved notes are offered as context; `0` ("Off") sends none and makes no embedding request. While embedding is paused only pinned notes go along | `5` |
 | Context budget | Maximum characters of context; ceiling follows the model window | `12000` |
-| System prompt | Grounding instruction sent with every conversation | see settings |
+| System prompt | Grounding instruction sent with every conversation. Leave it empty and the built-in default follows the context: it promises answers from your notes only when notes actually go along; a prompt you wrote is never changed | see settings |
 | Input position | Composer above or below the transcript | bottom |
 | Enter sends | On: Enter sends, Shift+Enter newline · Off: reversed | on |
 

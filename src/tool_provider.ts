@@ -49,7 +49,7 @@ export type ApiToolResult =
   | { ok: false; reason: "failed"; message: string }
   | { ok: false; reason: "needs-confirm"; message: string }
   /** Anbieter geladen, Voraussetzung fehlt: `detail` nennt sie (`no-index`, `offline`). */
-  | { ok: false; reason: "unavailable"; detail: "no-index" | "offline"; message: string }
+  | { ok: false; reason: "unavailable"; detail: "no-index" | "offline" | "paused"; message: string }
   | { ok: false; reason: "not-indexed"; path: string; message: string };
 
 /** Gleiche Obergrenze wie der Slider `k` in den Einstellungen. */
@@ -92,6 +92,7 @@ function failure(r: Exclude<ApiResult, { ok: true }>): ApiToolResult {
   switch (r.reason) {
     case "no-index": return { ok: false, reason: "unavailable", detail: "no-index", message: t("tools.msg.noIndex") };
     case "offline": return { ok: false, reason: "unavailable", detail: "offline", message: t("tools.msg.offline") };
+    case "paused": return { ok: false, reason: "unavailable", detail: "paused", message: t("tools.msg.paused") };
     case "not-indexed": return { ok: false, reason: "not-indexed", path: r.path, message: t("tools.msg.notIndexed", r.path) };
   }
 }

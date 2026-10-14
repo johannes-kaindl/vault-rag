@@ -66,6 +66,8 @@ export interface VaultRagPluginHost extends Plugin {
   resolveAndReconnectChat(): Promise<void>;
   embedderReady(): Promise<boolean>;
   setStatusBarVisible(visible: boolean): void;
+  embeddingPaused(): boolean;
+  setEmbeddingPaused(paused: boolean): void;
   reindexVault(): Promise<void>;
   healVault(): Promise<void>;
   refreshIndexFolderHiding(): void;
@@ -170,11 +172,13 @@ export class VaultRagSettingTab extends PluginSettingTab {
     const s = this.plugin.settings as unknown as Record<string, unknown>;
     if (key === "exclude") return (s.exclude as string[]).join(", ");
     if (key === "integratorFolders") return (s.integratorFolders as string[]).join(", ");
+    if (key === "embeddingPaused") return this.plugin.embeddingPaused();   // Zustand dieses Geräts, nicht data.json
     return s[key];
   }
 
   async setControlValue(key: string, value: unknown): Promise<void> {
     const s = this.plugin.settings as unknown as Record<string, unknown>;
+    if (key === "embeddingPaused") { this.plugin.setEmbeddingPaused(value === true); return; }   // nicht in data.json
     if (key === "exclude") s.exclude = splitExcludePaths(value as string);
     else if (key === "integratorFolders") s.integratorFolders = splitExcludePaths(value as string);
     else if (key === "templateDir") s.templateDir = normalizeTemplateDir(value as string);
@@ -280,6 +284,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
     return { type: "group", heading: t("settings.embedding.group"), items: [
       { name: t("settings.embeddingEndpoints.label"), desc: "", render: this.renderEmbeddingEndpoints },
       { name: t("settings.embeddingStatus.name"), desc: "", render: this.renderEmbeddingStatus },
+      { name: t("settings.embedding.pause.name"), desc: t("settings.embedding.pause.desc"),
+        control: { type: "toggle", key: "embeddingPaused" } },
       { name: t("settings.embedding.debounce.name"), desc: t("settings.embedding.debounce.desc"),
         control: { type: "slider", key: "debounceMs", min: 500, max: 10000, step: 500,
           displayFormat: (v: number) => `${v / 1000} s` } },
@@ -340,7 +346,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
       { name: t("settings.modelDetails.name"), desc: "", render: this.renderModelDetails },
       { name: t("settings.capabilities.name"), desc: "", render: this.renderCapsRow },
       { name: t("settings.chat.contextNotes.name"), desc: t("settings.chat.contextNotes.desc"),
-        control: { type: "slider", key: "chatK", min: 1, max: 20, step: 1, displayFormat: (v: number) => String(v) } },
+        control: { type: "slider", key: "chatK", min: 0, max: 20, step: 1, displayFormat: (v: number) => (v === 0 ? t("settings.chat.contextNotes.off") : String(v)) } },
       { name: t("settings.chat.contextBudget.name"), desc: "", render: this.renderBudget },
       { name: t("settings.chat.systemPrompt.name"), desc: t("settings.chat.systemPrompt.desc"),
         control: { type: "textarea", key: "chatSystemPrompt", rows: 8 } },

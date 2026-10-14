@@ -52,6 +52,26 @@ describe("effectiveSystemPrompt", () => {
     expect(p).not.toBe(LEGACY_SYSTEM_PROMPT);
   });
 
+  it("ohne Kontext gilt der neutrale Default (keine Zusage, aus Notizen zu antworten), in beiden Sprachen", () => {
+    setLang("en");
+    const en = effectiveSystemPrompt("", false);
+    expect(en).not.toBe(effectiveSystemPrompt("", true));
+    expect(en).toContain("No notes");
+    setLang("de");
+    const de = effectiveSystemPrompt("", false);
+    expect(de).toContain("keine Notizen");
+    expect(de).not.toBe(effectiveSystemPrompt("", true));
+    setLang("en");
+  });
+
+  it("ein eigener Prompt bleibt mit und ohne Kontext unverändert; der Alt-Default folgt dem Default", () => {
+    const eigen = "Immer als Haiku.";
+    expect(effectiveSystemPrompt(eigen, false)).toBe(eigen);
+    expect(effectiveSystemPrompt(eigen, true)).toBe(eigen);
+    setLang("en");
+    expect(effectiveSystemPrompt(LEGACY_SYSTEM_PROMPT, false)).toBe(effectiveSystemPrompt("", false));
+  });
+
   it("Whitespace-only zählt als leer", () => {
     setLang("en");
     expect(effectiveSystemPrompt("   \n  ")).toBe(effectiveSystemPrompt(""));

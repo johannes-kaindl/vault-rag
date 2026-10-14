@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createVaultRetrievalApi, VAULT_RETRIEVAL_API_VERSION } from "../src/plugin_api";
+import { createVaultRetrievalApi, VAULT_RETRIEVAL_API_VERSION, type ApiResult } from "../src/plugin_api";
 import type { IntegratorPort } from "../src/plugin_api";
 import { RetrievalFacade } from "../src/retrieval_facade";
 import { parseIndex, VectorIndex } from "../src/vendor/kit/vector-index";
@@ -43,13 +43,13 @@ describe("Plugin-API — Vertrag", () => {
 
   it("status() ist synchron, netzfrei und meldet den Index-Bestand", () => {
     expect(api().status()).toEqual({
-      apiVersion: VAULT_RETRIEVAL_API_VERSION, indexed: true, noteCount: 3, reindexing: false,
+      apiVersion: VAULT_RETRIEVAL_API_VERSION, indexed: true, noteCount: 3, reindexing: false, paused: false,
     });
   });
 
   it("status() meldet ohne Index indexed=false statt zu werfen", () => {
     expect(api({ getIndex: () => null }).status()).toEqual({
-      apiVersion: VAULT_RETRIEVAL_API_VERSION, indexed: false, noteCount: 0, reindexing: false,
+      apiVersion: VAULT_RETRIEVAL_API_VERSION, indexed: false, noteCount: 0, reindexing: false, paused: false,
     });
   });
 
@@ -133,6 +133,29 @@ describe("Plugin-API — Fremdkonsumenten-Tauglichkeit", () => {
       expect(f.ok).toBe(false);
       expect(Object.keys(f).every(k => ["ok", "reason", "path"].includes(k))).toBe(true);
     }
+  });
+});
+
+// ── paused: eine Entscheidung des Nutzers, kein Ausfall ───────────────────────────────────────
+describe("Plugin-API — Pause", () => {
+  const paused = (p: boolean) => createVaultRetrievalApi(
+    new RetrievalFacade({ getIndex: () => idx(), embedderReady: async () => true, embed: async () => [new Float32Array([1, 0])],
+      settings: () => ({ k: 5, minSim: 0, exclude: [] }), readVault: async () => "", isPaused: () => p } as ConstructorParameters<typeof RetrievalFacade>[0]),
+    () => idx(), () => false, port(), () => p);
+  it("search antwortet mit reason paused, status().paused ist true, related bleibt verfügbar", async () => {
+    const a = paused(true);
+    expect(await a.search("x")).toEqual({ ok: false, reason: "paused" });
+    expect(a.status().paused).toBe(true);
+    expect((await a.related("a.md")).ok).toBe(true);
+  });
+  it("Gegenprobe: ohne Pause liefert search Treffer und status().paused ist false", async () => {
+    const a = paused(false);
+    expect((await a.search("x")).ok).toBe(true);
+    expect(a.status().paused).toBe(false);
+  });
+  it("jeder ApiResult-Reason ist erfasst (Record bricht den Typcheck bei einem neuen)", () => {
+    const alle: Record<Exclude<ApiResult, { ok: true }>["reason"], true> = { "no-index": true, offline: true, paused: true, "not-indexed": true };
+    expect(Object.keys(alle).sort()).toEqual(["no-index", "not-indexed", "offline", "paused"]);
   });
 });
 

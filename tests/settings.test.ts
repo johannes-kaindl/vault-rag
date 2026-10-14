@@ -140,6 +140,8 @@ function makeFakeHost() {
     refresh: vi.fn(),
     refreshSmartApplyRanking: vi.fn(),
     setStatusBarVisible: vi.fn(),
+    embeddingPaused: vi.fn(() => false),
+    setEmbeddingPaused: vi.fn(),
     refreshIndexFolderHiding: vi.fn(),
     // Endpoint-/Modell-/MCP-Methoden für render-Hatches (in Struktur-Tests nicht aufgerufen):
     resolveAndReconnectEmbedder: vi.fn().mockResolvedValue(undefined),
@@ -250,6 +252,7 @@ describe("getSettingDefinitions – Struktur", () => {
   it("jeder Control-Key existiert in DEFAULT_SETTINGS und round-trippt", async () => {
     const { tab, host } = makeTab();
     for (const key of controlKeys(tab)) {
+      if (key === "embeddingPaused") continue;   // Zustand dieses Geräts (localStorage), steht nicht in den Einstellungen — eigener Test
       expect(key in host.settings).toBe(true);
       const before = structuredClone(host.settings[key]);
       await tab.setControlValue(key, tab.getControlValue(key));
@@ -272,13 +275,25 @@ describe("getSettingDefinitions – Struktur", () => {
     expect(keys).toEqual(["k", "minSim", "exclude"]);
   });
 
+  it("der Pause-Schalter liest und schreibt über das Plugin, nicht über data.json", async () => {
+    const { tab, host } = makeTab();
+    host.embeddingPaused.mockReturnValue(true);
+    expect(tab.getControlValue("embeddingPaused")).toBe(true);
+    await tab.setControlValue("embeddingPaused", true);
+    expect(host.setEmbeddingPaused).toHaveBeenCalledWith(true);
+    await tab.setControlValue("embeddingPaused", false);
+    expect(host.setEmbeddingPaused).toHaveBeenLastCalledWith(false);
+    expect("embeddingPaused" in host.settings).toBe(false);
+    expect(host.saveSettings).not.toHaveBeenCalled();
+  });
+
   it("Live-Embedding-Gruppe: Debounce/Statusleiste deklarativ, 2 render-Hatches", () => {
     const { tab } = makeTab();
     const g = groups(tab)[1];
     expect(g.heading).toBe("Live embedding");
     const items = g.items as any[];
     const controlKeys = items.filter(i => i.control).map(i => i.control.key);
-    expect(controlKeys).toEqual(["debounceMs", "showStatusBar"]);
+    expect(controlKeys).toEqual(["embeddingPaused", "debounceMs", "showStatusBar"]);
     expect(items.filter(i => typeof i.render === "function").length).toBe(2); // Endpunkte, Status — kein globales Modellfeld mehr
   });
 

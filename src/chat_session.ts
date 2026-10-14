@@ -8,7 +8,8 @@ import { newTurnId } from "./lab_client";
 export interface ChatSessionDeps {
   client: () => ChatClient;
   assemble: (paths: string[]) => Promise<ContextResult>;
-  systemPreamble: () => string;
+  /** `hasContext`: gehen nach dem Kürzen aufs Budget wirklich Notizen mit? Danach richtet sich der Default-Prompt. */
+  systemPreamble: (hasContext: boolean) => string;
   /** Modell der Anfrage; die Sampling-Felder (Modus `grounded`) und die Antwortpruefung baut die
    *  Verbindung des Plugins. */
   model: () => string;
@@ -37,7 +38,7 @@ export class ChatSession {
     // Einmal gebunden statt zweimal aufgerufen: die Meldung unten (`trace.promptTemplate`)
     // soll strukturell dasselbe sein wie das, was in `system` tatsaechlich gesendet wird —
     // nicht nur zufaellig gleich, weil `systemPreamble()` zweimal denselben Wert liefert.
-    const preamble = this.deps.systemPreamble();
+    const preamble = this.deps.systemPreamble(ctx.sources.length > 0);
     const parts = [preamble, ctx.text].filter(Boolean);
     const system: ChatMessage = { role: "system", content: parts.join("\n\n") };
     // Verlauf an das LLM: nur vollständige Turns (Assistent mit Inhalt, ohne Fehler) — paarweise,

@@ -20,6 +20,24 @@ function deps(over: Partial<RetrievalDeps> = {}): RetrievalDeps {
   };
 }
 
+describe("RetrievalFacade — Pause (Spec 2026-09-17)", () => {
+  it("paused kommt VOR dem Ready-Check und vor jedem embed; offline bleibt ein anderer Zustand", async () => {
+    let ready = 0, embeds = 0;
+    const f = new RetrievalFacade(deps({ isPaused: () => true, embedderReady: async () => { ready++; return false; }, embed: async () => { embeds++; return []; } }));
+    expect(await f.embedQuery("x")).toEqual({ kind: "paused" });
+    expect(await f.search("x")).toEqual({ kind: "paused" });
+    expect(ready).toBe(0); expect(embeds).toBe(0);
+    // Gegenprobe: derselbe Aufbau ohne Pause meldet offline (der Ready-Check lief) — paused ist keine Spielart von offline
+    const g = new RetrievalFacade(deps({ isPaused: () => false, embedderReady: async () => false }));
+    expect(await g.search("x")).toEqual({ kind: "offline" });
+  });
+  it("related und searchVector laufen während der Pause weiter (kein Embedding nötig)", async () => {
+    const f = new RetrievalFacade(deps({ isPaused: () => true }));
+    expect((await f.related("a.md")).kind).toBe("hits");
+    expect(f.searchVector(new Float32Array([1, 0])).kind).toBe("hits");
+  });
+});
+
 describe("RetrievalFacade.embedQuery", () => {
   it("no-index wenn kein Index geladen", async () => {
     const f = new RetrievalFacade(deps({ getIndex: () => null }));

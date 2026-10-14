@@ -11,6 +11,49 @@ function deps(over: Partial<ContextPanelDeps> = {}): ContextPanelDeps {
   };
 }
 
+describe("ContextPanel — k=0 und Pause (Spec 2026-09-17)", () => {
+  it("k = 0: kein Embedding-Aufruf, keine autoDocs; Gepinntes geht trotzdem mit", async () => {
+    let calls = 0;
+    const p = new ContextPanel(deps({ embed: async () => { calls++; return new Float32Array([1, 0]); } }), 0);
+    await p.setQuery("eine frage");
+    p.pin("x.md");
+    expect(calls).toBe(0);
+    expect(p.autoDocs).toEqual([]);
+    expect(p.currentPaths()).toEqual(["x.md"]);
+  });
+  it("Gegenprobe: mit k > 0 wird embedded (sonst misst der Test über k=0 nichts)", async () => {
+    let calls = 0;
+    const p = new ContextPanel(deps({ embed: async () => { calls++; return new Float32Array([1, 0]); } }), 2);
+    await p.setQuery("eine frage");
+    expect(calls).toBe(1);
+  });
+  it("Pause: kein Embedding, autoK bleibt gespeichert, effectiveK ist 0; Fortsetzen sucht die letzte Eingabe neu", async () => {
+    let paused = false; let calls = 0;
+    const p = new ContextPanel(deps({ isPaused: () => paused, embed: async () => { calls++; return new Float32Array([1, 0]); } }), 3);
+    await p.setQuery("meine frage");
+    expect(calls).toBe(1);
+    paused = true; p.onPause();
+    expect(p.autoDocs).toEqual([]);
+    expect(p.effectiveK()).toBe(0);
+    expect(p.autoK).toBe(3);
+    await p.setQuery("andere frage");
+    expect(calls).toBe(1);                       // während der Pause kein einziger Aufruf
+    paused = false; p.onResume();
+    await new Promise(r => setTimeout(r, 0));
+    expect(calls).toBe(2);                       // Fortsetzen: genau die letzte Eingabe wird neu gesucht
+    expect(p.autoDocs.length).toBe(3);
+  });
+  it("setAutoK von 0 auf ≥ 1 sucht die aktuelle Eingabe neu", async () => {
+    let calls = 0;
+    const p = new ContextPanel(deps({ embed: async () => { calls++; return new Float32Array([1, 0]); } }), 0);
+    await p.setQuery("eine frage");
+    p.setAutoK(2);
+    await new Promise(r => setTimeout(r, 0));
+    expect(calls).toBe(1);
+    expect(p.autoDocs).toEqual(["a.md", "b.md"]);
+  });
+});
+
 describe("ContextPanel", () => {
   it("setQuery füllt autoDocs bis autoK", async () => {
     const p = new ContextPanel(deps(), 2);

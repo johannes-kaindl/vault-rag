@@ -64,6 +64,16 @@ The body is rebuilt from **your** bytes — the model decides where blocks go, n
 Templates can describe themselves to the model through `%%` comments, which are stripped from
 the result.
 
+## Pause embedding (free the embedding model)
+
+A loaded embedding model can hold gigabytes of memory — noticeable when you render images or run another large model next to Obsidian.
+
+1. Run the command **Pause embedding**, switch on **Embedding paused** in the settings, or click the status-bar item while it shows ⏸.
+2. While paused, nothing is sent to the embedding endpoint: the search tab says so (with a **Resume** button), the chat adds only the notes you pinned, and Smart Apply, MCP and the plugin API answer "paused". Related notes keep working — they read straight from the index.
+3. Notes you change meanwhile queue up. **Resume embedding** catches them up right away.
+
+The pause applies to this device and every vault on it, survives restarts, and is not synced. A reindex that is running waits at its next batch boundary and carries on afterwards.
+
 ## Repair an index that lost notes
 
 If the index is missing notes — after a partial sync, an interrupted run, or a device that was

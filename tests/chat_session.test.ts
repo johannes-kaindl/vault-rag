@@ -151,4 +151,15 @@ describe("ChatSession", () => {
     expect(sent[0].content.startsWith("MEINPROMPT")).toBe(true);
     expect(sent[0].content).toContain("CTX");
   });
+  it("systemPreamble bekommt hasContext nach dem Kürzen: mit Quellen true, ohne Quellen false", async () => {
+    const seen: boolean[] = [];
+    const stream = async () => ({ content: "ok", reasoning: "" });
+    const mk = (sources: string[]) => new ChatSession({
+      client: () => ({ stream }) as never, assemble: async () => ({ text: sources.length ? "CTX" : "", sources }),
+      systemPreamble: (hasContext) => { seen.push(hasContext); return "SYS"; }, model: () => "m", app: () => ({}),
+    });
+    await mk(["a.md"]).send("frage", [], () => {});
+    await mk([]).send("frage", [], () => {});
+    expect(seen).toEqual([true, false]);
+  });
 });

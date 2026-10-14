@@ -1,4 +1,5 @@
 import { EmbedCounter } from "./embed_counter";
+import { EmbeddingPause, EmbeddingPauseStorageError, EMBEDDING_PAUSE_KEY } from "./embedding_pause";
 import type { Embedder } from "./vendor/kit/embeddings-client";
 import { Component, Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView, getLanguage } from "obsidian";
 import "./i18n/strings";
@@ -146,6 +147,11 @@ export default class VaultRagPlugin extends Plugin {
   private readonly labelledFacades = new Map<string, RetrievalFacade>();
   /** Etikett der laufenden Index-Operation (modify, drain, reindex, heal); überlappen sich zwei, gilt die zuletzt gesetzte. */
   private embedOp = "indexer";
+  /** Pause-Schalter für Embeddings: pro Rechner (`window.localStorage`, alle Vaults, nicht gesynct, Spec 2026-09-17 E4) —
+   *  bewusst NICHT `App#saveLocalStorage`, das ist je Vault; die knappe Ressource ist die Maschine, nicht der Vault. */
+  readonly pause = new EmbeddingPause(window.localStorage);
+  /** Die Statusleiste wurde nur wegen der Pause eingeblendet und geht beim Fortsetzen wieder auf die Einstellung zurück. */
+  private pauseRevealedStatusBar = false;
   /** Lebensdauer-Anker für gerendertes Markdown (Chat-Antworten): lebt mit dem Plugin, räumt Listener beim Entladen. */
   private readonly markdownComponent = new Component();
   /** Auto-Heal höchstens einmal je Gefahrenzustand-Episode (Reset bei gesundem Load). */
@@ -166,8 +172,8 @@ export default class VaultRagPlugin extends Plugin {
    *  nicht durch nebenläufige Events (z.B. Ordner-Bulk-Delete) fälschlich Shrink meldet und kein
    *  liveIndexer-Instanz-Swap mitten in einer Operation passiert. */
   /** Umhüllt die Embedding-Fassade: jeder `embed`-Aufruf wird unter `label()` gezählt, sonst unverändert. */
-  private countedEmbedder(label: () => string): Embedder {
-    return { embed: (texts, opts) => { this.embedCounter.count(label(), texts.length); return this.emb.embedder().embed(texts, opts); } };
+  private countedEmbedder(label: () => string, whenPaused: "wait" | "throw"): Embedder {
+    return this.pause.gate(() => this.emb.embedder(), whenPaused, (n) => this.embedCounter.count(label(), n));
   }
   /** Eine Fassade je Verbraucher: die Etikett-Bindung steht im `embed`-Anschluss, nicht in einem gemeinsamen Feld. */
   private facadeFor(label: string): RetrievalFacade {
@@ -176,7 +182,8 @@ export default class VaultRagPlugin extends Plugin {
     const made = new RetrievalFacade({
       getIndex: () => this.index,
       embedderReady: () => this.embedderReady(),
-      embed: (texts) => this.countedEmbedder(() => label).embed(texts),
+      embed: (texts) => this.countedEmbedder(() => label, "throw").embed(texts),
+      isPaused: () => this.pause.isPaused(),
       settings: () => ({ k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude }),
       readVault: (rel) => this.guardedRead(rel),
     });
@@ -351,7 +358,7 @@ export default class VaultRagPlugin extends Plugin {
     this.chatClient = new ChatClient(this.llm);
     // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
     // fire-and-forget am Ende von onload, der modify-Listener kann davor feuern.
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`), this.embeddingModelInUse, { dim: 256 });
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait"), this.embeddingModelInUse, { dim: 256 });
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
     this.facade = this.facadeFor("api");
     // Sofort nach der Facade setzen: sobald das Plugin-Objekt in app.plugins.plugins auftaucht,
@@ -369,6 +376,7 @@ export default class VaultRagPlugin extends Plugin {
         },
         apply: (p, tgt) => this.applyLinkNow(p, tgt),
       },
+      () => this.pause.isPaused(),
     );
 
     this.addSettingTab(new VaultRagSettingTab(this.app, this));
@@ -400,6 +408,9 @@ export default class VaultRagPlugin extends Plugin {
     // Index-Refresh nach Sync (30s) + Pending-Drain (60s)
     this.registerInterval(window.setInterval(() => void this.maybeReload(), 30000));
     this.registerInterval(window.setInterval(() => void this.maybeDrainPending(), 60000));
+    // Pause: Änderungen (auch aus einem anderen Vault-Fenster derselben Instanz über das `storage`-Event) laufen hier zusammen.
+    this.register(this.pause.subscribe((paused) => this.onPauseChange(paused)));
+    this.registerDomEvent(window, "storage", (e: StorageEvent) => { if (e.key === EMBEDDING_PAUSE_KEY || e.key === null) this.pause.refresh(); });
 
     if (this.settings.smartApplyEnabled) {
       this.smartApply = new SmartApply(
@@ -411,7 +422,7 @@ export default class VaultRagPlugin extends Plugin {
           typeOf: async (p) => extractType(await this.app.vault.adapter.read(p)),
           embed: async (text) => {
             const e = await this.facadeFor("smart-apply").embedQuery(text);
-            if (e.kind !== "vec") throw new Error(t("main.embedderOffline"));
+            if (e.kind !== "vec") throw new Error(t(e.kind === "paused" ? "main.embedderPaused" : "main.embedderOffline"));
             return e.vec;
           },
           // Weiterhin gebraucht: detectType() (template_matcher.ts) ruft deps.search() für den
@@ -439,12 +450,22 @@ export default class VaultRagPlugin extends Plugin {
         indexVector: (p) => this.index?.vectorFor(p) ?? null,
         embed: async (text) => {
           const e = await this.facadeFor("template-ranker").embedQuery(text);
-          if (e.kind !== "vec") throw new Error(t("main.embedderOffline"));
+          if (e.kind !== "vec") throw new Error(t(e.kind === "paused" ? "main.embedderPaused" : "main.embedderOffline"));
           return e.vec;
         },
       });
     }
 
+    this.addCommand({
+      id: "pause-embedding",
+      name: t("command.pauseEmbedding"),
+      checkCallback: (checking) => { if (this.pause.isPaused()) return false; if (!checking) this.setEmbeddingPaused(true); return true; },
+    });
+    this.addCommand({
+      id: "resume-embedding",
+      name: t("command.resumeEmbedding"),
+      checkCallback: (checking) => { if (!this.pause.isPaused()) return false; if (!checking) this.setEmbeddingPaused(false); return true; },
+    });
     this.addCommand({
       id: "show-embedding-requests",
       name: t("command.showEmbeddingRequests"),
@@ -485,6 +506,7 @@ export default class VaultRagPlugin extends Plugin {
     });
 
     if (this.settings.showStatusBar) this.setStatusBarVisible(true);
+    if (this.pause.isPaused()) this.onPauseChange(true);   // die Pause überlebt den Neustart: Anzeige sofort wieder da
     this.refreshIndexFolderHiding();
 
     // Aktiven Endpoint aus den Fallback-Listen auflösen (erster erreichbarer gewinnt).
@@ -584,10 +606,12 @@ export default class VaultRagPlugin extends Plugin {
       new RelatedPanel({
         getHits: () => this.currentHits(),
         openPath: this.openPath,
+        isPaused: () => this.pause.isPaused(),
       }),
       new SearchPanel({
         search: (q) => this.runSearch(q),
         openPath: this.openPath,
+        resume: () => this.setEmbeddingPaused(false),
       }),
       new ChatPanel({
         session: new ChatSession({
@@ -596,7 +620,7 @@ export default class VaultRagPlugin extends Plugin {
             read: (p) => this.app.vault.adapter.read(p),
             budget: this.settings.contextCharBudget,
           }),
-          systemPreamble: () => effectiveSystemPrompt(this.settings.chatSystemPrompt),
+          systemPreamble: (hasContext) => effectiveSystemPrompt(this.settings.chatSystemPrompt, hasContext),
           model: () => this.chatModelInUse,
           app: () => this.app,
         }),
@@ -621,6 +645,7 @@ export default class VaultRagPlugin extends Plugin {
         },
         pickNote: () => pickNote(this.app),
         autoK: this.settings.chatK,
+        isPaused: () => this.pause.isPaused(),
         thinking: this.thinkingDeps(MODE_CHAT, () => this.chatModelInUse),
         renderMarkdown: (el, md) => renderMarkdownGuarded(this.app, neutralizeModelMarkdown(md), el, "", this.markdownComponent),
         enterSends: () => this.settings.enterSends,
@@ -728,7 +753,7 @@ export default class VaultRagPlugin extends Plugin {
       r.state === "no-model" && cfg ? [cfg.url] : [],
       indexModel,
     );
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`), m, { dim: 256 });
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait"), m, { dim: 256 });
     if (this.index) this.liveIndexer.init(this.index);
     else if (this.indexHealthy) this.liveIndexer.markFresh();
     // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
@@ -912,7 +937,7 @@ export default class VaultRagPlugin extends Plugin {
       }
       this.settings.indexDir = target;
       await this.saveSettings();
-      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.countedEmbedder(() => `indexer:${this.embedOp}`), this.embeddingModelInUse, { dim: 256 });
+      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait"), this.embeddingModelInUse, { dim: 256 });
       this.pendingQueue = new PendingQueue(this.app.vault.adapter, target);
       await this.pendingQueue.load();
       await this.loadIndex();
@@ -1563,6 +1588,13 @@ export default class VaultRagPlugin extends Plugin {
     let content: string;
     try { content = await this.app.vault.adapter.read(path); } catch { return; }
 
+    // Pause VOR dem Ready-Check (kein Ping-Umweg): die Änderung wartet in der Queue wie im Offline-Zweig und wird beim
+    // Fortsetzen nachgezogen. Der automatische Integrator-Auslöser ruht, denn ohne neuen Vektor schlüge er auf altem Stand vor.
+    if (this.pause.isPaused()) {
+      await this.pendingQueue.add(path);
+      this.syncProgress();
+      return;
+    }
     if (await this.embedderReady()) {
       // Mutate+build+persist serialisiert über runIndexOp (Fix 1): sonst könnten parallele
       // Events (z.B. Bulk-Delete/-Modify) verschränkt laufen und dem persist-Guard eine falsche
@@ -1668,6 +1700,7 @@ export default class VaultRagPlugin extends Plugin {
   private async maybeDrainPending(): Promise<void> {
     if (this.isSwitchingIndexDir) return;
     if (this.pendingQueue.size === 0) return;
+    if (this.pause.isPaused()) return;
     if (!(await this.embedderReady())) return;
     await this.drainPending();
   }
@@ -1755,6 +1788,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   async reindexVault(): Promise<void> {
+    if (this.pause.isPaused()) new Notice(t("main.embedderPaused"));   // der Lauf wartet an der Gruppengrenze, bis es weitergeht
     if (!(await this.embedderReady())) {
       new Notice(t("main.embeddingUnreachableIndexAborted"));
       return;
@@ -1818,6 +1852,7 @@ export default class VaultRagPlugin extends Plugin {
 
   /** Delta-Reindex: nur im Vault vorhandene, aber nicht indizierte Notizen nachziehen. */
   async healVault(): Promise<void> {
+    if (this.pause.isPaused()) new Notice(t("main.embedderPaused"));
     if (!(await this.embedderReady())) {
       new Notice(t("main.embeddingUnreachableHealAborted"));
       return;
@@ -1911,6 +1946,27 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
+  embeddingPaused(): boolean { return this.pause.isPaused(); }
+
+  /** Pause setzen oder beenden. Ein gesperrter Speicher meldet sich als Notice (Folge wäre nur Last, kein Datenverlust). */
+  setEmbeddingPaused(paused: boolean): void {
+    try { this.pause.setPaused(paused); }
+    catch (e) { if (e instanceof EmbeddingPauseStorageError) new Notice(t("pause.storageUnavailable")); else throw e; }
+  }
+
+  /** Die Pause hat sich geändert (hier oder in einem anderen Vault-Fenster): Statusleiste, Panels, Nachziehen beim Fortsetzen. */
+  private onPauseChange(paused: boolean): void {
+    if (paused && !this.statusBarEl) { this.pauseRevealedStatusBar = true; this.setStatusBarVisible(true); }
+    else if (!paused && this.pauseRevealedStatusBar) { this.pauseRevealedStatusBar = false; this.setStatusBarVisible(this.settings.showStatusBar); }
+    this.updateStatusBar();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_HUB)) {
+      const v = leaf.view;
+      if (v instanceof VaultRetrievalView) v.emitEmbeddingPause(paused);
+    }
+    // Fortsetzen: aufgelaufene Änderungen sofort nachziehen, nicht erst nach bis zu 60 s.
+    if (!paused) void this.maybeDrainPending();
+  }
+
   private updateStatusBar(): void {
     if (!this.statusBarEl) return;
     if (!this.indexHealthy) {
@@ -1918,7 +1974,11 @@ export default class VaultRagPlugin extends Plugin {
       return;
     }
     const p = this.embeddingProgress;
-    if (p.reindex) {
+    const paused = this.pause.isPaused();
+    this.statusPauseAttrs(paused);
+    if (paused) {
+      this.statusBarEl.setText(p.pendingNotes > 0 ? t("status.pausedPending", p.pendingNotes) : t("status.paused"));
+    } else if (p.reindex) {
       this.statusBarEl.setText(t("status.reindexing", p.reindex.done.toLocaleString(), p.reindex.total.toLocaleString()));
     } else if (p.isEmbedding) {
       this.statusBarEl.setText(t("status.embedding"));
@@ -1929,9 +1989,26 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
+  /** Während der Pause ist die Statusleiste ein Knopf (Zustands-Knopf-Regel §8: Text + `aria-pressed`, nie nur Farbe). */
+  private statusPauseAttrs(paused: boolean): void {
+    const el = this.statusBarEl; if (!el) return;
+    if (paused) {
+      el.setAttribute("role", "button"); el.setAttribute("aria-pressed", "true"); el.setAttribute("tabindex", "0");
+      el.setAttribute("aria-label", t("status.pausedTooltip"));
+    } else {
+      el.removeAttribute("role"); el.removeAttribute("aria-pressed"); el.removeAttribute("tabindex"); el.removeAttribute("aria-label");
+    }
+  }
+
   setStatusBarVisible(show: boolean): void {
     if (show && !this.statusBarEl) {
       this.statusBarEl = this.addStatusBarItem();
+      const el = this.statusBarEl;
+      el.addEventListener("click", () => { if (this.pause.isPaused()) this.setEmbeddingPaused(false); });
+      el.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (!this.pause.isPaused() || (e.key !== "Enter" && e.key !== " ")) return;
+        e.preventDefault(); this.setEmbeddingPaused(false);
+      });
       this.updateStatusBar();
     } else if (!show && this.statusBarEl) {
       this.statusBarEl.remove();

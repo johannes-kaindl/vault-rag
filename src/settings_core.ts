@@ -102,9 +102,11 @@ export function migrateSystemPrompt(stored: string): string {
   return stored.trim() === LEGACY_SYSTEM_PROMPT ? "" : stored;
 }
 
-export function effectiveSystemPrompt(stored: string): string {
+/** Der wirksame Chat-Prompt. Ein selbst geschriebener bleibt in jedem Fall unverändert; der Default richtet sich nach dem
+ *  tatsächlich mitgeschickten Kontext (Spec 2026-09-17, E8): nur mit Notizen verspricht er Antworten aus ihnen. */
+export function effectiveSystemPrompt(stored: string, hasContext = true): string {
   const eigen = stored.trim();
-  if (!eigen || eigen === LEGACY_SYSTEM_PROMPT) return uebersetze("chat.systemPrompt.default");
+  if (!eigen || eigen === LEGACY_SYSTEM_PROMPT) return uebersetze(hasContext ? "chat.systemPrompt.default" : "chat.systemPrompt.defaultNoContext");
   return stored;
 }
 

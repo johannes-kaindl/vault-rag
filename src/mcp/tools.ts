@@ -16,6 +16,7 @@ export class McpTools {
     const r = await this.facade.search(a.query, { k: a.k, minSim: a.min_similarity });
     if (r.kind === "no-index") throw new Error("No index loaded — reindex in the plugin or restore from a backup.");
     if (r.kind === "offline") throw new Error("Embedding endpoint not reachable.");
+    if (r.kind === "paused") throw new Error("Embedding is paused by the user — semantic search is unavailable until it is resumed in the plugin. `related` and `read_note` still work.");
     return McpTools.toHitList(r.hits);
   }
 

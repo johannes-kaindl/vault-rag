@@ -5,6 +5,8 @@ export interface ContextPanelDeps {
   search: (vec: Float32Array, n: number) => string[];
   getActivePath: () => string | null;
   pickNote: () => Promise<string | null>;
+  /** Embedding pausiert (Spec 2026-09-17, E3): dann geht nur Gepinntes mit, ohne Embedding-Aufruf. Fehlt der Anschluss: nie pausiert. */
+  isPaused?: () => boolean;
 }
 
 const MIN_QUERY = 3;
@@ -25,13 +27,17 @@ export class ContextPanel {
 
   constructor(private deps: ContextPanelDeps, public autoK: number) {}
 
+  /** Wie viele Auto-Treffer gelten JETZT: während der Pause 0, der gespeicherte `autoK` bleibt dabei unberührt. */
+  effectiveK(): number { return this.deps.isPaused?.() ? 0 : this.autoK; }
+
   mount(el: HTMLElement): void {
     el.empty();
     const head = el.createDiv({ cls: "vault-rag-ctx-head" });
     this.countEl = head.createSpan({ cls: "vault-rag-ctx-count", text: t("context.count", 0) });
     const kWrap = head.createDiv({ cls: "vault-rag-ctx-k" });
     kWrap.createEl("button", { cls: "vault-rag-ctx-kdec", text: "−" }).addEventListener("click", () => this.setAutoK(this.autoK - 1));
-    this.kEl = kWrap.createSpan({ cls: "vault-rag-ctx-kval", text: t("context.auto", this.autoK) });
+    this.kEl = kWrap.createSpan({ cls: "vault-rag-ctx-kval" });
+    this.renderK();
     kWrap.createEl("button", { cls: "vault-rag-ctx-kinc", text: "+" }).addEventListener("click", () => this.setAutoK(this.autoK + 1));
     head.createEl("button", { cls: "vault-rag-ctx-active", text: t("context.addActive") }).addEventListener("click", () => this.addActive());
     head.createEl("button", { cls: "vault-rag-ctx-pick", text: t("context.addNote") }).addEventListener("click", () => void this.addViaPicker());
@@ -43,7 +49,8 @@ export class ContextPanel {
     const gen = ++this.queryGeneration;   // gegen Out-of-Order-Embeds (langsamer Embedder)
     const query = q.trim();
     this.lastQuery = query;
-    if (query.length < MIN_QUERY) { this.ranked = []; this.recompute(); return; }
+    // k = 0 (Vanilla) und Pause: kein Embedding, nichts zu suchen — der Aufruf würde das Modell nur laden.
+    if (query.length < MIN_QUERY || this.effectiveK() === 0) { this.ranked = []; this.recompute(); return; }
     try {
       const vec = await this.deps.embed(query);
       if (gen !== this.queryGeneration) return;   // ein neuerer setQuery hat gewonnen
@@ -56,7 +63,7 @@ export class ContextPanel {
   }
 
   private recompute(): void {
-    this.autoDocs = this.ranked.filter(p => !this.pinned.includes(p) && !this.excluded.has(p)).slice(0, this.autoK);
+    this.autoDocs = this.ranked.filter(p => !this.pinned.includes(p) && !this.excluded.has(p)).slice(0, this.effectiveK());
     this.render();
   }
 
@@ -69,14 +76,28 @@ export class ContextPanel {
     const next = Math.max(0, n);
     const increasing = next > this.autoK;
     this.autoK = next;
-    this.kEl?.setText(t("context.auto", this.autoK));
+    this.renderK();
     // Bei Erhöhung über den geholten Puffer hinaus neu retrieven, sonst nur neu rechnen.
-    if (increasing && this.ranked.length < next + this.pinned.length && this.lastQuery.length >= MIN_QUERY) {
+    if (increasing && this.effectiveK() > 0 && this.ranked.length < next + this.pinned.length && this.lastQuery.length >= MIN_QUERY) {
       void this.setQuery(this.lastQuery);
     } else {
       this.recompute();
     }
   }
+  /** Anzeige des Auto-Zählers: „Auto aus“ bei 0, „Auto ⏸“ während der Pause (der gespeicherte Wert bleibt). */
+  renderK(): void {
+    const paused = this.deps.isPaused?.() === true;
+    const el = this.kEl; if (!el) return;
+    el.setText(paused ? t("context.autoPaused") : this.autoK === 0 ? t("context.autoOff") : t("context.auto", this.autoK));
+    if (paused) el.setAttribute("aria-label", t("context.autoPausedHint")); else el.removeAttribute("aria-label");
+  }
+  /** Die Pause ist zu Ende: die letzte Eingabe neu suchen (wenn Auto-Treffer gewünscht sind), Anzeige auffrischen. */
+  onResume(): void {
+    this.renderK();
+    if (this.autoK > 0 && this.lastQuery.length >= MIN_QUERY) void this.setQuery(this.lastQuery); else this.recompute();
+  }
+  /** Die Pause hat begonnen: Auto-Treffer fallen weg, Gepinntes bleibt. */
+  onPause(): void { this.renderK(); this.recompute(); }
   currentPaths(): string[] { return [...new Set([...this.pinned, ...this.autoDocs])]; }
   reset(): void { this.excluded.clear(); this.recompute(); }
 

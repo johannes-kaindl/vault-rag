@@ -141,6 +141,25 @@ const LAB_PRUEFPUNKTE = [
 ];
 
 /** Namen der Punkte, die im Ablauf an mehreren Stellen vorkommen — auf Modulebene, damit `PUNKTE` sie enthält. */
+/** Das Aufräumen der Stub-Lage VOR dem Zurückstellen der Fixture-Listen (Renderer-Ausdruck): Pause setzen, Pending-Queue und
+ *  Debounce-Timer leeren, laufende Einbettung abwarten. Der Punkt „Stub-Lage-Hygiene“ prüft genau diesen Ausdruck gegen einen zweiten
+ *  Stub als „echten“ Endpunkt. */
+const STUB_LAGE_SCHUTZ = `
+  const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+  p.setEmbeddingPaused(true);
+  await p.pendingQueue.clear();
+  for (const t of p.debounceTimers.values()) window.clearTimeout(t);
+  p.debounceTimers.clear();
+  const t0 = Date.now();
+  while (p.embeddingProgress.isEmbedding && Date.now() - t0 < 10000) await new Promise(r => setTimeout(r, 200));`;
+const PAUSE_PUNKTE = [
+  "Pause: der Befehl blendet die Statusleiste mit ⏸ ein (auch bei showStatusBar aus), sie ist ein Knopf (aria-pressed)",
+  "Pause: der Such-Tab zeigt den Empty-State mit genau einem CTA, nicht „nicht erreichbar“",
+  "Pause: Suche und Tippen im Chat schicken KEINE Embedding-Anfrage (Zähler unverändert)",
+  "Pause: eine Änderung an einer Notiz wartet in der Queue (pendingNotes steigt) und der Zähler bleibt stehen",
+  "Fortsetzen: pendingNotes fällt auf 0, und der Zähler steigt (Gegenprobe zu „0 Anfragen“)",
+  "Stub-Lage-Hygiene: nach dem Aufräumen erreicht eine ausstehende Änderung einen „echten“ Endpunkt nicht (Gegenprobe ohne Aufräumen: sie erreicht ihn)",
+];
 const EMBED_ZAEHLER_PUNKT = "Embedding-Zähler: eine Suche über die Plugin-API steht unter „api“, der Befehl zeigt die Zählung";
 const CHAT_MD_PUNKT = "Chat: eine fertige Antwort erscheint als Markdown (Liste, Fettung), Fernbild bleibt draußen, die Frage bleibt Text";
 const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
@@ -253,6 +272,7 @@ const PUNKTE = [
   MCP_TOKEN_PUNKT,
   CHAT_MD_PUNKT,
   EMBED_ZAEHLER_PUNKT,
+  ...PAUSE_PUNKTE,
   POPOUT_PUNKT,
   PUNKT_TREU,
   PUNKT_SPERRE,
@@ -552,6 +572,11 @@ async function main(): Promise<void> {
     // ZULETZT: die Blöcke davor (Heal, Reihenfolge) schreiben Listen zurück, die sie MITTEN im Lauf gesichert haben — also mit
     // den Stub-URLs. Würde dies vorher laufen, überschrieben sie die Fixture-Listen mit Stub-Adressen (gemessen im ersten Vollauf).
     if (stubLageSaved) {
+      // ERST die Embedding-Pause setzen und die Queue leeren, DANN die Fixture-Listen zurückstellen: Nach der Stub-Lage zeigt
+      // Zeile 1 wieder auf den echten Ollama. Ein Rest in der Pending-Queue oder ein Debounce-Timer einer Notiz-Änderung würde dort
+      // das Embedding-Modell laden (gemessen 2026-10-14, 21:31: ein abgebrochener Lauf hob die Pause auf, der Drain ging nach dem
+      // Zurückstellen an :11434). Die Pause bleibt im Profil der Zweitinstanz stehen; die Stub-Lage hebt sie beim nächsten Lauf auf.
+      await main.evaluate(STUB_LAGE_SCHUTZ + "\nreturn true;").catch(() => { console.log("  ! Embedding-Pause konnte vor dem Zurückstellen der Endpunkt-Listen nicht gesetzt werden"); });
       await main.evaluate(`
         const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
         const v = ${JSON.stringify(stubLageSaved)};
@@ -688,6 +713,9 @@ async function main(): Promise<void> {
         await p.saveSettings();
         await p.resolveAndReconnectChat();
         await p.resolveAndReconnectEmbedder();
+        // Erst NACH dem Umschalten auf den Stub fortsetzen: ein Rest-Zustand der Pause (der letzte Lauf lässt sie stehen) darf
+        // nie gegen die echten Fixture-Endpunkte aufgelöst werden.
+        p.setEmbeddingPaused(false);
         return gesichert;
       `);
       console.log(`  (Stub-Lage: beide Listen zeigen mit Zeile 1 auf ${stubLage.url}, Zeile 2 bleibt der tote Fixture-Port)\n`);
@@ -2046,6 +2074,142 @@ async function main(): Promise<void> {
         const cmd = app.commands.executeCommandById("vault-retrieval:show-embedding-requests");
         return { vor, nach, labels: p.embedCounter.snapshot().map(x => x.label), cmd: cmd !== false };`);
       record(EMBED_ZAEHLER_PUNKT, z.nach === z.vor + 1 && z.cmd, `„api“ ${z.vor} → ${z.nach} · Etiketten: ${z.labels.join(", ")} · Befehl ${z.cmd ? "läuft" : "FEHLT"}`);
+    }
+
+    // --- 7e1d. Embedding-Pause (Welle 22, Spec 2026-09-17 §6.4) ---------------------------------------
+    // Gezählt wird am Engpass (`embedCounter`, Etiketten je Aufrufer): „0 Anfragen“ gilt nur, wenn derselbe Zähler nach dem
+    // Fortsetzen steigt — sonst wäre die Null auch mit einem Zähler an der falschen Stelle entstanden (CORE-TEST-20).
+    // Der Reindex-Halt an der Gruppengrenze ist hier NICHT messbar (der Staging-Vault passt in eine Gruppe): belegt ihn der
+    // Unit-Test (tests/embedding_pause_gate.test.ts, Zeile für Zeile gleich).
+    if (nur === null) {
+      const NOTE = "Notes/Atomic notes.md";
+      const total = `p.embedCounter.snapshot().reduce((n, x) => n + x.requests, 0)`;
+      const vorher = await main.evaluate<{ text: string; showSaved: boolean }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const text = await app.vault.adapter.read(${JSON.stringify(NOTE)});
+        const showSaved = p.settings.showStatusBar;
+        p.settings.showStatusBar = false; p.setStatusBarVisible(false);
+        p.setEmbeddingPaused(false);
+        return { text, showSaved };`);
+      try {
+        // 1 · Befehl
+        const sb = await main.evaluate<{ paused: boolean; text: string; pressed: string | null; role: string | null }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          app.commands.executeCommandById("vault-retrieval:pause-embedding");
+          await new Promise(r => setTimeout(r, 400));
+          const el = p.statusBarEl;
+          return { paused: p.embeddingPaused(), text: el ? el.textContent : "", pressed: el ? el.getAttribute("aria-pressed") : null, role: el ? el.getAttribute("role") : null };`);
+        record(PAUSE_PUNKTE[0]!, sb.paused && sb.text.includes("⏸") && sb.pressed === "true" && sb.role === "button",
+          `pausiert=${String(sb.paused)} · Text „${sb.text}“ · aria-pressed=${String(sb.pressed)} · role=${String(sb.role)}`);
+
+        const z0 = await main.evaluate<number>(`const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; return ${total};`);
+
+        // 2 · Such-Tab
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          await p.openHub("search"); await new Promise(r => setTimeout(r, 500));
+          const i = document.querySelector(".vault-rag-search-input");
+          i.value = "pausierte suche"; i.dispatchEvent(new Event("input", { bubbles: true }));
+          await new Promise(r => setTimeout(r, 900));
+          return true;`);
+        const es = await main.evaluate<{ empty: number; cta: number; offlineRow: number; text: string }>(`
+          const root = document.querySelector(".vault-rag-search-input")?.parentElement;
+          const e = root ? [...root.querySelectorAll(".vault-rag-empty")] : [];
+          return { empty: e.length, cta: e.reduce((n, x) => n + x.querySelectorAll("button.mod-cta").length, 0),
+                   offlineRow: root ? [...root.querySelectorAll(".vault-rag-search-state")].length : 0, text: e[0] ? e[0].textContent : "" };`);
+        record(PAUSE_PUNKTE[1]!, es.empty === 1 && es.cta === 1 && es.offlineRow === 0, `Empty-States ${es.empty} · CTA ${es.cta} · Offline-Zeilen ${es.offlineRow} · „${es.text.slice(0, 60)}“`);
+
+        // 3 · Chat-Tippen
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 500));
+          const ta = document.querySelector(".vault-rag-chat-input");
+          ta.value = "Frage waehrend der Pause"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+          await new Promise(r => setTimeout(r, 1000));
+          return true;`);
+        const z1 = await main.evaluate<number>(`const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; return ${total};`);
+        record(PAUSE_PUNKTE[2]!, z1 === z0, `Zähler ${z0} → ${z1} nach Suche im Such-Tab und Tippen im Chat`);
+
+        // 4 · Änderung während der Pause
+        const q = await main.evaluate<{ pending: number }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const f = app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)});
+          await app.vault.modify(f, ${JSON.stringify(vorher.text)} + "\\nPause-Probe.\\n");
+          const t0 = Date.now();
+          while (Date.now() - t0 < 9000 && p.embeddingProgress.pendingNotes < 1) await new Promise(r => setTimeout(r, 250));
+          return { pending: p.embeddingProgress.pendingNotes };`);
+        const z2 = await main.evaluate<number>(`const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; return ${total};`);
+        record(PAUSE_PUNKTE[3]!, q.pending >= 1 && z2 === z0, `pendingNotes ${q.pending} · Zähler ${z0} → ${z2}`);
+
+        // 5 · Fortsetzen
+        const r = await main.evaluate<{ pending: number; after: number; resumed: boolean }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          app.commands.executeCommandById("vault-retrieval:resume-embedding");
+          const t0 = Date.now();
+          while (Date.now() - t0 < 15000 && (p.embeddingProgress.pendingNotes > 0 || ${total} <= ${z0})) await new Promise(r => setTimeout(r, 250));
+          return { pending: p.embeddingProgress.pendingNotes, after: ${total}, resumed: !p.embeddingPaused() };`);
+        record(PAUSE_PUNKTE[4]!, r.resumed && r.pending === 0 && r.after > z0, `fortgesetzt=${String(r.resumed)} · pendingNotes ${r.pending} · Zähler ${z0} → ${r.after}`);
+      } finally {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.setEmbeddingPaused(false);
+          const f = app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)});
+          if (f) await app.vault.modify(f, ${JSON.stringify(vorher.text)});
+          // Der Restore löst nach dem Debounce ein Embedding aus: abwarten, solange der Stub noch der Endpunkt ist.
+          await new Promise(r => setTimeout(r, p.settings.debounceMs + 1500));
+          { const t0 = Date.now(); while ((p.embeddingProgress.isEmbedding || p.embeddingProgress.pendingNotes > 0) && Date.now() - t0 < 10000) await new Promise(r => setTimeout(r, 200)); }
+          p.settings.showStatusBar = ${JSON.stringify(vorher.showSaved)};
+          p.setStatusBarVisible(${JSON.stringify(vorher.showSaved)});
+          document.querySelector(".vault-rag-chat-input") && (document.querySelector(".vault-rag-chat-input").value = "");
+          return true;`);
+      }
+    }
+
+
+    // --- Stub-Lage-Hygiene (Welle 22, Lehre vom 2026-10-14 21:31) ------------------------------------
+    // Ein Abbruch hob die Schutzlage auf, und ein Nachlauf (Pending-Queue, Debounce) traf danach den echten Endpunkt. Hier der
+    // Beleg für das Aufräumen: ein zweiter Stub steht für den „echten“ Endpunkt und protokolliert jede Anfrage. Gegenprobe zuerst:
+    // dieselbe Lage OHNE Aufräumen liefert ihm eine Anfrage — sonst wäre die Null unten auch mit einer blinden Zählung entstanden.
+    if (nur === null) {
+      const NOTE2 = "Notes/Linking notes.md";
+      const echt = await startLlmStub({ models: ["fake-echt"], embeddings: { vektor: Array.from({ length: 256 }, () => 0.0625) } });
+      const orig = await main.evaluate<{ text: string; emb: unknown; model: string }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        p.setEmbeddingPaused(false);
+        return { text: await app.vault.adapter.read(${JSON.stringify(NOTE2)}), emb: JSON.parse(JSON.stringify(p.settings.embeddingEndpoints)), model: p.settings.embeddingEndpoints[0].model };`);
+      const lage = (mitSchutz: boolean) => `
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const f = app.vault.getAbstractFileByPath(${JSON.stringify(NOTE2)});
+        await app.vault.modify(f, ${JSON.stringify(orig.text)} + "\\nHygiene-Probe ${mitSchutz ? "mit" : "ohne"}.\\n");   // Debounce-Timer läuft jetzt
+        ${mitSchutz ? STUB_LAGE_SCHUTZ.replace("const p = app.plugins.plugins[" + JSON.stringify(PLUGIN_ID) + "];", "") : ""}
+        p.settings.embeddingEndpoints[0].url = ${JSON.stringify(echt.url)};     // jetzt zeigt Zeile 1 auf den „echten“ Endpunkt
+        p.settings.embeddingEndpoints[0].model = ${JSON.stringify(orig.model)};
+        await p.resolveAndReconnectEmbedder();
+        await new Promise(r => setTimeout(r, p.settings.debounceMs + 2500));
+        return true;`;
+      const zaehle = () => echt.anfragen().filter((a) => a.route === "embeddings").length;
+      try {
+        await main.evaluate(lage(false));
+        const ohne = zaehle();
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.embeddingEndpoints = ${JSON.stringify(orig.emb)}; await p.saveSettings();
+          p.setEmbeddingPaused(false); await p.resolveAndReconnectEmbedder(); return true;`);
+        await main.evaluate(lage(true));
+        const mit = zaehle() - ohne;
+        record(PAUSE_PUNKTE[5]!, ohne >= 1 && mit === 0, `ohne Aufräumen erreichte den „echten“ Endpunkt ${ohne} Anfrage(n), mit Aufräumen ${mit}`);
+      } finally {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.setEmbeddingPaused(true);
+          p.settings.embeddingEndpoints = ${JSON.stringify(orig.emb)}; await p.saveSettings();
+          const f = app.vault.getAbstractFileByPath(${JSON.stringify(NOTE2)});
+          if (f) await app.vault.modify(f, ${JSON.stringify(orig.text)});
+          for (const t of p.debounceTimers.values()) window.clearTimeout(t);
+          p.debounceTimers.clear(); await p.pendingQueue.clear();
+          p.setEmbeddingPaused(false); await p.resolveAndReconnectEmbedder(); return true;`).catch(() => undefined);
+        await echt.stop().catch(() => undefined);
+      }
     }
 
     // --- 7e2. Verbindungs-Tausch (Welle 15): Schlüsselbund, Neustarts, Schwärzung ---------------

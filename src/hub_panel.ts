@@ -16,6 +16,8 @@ export interface HubPanel {
   onHide?(): void;
   /** Aktive Notiz gewechselt (zentral vom Hub gerufen). Nur kontextsensitive Panels. */
   onFileOpen?(path: string | null): void;
+  /** Der Pause-Zustand des Embeddings hat sich geändert (Spec 2026-09-17). Nur Panels, die Embeddings brauchen oder anzeigen. */
+  onEmbeddingPause?(paused: boolean): void;
   /** Cleanup: Timer/Intervalle/Streams abbrechen. */
   destroy(): void;
 }

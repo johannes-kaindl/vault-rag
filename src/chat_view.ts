@@ -21,6 +21,9 @@ export interface ChatViewDeps extends ContextPanelDeps {
    *  Speichern. Ersetzt den eigenen Suppress-Schalter. */
   thinking: Omit<ThinkingControlOptions, "containerEl">;
   enterSends: () => boolean;
+  /** Rendert Modell-Markdown in ein Element (Obsidian-Renderer, vom Plugin gestellt, mit Entschärfung und DOM-Wächter).
+   *  Fehlt sie (Tests), bleibt die Antwort Rohtext. Gerendert wird nur der FERTIGE Zustand einer Antwort. */
+  renderMarkdown?: (el: HTMLElement, markdown: string) => Promise<void>;
 }
 
 export class ChatPanel implements HubPanel {
@@ -40,6 +43,9 @@ export class ChatPanel implements HubPanel {
   private debTimer: number | null = null;
   private workStart = 0;
   private running = false;
+  /** Fertig gerenderte Antworten je Nachricht: das Panel zeichnet die Liste bei jedem Token neu, ein Rendern je
+   *  Zeichnung liefe quadratisch und flackerte. Der Knoten wird beim Neuzeichnen umgehängt, nicht neu gerendert. */
+  private rendered = new WeakMap<object, { content: string; el: HTMLElement }>();
 
   constructor(private deps: ChatViewDeps) {
     this.panel = new ContextPanel(deps, deps.autoK);
@@ -196,7 +202,7 @@ export class ChatPanel implements HubPanel {
         det.createEl("summary", { cls: "vault-rag-chat-reasoning-sum", text: live ? t("panel.chat.reasoningLive") : t("panel.chat.reasoningDone") });
         det.createDiv({ cls: "vault-rag-chat-reasoning-body", text: m.reasoning });
       }
-      if (m.content) el.createDiv({ cls: `vault-rag-chat-msg is-${m.role}`, text: m.content });
+      if (m.content) this.appendMessage(el, m, m !== last || !this.running);
       if (m.error) el.createDiv({ cls: "vault-rag-chat-state", text: m.error });
       if (m.role === "assistant" && m.content) {
         const actions = el.createDiv({ cls: "vault-rag-chat-msg-actions" });
@@ -213,6 +219,21 @@ export class ChatPanel implements HubPanel {
       }
     }
     if (atBottom) el.scrollTop = el.scrollHeight;   // dem Stream folgen, aber manuelles Hochscrollen respektieren
+  }
+
+  /** Eine Nachricht in die Liste. Antworten des Modells werden als Markdown gezeigt, sobald sie FERTIG sind (die
+   *  laufende bleibt Rohtext, sonst rendert jedes Token neu); eigene Fragen bleiben Text. */
+  private appendMessage(list: HTMLElement, m: { role: string; content: string }, finished: boolean): void {
+    const render = this.deps.renderMarkdown;
+    if (m.role !== "assistant" || !render || !finished) {
+      list.createDiv({ cls: `vault-rag-chat-msg is-${m.role}`, text: m.content });
+      return;
+    }
+    const hit = this.rendered.get(m);
+    if (hit && hit.content === m.content) { list.appendChild(hit.el); return; }
+    const box = list.createDiv({ cls: `vault-rag-chat-msg is-${m.role} is-markdown` });
+    this.rendered.set(m, { content: m.content, el: box });
+    render(box, m.content).catch(() => { box.empty(); box.setText(m.content); });
   }
 
   /** Tab wird sichtbar: Stufe und Stufenwahl koennen in den Einstellungen geaendert worden sein. */

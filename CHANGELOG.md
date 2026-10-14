@@ -17,6 +17,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Chat answers are shown as Markdown** once they are finished (lists, bold text, headings, code); the answer that is still streaming stays plain text, so nothing is redrawn per token. Your own question stays plain text. Remote images in an answer are not loaded (they show as a link), and code blocks that would run scripts are rendered inert (obsidian-kit `neutralizeModelMarkdown` and DOM guard).
 - **Integrator: two commands, "Accept next link suggestion" and "Reject next link suggestion"** (hotkeys can be bound in Obsidian). They take the first target of the active note's card, otherwise of the newest card, the same way as the buttons in the inbox (accepting keeps the stale-note guard).
 - **Werkzeug-Anbieter an `plugin.api`:** `tools(opts?)` beschreibt `semantic_search` und `related_notes` als LLM-Werkzeug-Definitionen, `executeTool(name, args, opts?)` führt sie aus (Vertrag `ToolProviderApi` aus obsidian-kit 0.60.0; die API trägt `version: 1`) und liefert Text fürs Modell (`content`/`message`, in `opts.lang` oder der Oberflächensprache) plus `data` für die Oberfläche; Fehler sind Werte. Ein schreibendes Werkzeug müsste `confirm` rufen und endet sonst mit `needs-confirm`. Additiv, `apiVersion` bleibt 1.
 

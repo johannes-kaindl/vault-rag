@@ -141,6 +141,7 @@ const LAB_PRUEFPUNKTE = [
 ];
 
 /** Namen der Punkte, die im Ablauf an mehreren Stellen vorkommen — auf Modulebene, damit `PUNKTE` sie enthält. */
+const CHAT_MD_PUNKT = "Chat: eine fertige Antwort erscheint als Markdown (Liste, Fettung), Fernbild bleibt draußen, die Frage bleibt Text";
 const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
 const MGR_PUNKTE = [
   "Manager da: Chat-Endpunkt und Standardmodell kommen vom Manager, der Schlüssel bleibt im Speicher",
@@ -249,6 +250,7 @@ const PUNKTE = [
   ...W15_PUNKTE,
   ...W16_PUNKTE,
   MCP_TOKEN_PUNKT,
+  CHAT_MD_PUNKT,
   POPOUT_PUNKT,
   PUNKT_TREU,
   PUNKT_SPERRE,
@@ -1966,7 +1968,7 @@ async function main(): Promise<void> {
     // --- 7e1. MCP-Token im Schlüsselbund (Welle 22) ---------------------------------------------
     // Erzeugen und Neu-Erzeugen laufen ohne laufenden Server (mcpEnabled ist im Fixture aus). Gegenprobe im selben Zug:
     // vor dem Erzeugen steht nichts im Schlüsselbund, danach trägt es genau das Token im Speicher und data.json bleibt leer.
-    {
+    if (nur === null) {
       const tok = await main.evaluate<Record<string, unknown>>(`
         const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
         const id = "${PLUGIN_ID}-mcp-token";
@@ -1989,6 +1991,44 @@ async function main(): Promise<void> {
         && tok.t2 !== tok.t1 && tok.store2 === tok.t2 && tok.file2 === "";
       record(MCP_TOKEN_PUNKT, ok,
         `erzeugt ${String(tok.t1).length} Zeichen · Schlüsselbund = Speicher: ${tok.store1 === tok.t1} · data.json leer: ${tok.file1 === ""}; neu erzeugt: anders ${tok.t2 !== tok.t1}, Schlüsselbund folgt ${tok.store2 === tok.t2}, data.json leer ${tok.file2 === ""}`);
+    }
+
+    // --- 7e1b. Chat-Antworten als Markdown (Welle 22) -----------------------------------------------
+    // Eigener Stub mit einer Markdown-Antwort samt Fernbild: gemessen wird die fertige Darstellung im Panel (Liste, Fettung),
+    // dass das Fernbild nicht geladen wird (Entschärfung) und dass die eigene Frage Text bleibt. Chat-Zeilen werden nach dem Lauf
+    // zurückgesetzt wie in den anderen Stub-Abschnitten.
+    if (nur === null) {
+      const mdStub = await startLlmStub({ models: ["fake-model"], antwort: () => "**fett** und eine Liste:\n\n- eins\n- zwei\n\n![x](https://evil.example/?d=1)" });
+      const gesichert = await main.evaluate<unknown>(`return JSON.parse(JSON.stringify(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.chatEndpoints));`);
+      try {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.chatEndpoints = [{ url: ${JSON.stringify(mdStub.url)}, model: "fake-model" }];
+          p.llm.invalidate(); await p.resolveAndReconnectChat();
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
+          document.querySelector(".vault-rag-chat-new")?.click();
+          const ta = document.querySelector(".vault-rag-chat-input");
+          ta.value = "Frage als Text"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+          document.querySelector(".vault-rag-chat-send").click();
+          return true;`);
+        const md = await pollUntil<{ strong: number; li: number; img: number; evil: number; user: string; userMd: boolean }>(main, `
+          const a = document.querySelector(".vault-rag-chat-msg.is-assistant.is-markdown");
+          const u = document.querySelector(".vault-rag-chat-msg.is-user");
+          if (!a || !a.querySelector("li")) return null;
+          return { strong: a.querySelectorAll("strong").length, li: a.querySelectorAll("li").length, img: a.querySelectorAll("img").length,
+                   evil: [...a.querySelectorAll("img")].filter(i => (i.getAttribute("src") || "").includes("evil.example")).length,
+                   user: u ? u.textContent : "", userMd: !!(u && u.classList.contains("is-markdown")) };`, 20_000, 250);
+        record(CHAT_MD_PUNKT, !!md && md.strong >= 1 && md.li === 2 && md.evil === 0 && md.user === "Frage als Text" && !md.userMd,
+          md ? `<strong> ${md.strong} · <li> ${md.li} · Fernbild-Quellen ${md.evil} (img gesamt ${md.img}) · Frage ${md.userMd ? "ALS MARKDOWN" : "als Text"}` : "keine gerenderte Antwort in 20 s");
+      } finally {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          document.querySelector(".vault-rag-chat-new")?.click();
+          p.settings.chatEndpoints = ${JSON.stringify(gesichert)};
+          await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
+          return true;`);
+        await mdStub.stop();
+      }
     }
 
     // --- 7e2. Verbindungs-Tausch (Welle 15): Schlüsselbund, Neustarts, Schwärzung ---------------

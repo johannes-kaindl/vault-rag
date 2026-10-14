@@ -11,6 +11,10 @@
 .vault-rag-chat-msg { padding: 6px 8px; border-radius: 6px; white-space: pre-wrap; }
 .vault-rag-chat-msg.is-user { background: var(--background-modifier-hover); align-self: flex-end; }
 .vault-rag-chat-msg.is-assistant { background: var(--background-secondary); }
+/* Gerendertes Markdown (fertige Antwort): Absätze tragen ihre eigenen Umbrüche. */
+.vault-rag-chat-msg.is-markdown { white-space: normal; }
+.vault-rag-chat-msg.is-markdown > :first-child { margin-top: 0; }
+.vault-rag-chat-msg.is-markdown > :last-child { margin-bottom: 0; }
 .vault-rag-chat-sources { display: flex; flex-wrap: wrap; gap: 4px; }
 .vault-rag-chat-source { font-size: 11px; padding: 2px 6px; border-radius: 10px; background: var(--background-modifier-border); cursor: pointer; }
 .vault-rag-chat-state { color: var(--text-error); padding: 4px 0; }

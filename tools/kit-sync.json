@@ -39,6 +39,7 @@
         "rotation",
         "run-state",
         "sampling-profiles",
+        "safe-markdown",
         "secret-value",
         "secrets",
         "settings",
@@ -53,7 +54,14 @@
       "source": "code-kit",
       "from": "src/ts/web",
       "modules": [
-        "clipboard"
+        "clipboard",
+        "remote-resources"
+      ],
+      "rewrite": [
+        [
+          "../pure/",
+          "./"
+        ]
       ]
     },
     {
@@ -92,6 +100,7 @@
         "clipboard",
         "collapsible",
         "confirm",
+        "dom-guard",
         "embedding-connection",
         "endpoint-list",
         "endpoint-plumbing",

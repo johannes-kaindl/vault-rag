@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView, getLanguage } from "obsidian";
+import { Component, Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView, getLanguage } from "obsidian";
 import "./i18n/strings";
 import { getLang, pickLang, setLang, t } from "./vendor/kit/i18n";
 import { VectorIndex } from "./vendor/kit/vector-index";
@@ -24,6 +24,8 @@ import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { effectiveSystemPrompt, migrateSystemPrompt, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
+import { neutralizeModelMarkdown } from "./vendor/kit/safe-markdown";
+import { renderMarkdownGuarded } from "./vendor/kit-obsidian/dom-guard";
 import { loadSecretValue, persistSecretValue } from "./vendor/kit/secret-value";
 import { secretIdFor } from "./vendor/kit/secrets";
 import { obsidianSecretStore, secretStorageAvailable } from "./vendor/kit-obsidian/secrets";
@@ -137,6 +139,8 @@ export default class VaultRagPlugin extends Plugin {
   private emptyNotePaths = new Set<string>();
   /** Was `data.json` für `mcpToken` trägt: `""`, sobald das Token im Schlüsselbund liegt. Das Token selbst steht nur in `settings.mcpToken` (Speicher). */
   private mcpTokenInFile = "";
+  /** Lebensdauer-Anker für gerendertes Markdown (Chat-Antworten): lebt mit dem Plugin, räumt Listener beim Entladen. */
+  private readonly markdownComponent = new Component();
   /** Auto-Heal höchstens einmal je Gefahrenzustand-Episode (Reset bei gesundem Load). */
   private autoHealAttempted = false;
   private indexOpChain: Promise<void> = Promise.resolve();
@@ -216,6 +220,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   async onload() {
+    this.addChild(this.markdownComponent);
     setLang(pickLang(getLanguage()));
     // Prä-0.19-data.json trägt die Endpunkte als blanke URL-Strings (und noch älter als
     // Einzelfeld) — hier ehrlich getypt, migriert wird gleich darunter.
@@ -584,6 +589,7 @@ export default class VaultRagPlugin extends Plugin {
         pickNote: () => pickNote(this.app),
         autoK: this.settings.chatK,
         thinking: this.thinkingDeps(MODE_CHAT, () => this.chatModelInUse),
+        renderMarkdown: (el, md) => renderMarkdownGuarded(this.app, neutralizeModelMarkdown(md), el, "", this.markdownComponent),
         enterSends: () => this.settings.enterSends,
       }),
     ];

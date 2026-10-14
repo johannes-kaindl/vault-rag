@@ -33,7 +33,7 @@ function mkThinking(over: Partial<{ level: string; family: string | null; onLeve
   };
 }
 
-async function mkPanel(opts: { send?: any; ping?: any; copyText?: any; listModels?: any; getModel?: any; setModel?: any; inputPosition?: any; thinking?: any; enterSends?: any } = {}) {
+async function mkPanel(opts: { send?: any; ping?: any; copyText?: any; listModels?: any; getModel?: any; setModel?: any; inputPosition?: any; thinking?: any; enterSends?: any; renderMarkdown?: any } = {}) {
   const session: any = {
     messages: [],
     send: opts.send ?? vi.fn(async (q: string, _paths: string[], onToken: (t: string) => void) => {
@@ -55,6 +55,7 @@ async function mkPanel(opts: { send?: any; ping?: any; copyText?: any; listModel
     inputPosition: opts.inputPosition ?? (() => "bottom"),
     thinking: opts.thinking ?? mkThinking().deps,
     enterSends: opts.enterSends ?? (() => true),
+    renderMarkdown: opts.renderMarkdown,
     getActivePath: () => "aktiv.md",
     embed: async () => new Float32Array([1, 0]),
     search: () => ["x.md"],
@@ -71,6 +72,51 @@ describe("ChatPanel label", () => {
   it("nennt den Tab auf Englisch (Default-Sprache)", async () => {
     const { panel } = await mkPanel();
     expect(panel.label).toBe("Chat");
+  });
+});
+
+describe("ChatPanel — Antworten als Markdown", () => {
+  it("rendert nur die FERTIGE Antwort, nicht die laufende, und nicht die eigene Frage", async () => {
+    const renderMarkdown = vi.fn(async (el: any, md: string) => { el.setText(`MD:${md}`); });
+    let midRenders = -1;
+    const send = vi.fn(async (q: string, _p: string[], onUpdate: () => void) => {
+      const s: any = (send as any)._s;
+      s.messages.push({ role: "user", content: q });
+      const a: any = { role: "assistant", content: "**fett**" }; s.messages.push(a);
+      onUpdate();                                 // mitten im Strom: die letzte Nachricht läuft noch
+      midRenders = renderMarkdown.mock.calls.length;
+      return { sources: [] };
+    });
+    const { panel, container, session } = await mkPanel({ send, renderMarkdown });
+    (send as any)._s = session;
+    (panel as any).inputEl.value = "frage";
+    await panel.submit();
+    expect(midRenders).toBe(0);                    // laufende Antwort bleibt Rohtext
+    expect(renderMarkdown).toHaveBeenCalledTimes(1);
+    expect(renderMarkdown.mock.calls[0]![1]).toBe("**fett**");
+    const msgs = all(container, "vault-rag-chat-msg");
+    expect(msgs.map(m => String(m.className).includes("is-markdown"))).toEqual([false, true]);
+  });
+  it("zeichnet eine fertige Antwort beim nächsten Neuzeichnen nicht noch einmal (Cache je Nachricht)", async () => {
+    const renderMarkdown = vi.fn(async (el: any, md: string) => { el.setText(md); });
+    const { panel, container, session } = await mkPanel({ renderMarkdown });
+    (panel as any).inputEl.value = "eins"; await panel.submit();
+    (panel as any).renderMessages(); (panel as any).renderMessages();
+    expect(renderMarkdown).toHaveBeenCalledTimes(1);
+    expect(all(container, "is-markdown").length).toBe(1);
+    expect(session.messages.length).toBe(2);
+  });
+  it("ein werfender Renderer kostet die Formatierung, nicht den Text", async () => {
+    const renderMarkdown = vi.fn(async () => { throw new Error("kaputt"); });
+    const { panel, container } = await mkPanel({ renderMarkdown });
+    (panel as any).inputEl.value = "frage"; await panel.submit();
+    await Promise.resolve(); await Promise.resolve();
+    expect(all(container, "is-markdown")[0].textContent).toBe("Antwort");
+  });
+  it("ohne Renderer bleibt alles Rohtext", async () => {
+    const { panel, container } = await mkPanel();
+    (panel as any).inputEl.value = "frage"; await panel.submit();
+    expect(all(container, "is-markdown").length).toBe(0);
   });
 });
 

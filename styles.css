@@ -469,13 +469,18 @@
 .vault-rag-int-row-actions button { font-size: var(--font-ui-smaller); padding: 0 var(--size-4-1); height: auto; }
 .vault-rag-int-card-actions { display: flex; gap: var(--size-4-1); margin-top: var(--size-4-1); }
 
-/* ── Denk-Steuerung (Kit `thinking-control`) — das Kit injiziert bewusst kein CSS; diese Regeln
-   sind die Consumer-Haelfte (Darstellung uebernommen aus lingotuner/styles.css, 2026-09-30). ── */
+/* ── Denk-Steuerung (Kit `thinking-control`, THINKING_CONTROL_CSS @0.60.1, verbatim) ──
+   Das Kit injiziert bewusst kein CSS selbst; der Consumer uebernimmt es. Die beiden Huellen darunter sind unsere. */
 .vault-rag-chat-think, .vault-rag-sa-think { display: inline-flex; align-items: center; }
-.okit-thinking-toggle { display: inline-flex; gap: var(--size-2-1); align-items: center; font-size: var(--font-ui-small); white-space: nowrap; }
+.okit-thinking-control { display: inline-flex; align-items: center; }
+.okit-thinking-toggle {
+  display: inline-flex; align-items: center; gap: var(--size-2-1);
+  height: auto; font-size: var(--font-ui-small); white-space: nowrap;
+}
 .okit-thinking-toggle.is-off { color: var(--text-muted); }
 .okit-thinking-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
-.okit-thinking-toggle svg { width: 14px; height: 14px; }
+.okit-thinking-toggle svg { width: var(--icon-xs); height: var(--icon-xs); }
+.okit-thinking-control select { font-size: var(--font-ui-small); }
 
 /* ── Abschnitt „Anfrage“ (Kit `request-section`, REQUEST_SECTION_CSS @0.43.0, verbatim) ──
    Das Kit injiziert bewusst kein CSS selbst; der Consumer uebernimmt es. */

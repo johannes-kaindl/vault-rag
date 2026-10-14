@@ -6,10 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Kit pin `obsidian-kit` 0.59.1 → 0.60.1 and `code-kit` 0.24.0 → 0.27.1.
+- **Messages name a missing API key or a switched-off endpoint instead of "no endpoint"** (with the LLM Endpoint Manager; obsidian-kit 0.60.0).
+- **The thinking button has a visible gap between icon and label** (obsidian-kit 0.60.0, `THINKING_CONTROL_CSS` copied into `styles.css`).
+- **A warning about discarded request settings lists them sorted** (code-kit 0.26.0).
+- **Indexing notes with very many headings is faster** (`chunkMarkdown` is linear, code-kit 0.27.1; the result is unchanged).
+- **The settings tab redraws when you switch back to it**, so an LLM Endpoint Manager installed or reconfigured meanwhile shows up without closing the window.
+
 ### Added
-- **Werkzeug-Anbieter an `plugin.api`** : `tools(opts?)` beschreibt `semantic_search` und `related_notes` als LLM-Werkzeug-Definitionen, `executeTool(name, args, opts?)` führt sie aus (Vertrag `ToolProviderApi` aus obsidian-kit 0.60.0; die API trägt `version: 1`) und liefert Text fürs Modell (`content`/`message`, in `opts.lang` oder der Oberflächensprache) plus `data` für die Oberfläche; Fehler sind Werte. Ein schreibendes Werkzeug müsste `confirm` rufen und endet sonst mit `needs-confirm`. Additiv, `apiVersion` bleibt 1.
+
+- **Werkzeug-Anbieter an `plugin.api`:** `tools(opts?)` beschreibt `semantic_search` und `related_notes` als LLM-Werkzeug-Definitionen, `executeTool(name, args, opts?)` führt sie aus (Vertrag `ToolProviderApi` aus obsidian-kit 0.60.0; die API trägt `version: 1`) und liefert Text fürs Modell (`content`/`message`, in `opts.lang` oder der Oberflächensprache) plus `data` für die Oberfläche; Fehler sind Werte. Ein schreibendes Werkzeug müsste `confirm` rufen und endet sonst mit `needs-confirm`. Additiv, `apiVersion` bleibt 1.
 
 ### Fixed
+
+- **A note that became empty during a full reindex stays classified as empty**, instead of showing up as a gap in the index count until the next heal.
 - **Die Aufzeichnung im LLM Lab war still aus.** `lab_client.ts` prüfte `apiVersion === 3`, llm-lab liefert seit 2026-09-03 die 4 — `readLabApi` gab deshalb `null` zurück, und Chat, Smart Apply und Umformatieren meldeten nichts mehr. Jetzt auf 4 gehoben; jede Nutzer-Handlung (eine Chat-Nachricht, ein Smart-Apply-Lauf, eine Umformung) trägt eine frische `turnId`. Am laufenden Obsidian 1.14.2 gegen das echte llm-lab 0.6.0 gemessen: der Aufruf landet in dessen Trace mit `turnId`.
 
 ## [0.41.1] — 2026-10-12

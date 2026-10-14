@@ -1,5 +1,5 @@
-// vendored from code-kit@0.24.0, src/ts/pure/chunker.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
-// uebernommen aus vault-rag/src/chunker.ts, 2026-10-11 (Änderungen: `FRONTMATTER_RE` durch den linearen `stripFrontmatter` ersetzt, `noUncheckedIndexedAccess`-clean; Ergebnis unverändert)
+// vendored from code-kit@0.27.1, src/ts/pure/chunker.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// uebernommen aus vault-rag/src/chunker.ts, 2026-10-11 (Änderungen: `FRONTMATTER_RE` durch den linearen `stripFrontmatter` ersetzt, `noUncheckedIndexedAccess`-clean; Ergebnis unverändert). 0.27.1: die Heading-Suche läuft mit einem Zeiger statt eines `filter` über alle Positionen je Chunk (linear; Ergebnis unverändert, Differentialtest gegen die Fassung 0.27.0)
 /** Splits Markdown into overlapping chunks for embedding: frontmatter off, a cut preferably at a heading, after a
  *  hard cut an overlap for continuity. Offsets refer to the text AFTER `stripFrontmatter` and `trim`.
  *
@@ -73,21 +73,30 @@ export function chunkMarkdown(
   const minChunkSize = Math.max(maxChars - overlap, Math.floor(maxChars / 2));
   const chunks: Chunk[] = [];
   let curStart = 0;
+  // Index of the first position after `curStart`. `curStart` only grows (every branch below ends in a start that is larger),
+  // so the index only moves forward and the search costs the positions inside the window, not all of them: 0.22.0–0.27.0
+  // filtered the whole list for every chunk (headings × chunks, 20× the time for 5× the headings).
+  let lo = 0;
 
   while (curStart < trimmed.length) {
     const targetEnd = curStart + maxChars;
-    const headingsInRange = positions.filter(p => p > curStart && p <= targetEnd);
-
-    // Prefer headings >= minChunkSize from curStart; fall back to any heading in range
-    const goodHeadings = headingsInRange.filter(p => p - curStart >= minChunkSize);
+    while (lo < positions.length && (positions[lo] ?? 0) <= curStart) lo++;
+    // The positions are sorted, so the last one in the window is the largest. 0.27.0 chose "the largest of those at least
+    // `minChunkSize` away from `curStart`, else the largest in the window": whenever one of them is far enough, the largest
+    // is (it is the farthest), so both branches name the same position — and every position is in `posSet`, so `atHeading`
+    // was `true` in both. Differential-tested against that version (tests/chunker.test.ts). The `Math.max(...)` over the
+    // window is gone with the filters.
+    let lastInRange = -1;
+    for (let k = lo; k < positions.length; k++) {
+      const p = positions[k] ?? 0;
+      if (p > targetEnd) break;
+      lastInRange = p;
+    }
     let curEnd: number;
     let atHeading: boolean;
-    if (goodHeadings.length > 0) {
-      curEnd = Math.max(...goodHeadings);
+    if (lastInRange >= 0) {
+      curEnd = lastInRange;
       atHeading = true;
-    } else if (headingsInRange.length > 0) {
-      curEnd = Math.max(...headingsInRange);
-      atHeading = posSet.has(curEnd);
     } else {
       curEnd = Math.min(targetEnd, trimmed.length);
       atHeading = false;

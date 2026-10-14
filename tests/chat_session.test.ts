@@ -114,7 +114,7 @@ describe("ChatSession", () => {
   it("jede Nachricht traegt ihre eigene turnId — eine Nutzer-Handlung, eine id", async () => {
     const ids: string[] = [];
     const stream = async (_m: any, _c: any, _r: any, _sig: any, o: any) => { ids.push(o.trace.turnId); return { content: "ok", reasoning: "" }; };
-    const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", model: () => "mx", app: () => ({}) });
+    const s = new ChatSession({ client: () => ({ stream }) as never, assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", model: () => "mx", app: () => ({}) });
     await s.send("eins", [], () => {});
     await s.send("zwei", [], () => {});
     expect(ids).toHaveLength(2);
@@ -123,7 +123,7 @@ describe("ChatSession", () => {
   it("stream bekommt model und den Modus grounded als opts (Parameter und Prüfung baut die Verbindung)", async () => {
     let opts: any;
     const stream = async (_m: any, _c: any, _r: any, _sig: any, o: any) => { opts = o; return { content: "ok", reasoning: "" }; };
-    const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", model: () => "mx", app: () => ({}) });
+    const s = new ChatSession({ client: () => ({ stream }) as never, assemble: async () => ({ text: "", sources: [] }), systemPreamble: () => "SYS", model: () => "mx", app: () => ({}) });
     await s.send("frage", [], () => {});
     expect(opts).toEqual({ model: "mx", mode: "grounded", trace: { feature: "chat", app: {}, contextPaths: [], promptTemplate: "SYS", turnId: expect.any(String) } });
   });
@@ -131,7 +131,7 @@ describe("ChatSession", () => {
     let opts: unknown;
     const stream = async (_m: unknown, _t: unknown, _r: unknown, _s: unknown, o: unknown) => { opts = o; return { content: "ok" }; };
     const s = new ChatSession({
-      client: () => ({ stream }),
+      client: () => ({ stream }) as never,
       assemble: async () => ({ text: "VIEL KONTEXT", sources: ["a.md"] }),
       systemPreamble: () => "MEINPROMPT",
       model: () => "m",
@@ -145,7 +145,7 @@ describe("ChatSession", () => {
   it("System-Message beginnt mit dem systemPreamble() und enthält den Kontext", async () => {
     let sent: any[] = [];
     const stream = async (msgs: any[]) => { sent = msgs; return { content: "ok", reasoning: "" }; };
-    const s = new ChatSession({ client: () => ({ stream }), assemble: async () => ({ text: "CTX", sources: [] }), systemPreamble: () => "MEINPROMPT", model: () => "m", app: () => ({}) });
+    const s = new ChatSession({ client: () => ({ stream }) as never, assemble: async () => ({ text: "CTX", sources: [] }), systemPreamble: () => "MEINPROMPT", model: () => "m", app: () => ({}) });
     await s.send("frage", [], () => {});
     expect(sent[0].role).toBe("system");
     expect(sent[0].content.startsWith("MEINPROMPT")).toBe(true);

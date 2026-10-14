@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { probeEndpoint } from "../src/http";
 import { requestUrl } from "obsidian";
 
-afterEach(() => vi.mocked(requestUrl).mockReset());
+afterEach(() => { vi.mocked(requestUrl).mockReset(); });
 
 describe("probeEndpoint", () => {
   it("ok bei 200 + {data:[…]}", async () => {

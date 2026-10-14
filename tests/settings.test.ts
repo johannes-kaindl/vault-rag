@@ -74,7 +74,7 @@ describe("settings", () => {
     const merged = Object.assign({}, DEFAULT_SETTINGS, { chatModel: "alt" } as Partial<VaultRagSettings>);
     // Object.assign kopiert fremde Schlüssel — das ist der Beweis, dass die Migration in onload
     // die Zeilen füllen MUSS, bevor der Wert beim nächsten saveData verschwindet.
-    expect((merged as Record<string, unknown>).chatModel).toBe("alt");
+    expect((merged as unknown as Record<string, unknown>).chatModel).toBe("alt");
     expect("chatModel" in DEFAULT_SETTINGS).toBe(false);
   });
 

@@ -7,7 +7,7 @@ const ok = (json: unknown) => ({ status: 200, json });
 const BASE = "http://localhost:11434";
 
 describe("probeEndpoint", () => {
-  afterEach(() => vi.mocked(requestUrl).mockReset());
+  afterEach(() => { vi.mocked(requestUrl).mockReset(); });
 
   it("erreichbar bei 200 mit gültiger Modell-Liste", async () => {
     vi.mocked(requestUrl).mockResolvedValue(ok({ data: [] }) as any);

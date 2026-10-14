@@ -791,7 +791,7 @@ describe("LiveIndexer persist-Guard: Embedding-Modell", () => {
     await indexer.update("a.md", "#A");
     await expect(indexer.persist("live")).rejects.toMatchObject({ kind: "model-mismatch" });
     // der Container auf Platte ist unangetastet geblieben
-    expect(a.written.get(`_vaultrag/${CONTAINER_FILE}`)!.byteLength).toBe(makeContainerBytes(1).byteLength);
+    expect((a.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer).byteLength).toBe(makeContainerBytes(1).byteLength);
   });
 
   it("heal blockt ebenfalls — additives Einmischen fremder Vektoren", async () => {
@@ -915,7 +915,7 @@ describe("LiveIndexer.checkModelAgainstDisk (Vorabprüfung vor additiven Läufen
 
     await indexer.persist("heal", "qwen3-embedding:8b");
 
-    const geschrieben = a.written.get(`_vaultrag/${CONTAINER_FILE}`)!;
+    const geschrieben = a.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer;
     expect(decodeContainer(geschrieben).manifest.embedding_model).toBe("qwen3-embedding:8b");
   });
 
@@ -926,7 +926,7 @@ describe("LiveIndexer.checkModelAgainstDisk (Vorabprüfung vor additiven Läufen
 
     await indexer.persist("reindex");
 
-    const geschrieben = a.written.get(`_vaultrag/${CONTAINER_FILE}`)!;
+    const geschrieben = a.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer;
     expect(decodeContainer(geschrieben).manifest.embedding_model).toBe("text-embedding-3-small");
   });
 
@@ -941,7 +941,7 @@ describe("LiveIndexer.checkModelAgainstDisk (Vorabprüfung vor additiven Läufen
 
     await indexer.persist("reindex");
 
-    const manifest = decodeContainer(a.written.get(`_vaultrag/${CONTAINER_FILE}`)!).manifest as { vault?: string };
+    const manifest = decodeContainer(a.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer).manifest as { vault?: string };
     expect(manifest.vault).toBe("");
   });
 

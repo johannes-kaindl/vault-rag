@@ -1,0 +1,12 @@
+{
+  // Typprüfung der Tests (und der Quellen gegen den Mock). Anders als tsconfig.json, die der Store-Review
+  // findet und gegen die ECHTEN obsidian-Typen auflösen muss, zeigt `obsidian` hier auf den Kit-Mock,
+  // damit Tests mit Mock-Helfern (Notice.instances u. a.) typprüfen. Vitest selbst löst den Mock über
+  // vitest.config.ts auf; diese Datei bedient `npm run typecheck:test` (Teil des Gates) und die IDE.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules"]
+}

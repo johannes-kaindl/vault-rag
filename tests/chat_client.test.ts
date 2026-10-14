@@ -374,7 +374,7 @@ describe("ChatClient über den Kit-Client (Welle 11)", () => {
     await vi.waitFor(() => { expect(xhr.body).not.toBe(""); });
     xhr.error();
     expect(await p).toEqual({ content: "Antwort", reasoning: "", finishReason: "stop" });
-    const first = JSON.parse(vi.mocked(requestUrl).mock.calls[0]![0].body as string) as { stream: boolean };
+    const first = JSON.parse((vi.mocked(requestUrl).mock.calls[0]![0] as { body: string }).body) as { stream: boolean };
     expect(first.stream).toBe(false);
     expect(await c.stream(msgs, () => {}, () => {})).toEqual({ content: "Antwort", reasoning: "", finishReason: "stop" });
     expect(vi.mocked(requestUrl)).toHaveBeenCalledTimes(2);

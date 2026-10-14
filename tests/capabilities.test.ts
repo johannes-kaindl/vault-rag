@@ -129,14 +129,14 @@ describe("resolveCapabilities", () => {
 });
 
 describe("fetchCapabilities — Auth", () => {
-  afterEach(() => vi.mocked(requestUrl).mockReset());
+  afterEach(() => { vi.mocked(requestUrl).mockReset(); });
 
   it("sendet den Bearer an alle drei Probe-Endpoints (/api/show, /api/v1/models, /api/v0/models)", async () => {
     const calls: { url: string; headers?: Record<string, string> }[] = [];
-    vi.mocked(requestUrl).mockImplementation((p: any) => {
+    vi.mocked(requestUrl).mockImplementation(((p: any) => {
       calls.push({ url: p.url, headers: p.headers });
       return Promise.resolve({ status: 404, json: {} } as any);
-    });
+    }) as never);
     await fetchCapabilities("http://x", "m", "sk-1");
     expect(calls).toHaveLength(3);
     for (const c of calls) expect(c.headers?.Authorization).toBe("Bearer sk-1");
@@ -144,10 +144,10 @@ describe("fetchCapabilities — Auth", () => {
 
   it("ohne Schlüssel keinen Authorization-Header", async () => {
     const calls: { headers?: Record<string, string> }[] = [];
-    vi.mocked(requestUrl).mockImplementation((p: any) => {
+    vi.mocked(requestUrl).mockImplementation(((p: any) => {
       calls.push({ headers: p.headers });
       return Promise.resolve({ status: 404, json: {} } as any);
-    });
+    }) as never);
     await fetchCapabilities("http://x", "m");
     expect(calls.every(c => c.headers?.Authorization === undefined)).toBe(true);
   });

@@ -33,6 +33,7 @@ function spec(headings: string[]): TemplateSpec {
     keys: ["type", "tags"],
     fmDefaults: {},
     sections,
+    defaultMode: "deterministisch",
     raw: "## " + headings.join("\n\n## "),
   };
 }
@@ -435,7 +436,7 @@ describe("buildRestructurePrompt %%-guidance", () => {
         { heading: "Tagesordnung", level: 2, placeholder: "", guidance },
         { heading: "Notizen", level: 2, placeholder: "", guidance: "" },
       ],
-      raw: "egal",
+      defaultMode: "deterministisch", raw: "egal",
     };
   }
   const blocks: SourceBlock[] = [{ id: "block_0", text: "- Punkt A" }];
@@ -460,7 +461,7 @@ describe("buildRestructurePrompt %%-guidance", () => {
   it("Guidance-Text landet nie im assembleBody-Output", () => {
     const tpl: TemplateSpec = {
       type: "X", keys: [], fmDefaults: {},
-      sections: [{ heading: "A", level: 2, placeholder: "", guidance: "GEHEIM" }], raw: "egal",
+      sections: [{ heading: "A", level: 2, placeholder: "", guidance: "GEHEIM" }], defaultMode: "deterministisch", raw: "egal",
     };
     const out = assembleBody(tpl, asg({ sections: [{ heading: "A", blocks: ["block_0"] }] }), [{ id: "block_0", text: "echter inhalt" }]);
     expect(out).not.toContain("GEHEIM");
@@ -476,7 +477,7 @@ describe("buildRestructurePrompt FM-#-guidance", () => {
       fmDefaults: { type: "🗣️ Gespräch", art: "" },
       fmGuidance,
       sections: [{ heading: "Themen", level: 2, placeholder: "", guidance: "" }],
-      raw: "egal",
+      defaultMode: "deterministisch", raw: "egal",
     };
   }
   const blocks: SourceBlock[] = [{ id: "block_0", text: "- x" }];

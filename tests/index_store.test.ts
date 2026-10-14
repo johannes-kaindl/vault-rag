@@ -42,7 +42,7 @@ describe("index_store", () => {
 
   async function writeLegacyTriple(count = 3, paths = PATHS3): Promise<void> {
     await a.mkdir(dir);
-    await a.writeBinary(`${dir}/notes.i8`, makeMatrix(count).buffer);
+    await a.writeBinary(`${dir}/notes.i8`, makeMatrix(count).buffer as ArrayBuffer);
     await a.write(`${dir}/paths.json`, JSON.stringify(paths));
     await a.write(`${dir}/manifest.json`, JSON.stringify(makeManifest(count)));
   }
@@ -122,7 +122,7 @@ describe("index_store", () => {
   it("verifyBackupCandidate: Legacy-Tripel-Backup (Prä-0.18-Bestand) wird geladen", async () => {
     const bdir = path.join(root, "backup-legacy");
     await a.mkdir(bdir);
-    await a.writeBinary(`${bdir}/notes.i8`, makeMatrix(2).buffer);
+    await a.writeBinary(`${bdir}/notes.i8`, makeMatrix(2).buffer as ArrayBuffer);
     await a.write(`${bdir}/paths.json`, JSON.stringify(["a.md", "b.md"]));
     await a.write(`${bdir}/manifest.json`, JSON.stringify(makeManifest(2)));
     const idx = await verifyBackupCandidate(a, bdir);

@@ -13,8 +13,8 @@ describe("Anfrage-Texte sind für jede ID der Kit-Tabellen vorhanden (EN und DE)
   for (const [group, ids] of groups) {
     it(`${group}: ${ids.length} IDs`, () => {
       for (const id of ids) {
-        expect(EN[`${group}.${id}`], `EN ${group}.${id}`).toBeTruthy();
-        expect(DE[`${group}.${id}`], `DE ${group}.${id}`).toBeTruthy();
+        expect((EN as Record<string, string>)[`${group}.${id}`], `EN ${group}.${id}`).toBeTruthy();
+        expect((DE as Record<string, string>)[`${group}.${id}`], `DE ${group}.${id}`).toBeTruthy();
       }
     });
   }

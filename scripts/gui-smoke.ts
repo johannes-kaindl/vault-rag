@@ -141,6 +141,7 @@ const LAB_PRUEFPUNKTE = [
 ];
 
 /** Namen der Punkte, die im Ablauf an mehreren Stellen vorkommen — auf Modulebene, damit `PUNKTE` sie enthält. */
+const EMBED_ZAEHLER_PUNKT = "Embedding-Zähler: eine Suche über die Plugin-API steht unter „api“, der Befehl zeigt die Zählung";
 const CHAT_MD_PUNKT = "Chat: eine fertige Antwort erscheint als Markdown (Liste, Fettung), Fernbild bleibt draußen, die Frage bleibt Text";
 const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
 const MGR_PUNKTE = [
@@ -251,6 +252,7 @@ const PUNKTE = [
   ...W16_PUNKTE,
   MCP_TOKEN_PUNKT,
   CHAT_MD_PUNKT,
+  EMBED_ZAEHLER_PUNKT,
   POPOUT_PUNKT,
   PUNKT_TREU,
   PUNKT_SPERRE,
@@ -2029,6 +2031,21 @@ async function main(): Promise<void> {
           return true;`);
         await mdStub.stop();
       }
+    }
+
+    // --- 7e1c. Embedding-Zähler (Welle 22) -------------------------------------------------------
+    // Gegenprobe im selben Zug: vor der Suche steht „api“ nicht (oder niedriger) in der Zählung; danach ist es um genau eine
+    // Anfrage höher. Der Embedder antwortet in der Stub-Lage vom zentralen Stub, die Suche selbst sagt nichts über Semantik.
+    if (nur === null) {
+      const z = await main.evaluate<{ vor: number; nach: number; labels: string[]; cmd: boolean }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const lese = () => (p.embedCounter.snapshot().find(x => x.label === "api") || { requests: 0 }).requests;
+        const vor = lese();
+        await p.api.search("Zaehler-Probe");
+        const nach = lese();
+        const cmd = app.commands.executeCommandById("vault-retrieval:show-embedding-requests");
+        return { vor, nach, labels: p.embedCounter.snapshot().map(x => x.label), cmd: cmd !== false };`);
+      record(EMBED_ZAEHLER_PUNKT, z.nach === z.vor + 1 && z.cmd, `„api“ ${z.vor} → ${z.nach} · Etiketten: ${z.labels.join(", ")} · Befehl ${z.cmd ? "läuft" : "FEHLT"}`);
     }
 
     // --- 7e2. Verbindungs-Tausch (Welle 15): Schlüsselbund, Neustarts, Schwärzung ---------------

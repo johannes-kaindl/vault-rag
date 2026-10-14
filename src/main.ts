@@ -1,3 +1,5 @@
+import { EmbedCounter } from "./embed_counter";
+import type { Embedder } from "./vendor/kit/embeddings-client";
 import { Component, Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView, getLanguage } from "obsidian";
 import "./i18n/strings";
 import { getLang, pickLang, setLang, t } from "./vendor/kit/i18n";
@@ -139,6 +141,11 @@ export default class VaultRagPlugin extends Plugin {
   private emptyNotePaths = new Set<string>();
   /** Was `data.json` für `mcpToken` trägt: `""`, sobald das Token im Schlüsselbund liegt. Das Token selbst steht nur in `settings.mcpToken` (Speicher). */
   private mcpTokenInFile = "";
+  /** Zähler je Aufrufer für Embedding-Anfragen (Befehl „Embedding-Anfragen anzeigen“). */
+  readonly embedCounter = new EmbedCounter();
+  private readonly labelledFacades = new Map<string, RetrievalFacade>();
+  /** Etikett der laufenden Index-Operation (modify, drain, reindex, heal); überlappen sich zwei, gilt die zuletzt gesetzte. */
+  private embedOp = "indexer";
   /** Lebensdauer-Anker für gerendertes Markdown (Chat-Antworten): lebt mit dem Plugin, räumt Listener beim Entladen. */
   private readonly markdownComponent = new Component();
   /** Auto-Heal höchstens einmal je Gefahrenzustand-Episode (Reset bei gesundem Load). */
@@ -158,6 +165,30 @@ export default class VaultRagPlugin extends Plugin {
   /** Serialisiert mutierende Index-Operationen (mutate+build+persist), damit der persist-Guard
    *  nicht durch nebenläufige Events (z.B. Ordner-Bulk-Delete) fälschlich Shrink meldet und kein
    *  liveIndexer-Instanz-Swap mitten in einer Operation passiert. */
+  /** Umhüllt die Embedding-Fassade: jeder `embed`-Aufruf wird unter `label()` gezählt, sonst unverändert. */
+  private countedEmbedder(label: () => string): Embedder {
+    return { embed: (texts, opts) => { this.embedCounter.count(label(), texts.length); return this.emb.embedder().embed(texts, opts); } };
+  }
+  /** Eine Fassade je Verbraucher: die Etikett-Bindung steht im `embed`-Anschluss, nicht in einem gemeinsamen Feld. */
+  private facadeFor(label: string): RetrievalFacade {
+    const cached = this.labelledFacades.get(label);
+    if (cached) return cached;
+    const made = new RetrievalFacade({
+      getIndex: () => this.index,
+      embedderReady: () => this.embedderReady(),
+      embed: (texts) => this.countedEmbedder(() => label).embed(texts),
+      settings: () => ({ k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude }),
+      readVault: (rel) => this.guardedRead(rel),
+    });
+    this.labelledFacades.set(label, made);
+    return made;
+  }
+  /** Läuft `fn` unter dem Index-Etikett `op` (best effort: überlappende Operationen teilen sich das Feld). */
+  private async underEmbedOp<T>(op: string, fn: () => Promise<T>): Promise<T> {
+    this.embedOp = op;
+    try { return await fn(); } finally { this.embedOp = "indexer"; }
+  }
+
   private runIndexOp(fn: () => Promise<void>): Promise<void> {
     const next = this.indexOpChain.then(fn, fn);
     this.indexOpChain = next.catch(() => {});
@@ -320,15 +351,9 @@ export default class VaultRagPlugin extends Plugin {
     this.chatClient = new ChatClient(this.llm);
     // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
     // fire-and-forget am Ende von onload, der modify-Listener kann davor feuern.
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.emb.embedder(), this.embeddingModelInUse, { dim: 256 });
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`), this.embeddingModelInUse, { dim: 256 });
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
-    this.facade = new RetrievalFacade({
-      getIndex: () => this.index,
-      embedderReady: () => this.embedderReady(),
-      embed: (texts) => this.emb.embedder().embed(texts),
-      settings: () => ({ k: this.settings.k, minSim: this.settings.minSim, exclude: this.settings.exclude }),
-      readVault: (rel) => this.guardedRead(rel),
-    });
+    this.facade = this.facadeFor("api");
     // Sofort nach der Facade setzen: sobald das Plugin-Objekt in app.plugins.plugins auftaucht,
     // soll `api` da sein — ein Konsument darf es nie halb initialisiert antreffen.
     this.api = createVaultRetrievalApi(
@@ -385,7 +410,7 @@ export default class VaultRagPlugin extends Plugin {
             templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir),
           typeOf: async (p) => extractType(await this.app.vault.adapter.read(p)),
           embed: async (text) => {
-            const e = await this.facade.embedQuery(text);
+            const e = await this.facadeFor("smart-apply").embedQuery(text);
             if (e.kind !== "vec") throw new Error(t("main.embedderOffline"));
             return e.vec;
           },
@@ -396,7 +421,7 @@ export default class VaultRagPlugin extends Plugin {
           // exclude:["Templates/"] aus template_matcher.ts) wird vollständig durchgereicht — siehe
           // Task-3-Report + Fix-Wave-Report.
           search: (vec, opts) => {
-            const r = this.facade.searchVector(vec, opts);
+            const r = this.facadeFor("smart-apply").searchVector(vec, opts);
             return r.kind === "hits" ? r.hits : [];
           },
           app: () => this.app,
@@ -413,13 +438,21 @@ export default class VaultRagPlugin extends Plugin {
         // indexierter Vorlagen/Notizen komplett.
         indexVector: (p) => this.index?.vectorFor(p) ?? null,
         embed: async (text) => {
-          const e = await this.facade.embedQuery(text);
+          const e = await this.facadeFor("template-ranker").embedQuery(text);
           if (e.kind !== "vec") throw new Error(t("main.embedderOffline"));
           return e.vec;
         },
       });
     }
 
+    this.addCommand({
+      id: "show-embedding-requests",
+      name: t("command.showEmbeddingRequests"),
+      callback: () => {
+        const rows = this.embedCounter.snapshot();
+        new Notice(rows.length === 0 ? t("main.embedRequestsNone") : rows.map(r => `${r.label}: ${r.requests} (${r.perMinute}/min)`).join("\n"), 12000);
+      },
+    });
     this.addCommand({
       id: "reindex-vault",
       name: t("command.reindexVault"),
@@ -578,12 +611,12 @@ export default class VaultRagPlugin extends Plugin {
         inputPosition: () => this.settings.chatInputPosition,
         getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
         embed: async (q) => {
-          const e = await this.facade.embedQuery(q);
+          const e = await this.facadeFor("chat-context").embedQuery(q);
           if (e.kind !== "vec") throw new Error("Embedder nicht erreichbar.");  // context_panel fängt → []
           return e.vec;
         },
         search: (vec, n) => {
-          const r = this.facade.searchVector(vec, { k: n });
+          const r = this.facadeFor("chat-context").searchVector(vec, { k: n });
           return r.kind === "hits" ? r.hits.map(h => h.path) : [];
         },
         pickNote: () => pickNote(this.app),
@@ -695,7 +728,7 @@ export default class VaultRagPlugin extends Plugin {
       r.state === "no-model" && cfg ? [cfg.url] : [],
       indexModel,
     );
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.emb.embedder(), m, { dim: 256 });
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`), m, { dim: 256 });
     if (this.index) this.liveIndexer.init(this.index);
     else if (this.indexHealthy) this.liveIndexer.markFresh();
     // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
@@ -879,7 +912,7 @@ export default class VaultRagPlugin extends Plugin {
       }
       this.settings.indexDir = target;
       await this.saveSettings();
-      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.emb.embedder(), this.embeddingModelInUse, { dim: 256 });
+      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.countedEmbedder(() => `indexer:${this.embedOp}`), this.embeddingModelInUse, { dim: 256 });
       this.pendingQueue = new PendingQueue(this.app.vault.adapter, target);
       await this.pendingQueue.load();
       await this.loadIndex();
@@ -1277,8 +1310,8 @@ export default class VaultRagPlugin extends Plugin {
         li.init(base);
         if (plan.kind === "restore-and-reindex") {
           const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
-          const report = await li.healMissing(missing, (p) => this.app.vault.adapter.read(p),
-            undefined, (p) => this.stampOf(p));
+          const report = await this.underEmbedOp("auto-heal", () => li.healMissing(missing, (p) => this.app.vault.adapter.read(p),
+            undefined, (p) => this.stampOf(p)));
           if (!canPersistHealedIndex(report.failed.length)) {
             li.markUnready(); // halb geheilten Index NICHT verteilen
             return;
@@ -1542,7 +1575,7 @@ export default class VaultRagPlugin extends Plugin {
         const li = this.liveIndexer;
         this.embeddingProgress.isEmbedding = true;
         try {
-          const updated = await li.update(path, content, this.stampOf(path));
+          const updated = await this.underEmbedOp("modify", () => li.update(path, content, this.stampOf(path)));
           if (updated === "empty") this.emptyNotePaths.add(path); else this.emptyNotePaths.delete(path);
           // buildIndex ERST nach erfolgreichem persist: ein geblockter Persist darf `this.index`
           // nicht mit dem Manifest des Indexers überschreiben (das trägt dessen Embedding-Modell).
@@ -1652,7 +1685,7 @@ export default class VaultRagPlugin extends Plugin {
         for (const path of paths) {
           try {
             const content = await this.app.vault.adapter.read(path);
-            const updated = await li.update(path, content, this.stampOf(path));
+            const updated = await this.underEmbedOp("drain", () => li.update(path, content, this.stampOf(path)));
             if (updated === "empty") this.emptyNotePaths.add(path); else this.emptyNotePaths.delete(path);
           } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
         }
@@ -1738,7 +1771,7 @@ export default class VaultRagPlugin extends Plugin {
     this.updateStatusBar();
     const emptyBefore = new Set(this.emptyNotePaths);
     try {
-      const report = await this.liveIndexer.reindexAll(
+      const report = await this.underEmbedOp("reindex", () => this.liveIndexer.reindexAll(
         allPaths,
         (p) => this.app.vault.adapter.read(p),
         (done, _indexed, tot) => {
@@ -1747,7 +1780,7 @@ export default class VaultRagPlugin extends Plugin {
           notice.setMessage(t("main.indexingProgress", done, tot));
         },
         (p) => this.stampOf(p),
-      );
+      ));
       // Voll-Reindex hat den ganzen Vault gelesen → frischeste Leer-Klassifikation. Nach einem
       // ABBRUCH gilt das nicht: `skippedEmpty` kennt dann nur die bis dahin gesehenen leeren
       // Notizen, und ein Ersetzen wuerfe alle uebrigen bekannten Leeren weg — sie erschienen
@@ -1824,7 +1857,7 @@ export default class VaultRagPlugin extends Plugin {
     this.embeddingProgress.reindex = { done: 0, total: embeddable.length };
     this.updateStatusBar();
     try {
-      const report = await li.healMissing(
+      const report = await this.underEmbedOp("heal", () => li.healMissing(
         embeddable,
         (p) => this.app.vault.adapter.read(p),
         (done, _indexed, tot) => {
@@ -1833,7 +1866,7 @@ export default class VaultRagPlugin extends Plugin {
           notice.setMessage(t("main.healingProgress", done, tot));
         },
         (p) => this.stampOf(p),
-      );
+      ));
       // Leer-Set aktualisieren: bekannte Leere bleiben, frisch entdeckte kommen dazu.
       this.emptyNotePaths = new Set([...knownEmpty, ...report.skippedEmpty]);
       // buildIndex ERST nach erfolgreichem persist (wie handleModify/drainPending): ändert sich die
@@ -1913,7 +1946,7 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private async runSearch(query: string): Promise<SearchResult> {
-    return this.facade.search(query);
+    return this.facadeFor("search-panel").search(query);
   }
 
   // SEAM-VERTRAG (5): templatePath="" → auto-detect; non-empty → direkt verwenden (Picker entfällt).
@@ -2042,7 +2075,7 @@ export default class VaultRagPlugin extends Plugin {
         (rel) => this.app.vault.getAbstractFileByPath(normalizePath(rel)) instanceof TFile,
         (rel) => this.app.vault.adapter.read(rel),
       );
-      const tools = new McpTools(this.facade);
+      const tools = new McpTools(this.facadeFor("mcp"));
       this.mcpServer = await startMcpServer({ port: this.settings.mcpPort, token, tools, version: this.manifest.version });
       this.mcpLastStartError = null;
     } catch (e) {

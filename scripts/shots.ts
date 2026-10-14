@@ -26,7 +26,8 @@
  * lsof -nP -iTCP:9399 -sTCP:LISTEN && echo "Port belegt — anderen nehmen"
  * cp ~/Library/Application\ Support/obsidian/obsidian-<version>.asar "$UD"/
  * node -e 'const p=process.env.STAGING_VAULTS_DIR+"/vault-rag";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{v:{path:p,ts:Date.now(),open:true}},language:"en"}))' "$UD"
- * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 &
+ * mkdir -p /tmp/obs-home-vault-rag   # eigenes HOME: sonst bindet die Zweitinstanz den CLI-Socket der regulären Instanz
+ * HOME=/tmp/obs-home-vault-rag /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 &
  * #   ... beim ersten Mal dem Vault-Autor vertrauen, Reindex laufen lassen (oder `npm run shots -- --port 9399 --prepare`)
  * python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-rag --intent "Bilder" --exclusive focus --port 9399 --ttl 900
  *

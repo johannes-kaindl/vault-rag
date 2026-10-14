@@ -147,7 +147,8 @@ Aufgenommen wird in einer **Zweitinstanz** mit eigenem Profil und eigenem Port; 
 npm run build && npm run shots -- --setup         # Vault aus dem Fixture bauen
 UD=/tmp/obs-test-vault-rag; mkdir -p "$UD"
 lsof -nP -iTCP:9399 -sTCP:LISTEN && echo "Port belegt — anderen nehmen"
-/Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 &
+mkdir -p /tmp/obs-home-vault-rag   # eigenes HOME: sonst bindet die Zweitinstanz den CLI-Socket der regulären Instanz
+HOME=/tmp/obs-home-vault-rag /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 &
 #   ... den Aufnahme-Vault öffnen und einmalig als vertrauenswürdig markieren, Reindex laufen lassen
 
 npm run shots -- --port 9399                      # alles aufnehmen

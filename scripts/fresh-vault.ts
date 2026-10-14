@@ -5,7 +5,7 @@
  * Staging-Vaults, und dieser Aufruf setzt ihn nach dem Aufbau wieder ein.
  *
  *   npm run build && npm run fresh-vault -- --port 9420        # Vault aus dem Fixture, Schnappschuss-Index zurück
- *   npm run fresh-vault -- --snapshot                          # Schnappschuss aus dem AKTUELLEN Vault ziehen
+ *   npm run fresh-vault -- --snapshot --echtes-modell          # Schnappschuss aus dem AKTUELLEN Vault ziehen (nur nach Voll-Reindex mit echtem Modell)
  *   npm run fresh-vault -- --status                            # Schnappschuss und Fixture vergleichen, nichts ändern
  *
  * ## Wo, und wann erneuert
@@ -16,7 +16,8 @@
  *   Schnappschuss mit dem Fixture übereinstimmen. Ändert sich eine Fixture-Notiz, ist er ungültig: der Aufbau meldet das und baut
  *   den Vault OHNE Index (dann sind die Index-Punkte „nichts gemessen“, nie falsch grün).
  * - **Erneuert** wird er von Hand, nach einem guten Lauf mit dem echten Embedding-Modell (`npm run shots -- --prepare`, dann
- *   `--snapshot`) — in der Modell-Runde, nie im Stub-Lauf. `--snapshot` prüft vorher: Container lesbar (CRC), jeder Pfad im
+ *   `--snapshot --echtes-modell`) — in der Modell-Runde, nie im Stub-Lauf. ⚠ Jeder Smoke mit Stub-Lage SCHREIBT Stub-Vektoren in den Index des Vaults
+ *   (Drain nach einer Notiz-Änderung): ein Index aus einem solchen Vault ist kein Schnappschuss-Kandidat. `--snapshot` prüft vorher: Container lesbar (CRC), jeder Pfad im
  *   Index ist eine Fixture-Notiz, Modell = das der Fixture-Einstellungen.
  *
  * ## Warum nicht in der laufenden Instanz
@@ -96,6 +97,10 @@ function main(): void {
   }
 
   if (argv.includes("--snapshot")) {
+    if (!argv.includes("--echtes-modell")) {
+      console.error("Ein Schnappschuss aus einem Vault, in dem je ein Smoke mit Stub-Lage lief, trägt Stub-Vektoren (gemessen 2026-10-14: drei Notizen mit dem identischen Score 0,73 — der Stub liefert den gespeicherten Vektor EINER Notiz, und der Drain schreibt ihn in den Index).\nNur nach einem Voll-Reindex mit dem echten Modell ziehen (z. B. npm run modell-runde -- … --neu-indizieren) und das mit --echtes-modell bestätigen.");
+      exit(2);
+    }
     const bin = join(vaultDir, "_vaultrag", "index.bin");
     if (!existsSync(bin)) { console.error(`Kein Index im Vault (${bin}) — erst mit dem echten Modell bauen (npm run shots -- --prepare).`); exit(2); }
     const buf = readFileSync(bin);

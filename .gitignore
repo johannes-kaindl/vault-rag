@@ -14,3 +14,4 @@ index-backups/
 # tsx liest die Quelle zur Laufzeit weiter, ein `rm` toetet den Prozess verzoegert.
 scripts/_tmp_*
 .fresh-vault.mjs
+.modell-runde.mjs

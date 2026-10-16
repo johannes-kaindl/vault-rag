@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Kit pin `obsidian-kit` 0.60.3 → 0.61.0 and `code-kit` 0.27.2 → 0.28.0 (`lib` in `tsconfig.json` raised to ES2022, code-kit uses `Object.hasOwn`; types only).
+- **Gemma 4 on LM Studio thinks a little even with "Thinking off".** LM Studio ignores `reasoning_effort: "none"` for this model, so the lowest level (`low`) is sent there. The answer stays clean and the thought lands in the collapsible block; the settings say that it cannot be switched off completely (code-kit 0.28.0).
+- **A backend or model family this version does not know no longer breaks a request.** It is sent with the standard fields only and the Request section names it (obsidian-kit 0.61.0).
+
 ### Documentation
 
 - The README shows the Integrator tab with link suggestions, one of them accepted (`docs/images/integrator.png`, recorded by `npm run shots`).

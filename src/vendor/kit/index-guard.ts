@@ -1,4 +1,4 @@
-// vendored from code-kit@0.27.2, src/ts/pure/index-guard.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.28.0, src/ts/pure/index-guard.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/index_guard.ts, 2026-10-11 (Änderungen: `noUncheckedIndexedAccess`-clean; neu `assertDimSafeToPersist` und die Art "dim-mismatch"; sonst Code und Meldungen unverändert)
 // Pure core: decisions where data can be lost, in one place and testable in isolation. Origin: vault-rag (spec 2026-07-10, index robustness).
 // The message texts are German and stay as they were: the consumer's tests and its users' notices carry them.
@@ -220,6 +220,63 @@ export function planAutoHeal(
   if (!input.hasBackup) return { kind: "no-backup" };
   if (input.embedderReady) return { kind: "restore-and-reindex" };
   return input.canCompleteIndex ? { kind: "restore-only" } : { kind: "wait-for-sync" };
+}
+
+/** A restored backup younger than this may be written back without a reached endpoint: seven days. */
+export const HEAL_BACKUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Why the healing writes or keeps the write protection. The caller words the notice from `because`; the texts are not here. */
+export type HealWriteVerdict =
+  | { write: true; because: "reindex-follows" | "backup-fresh" | "endpoint-reached-this-session" }
+  | { write: false; because: "no-backup" | "wait-for-sync" | "backup-too-old" | "unknown-plan" };
+
+/**
+ * May the healing write the restored index into the SYNCED index folder? (Decision Johannes 2026-10-15; owner
+ * task: vault-rag, "Wann darf die Heilung in den gesyncten Index-Ordner schreiben".)
+ *
+ * `planAutoHeal` says how far the cascade gets; this says whether its restore may reach the disk. They differ only
+ * for `restore-only`: a backup restored while the endpoint does not answer. There the gap to the vault is closed
+ * later by live operation — if the endpoint ever comes back. If it does not (a URL typed wrong, the pending queue
+ * never empties), the old stand sits in a folder that sync carries to every other device, and `isSuspiciousShrink`
+ * accepts a drop above 50 %. So `restore-only` writes only if
+ *
+ * - the backup is younger than {@link HEAL_BACKUP_MAX_AGE_MS} (the loss is bounded by the age), **or**
+ * - the endpoint was reached in this session (the gap will close).
+ *
+ * Otherwise the write protection stays and the caller shows a notice. Per plan:
+ *
+ * - `restore-and-reindex` → writes (`reindex-follows`): the endpoint answers now and the reindex fills the gap. A
+ *   reindex that fails half way is {@link canPersistHealedIndex}'s to refuse — the caller applies both.
+ * - `wait-for-sync` → never writes, however fresh the backup or reached the endpoint: the mobile rule stays.
+ * - `no-backup` → nothing to write.
+ *
+ * `backupAgeMs` unknown (anything but a finite number: `undefined`, `null`, `NaN`, `Infinity`) or **negative** counts as not fresh: a missing time is no proof of freshness, and
+ * a time in the future is no proof either. Clock skew between devices is the caller's to clamp before it gets here.
+ * Fresh is checked before "endpoint reached", so `because` names the weaker, backup-bound reason when both hold.
+ */
+export function decideHealWrite(
+  input: { plan: AutoHealPlan["kind"]; backupAgeMs: number | undefined; endpointReachedThisSession: boolean },
+): HealWriteVerdict {
+  switch (input.plan) {
+    case "no-backup": return { write: false, because: "no-backup" };
+    case "wait-for-sync": return { write: false, because: "wait-for-sync" };
+    case "restore-and-reindex": return { write: true, because: "reindex-follows" };
+    case "restore-only": {
+      const age = input.backupAgeMs;
+      if (typeof age === "number" && age >= 0 && age < HEAL_BACKUP_MAX_AGE_MS) return { write: true, because: "backup-fresh" };
+      if (input.endpointReachedThisSession) return { write: true, because: "endpoint-reached-this-session" };
+      return { write: false, because: "backup-too-old" };
+    }
+    // A plan this copy does not know (a newer caller): the write protection stays.
+    default: return { write: false, because: "unknown-plan" };
+  }
+}
+
+/** Age of a backup in ms from its modification time and the clock. `undefined` when either is missing or not finite;
+ *  a time in the future gives a negative age on purpose ({@link decideHealWrite} refuses it). */
+export function backupAgeMs(backupMtimeMs: number | undefined, nowMs: number): number | undefined {
+  if (backupMtimeMs === undefined || !Number.isFinite(backupMtimeMs) || !Number.isFinite(nowMs)) return undefined;
+  return nowMs - backupMtimeMs;
 }
 
 /**

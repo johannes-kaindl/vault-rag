@@ -166,6 +166,7 @@ const HEAL_ALT_PUNKT = "Heilung: ein Backup über 7 Tage ohne erreichten Endpunk
 const CHAT_GEMMA_PUNKT = "Chat: Gemma 4 ohne Öffner — der Denktext steht im Denkblock, nicht in der Antwort";
 const CHAT_MD_PUNKT = "Chat: eine fertige Antwort erscheint als Markdown (Liste, Fettung), Fernbild bleibt draußen, die Frage bleibt Text";
 const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
+const MGR_INDEX_PUNKT = "Manager da: passt das Standardmodell nicht zum Index, nimmt die Anbindung den Endpunkt mit Index-Modell; eine ausdrückliche Wahl bleibt unberührt";
 const MGR_PUNKTE = [
   "Manager da: Chat-Endpunkt und Standardmodell kommen vom Manager, der Schlüssel bleibt im Speicher",
   "Manager da: die Nutzerwahl (chatChoice.model) schlägt Standardmodell und config.model",
@@ -271,6 +272,7 @@ const PUNKTE = [
   ...LAB_PRUEFPUNKTE,
   ...INTEGRATOR_PRUEFPUNKTE,
   ...MGR_PUNKTE,
+  MGR_INDEX_PUNKT,
   ...W15_PUNKTE,
   ...W16_PUNKTE,
   MCP_TOKEN_PUNKT,
@@ -1979,6 +1981,38 @@ async function main(): Promise<void> {
         `);
         const leak = disk.includes("w8-schluessel") || disk.includes(MGR_MODEL) || disk.includes(MGR_EMB_MODEL);
         record(MGR_PUNKTE[5]!, !leak, leak ? "Manager-Schlüssel oder -Modell steht in data.json" : "data.json trägt nur die Nutzerwahl (chatChoice) und die lokalen Listen");
+
+        // Index-Modell im Manager-Weg (Entscheidung Johannes 2026-09-25, Kit 0.61.0): ZWEI Embedding-Endpunkte im Fake-Manager, der
+        // erste mit fremdem Standardmodell (wie oben), der zweite mit dem Modell, das der Index trägt. Ohne ausdrückliche Wahl
+        // nimmt die Anbindung den zweiten; mit einer ausdrücklichen Wahl (`embeddingChoice.model`) bleibt es bei der Wahl.
+        // Gegenprobe ist der Punkt davor: derselbe Aufbau mit nur dem fremden Endpunkt lässt den Endpunkt unbelegt (embActive null).
+        await entferneFakeManager(main, { pluginId: MGR });
+        const indexModell = await main.evaluate<string>(`return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].index?.manifest.embedding_model || "";`);
+        if (indexModell === "") {
+          unmeasured(MGR_INDEX_PUNKT, "kein geladener Index — das Index-Modell fehlt");
+        } else {
+          await installFakeManager(main, {
+            ...fakeOpts,
+            endpunkte: [
+              ...fakeOpts.endpunkte,
+              { id: "w8-embedding-index", label: "w8-embedding-index", url: mgrLocal.embUrl, models: [indexModell], defaultModel: indexModell, capabilities: ["embedding" as const], apiKey: "w8-schluessel", configModel: "default" as const },
+            ],
+          });
+          const ix = await main.evaluate<{ model: string; active: string | null }>(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            p.settings.embeddingChoice = {};
+            await p.resolveAndReconnectEmbedder();
+            return { model: p.embeddingModelInUse, active: p.activeEmbeddingEndpoint };
+          `);
+          const gewaehlt = await main.evaluate<{ model: string }>(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            p.settings.embeddingChoice = { model: ${JSON.stringify(MGR_EMB_MODEL)} };
+            await p.resolveAndReconnectEmbedder();
+            return { model: p.embeddingModelInUse };
+          `);
+          record(MGR_INDEX_PUNKT, ix.model === indexModell && ix.active !== null && gewaehlt.model === MGR_EMB_MODEL,
+            `ohne Wahl: Modell ${ix.model} (Index ${indexModell}) · aktiv ${String(ix.active)}; mit Wahl ${MGR_EMB_MODEL}: Modell ${gewaehlt.model}`);
+        }
       } finally {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];

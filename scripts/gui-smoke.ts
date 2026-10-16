@@ -162,6 +162,7 @@ const PAUSE_PUNKTE = [
 ];
 const REFORMAT_PRESET_PUNKT = "Umformatieren: eine eigene Funktion (Titel + Anweisung) erscheint als Knopf in der Leiste und verschwindet beim Löschen";
 const EMBED_ZAEHLER_PUNKT = "Embedding-Zähler: eine Suche über die Plugin-API steht unter „api“, der Befehl zeigt die Zählung";
+const CHAT_GEMMA_PUNKT = "Chat: Gemma 4 ohne Öffner — der Denktext steht im Denkblock, nicht in der Antwort";
 const CHAT_MD_PUNKT = "Chat: eine fertige Antwort erscheint als Markdown (Liste, Fettung), Fernbild bleibt draußen, die Frage bleibt Text";
 const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
 const MGR_PUNKTE = [
@@ -272,6 +273,7 @@ const PUNKTE = [
   ...W16_PUNKTE,
   MCP_TOKEN_PUNKT,
   CHAT_MD_PUNKT,
+  CHAT_GEMMA_PUNKT,
   EMBED_ZAEHLER_PUNKT,
   REFORMAT_PRESET_PUNKT,
   ...PAUSE_PUNKTE,
@@ -2060,6 +2062,53 @@ async function main(): Promise<void> {
           await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
           return true;`);
         await mdStub.stop();
+      }
+    }
+
+    // --- 7e1b2. Gemma 4 ohne Öffner (Welle 23, Gegenprobe zu `onContentReset`) ---------------------------------------
+    // Gemma 4 auf LM Studio schreibt das Denken OHNE Öffner in `content` und beendet es mit `<channel|>`; die Antwort folgt.
+    // Der Stub streamt genau das. Gemessen wird der ANZEIGETEXT der Antwort im Chat: ohne `onContentReset` bliebe der Denktext
+    // bis zum Ende darin stehen. Das Denken gehört in den ausklappbaren Block.
+    if (nur === null) {
+      const GEDANKE = "Ich wäge erst die Quellen ab und prüfe dann den Kontext.";
+      const gemmaStub = await startLlmStub({ models: ["google/gemma-4-e4b"], antwort: () => ({ stuecke: [GEDANKE.slice(0, 20), GEDANKE.slice(20) + "<channel|>", "Die fertige ", "Antwort."], takt: 500 }) });
+      const gesichert = await main.evaluate<unknown>(`return JSON.parse(JSON.stringify(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.chatEndpoints));`);
+      try {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.chatEndpoints = [{ url: ${JSON.stringify(gemmaStub.url)}, model: "google/gemma-4-e4b" }];
+          p.llm.invalidate(); await p.resolveAndReconnectChat();
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
+          document.querySelector(".vault-rag-chat-new")?.click();
+          const ta = document.querySelector(".vault-rag-chat-input");
+          ta.value = "Gemma-Frage"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+          document.querySelector(".vault-rag-chat-send").click();
+          return true;`);
+        // MITTEN im Strom lesen: am Ende setzt `chat_session` den Antworttext aus dem Ergebnis neu, ein fehlendes `onContentReset`
+        // fiele dort nicht mehr auf. Sichtbar ist es nur, solange die Antwort noch läuft.
+        const mid = await pollUntil<string>(main, `
+          const a = [...document.querySelectorAll(".vault-rag-chat-msg.is-assistant")].pop();
+          const t = a ? (a.textContent || "") : "";
+          return t.includes("Die fertige") && !t.includes("Antwort.") ? t : null;`, 20_000, 50);
+        const g = await pollUntil<{ answer: string; thought: string; hasBlock: boolean }>(main, `
+          const a = [...document.querySelectorAll(".vault-rag-chat-msg.is-assistant")].pop();
+          if (!a) return null;
+          // Der Denkblock ist ein Geschwister der Nachricht, kein Kind (chat_view.renderMessages).
+          const body = [...document.querySelectorAll(".vault-rag-chat-reasoning-body")].pop();
+          const sum = [...document.querySelectorAll(".vault-rag-chat-reasoning-sum")].pop();
+          if (!body || !(a.textContent || "").includes("Antwort.")) return null;
+          const clone = a;
+          return { answer: (clone.textContent || "").trim(), thought: body.textContent || "", hasBlock: !!sum };`, 20_000, 250);
+        record(CHAT_GEMMA_PUNKT, typeof mid === "string" && !mid.includes("wäge") && !mid.includes("channel") && !!g && g.hasBlock && g.answer === "Die fertige Antwort." && g.thought.includes("wäge") && !g.answer.includes("wäge") && !g.answer.includes("channel"),
+          g ? `mitten im Strom „${String(mid).slice(0, 60)}“ · Antwort „${g.answer}“ · Denkblock „${g.thought.slice(0, 40)}“` : `keine Antwort mit Denkblock in 20 s — Lage: ${await main.evaluate<string>(`return [...document.querySelectorAll(".vault-rag-chat-msg")].map(e => e.className + " | " + (e.textContent || "").slice(0, 120)).join(" ## ") + " || " + (document.querySelector(".vault-rag-chat-state")?.textContent ?? "");`)}`);
+      } finally {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          document.querySelector(".vault-rag-chat-new")?.click();
+          p.settings.chatEndpoints = ${JSON.stringify(gesichert)};
+          await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
+          return true;`);
+        await gemmaStub.stop();
       }
     }
 

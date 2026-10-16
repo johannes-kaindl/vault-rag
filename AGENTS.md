@@ -443,7 +443,7 @@ esbuild: `entryPoints: src/main.ts`, `format: cjs`, `externals: obsidian, electr
 ## Conventions
 
 - **TS strict + `noImplicitAny`** — keine `any`-Casts für neue Typen.
-- **Tests:** vitest + happy-dom; Obsidian-Mock ist der Kit-Mock (`tests/vendor/kit/obsidian-mock.ts`, vendort), `tests/__mocks__/obsidian.ts` re-exportiert ihn und überschreibt als einzige deklarierte Abweichung `requestUrl` mit `vi.fn()` (kein echter
+- **Tests:** vitest + happy-dom; Obsidian-Mock ist der Kit-Mock (`tests/vendor/kit/obsidian-mock.ts`, vendort), `tests/__mocks__/obsidian.ts` re-exportiert ihn ohne Abweichung (sein `requestUrl` ist seit obsidian-kit 0.61.0 vi-kompatibel; kein echter
   obsidian-Import im Test). `describe/it/expect`, kein `.only`/`.skip` im Commit. Nach jeder
   Änderung müssen **alle Tests grün** bleiben.
 - **`isEmbedding` immer via `try/finally`** klammern (kein vergessenes `finally`).

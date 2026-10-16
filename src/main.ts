@@ -512,16 +512,12 @@ export default class VaultRagPlugin extends Plugin {
     // Aktiven Endpoint aus den Fallback-Listen auflösen (erster erreichbarer gewinnt).
     void this.resolveAndReconnectEmbedder();
     void this.resolveAndReconnectChat();
-    // Der Manager kann jederzeit installiert, deaktiviert oder umkonfiguriert werden. Das Abo
-    // erst nach layout-ready: vorher lädt er womöglich noch nicht, und ein Abo ohne Manager ist
-    // für die ganze Sitzung ein No-op.
-    this.app.workspace.onLayoutReady(() => {
-      const off = onEndpointManagerChanged(this.app, () => {
-        void this.resolveAndReconnectEmbedder();
-        void this.resolveAndReconnectChat();
-      });
-      this.register(off);
-    });
+    // Der Manager kann jederzeit installiert, deaktiviert oder umkonfiguriert werden. Seit Kit 0.61.0 zieht das Abo nach,
+    // wenn er erst nach diesem Plugin erscheint (Layout-Ready und `layout-change`), und ruft `cb` einmal, sobald er da ist.
+    this.register(onEndpointManagerChanged(this.app, () => {
+      void this.resolveAndReconnectEmbedder();
+      void this.resolveAndReconnectChat();
+    }));
 
     void this.startMcpServerIfEnabled();
     // Über denselben mcpOpChain wie start/restart, damit ein Unload mitten in einem
@@ -839,6 +835,7 @@ export default class VaultRagPlugin extends Plugin {
   private thinkingDeps(mode: ModeId, modelOf: () => string): Omit<ThinkingControlOptions, "containerEl"> {
     return {
       family: () => this.familyFor(modelOf()),
+      backend: () => this.llm.source().backend,
       current: () => thinkingFor(this.settings.request, mode),
       onLevel: () => onLevelFor(this.settings.request, mode),
       setLevel: async (level) => {

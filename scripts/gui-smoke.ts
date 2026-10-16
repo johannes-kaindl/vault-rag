@@ -162,6 +162,7 @@ const PAUSE_PUNKTE = [
 ];
 const REFORMAT_PRESET_PUNKT = "Umformatieren: eine eigene Funktion (Titel + Anweisung) erscheint als Knopf in der Leiste und verschwindet beim Löschen";
 const EMBED_ZAEHLER_PUNKT = "Embedding-Zähler: eine Suche über die Plugin-API steht unter „api“, der Befehl zeigt die Zählung";
+const HEAL_ALT_PUNKT = "Heilung: ein Backup über 7 Tage ohne erreichten Endpunkt wird nicht zurückgeschrieben (Schreibschutz bleibt, Notice nennt den Grund)";
 const CHAT_GEMMA_PUNKT = "Chat: Gemma 4 ohne Öffner — der Denktext steht im Denkblock, nicht in der Antwort";
 const CHAT_MD_PUNKT = "Chat: eine fertige Antwort erscheint als Markdown (Liste, Fettung), Fernbild bleibt draußen, die Frage bleibt Text";
 const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
@@ -266,6 +267,7 @@ const PUNKTE = [
   "Gesperrter Anwenden-Knopf ist sichtbar gesperrt (nicht nur per Klasse)",
   "Defekter Container heilt sich ohne Endpunkt aus dem Backup",
   "Die Heilung meldet sich, statt still einen aelteren Stand zu benutzen",
+  HEAL_ALT_PUNKT,
   ...LAB_PRUEFPUNKTE,
   ...INTEGRATOR_PRUEFPUNKTE,
   ...MGR_PUNKTE,
@@ -3249,6 +3251,15 @@ async function main(): Promise<void> {
         const at = Math.floor(bytes.length / 2);
         bytes[at] = bytes[at] ^ 0xff;
         await app.vault.adapter.writeBinary(${JSON.stringify("__PATH__")}, bytes.buffer);
+        // Das Alter des Backups trägt sein Name (built_at des gesicherten Containers); die Heil-Regel (Welle 23) schreibt ein
+        // Backup ohne erreichten Endpunkt nur zurück, wenn es jünger als 7 Tage ist. Damit dieser Punkt nicht mit dem Kalender
+        // altert, bekommen alle Backups einen Namen von JETZT (jeweils eine Millisekunde früher als das vorige).
+        const root = p.backupsRoot();
+        const alt = await p.backupNames();
+        const nun = Date.now();
+        for (let i = 0; i < alt.length; i++) {
+          await app.vault.adapter.rename(root + "/" + alt[i], root + "/" + new Date(nun - 1000 - i).toISOString().replace(/[:.]/g, "-"));
+        }
         // Neu laden: der Reload ist der einzige Weg in loadIndex() → corrupt → attemptAutoHeal.
         await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
         await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
@@ -3297,6 +3308,59 @@ async function main(): Promise<void> {
         healOwn.length
           ? `„${healOwn.join(" | ").slice(0, 160)}“`
           : `keine EIGENE Notice waehrend des Laufs${healForeign.length ? ` (${healForeign.length} fremde gesehen und verworfen)` : ""}`);
+      // --- 8b. Heil-Regel: ein altes Backup ohne erreichten Endpunkt wird NICHT in den gesyncten Ordner geschrieben ---------
+      // Entscheidung Johannes 2026-10-15 (`decideHealWrite`, code-kit 0.28.0). Der Endpunkt ist weiter tot (die Sitzung ist
+      // frisch geladen, es hat noch keiner geantwortet); die Backups tragen jetzt einen Namen von vor acht Tagen. Erwartet:
+      // der Index bleibt weg, der Container auf der Platte bleibt der defekte, die eigene Notice nennt den Grund. Gegenstück ist
+      // der Punkt davor (frisches Backup, derselbe Aufbau): dort wird geheilt. Ohne die Regel heilte auch dieser Lauf.
+      {
+        const alt = await main.evaluate<{ names: number; flipped: number }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          window.__vaultRagSmokeNotices = [];
+          const collect = (records) => {
+            for (const rec of records) for (const node of rec.addedNodes) {
+              if (node.nodeType !== 1) continue;
+              const hit = node.classList.contains("notice") ? node : node.querySelector?.(".notice");
+              if (hit) window.__vaultRagSmokeNotices.push(hit.textContent.trim());
+            }
+          };
+          window.__vaultRagSmokeObservers = [];
+          for (const doc of new Set([document, typeof activeDocument !== "undefined" ? activeDocument : document])) {
+            const obs = new MutationObserver(collect); obs.observe(doc.body, { childList: true, subtree: true }); window.__vaultRagSmokeObservers.push(obs);
+          }
+          const root = p.backupsRoot();
+          const names = await p.backupNames();
+          const vor = Date.now() - 8 * 24 * 3600 * 1000;
+          for (let i = 0; i < names.length; i++) {
+            await app.vault.adapter.rename(root + "/" + names[i], root + "/" + new Date(vor - 1000 - i).toISOString().replace(/[:.]/g, "-"));
+          }
+          const bytes = new Uint8Array(window.__vaultRagSmokeIndex.slice(0));
+          const at = Math.floor(bytes.length / 2);
+          bytes[at] = bytes[at] ^ 0xff;
+          await app.vault.adapter.writeBinary(${JSON.stringify(indexPath)}, bytes.buffer);
+          window.__vaultRagSmokeFlippedAt = at;
+          await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+          await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+          return { names: names.length, flipped: at };
+        `);
+        // Eine Frist, in der die Kaskade sonst längst fertig wäre (Punkt davor: Heilung binnen Sekunden), dann messen.
+        await new Promise((r) => setTimeout(r, 12_000));
+        const nach = await main.evaluate<{ indexed: boolean; onDisk: boolean; notices: string[] }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const seen = window.__vaultRagSmokeNotices || [];
+          for (const obs of window.__vaultRagSmokeObservers || []) obs.disconnect();
+          delete window.__vaultRagSmokeObservers; delete window.__vaultRagSmokeNotices;
+          const disk = new Uint8Array(await app.vault.adapter.readBinary(${JSON.stringify(indexPath)}));
+          const orig = new Uint8Array(window.__vaultRagSmokeIndex);
+          const stillBroken = disk[window.__vaultRagSmokeFlippedAt] !== orig[window.__vaultRagSmokeFlippedAt];
+          delete window.__vaultRagSmokeFlippedAt;
+          return { indexed: !!(p && p.api && p.api.status().indexed), onDisk: stillBroken, notices: seen };
+        `);
+        const eigene = nach.notices.filter((n) => ownNotice.test(n));
+        const nennt = eigene.some((n) => /older than 7 days|älter als 7 Tage/i.test(n));
+        record(HEAL_ALT_PUNKT, alt.names > 0 && !nach.indexed && nach.onDisk && nennt,
+          `${alt.names} Backup(s) auf „vor 8 Tagen“ · Index geladen: ${nach.indexed} · Container auf Platte noch defekt: ${nach.onDisk} · Notice mit Grund: ${nennt}${eigene.length ? "" : " (keine eigene Notice)"}`);
+      }
     }
     } // Ende nachlauf
 

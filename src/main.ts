@@ -51,10 +51,11 @@ import type { TemplateRank } from "./template_ranker";
 import { normalizeFolder } from "./vendor/kit/folder-hide";
 import { installFolderHide, type FolderHideHandle } from "./vendor/kit-obsidian/folder-hide";
 import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIRED_FILES, removeDirDeep } from "./index_migrate";
+import { timeFromStampedName } from "./vendor/kit/rotation";
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
-import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, findStaleVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal } from "./vendor/kit/index-guard";
+import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, findStaleVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal, decideHealWrite, backupAgeMs } from "./vendor/kit/index-guard";
 import { loadIndexStore, verifyBackupCandidate } from "./index_store";
 import { CONTAINER_FILE, decodeContainer } from "./vendor/kit/index-container";
 import { McpTools } from "./mcp/tools";
@@ -156,6 +157,8 @@ export default class VaultRagPlugin extends Plugin {
   private readonly markdownComponent = new Component();
   /** Auto-Heal höchstens einmal je Gefahrenzustand-Episode (Reset bei gesundem Load). */
   private autoHealAttempted = false;
+  /** Hat in DIESER Sitzung ein Embedding-Endpunkt geantwortet? Eine Eingangsgröße der Heil-Regel (`decideHealWrite`). */
+  private embeddingReachedThisSession = false;
   private indexOpChain: Promise<void> = Promise.resolve();
   private mcpServer: McpServerHandle | null = null;
   private mcpLastStartError: StartErrorReason | null = null;
@@ -741,6 +744,7 @@ export default class VaultRagPlugin extends Plugin {
       m = fits ? rowModel(fits) : "";
     }
     this.activeEmbeddingEndpoint = r.state === "active" && cfg ? normalizeEndpoint(cfg.url) : null;
+    if (this.activeEmbeddingEndpoint !== null) this.embeddingReachedThisSession = true;
     this.embeddingModelInUse = m;
     // Die DURCHSETZUNG des Modell-Schutzes hängt nicht hier, sondern an der Schreiboperation
     // (LiveIndexer.persist → assertModelSafeToPersist, Wahrheit aus dem Container auf Platte).
@@ -888,7 +892,9 @@ export default class VaultRagPlugin extends Plugin {
   private async embedderPing(): Promise<boolean> {
     const cfg = (await this.emb.resolve()).source.config;
     if (!cfg) return false;
-    return (await probeEndpoint(normalizeEndpoint(cfg.url), cfg.apiKey)).reachable;
+    const reachable = (await probeEndpoint(normalizeEndpoint(cfg.url), cfg.apiKey)).reachable;
+    if (reachable) this.embeddingReachedThisSession = true;
+    return reachable;
   }
 
   /** Chat-Reachability mit EINEM Re-Resolve-Retry, analog embedderReady. */
@@ -1267,9 +1273,10 @@ export default class VaultRagPlugin extends Plugin {
     // das CRC-bewiesene Backup danebenlag (so beobachtet 2026-08-14). Die Aufteilung, was
     // Netz braucht und was nicht, macht `planAutoHeal` explizit.
     let candidate: VectorIndex | null = null;
+    let candidateName = "";
     for (const b of await this.listBackups()) { // sortBackupsNewestFirst-Reihenfolge
       candidate = await verifyBackupCandidate(this.app.vault.adapter, `${this.backupsRoot()}/${b.name}`);
-      if (candidate) break;
+      if (candidate) { candidateName = b.name; break; }
     }
     // `!Platform.isMobile` ist die ehrlichste verfügbare Antwort auf „kann dieses Gerät den
     // Index je selbst vervollständigen?" — grob, aber in die sichere Richtung grob: auf dem
@@ -1301,6 +1308,21 @@ export default class VaultRagPlugin extends Plugin {
       return;
     }
     if (!candidate) return; // unerreichbar (plan ∈ {restore-*} ⇒ candidate gesetzt); beruhigt den Compiler
+    // Darf die Wiederherstellung in den GESYNCTEN Ordner schreiben? Entscheidung Johannes 2026-10-15: ein Backup ohne Reindex
+    // (`restore-only`) nur, wenn es jünger als 7 Tage ist oder in dieser Sitzung ein Endpunkt geantwortet hat — sonst bliebe die
+    // Lücke womöglich für immer offen, und der alte Stand ginge per Sync an alle Geräte. Das Alter trägt der Name (`built_at`
+    // des gesicherten Containers, also das Alter der INHALTE).
+    const verdict = decideHealWrite({
+      plan: plan.kind,
+      backupAgeMs: backupAgeMs(timeFromStampedName(candidateName) ?? undefined, Date.now()),
+      endpointReachedThisSession: this.embeddingReachedThisSession,
+    });
+    if (!verdict.write) {
+      // Wie `wait-for-sync`: Schreibschutz bleibt, Versuch wieder freigeben (ein späterer corrupt-Load derselben Sitzung prüft neu).
+      this.autoHealAttempted = false;
+      if (!this.indexHealthy) new Notice(t("main.autoHealBackupTooOld"), 10000);
+      return;
+    }
     const base = candidate;
     // Sonderfall, den persist() strukturell NICHT sehen kann: Die Kaskade läuft genau dann, wenn
     // der Container auf Platte defekt ist — dort gibt es keine Disk-Wahrheit, gegen die der

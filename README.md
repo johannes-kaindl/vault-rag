@@ -85,6 +85,8 @@ npm run build      # → main.js
 6. Select a block of text, then run the reformat command from the command palette or the editor right-click menu — or use the reformat tab and click a transform. Mechanical ones apply immediately; LLM ones open a streamed preview to review before applying. Reformatting needs editing mode; in reading mode the buttons stay disabled and say so. If you edit the note while a preview is open, the replacement is refused rather than applied at the wrong spot.
 7. *(Optional)* Enable the **Integrator** in settings — a sixth tab collects **link suggestions** for your notes. Run `Suggest links for active note`, or list folders in settings so notes there get suggestions automatically after each change (and `Suggest links for folders` runs over the backlog). **Accept** writes a wikilink into the note — into a section at the end (default heading `Verwandte Notizen`, editable) or into a frontmatter list property such as `related`, your choice; **Reject** remembers the target for that note. Nothing is written until you click, and nothing needs a language model: suggestions come straight from the index.
 
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/integrator.png" width="820" alt="The Integrator tab after one suggestion was accepted: the note on the left now ends in a Related notes section with the new link, and the tab on the right lists the remaining link suggestions per note with their similarity score and Accept and Reject buttons">
+
 ### Commands
 
 The middle column is what you type in the command palette. On a German Obsidian, the commands appear under their German names instead.

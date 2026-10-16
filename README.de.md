@@ -85,6 +85,8 @@ npm run build      # → main.js
 6. Einen Textblock markieren, dann `Abschnitt umformatieren` aus der Befehlspalette oder dem Rechtsklick-Menü — oder den Umformatieren-Tab benutzen. Mechanische Transformationen greifen sofort; LLM-gestützte öffnen eine gestreamte Vorschau. Umformatieren braucht den Bearbeitungsmodus; im Lesemodus bleiben die Buttons deaktiviert und sagen warum. Wird die Notiz geändert, während eine Vorschau offen ist, wird die Ersetzung verweigert statt an der falschen Stelle angewendet.
 7. *(Optional)* Den **Integrator** in den Einstellungen aktivieren — ein sechster Tab sammelt **Verlinkungs-Vorschläge** für deine Notizen. `Links für aktive Notiz vorschlagen` ausführen, oder in den Einstellungen Ordner eintragen, dann bekommen Notizen darunter nach jeder Änderung automatisch Vorschläge (und `Links für Ordner vorschlagen` läuft über den Altbestand). **Annehmen** schreibt einen Wikilink in die Notiz — in einen Abschnitt am Ende (Überschrift `Verwandte Notizen`, einstellbar) oder in eine Frontmatter-Listen-Eigenschaft wie `related`, nach Wahl; **Ablehnen** merkt sich das Ziel für diese Notiz. Geschrieben wird erst beim Klick, und kein Sprachmodell ist nötig: die Vorschläge kommen direkt aus dem Index.
 
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/integrator.png" width="820" alt="Der Integrator-Tab nach dem Annehmen eines Vorschlags: links trägt die Notiz am Ende einen Abschnitt Verwandte Notizen mit dem neuen Link, rechts listet der Tab die übrigen Verlinkungs-Vorschläge je Notiz mit Ähnlichkeitswert sowie Annehmen- und Ablehnen-Knöpfen">
+
 ### Befehle
 
 Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die Befehle entsprechend englisch.

@@ -92,6 +92,8 @@ const MAX_RATIO_FEATURE = 1.6;
 const HERO_NOTIZ = "Notes/Zettelkasten method.md";
 const MESSY_NOTIZ = "Notes/Team sync 2026-03-12.md";
 const REFORMAT_NOTIZ = "Notes/Reading workflow.md";
+/** Fixture-Pfad relativ zu `docs/images/fixture/notes/` — zugleich der Vault-Pfad. */
+const INTEGRATOR_NOTIZ = "Notes/Integrator plain.md";
 
 /** Anfrage fuer `search.png`. Teilt mit KEINEM Treffertitel ein Wort — genau das ist die
  *  Aussage des Bildes. Wer sie aendert, pruefe das nach, sonst zeigt das Bild eine
@@ -615,6 +617,77 @@ const SHOTS: Shot[] = [
       }
       await zeigerWeg(cdp);
       return panelBox(cdp);
+    },
+  },
+  {
+    name: "integrator.png",
+    klasse: "feature",
+    async run(cdp) {
+      // Der Integrator rechnet offline aus dem Index, ohne Sprachmodell. Ausgangslage aus dem
+      // getrackten Fixture herstellen (ein frueherer Lauf hat die Notiz veraendert), sonst
+      // steht der Abschnitt „Verwandte Notizen“ schon darin und „annehmen“ aendert nichts.
+      const fixture = readFileSync(join(cwd(), "docs", "images", "fixture", "notes", INTEGRATOR_NOTIZ), "utf8");
+      await cdp.evaluate(`
+        await app.vault.adapter.write(${JSON.stringify(INTEGRATOR_NOTIZ)}, ${JSON.stringify(fixture)});
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        p.integratorStore.remove?.(${JSON.stringify(INTEGRATOR_NOTIZ)});
+        return true;
+      `);
+      if (!(await openExisting(cdp, INTEGRATOR_NOTIZ, "preview"))) return null;
+      await closeExtraLeaves(cdp);
+      const vorschlag = await cdp.evaluate<string>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const r = await p.proposeFor(${JSON.stringify(INTEGRATOR_NOTIZ)});
+        return r.kind === "proposal" ? "ok:" + r.proposal.links.length : r.kind;
+      `);
+      if (!vorschlag.startsWith("ok:")) {
+        console.log(`      · kein Vorschlag (${vorschlag}) — Index gebaut? integratorEnabled?`);
+        return null;
+      }
+      if (!(await hubTab(cdp, "integrator"))) return null;
+      await sidebarBreit(cdp, 420);
+      await statusleisteAus(cdp);
+      await zeigerWeg(cdp);
+      const knoepfe = await pollUntil<number>(cdp, `
+        const n = [...document.querySelectorAll(".vault-rag-int-accept")]
+          .filter((e) => e.getBoundingClientRect().width > 1).length;
+        return n > 0 ? n : null;
+      `, 10_000, 250);
+      if (!knoepfe) {
+        console.log("      · keine Annehmen-Knoepfe im Panel");
+        return null;
+      }
+      // Eines annehmen — der Weg des Nutzers; danach steht der Link in der Notiz, die uebrigen
+      // Vorschlaege bleiben in der Karte. Beides zusammen ist die Aussage des Bildes.
+      await cdp.evaluate(`document.querySelector(".vault-rag-int-card .vault-rag-int-accept").click(); return true;`);
+      const geschrieben = await pollUntil<boolean>(cdp, `
+        const t = await app.vault.adapter.read(${JSON.stringify(INTEGRATOR_NOTIZ)});
+        return t.includes("## Verwandte Notizen") ? true : null;
+      `, 10_000, 250);
+      if (!geschrieben) {
+        console.log("      · Annehmen hat nichts in die Notiz geschrieben");
+        return null;
+      }
+      // Die Vorschau zeichnet die geaenderte Datei erst nach dem Neuoeffnen.
+      if (!(await openExisting(cdp, INTEGRATOR_NOTIZ, "preview"))) return null;
+      const vorschauZeigt = await pollUntil<boolean>(cdp, `
+        return [...document.querySelectorAll(".markdown-preview-view")]
+          .some((e) => e.getBoundingClientRect().width > 1 && e.textContent.includes("Verwandte Notizen")) ? true : null;
+      `, 10_000, 250);
+      if (!vorschauZeigt) {
+        console.log("      · die Vorschau zeigt den neuen Abschnitt nicht");
+        return null;
+      }
+      const uebrig = await pollUntil<number>(cdp, `
+        const n = document.querySelectorAll(".vault-rag-int-card .okit-hit").length;
+        return n > 0 ? n : null;
+      `, 5_000, 250);
+      if (!uebrig) {
+        console.log("      · nach dem Annehmen bleiben keine Vorschlaege in der Karte");
+        return null;
+      }
+      await zeigerWeg(cdp);
+      return { art: "fenster" };
     },
   },
   {

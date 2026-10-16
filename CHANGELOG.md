@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- The README shows the Integrator tab with link suggestions, one of them accepted (`docs/images/integrator.png`, recorded by `npm run shots`).
+- The README names the pause command as the interface does ("Pause embedding").
+
 ## [0.42.0] — 2026-10-14
 
 ### Changed

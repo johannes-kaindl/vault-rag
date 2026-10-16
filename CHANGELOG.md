@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.43.0] — 2026-10-16
+
 ### Changed
 
 - Kit pin `obsidian-kit` 0.60.3 → 0.61.0 and `code-kit` 0.27.2 → 0.28.0 (`lib` in `tsconfig.json` raised to ES2022, code-kit uses `Object.hasOwn`; types only).

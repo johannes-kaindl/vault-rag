@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.61.0"
+      "ref": "0.63.0"
     },
     "code-kit": {
-      "ref": "0.28.0"
+      "ref": "0.31.0"
     }
   },
   "targets": [
@@ -46,7 +46,9 @@
         "sse",
         "think-splitter",
         "timeout",
-        "model-context"
+        "model-context",
+        "probe-core",
+        "rel-path"
       ]
     },
     {
@@ -74,7 +76,9 @@
         "endpoint-source",
         "folder-hide",
         "frontmatter",
-        "tool-provider"
+        "tool-provider",
+        "anthropic-wire",
+        "override-guard"
       ],
       "rewrite": [
         [
@@ -121,7 +125,9 @@
         "shortcuts-bridge",
         "stream-area",
         "thinking-control",
-        "endpoint-status-text"
+        "endpoint-status-text",
+        "anthropic-transport",
+        "plugin-api"
       ],
       "rewrite": [
         [

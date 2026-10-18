@@ -1,5 +1,5 @@
-// vendored from code-kit@0.28.0, src/ts/pure/index-container.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
-// uebernommen aus vault-rag/src/index_container.ts, 2026-10-11 (Änderungen: crc32 aus eigenem Modul, `noUncheckedIndexedAccess`-clean; Format und Fehlermeldungen unverändert)
+// vendored from code-kit@0.31.0, src/ts/pure/index-container.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// uebernommen aus vault-rag/src/index_container.ts, 2026-10-11 (Änderungen: crc32 aus eigenem Modul, `noUncheckedIndexedAccess`-clean; Format und Fehlermeldungen unverändert; seit 0.30.0 ist ein Header, der kein JSON-Objekt ist, `header` statt TypeError)
 /** Codec for the container file of a note index (`<dir>/index.bin`). One file instead of three, so that a file sync
  *  cannot mix generations (vault-rag spec 2026-07-29).
  *
@@ -97,6 +97,9 @@ export function decodeContainer(buf: ArrayBuffer): {
     header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + headerLen))) as typeof header;
   } catch {
     throw new ContainerError("header", "Container-Header ist kein gültiges JSON");
+  }
+  if (typeof header !== "object" || header === null || Array.isArray(header)) {
+    throw new ContainerError("header", "Container-Header ist kein Objekt");
   }
   if (header.schema_version !== CONTAINER_SCHEMA_VERSION) {
     throw new ContainerError("schema", `Unbekannte Container-Schema-Version ${String(header.schema_version)}`);

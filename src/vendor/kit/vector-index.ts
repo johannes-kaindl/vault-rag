@@ -1,4 +1,4 @@
-// vendored from code-kit@0.28.0, src/ts/pure/vector-index.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.31.0, src/ts/pure/vector-index.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/index.ts (ohne IndexLoader, VaultIndex → VectorIndex, VaultAdapter → IndexStorage) und vault-rag/src/retriever.ts, 2026-10-11 (Änderungen: `noUncheckedIndexedAccess`-clean; Fehlermeldungen ohne den Präfix "vault-rag")
 /** The loaded form of a note index: a manifest, one path per row and a matrix of unit vectors, plus the cosine search
  *  over it. Where the bytes come from is {@link IndexStorage}'s concern (a Node file system, Obsidian's vault
@@ -49,6 +49,15 @@ export class VectorIndex {
     if (r < 0) return null;
     return this.vectors.subarray(r * this.dim, (r + 1) * this.dim);
   }
+}
+
+/** int8 quantisation of a unit vector: each value times `scale`, rounded like `Math.round` (halves toward +∞),
+ *  clamped to ±`scale`. The one place of the rule that `live-indexer` writes and `parseIndex` reads back; ports run
+ *  its conformance vector (`src/conformance/quantizeInt8.json`). */
+export function quantizeInt8(vec: ArrayLike<number>, scale = 127): Int8Array {
+  const out = new Int8Array(vec.length);
+  for (let i = 0; i < vec.length; i++) out[i] = Math.max(-scale, Math.min(scale, Math.round((vec[i] ?? 0) * scale)));
+  return out;
 }
 
 /** Dequantises the int8 matrix (`manifest.scale`), renormalises every row (quantisation drift) and checks that the

@@ -1,4 +1,4 @@
-// vendored from code-kit@0.28.0, src/ts/pure/live-indexer.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.31.0, src/ts/pure/live-indexer.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/live_indexer.ts, 2026-10-11 (Änderungen: Dimension als Option statt Konstante INDEX_DIM, Embedder-Interface statt der Klasse EmbeddingClient, IndexStorage statt VaultAdapter, `now` injizierbar, source_dim aus dem beobachteten Vektor, Dimensions-Guard, `noUncheckedIndexedAccess`-clean; Ablauf und Guards sonst unverändert; die Warnungen in der Konsole tragen nicht mehr den Namen des ersten Nutzers)
 /** The indexer: holds one vector per note in memory, keeps them current note by note (`update`, `remove`, `rename`),
  *  rebuilds all (`reindexAll`) or only the missing ones (`healMissing`), and writes the container with the guards of
@@ -21,7 +21,7 @@ import {
   assertSafeToPersist, assertModelSafeToPersist, assertDimSafeToPersist, PersistBlockedError, UNBEKANNTER_STEMPEL,
   type PersistDecision, type PersistReason,
 } from "./index-guard";
-import { VectorIndex, type IndexManifest, type IndexStorage } from "./vector-index";
+import { VectorIndex, quantizeInt8, type IndexManifest, type IndexStorage } from "./vector-index";
 
 /** What vault-rag always used. */
 export const DEFAULT_INDEX_DIM = 256;
@@ -599,9 +599,7 @@ export class LiveIndexer {
     const i8 = new Int8Array(n * dim);
     for (let r = 0; r < n; r++) {
       const v = vectors.get(paths[r] ?? "");
-      for (let c = 0; c < dim; c++) {
-        i8[r * dim + c] = Math.max(-INT8_SCALE, Math.min(INT8_SCALE, Math.round((v?.[c] ?? 0) * INT8_SCALE)));
-      }
+      if (v) i8.set(quantizeInt8(v.length > dim ? v.subarray(0, dim) : v, INT8_SCALE), r * dim);
     }
     await this.adapter.mkdir(this.indexDir);
     const manifest = {

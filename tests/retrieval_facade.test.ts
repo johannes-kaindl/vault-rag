@@ -122,6 +122,8 @@ describe("resolveNotePath", () => {
   it("verbietet absolute Pfade, Traversal und nicht-.md", () => {
     expect(() => resolveNotePath("/etc/x.md", [])).toThrow(/vault-relative/);
     expect(() => resolveNotePath("a/../../x.md", [])).toThrow(/escapes the vault/);
+    expect(() => resolveNotePath("a/.. /x.md", [])).toThrow(/escapes the vault/);
+    expect(() => resolveNotePath("a/b\0.md", [])).toThrow(/NUL byte/);
     expect(() => resolveNotePath("a/x.txt", [])).toThrow(/Markdown/);
   });
   it("verbietet exclude-Präfix (case-insensitiv)", () => {

@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The thinking block of Smart Apply has a copy button.** It sits in the block's summary, copies the thinking as plain text and shows a check mark for a moment; it appears once the block has text and does not fold the block (obsidian-kit 0.63.0).
+
+### Changed
+
+- Kit pin `obsidian-kit` 0.61.0 → 0.63.0 and `code-kit` 0.28.0 → 0.31.0 (`styles.css` carries the fresh `STREAM_AREA_CSS` and `REQUEST_SECTION_CSS`).
+- **Long lines in the running answer wrap instead of being cut off on the right** (Smart Apply and the rewrite preview; `overflow-wrap: anywhere` on the stream tail).
+- **Against LM Studio, thinking and image support of a model now come from its metadata instead of only from its name.** The thinking toggle can therefore appear for more models (code-kit 0.31.0 read a schema no LM Studio sends before; found against LM Studio 0.4.26).
+- **The thinking toggle reads "Thinking: lowest level" with the reason as tooltip** when "off" is not possible (Gemma 4 on LM Studio, Claude), in English and German, replacing "Thinking: low (can't fully turn off)" (obsidian-kit 0.63.0 `thinkingOffTexts`).
+- **Request section:** the "model family detected" hint has a button "Set family in the Manager" that opens the LLM Endpoint Manager settings; a warning appears when a request would make LM Studio load a different model just in time and so unload a loaded one; for Claude the field is named "Thinking effort (effort)"; a connection type the plugin does not support gets its own message instead of a configuration error (obsidian-kit 0.62.0, 0.63.0).
+- **The path check of `readNote` (MCP) is stricter and comes from code-kit `rel-path`:** a NUL byte is refused, and a segment that is `.` or `..` once its whitespace is trimmed (`".. "`) counts as `..`. Everything that was refused before still is.
+- The manual `probe_core.ts` of the self-find probe is replaced by code-kit `probe-core`. Only a hash tie in the sample order changes (UTF-16 order instead of `localeCompare`); a header of the index container that is not a JSON object is now reported as a damaged header instead of failing with an error (code-kit 0.30.0).
+- Tests and driver: the GUI smoke gains the mandatory points of the driver guide (focus survives a redraw during a running answer, every control reachable at natural and short panel height, each with a counter-test) and a point for the copy button; 1263 tests (14 fewer: the old probe-core tests moved to code-kit).
+
 ## [0.43.0] — 2026-10-16
 
 ### Changed

@@ -85,6 +85,7 @@ import { cwd } from "node:process";
 
 import { Cdp, attachTo, beimAbbruch, bereiteInstanzVor, istAbgebrochen, entferneFakeManager, fakeManagerAufrufe, installFakeManager, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
 import { startLlmStub } from "../../tools/obsidian-cdp/llm-stub.js";
+import { aufraeumSkript, erreichbarSkript, fuellSkript, gegenprobeFokus, messeErreichbarkeit, messeFokusErhalt, mitHoehe, zeichnePflicht, type PflichtBilanz } from "../../tools/obsidian-cdp/pflichtpunkte.js";
 import { messeFolge, zeichneFolge } from "../../tools/obsidian-cdp/folge.js";
 import { createBilanz, parseArgs, runDriver, type Bilanz } from "../../tools/obsidian-cdp/bilanz.js";
 import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
@@ -163,6 +164,14 @@ const PAUSE_PUNKTE = [
 const REFORMAT_PRESET_PUNKT = "Umformatieren: eine eigene Funktion (Titel + Anweisung) erscheint als Knopf in der Leiste und verschwindet beim Löschen";
 const EMBED_ZAEHLER_PUNKT = "Embedding-Zähler: eine Suche über die Plugin-API steht unter „api“, der Befehl zeigt die Zählung";
 const HEAL_ALT_PUNKT = "Heilung: ein Backup über 7 Tage ohne erreichten Endpunkt wird nicht zurückgeschrieben (Schreibschutz bleibt, Notice nennt den Grund)";
+/** Pflichtpunkte aus Skill `gui-smoke-setup` §3a (Welle 24) am Chat-Tab, dem einzigen Panel mit Tipp-Feld und wachsendem Ausgabebereich. */
+const PFLICHT_PUNKTE = {
+  fokus: "Pflicht Chat: Tippen im Eingabefeld überlebt einen Anstrich (laufender Strom)",
+  fokusGegen: "Pflicht Chat: Gegenprobe — ein blur im Anstrich macht die Fokusmessung rot",
+  erreichbar: "Pflicht Chat: jedes Bedienelement ist erreichbar (natürliche Höhe)",
+  erreichbarKurz: "Pflicht Chat: jedes Bedienelement ist erreichbar (kurzes Panel, 420 px)",
+  erreichbarGegen: "Pflicht Chat: Gegenprobe — wächst der Nachrichtenbereich, statt zu rollen, wird die Eingabezeile unerreichbar",
+} as const;
 const CHAT_GEMMA_PUNKT = "Chat: Gemma 4 ohne Öffner — der Denktext steht im Denkblock, nicht in der Antwort";
 const CHAT_MD_PUNKT = "Chat: eine fertige Antwort erscheint als Markdown (Liste, Fettung), Fernbild bleibt draußen, die Frage bleibt Text";
 const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
@@ -202,6 +211,7 @@ const STREAM_PUNKTE = {
   saFolge: "Smart Apply: Hochscrollen mitten im Strom wird respektiert (Folge-Regel)",
   saWieder: "Smart Apply: steht der Nutzer wieder unten, folgt der Bereich dem Strom wieder (Wiederaufnahme)",
   saDenk: "Smart Apply: der Denkblock ist während des Stroms sichtbar und wächst (Denkblock live)",
+  saKopie: "Smart Apply: der Denkblock lässt sich kopieren (Kopier-Knopf, Zwischenablage trägt den Denktext)",
   rfKontrolle: "Umformulieren: der Ergebnisbereich folgt dem Strom ohne Störung (Kontrolle)",
   rfFolge: "Umformulieren: Hochscrollen mitten im Strom wird respektiert (Folge-Regel)",
   rfWieder: "Umformulieren: steht der Nutzer wieder unten, folgt der Ergebnisbereich dem Strom wieder (Wiederaufnahme)",
@@ -278,6 +288,7 @@ const PUNKTE = [
   MCP_TOKEN_PUNKT,
   CHAT_MD_PUNKT,
   CHAT_GEMMA_PUNKT,
+  ...Object.values(PFLICHT_PUNKTE),
   EMBED_ZAEHLER_PUNKT,
   REFORMAT_PRESET_PUNKT,
   ...PAUSE_PUNKTE,
@@ -2148,6 +2159,95 @@ async function main(): Promise<void> {
       }
     }
 
+    // --- 7e1b3. Pflichtpunkte am Chat-Tab (Welle 24, Skill gui-smoke-setup §3a, Bausteine aus tools/obsidian-cdp/pflichtpunkte.ts) -----
+    // (a) Fokus-Erhalt WÄHREND eines laufenden Stroms (die Nachrichtenliste zeichnet sich bei jedem Stück neu), (b) Erreichbarkeit
+    // der Bedienelemente bei natürlicher und bei kurzer Höhe, jeweils mit Gegenprobe. Ohne Stub-Lage nichts gemessen.
+    if (nur === null) {
+      const PF = PFLICHT_PUNKTE;
+      const pflichtBilanz: PflichtBilanz = { record: (n, ok, d) => record(n, ok, d ?? ""), unmeasured: (n, g) => unmeasured(n, g) };
+      const stuecke = Array.from({ length: 40 }, (_, i) => `Absatz ${i + 1}: ein Satz mit etwas Länge, damit die Liste wächst. `);
+      const pfStub = await startLlmStub({ models: ["fake-model"], antwort: () => ({ stuecke, takt: 600 }) });
+      const gesichertPf = await main.evaluate<unknown>(`return JSON.parse(JSON.stringify(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.chatEndpoints));`);
+      const stelleZurueck = async (): Promise<void> => {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const rs = app.workspace.rightSplit, vor = window.__pflichtSide;
+          if (vor) { rs.setSize(vor.breite); if (vor.eingeklappt) rs.collapse(); delete window.__pflichtSide; }
+          document.querySelector(".vault-rag-chat-new")?.click();
+          p.settings.chatEndpoints = ${JSON.stringify(gesichertPf)};
+          await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
+          return true;`).catch(() => undefined);
+        await pfStub.stop().catch(() => undefined);
+      };
+      const pfZustand = beimAbbruch(stelleZurueck, "Chat-Endpunkt zurückstellen (Pflichtpunkte)");
+      try {
+        // Voraussetzung: eine ausgeklappte, ausreichend breite rechte Seitenleiste (sonst liegt das Panel außerhalb des Fensters
+        // und jede Erreichbarkeitsprobe ist rot ohne Befund am Plugin). Zustand merken, `stelleZurueck` stellt ihn wieder her.
+        await main.evaluate(`
+          const rs = app.workspace.rightSplit;
+          window.__pflichtSide = { breite: Math.round(rs.containerEl.getBoundingClientRect().width) || 300, eingeklappt: rs.collapsed };
+          if (rs.collapsed) rs.expand();
+          rs.setSize(480);
+          return true;`);
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.chatEndpoints = [{ url: ${JSON.stringify(pfStub.url)}, model: "fake-model" }];
+          p.llm.invalidate(); await p.resolveAndReconnectChat();
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
+          document.querySelector(".vault-rag-chat-new")?.click();
+          const ta = document.querySelector(".vault-rag-chat-input");
+          ta.value = "Pflicht-Frage"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+          document.querySelector(".vault-rag-chat-send").click();
+          return true;`);
+        // Erst messen, wenn der Strom läuft (die Liste wächst), sonst fehlt der Anstrich.
+        const laeuft = await pollUntil<boolean>(main, `const a = [...document.querySelectorAll(".vault-rag-chat-msg.is-assistant")].pop(); return a && (a.textContent || "").length > 40 ? true : null;`, 20_000, 100);
+        if (!laeuft) {
+          for (const n of [PF.fokus, PF.fokusGegen]) unmeasured(n, "kein laufender Strom innerhalb von 20 s — nichts gemessen");
+        } else {
+          zeichnePflicht(pflichtBilanz, PF.fokus, await messeFokusErhalt(main, { selector: ".vault-rag-chat-input", text: "abc" }));
+          zeichnePflicht(pflichtBilanz, PF.fokusGegen, await gegenprobeFokus(main, { selector: ".vault-rag-chat-input", text: "abc" }));
+        }
+        // Strom beenden, bevor die Geometrie gemessen wird.
+        await main.evaluate(`document.querySelector(".vault-rag-chat-new")?.click(); return true;`);
+        await pfStub.trenneAlle();
+        await new Promise((r) => setTimeout(r, 500));
+        const opts = {
+          selektoren: [".vault-rag-chat-send", ".vault-rag-chat-new", ".vault-rag-chat-input", ".vault-rag-chat-model"],
+          fuelle: { in: ".vault-rag-chat-messages" },
+          erforderlich: [".vault-rag-chat-send", ".vault-rag-chat-input"],
+        };
+        zeichnePflicht(pflichtBilanz, PF.erreichbar, await messeErreichbarkeit(main, opts));
+        const kurz = await mitHoehe(main, { element: ".workspace-leaf", enthaelt: ".vault-rag-chat-input", hoehe: 420 }, () => messeErreichbarkeit(main, opts));
+        zeichnePflicht(pflichtBilanz, PF.erreichbarKurz, kurz);
+        // Gegenprobe: im Chat liegen die Bedienelemente NEBEN dem Rollbereich (Flex-Geschwister), ihm den Rollbalken zu nehmen
+        // (`gegenprobeErreichbarkeit`) ändert an ihrer Lage nichts und die Probe bliebe grün-leer. Der Defekt, vor dem der Punkt
+        // schützt, ist ein Nachrichtenbereich, der wächst, statt zu rollen (`flex: none`, kein `overflow`): dann drückt er die
+        // Eingabezeile aus dem Panel. Genau das stellt die Gegenprobe her; sieht die Messung dann nichts, ist sie wertlos.
+        const gegen = await (async (): Promise<{ urteil: "gruen" | "rot" | "nichts-gemessen"; detail: string }> => {
+          const gef = await main.evaluate<{ scrollH: number; clientH: number } | null>(fuellSkript(".vault-rag-chat-messages", 150));
+          if (gef === null) return { urteil: "nichts-gemessen", detail: "kein .vault-rag-chat-messages im DOM — nichts zu füllen" };
+          try {
+            const gesetzt = await main.evaluate<boolean>(`const m = document.querySelector(".vault-rag-chat-messages"); if (!m) return false; m.scrollTop = 0; m.style.flex = "none"; m.style.overflow = "visible"; m.style.maxHeight = "none"; return true;`);
+            if (!gesetzt) return { urteil: "nichts-gemessen", detail: "kein .vault-rag-chat-messages im DOM" };
+            await new Promise((r) => setTimeout(r, 400));
+            const r = await main.evaluate<{ gesamt: number; schlecht: { cls: string; deckt: string }[] }>(erreichbarSkript(opts.selektoren, false));
+            const h = await main.evaluate<number>(`return Math.round(document.querySelector(".vault-rag-chat-messages").getBoundingClientRect().height);`);
+            if (h <= gef.clientH + 8) return { urteil: "rot", detail: `die Manipulation hat nichts verändert (Bereich ${h} px, vorher ${gef.clientH} px) — ohne Wirkung ist die Gegenprobe wertlos` };
+            if (r.schlecht.length === 0) return { urteil: "rot", detail: `Bereich wächst auf ${h} px, aber alle ${r.gesamt} Elemente bleiben erreichbar — die Probe sieht den Defekt nicht` };
+            return { urteil: "gruen", detail: `Bereich wächst statt zu rollen (${h} px) → ${r.schlecht.length} von ${r.gesamt} Elementen unerreichbar (${r.schlecht.slice(0, 3).map((x) => x.cls.split(" ")[0]).join(", ")})` };
+          } finally {
+            await main.evaluate(`const m = document.querySelector(".vault-rag-chat-messages"); if (m) { m.style.flex = ""; m.style.overflow = ""; m.style.maxHeight = ""; } return true;`).catch(() => undefined);
+            await main.evaluate(aufraeumSkript()).catch(() => undefined);
+          }
+        })();
+        zeichnePflicht(pflichtBilanz, PF.erreichbarGegen, gegen);
+      } catch (e) {
+        for (const n of Object.values(PF)) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+      } finally {
+        await pfZustand.schliesse();
+      }
+    }
+
     // --- 7e1c. Embedding-Zähler (Welle 22) -------------------------------------------------------
     // Gegenprobe im selben Zug: vor der Suche steht „api“ nicht (oder niedriger) in der Zählung; danach ist es um genau eine
     // Anfrage höher. Der Embedder antwortet in der Stub-Lage vom zentralen Stub, die Suche selbst sagt nichts über Semantik.
@@ -3118,7 +3218,7 @@ async function main(): Promise<void> {
             run.click();
             return true;`);
           if (!gestartet) {
-            for (const n of [N.saKontrolle, N.saFolge, N.saWieder, N.saDenk, N.saAbsatz]) unmeasured(n, "Lauf-Knopf nicht bedienbar (keine Vorlage/Notiz im Fixture?) — nichts gemessen");
+            for (const n of [N.saKontrolle, N.saFolge, N.saWieder, N.saDenk, N.saKopie, N.saAbsatz]) unmeasured(n, "Lauf-Knopf nicht bedienbar (keine Vorlage/Notiz im Fixture?) — nichts gemessen");
           } else {
             // Denkblock live: Reasoning wächst, bevor die Antwort beginnt.
             const denkSel = `const r = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning pre"); const t = document.querySelector(".vault-rag-sa-running-stream .okit-stream-tail"); const d = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning");
@@ -3132,6 +3232,24 @@ async function main(): Promise<void> {
               else record(N.saDenk, erst.tail === 0 && erst.offen && zweit.denk > erst.denk,
                 `Denktext ${erst.denk} → ${zweit.denk} Zeichen, Antwort ${erst.tail} → ${zweit.tail} Zeichen, Block offen: ${erst.offen ? "ja" : "nein"}`);
             }
+            // Denkblock kopierbar (obsidian-kit 0.63.0): der Kopier-Knopf sitzt in der Zusammenfassung, kopiert den Denktext als
+            // Klartext und klappt den Block nicht zu. Die Zwischenablage wird im Renderer abgefangen und danach zurückgestellt.
+            if (erst) {
+              const k = await main.evaluate<{ da: boolean; clip: string | null; praefix: boolean; offen: boolean }>(`
+                const btn = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning-copy");
+                if (!btn) return { da: false, clip: null, praefix: false, offen: false };
+                const cb = navigator.clipboard; const alt = Object.getOwnPropertyDescriptor(cb, "writeText");
+                let clip = null;
+                Object.defineProperty(cb, "writeText", { configurable: true, value: (t) => { clip = t; return Promise.resolve(); } });
+                btn.click();
+                await new Promise(r => setTimeout(r, 300));
+                if (alt) Object.defineProperty(cb, "writeText", alt); else delete cb.writeText;
+                const pre = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning pre");
+                const d = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning");
+                return { da: true, clip, praefix: clip !== null && clip.length > 0 && (pre.textContent || "").startsWith(clip), offen: Boolean(d && d.open) };`);
+              record(N.saKopie, k.da && k.praefix && k.offen,
+                k.da ? `Zwischenablage ${k.clip === null ? "leer" : k.clip.length + " Zeichen"}, Anfang des Denktexts: ${k.praefix ? "ja" : "nein"}, Block danach offen: ${k.offen ? "ja" : "nein"}` : "kein Kopier-Knopf am Denkblock");
+            } else unmeasured(N.saKopie, "kein Reasoning-Text im laufenden Bereich — der Knopf erscheint erst mit Text");
             // Folge-Regel in der Antwortphase (der Bereich selbst scrollt: .okit-stream-body, 220 px hoch).
             zeichneFolge(bilanz, { kontrolle: N.saKontrolle, folge: N.saFolge, wiederaufnahme: N.saWieder }, await messeFolge(main, { selector: ".vault-rag-sa-running-stream .okit-stream-body", laeuft: () => stub.zaehler().unterwegs > 0, wiederaufnahme: true }));
             // Zweiter Lauf mit absatzgroßen Stücken (fünf Zeilen je Stück, jedes mehr als die Folge-Schwelle von 40 px): vor
@@ -3151,7 +3269,7 @@ async function main(): Promise<void> {
             }
           }
         } catch (e) {
-          for (const n of [N.saKontrolle, N.saFolge, N.saWieder, N.saDenk, N.saAbsatz]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+          for (const n of [N.saKontrolle, N.saFolge, N.saWieder, N.saDenk, N.saKopie, N.saAbsatz]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
         } finally {
           await saZustand.schliesse();
         }

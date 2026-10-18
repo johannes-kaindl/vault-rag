@@ -410,7 +410,7 @@ export class SmartApplyPanel implements HubPanel {
     // ist jetzt IMMER sichtbar statt hinter einem zugeklappten Details-Element — der Kit-
     // Bereich kennt keine zweite, unabhaengig klappbare Flaeche neben dem Gedankenblock.
     this.streamArea = buildStreamArea(wrap, {
-      strings: { reasoning: t("smartApply.thinkingSummary") },
+      strings: { reasoning: t("smartApply.thinkingSummary"), copyReasoning: t("smartApply.copyReasoning") },
       cls: "vault-rag-sa-running-stream",
       reasoningOpen: true,
     });

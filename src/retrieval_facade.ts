@@ -3,6 +3,7 @@ import {
   type EmbedResult, type SearchResult, type VecSearchResult, type RelatedResult, type RetrieveOverrides,
 } from "./vendor/kit/retrieval-facade";
 import type { RetrieveOpts } from "./vendor/kit/vector-index";
+import { normalizeRelPath } from "./vendor/kit/rel-path";
 
 export type {
   RetrieveOverrides, EmbedResult, SearchResult, VecSearchResult, RelatedResult,
@@ -23,16 +24,21 @@ export type PausedResult = { kind: "paused" };
 export type ReadResult = { kind: "ok"; text: string } | { kind: "not-found"; path: string } | { kind: "invalid"; path: string; reason: string };
 
 /** Path-Guard für readNote: vault-relativ, kein Traversal, nur .md, exclude-Präfix (case-insensitiv).
- *  Gibt den normalisierten vault-relativen Pfad zurück. Reine String-Logik (kein node:path).
+ *  Gibt den normalisierten vault-relativen Pfad zurück. Die Segmentregeln kommen aus code-kit `rel-path` (`normalizeRelPath`,
+ *  Ergebnis mit `problem`, kein Wurf); hier wird `problem` in die Meldung übersetzt. Reine String-Logik (kein node:path).
  *
  *  Die Meldungen sind bewusst ENGLISCH und laufen NICHT durch `t()`: `readNote` hat genau einen
  *  Konsumenten — `mcp/tools.ts`, den Loopback-JSON-RPC-Kanal. Das liest ein Agent, kein Mensch in
  *  einer lokalisierten Oberfläche. Die Plugin-API (`plugin_api.ts`) trägt bewusst kein readNote. */
 export function resolveNotePath(rel: string, exclude: string[]): string {
-  if (rel.startsWith("/")) throw new Error(`Only vault-relative paths are allowed: "${rel}"`);
-  const parts = rel.split(/[\\/]/).filter(s => s !== "" && s !== ".");
-  if (parts.some(s => s === "..")) throw new Error(`Path escapes the vault: "${rel}"`);
-  const norm = parts.join("/");
+  const r = normalizeRelPath(rel);
+  if (!r.ok) {
+    if (r.problem === "absolute") throw new Error(`Only vault-relative paths are allowed: "${rel}"`);
+    if (r.problem === "traversal") throw new Error(`Path escapes the vault: "${rel}"`);
+    if (r.problem === "nul") throw new Error(`Path contains a NUL byte: "${rel}"`);
+    throw new Error(`Only Markdown notes (.md) can be read: "${rel}"`);
+  }
+  const norm = r.path;
   if (!norm.toLowerCase().endsWith(".md")) throw new Error(`Only Markdown notes (.md) can be read: "${rel}"`);
   const normLower = norm.toLowerCase();
   const hit = exclude.find(e => e && normLower.startsWith(e.toLowerCase()));

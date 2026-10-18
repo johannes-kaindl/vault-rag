@@ -14,7 +14,7 @@ import { probeEndpoint } from "./http";
 import { describeModel, type EndpointSourceResult } from "./vendor/kit/endpoint-source";
 import { createLlmConnection, type LlmConnection } from "./vendor/kit-obsidian/llm-connection";
 import type { EmbeddingConnection, EmbeddingResolution } from "./vendor/kit-obsidian/embedding-connection";
-import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
+import { thinkingOffTexts, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import { sanitizeRequestSettings, thinkingFor, onLevelFor, type FamilyId, type ModeId, type RequestSettings } from "./vendor/kit/sampling-profiles";
 import { migrateLegacySampling, MODE_CHAT, MODE_SMART_APPLY, MODE_REFORMAT } from "./request_profile";
 import { chatConnectionOptions } from "./connection_options";
@@ -850,9 +850,11 @@ export default class VaultRagPlugin extends Plugin {
       },
       levelPicker: () => this.settings.request.levelPickerInChat,
       strings: {
-        button: (level, offNotPossible) => level === "off"
-          ? (offNotPossible ? t("think.button.offNotPossible", t("request.level.off")) : t("think.button.off"))
+        button: (level) => level === "off"
+          ? t("think.button.off")
           : t("think.button.on", requestText("request.level", level)),
+        // „aus“ nicht möglich (Gemma 4 auf LM Studio, Claude): Text und Tooltip aus dem Kit, zur Zeichenzeit (Sprache!).
+        get offNotPossible() { return thinkingOffTexts(getLang()); },
         level: (l) => requestText("request.level", l),
         get pickerLabel() { return t("think.pickerLabel"); },
       },

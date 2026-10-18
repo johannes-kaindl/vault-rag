@@ -213,6 +213,7 @@ export const EN = {
   "smartApply.pickNote": "Pick a note and press \"Apply to active note\".",
   "smartApply.working": "● working… {0} s",
   "smartApply.thinkingSummary": "💭 Thinking",
+  "smartApply.copyReasoning": "Copy thinking",
   "smartApply.bodyReflow": "Body reflow",
   "smartApply.blocks.singular": "{0} block",
   "smartApply.blocks.plural": "{0} blocks",
@@ -519,7 +520,6 @@ export const EN = {
   // request.* / think.*: uebernommen aus lingotuner/src/i18n/strings.ts, 2026-09-30 (Abschnitt „Anfrage“ und Denk-Steuerung des Kits)
   "think.button.off": "Thinking off",
   "think.button.on": "Thinking: {0}",
-  "think.button.offNotPossible": "Thinking: {0} (can't fully turn off)",
   "think.pickerLabel": "Thinking level",
   "request.level.off": "off",
   "request.level.low": "low",
@@ -760,6 +760,7 @@ export const DE = {
   "smartApply.pickNote": "Wähle eine Notiz und drücke 'Auf aktive Notiz anwenden'.",
   "smartApply.working": "● arbeitet… {0} s",
   "smartApply.thinkingSummary": "💭 Denken",
+  "smartApply.copyReasoning": "Denken kopieren",
   "smartApply.bodyReflow": "Body-Reflow",
   "smartApply.blocks.singular": "{0} Block",
   "smartApply.blocks.plural": "{0} Blöcke",
@@ -1063,7 +1064,6 @@ export const DE = {
   // request.* / think.*: uebernommen aus lingotuner/src/i18n/strings.ts, 2026-09-30
   "think.button.off": "Denken aus",
   "think.button.on": "Denken: {0}",
-  "think.button.offNotPossible": "Denken: {0} (lässt sich nicht ganz abschalten)",
   "think.pickerLabel": "Denkstufe",
   "request.level.off": "aus",
   "request.level.low": "niedrig",

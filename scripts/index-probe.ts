@@ -23,7 +23,7 @@
  * des Feldes in jede Position ein: eine einzige zusaetzliche Notiz verschob die gesamte Auswahl.
  * Zwei Laeufe vor und nach einem Voll-Reindex teilten am 2026-09-05 keine einzige Notiz und lasen
  * sich trotzdem wie eine Verbesserung (32/40 → 36/40). Zwei Antworten darauf, beide hier:
- *  - Die Auswahl ordnet jetzt `auswahlReihenfolge` (`probe_core.ts`, getestet) ueber einen Hash je
+ *  - Die Auswahl ordnet jetzt `probeOrder` (code-kit `probe-core`, getestet) ueber einen Hash je
  *    PFAD statt ueber die Position — eine neue Notiz rueckt zwischen die alten, statt sie
  *    umzuwerfen. Das macht den Default-Lauf ueber die Zeit stabil.
  *  - Fuer ein echtes Vorher/Nachher genuegt das nicht (Laengenfenster und Index-Zugehoerigkeit
@@ -37,14 +37,14 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { Cdp, attachTo, pollUntil } from "../../tools/obsidian-cdp/cdp.js";
-import { auswahlReihenfolge, vergleicheLaeufe, type Versuch } from "./probe_core.js";
+import { probeOrder, compareRuns, type ProbeAttempt } from "../src/vendor/kit/probe-core.js";
 
 const PLUGIN_ID = "vault-retrieval";
 
 interface Ergebnis {
   present: boolean;
   offline: boolean;
-  tried: Versuch[];
+  tried: ProbeAttempt[];
   kandidaten: number;
   error?: string;
 }
@@ -77,9 +77,9 @@ async function main(): Promise<void> {
   const wieDatei = arg("wie");
 
   let voraufNamen: string[] | null = null;
-  let vorlauf: Versuch[] | null = null;
+  let vorlauf: ProbeAttempt[] | null = null;
   if (wieDatei) {
-    const roh = JSON.parse(readFileSync(wieDatei, "utf-8")) as { tried?: Versuch[] };
+    const roh = JSON.parse(readFileSync(wieDatei, "utf-8")) as { tried?: ProbeAttempt[] };
     vorlauf = roh.tried ?? [];
     voraufNamen = vorlauf.map(v => v.path);
     if (voraufNamen.length === 0) {
@@ -95,12 +95,12 @@ async function main(): Promise<void> {
   }
 
   // AUSWAHL AUF DER NODE-SEITE. Der Renderer liefert nur die Dateiliste; wer gemessen wird,
-  // entscheidet getesteter Code (`probe_core.ts`). Die alte Fassung shuffelte im evaluate-String
+  // entscheidet getesteter Code (code-kit `probe-core`). Die alte Fassung shuffelte im evaluate-String
   // und war damit weder pruefbar noch stabil — s. Kopf dieser Datei.
   const dateien = await cdp.evaluate<{ path: string; mtime: number }[]>(
     `return app.vault.getMarkdownFiles().map(f => ({ path: f.path, mtime: f.stat.mtime }));`);
 
-  const reihenfolge = voraufNamen ?? auswahlReihenfolge(dateien, seed).map(d => d.path);
+  const reihenfolge = voraufNamen ?? probeOrder(dateien, seed).map(d => d.path);
   if (voraufNamen) {
     const bekannt = new Set(dateien.map(d => d.path));
     const fehlen = voraufNamen.filter(p => !bekannt.has(p));
@@ -225,27 +225,27 @@ async function main(): Promise<void> {
   // Laeufe zwei Stichproben: am 2026-09-05 las sich 32/40 → 36/40 wie eine Verbesserung, obwohl
   // die beiden Laeufe keine einzige Notiz teilten.
   if (vorlauf) {
-    const v = vergleicheLaeufe(vorlauf, r.tried);
+    const v = compareRuns(vorlauf, r.tried);
     const vorherTreffer = vorlauf.filter(t => t.rank === 0).length;
     console.log(`\n=== Vergleich mit ${wieDatei} ===\n`);
-    console.log(`  dieselben Notizen gemessen:  ${v.gemeinsam}`);
+    console.log(`  dieselben Notizen gemessen:  ${v.shared}`);
     console.log(`  Rang 0 vorher / nachher:     ${vorherTreffer} / ${treffer.length}`);
-    console.log(`  geheilt (daneben → Rang 0):  ${v.geheilt.length}`);
-    console.log(`  verschlechtert:              ${v.verschlechtert.length}`);
-    console.log(`  unveraendert:                ${v.unveraendert}`);
-    if (v.verschwunden.length) {
+    console.log(`  geheilt (daneben → Rang 0):  ${v.healed.length}`);
+    console.log(`  verschlechtert:              ${v.worsened.length}`);
+    console.log(`  unveraendert:                ${v.unchanged}`);
+    if (v.missing.length) {
       // NICHT still schlucken: ein geschrumpfter Vergleich sieht sonst aus wie ein sauberer.
-      console.log(`  im zweiten Lauf nicht gemessen: ${v.verschwunden.length}`);
-      for (const p of v.verschwunden.slice(0, 10)) console.log(`   · ${p}`);
-      if (v.verschwunden.length > 10) console.log(`   · … und ${v.verschwunden.length - 10} weitere`);
+      console.log(`  im zweiten Lauf nicht gemessen: ${v.missing.length}`);
+      for (const p of v.missing.slice(0, 10)) console.log(`   · ${p}`);
+      if (v.missing.length > 10) console.log(`   · … und ${v.missing.length - 10} weitere`);
     }
-    if (v.geheilt.length) {
+    if (v.healed.length) {
       console.log("\n  Geheilt:");
-      for (const t of v.geheilt) console.log(`   · ${t.path.split("/").pop()} (${datum(t.mtime)})`);
+      for (const t of v.healed) console.log(`   · ${t.path.split("/").pop()} (${datum(t.mtime)})`);
     }
-    if (v.verschlechtert.length) {
+    if (v.worsened.length) {
       console.log("\n  Verschlechtert:");
-      for (const t of v.verschlechtert) console.log(`   · ${t.path.split("/").pop()} → Rang ${t.rank}`);
+      for (const t of v.worsened) console.log(`   · ${t.path.split("/").pop()} → Rang ${t.rank}`);
     }
   }
 

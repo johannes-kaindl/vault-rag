@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.44.0] — 2026-10-18
+
 ### Added
 
 - **The thinking block of Smart Apply has a copy button.** It sits in the block's summary, copies the thinking as plain text and shows a check mark for a moment; it appears once the block has text and does not fold the block (obsidian-kit 0.63.0).

@@ -63,7 +63,14 @@ export class RetrievalFacade {
     return this.core.search(query, opts);
   }
   searchVector(vec: Float32Array, opts?: Partial<RetrieveOpts>): VecSearchResult { return this.core.searchVector(vec, opts); }
-  related(path: string, opts?: Partial<RetrieveOverrides>): RelatedResult { return this.core.related(path, opts); }
+  /** Verwandte Notizen zu einem Pfad. Der Pfad ist ein EXAKTER Schlüssel im Index (kein Dateizugriff): `..`, absolute Pfade, NUL und
+   *  Backslash treffen keinen Eintrag und enden als `not-indexed`. Ein Pfad unter `exclude` ebenso, auch wenn ein alter Index ihn noch trägt
+   *  (wie `readNote`; die Antwort ist dieselbe wie für einen unbekannten Pfad, sie verrät nicht, ob er im Index steht). */
+  related(path: string, opts?: Partial<RetrieveOverrides>): RelatedResult {
+    const lower = path.toLowerCase();
+    if (this.deps.settings().exclude.some(e => e && lower.startsWith(e.toLowerCase()))) return { kind: "not-indexed", path };
+    return this.core.related(path, opts);
+  }
 
   /** Volltext einer Notiz mit Path-Guard. Ungültige Pfade → invalid (Grund erhalten). */
   async readNote(relPath: string): Promise<ReadResult> {

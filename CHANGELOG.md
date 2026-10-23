@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`related` (plugin API and the `related_notes` tool) no longer answers for a note under an excluded prefix.** Before, a path under "Exclude" that an older index still carried (indexed before it was excluded) returned its neighbours, while `readNote` refused it. It now answers `not-indexed`, the same as for an unknown path, so the answer does not tell whether the note is in the index. Paths with `..`, an absolute path, NUL or a backslash were never able to reach a file (`related` looks the path up as an exact key in the index and reads nothing); tests now pin that, because Koda hands model paths to this tool unchanged since its own check is gone.
+
 ### Changed
 
 - Kit pin `code-kit` 0.31.0 → 0.34.0. The only visible change for this plugin is in the model name guess (code-kit 0.33.0 `capabilities`): **Claude models are now recognised as image-capable, and recent Claude models (Fable, Mythos, Opus 4.7 and newer, Sonnet 5, Haiku 5) as thinking that cannot be switched off**, so the thinking toggle shows its "lowest level" hint for them. Models that merely carry the word "claude" in a local name (`qwen3.6-claude-opus-distill`) are unchanged. The other 0.32.0 to 0.34.0 modules (word diff, critic markup, folder scope, crop, chat history) are not vendored here.

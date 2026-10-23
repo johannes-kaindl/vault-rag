@@ -28,6 +28,47 @@ function api(over: Record<string, unknown> = {}) {
   });
 }
 
+/** Koda reicht die Pfade aus dem Modell seit koda-w25 (`ffdb103`) unverändert an `related_notes` weiter; Kodas eigenes `resolveNotePath` ist
+ *  weg. Der Schutz liegt hier: `related` schlägt den Pfad als EXAKTEN Schlüssel im Index nach und liest keine Datei (kein `readVault`).
+ *  Die Tests pinnen das — ein Pfad, der nicht im Index steht, ist `not-indexed`, nie ein Treffer, nie ein Dateizugriff — und die Regel
+ *  des Ausschlusses: ein Pfad unter `exclude` ist wie `readNote` nicht abfragbar, auch wenn ein alter Index ihn noch trägt. */
+describe("Plugin-API — related_notes: Pfade aus dem Modell", () => {
+  function idxMitAusgeschlossen(): VectorIndex {
+    const m = { schema_version: 1, embedding_model: "x", index_dim: 2, scale: 127, count: 4, granularity: "note", quant: "int8" };
+    // a=[1,0] b=[0.92,0.39] c=[0,1] Templates/t=[1,0] (ein veralteter Eintrag aus der Zeit vor dem Ausschluss)
+    return parseIndex(m, ["a.md", "b.md", "c.md", "Templates/t.md"], new Int8Array([127, 0, 117, 50, 0, 127, 127, 0]).buffer);
+  }
+  const HOSTILE = ["../a.md", "a/../../a.md", "/a.md", "/etc/passwd", "a\0.md", "a\b.md", "..\a.md", "C:\\a.md", "a\u0000.md", "\u0000", "a/../a.md", " ../a.md", "a/.. /a.md"];
+
+  it("Gegenprobe: ein gültiger Pfad liefert Treffer — sonst wäre „kein Treffer“ unten wertlos", async () => {
+    const r = await api({ getIndex: idxMitAusgeschlossen }).executeTool("related_notes", { path: "a.md" }, { lang: "en" });
+    expect(r.ok).toBe(true);
+    expect(JSON.stringify(r)).toContain("b.md");
+  });
+
+  for (const path of HOSTILE) {
+    it(`weist ${JSON.stringify(path)} ab: not-indexed, kein Treffer, kein Dateizugriff`, async () => {
+      let gelesen = 0;
+      const a = api({ getIndex: idxMitAusgeschlossen, readVault: async () => { gelesen++; return ""; } });
+      const direkt = await a.related(path);
+      expect(direkt).toEqual({ ok: false, reason: "not-indexed", path });
+      const werkzeug = await a.executeTool("related_notes", { path }, { lang: "en" });
+      expect(werkzeug.ok).toBe(false);
+      expect(JSON.stringify(werkzeug)).not.toContain("hits");
+      expect(gelesen).toBe(0);
+    });
+  }
+
+  it("ein Pfad unter exclude ist nicht abfragbar, auch wenn ein alter Index ihn noch trägt (wie readNote)", async () => {
+    const a = api({ getIndex: idxMitAusgeschlossen });
+    expect(await a.related("Templates/t.md")).toEqual({ ok: false, reason: "not-indexed", path: "Templates/t.md" });
+    expect(await a.related("templates/t.md")).toEqual({ ok: false, reason: "not-indexed", path: "templates/t.md" });
+    const w = await a.executeTool("related_notes", { path: "Templates/t.md" }, { lang: "en" });
+    expect(w.ok).toBe(false);
+    expect(JSON.stringify(w)).not.toContain("hits");
+  });
+});
+
 describe("Plugin-API — Werkzeug-Anbieter: tools()", () => {
   it("liefert search und related als OpenAI-Function-Definitionen (name/description/parameters)", () => {
     const defs = api().tools();

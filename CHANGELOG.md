@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.45.0] — 2026-10-23
+
 ### Fixed
 
 - **`related` (plugin API and the `related_notes` tool) no longer answers for a note under an excluded prefix.** Before, a path under "Exclude" that an older index still carried (indexed before it was excluded) returned its neighbours, while `readNote` refused it. It now answers `not-indexed`, the same as for an unknown path, so the answer does not tell whether the note is in the index. Paths with `..`, an absolute path, NUL or a backslash were never able to reach a file (`related` looks the path up as an exact key in the index and reads nothing); tests now pin that, because Koda hands model paths to this tool unchanged since its own check is gone.

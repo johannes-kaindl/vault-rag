@@ -3225,7 +3225,7 @@ async function main(): Promise<void> {
             // Selektoren auf den Smart-Apply-Strom beschränkt: der Default träfe den ersten Block im Dokument (der Chat-Tab hat auch einen).
             if (erst) {
               zeichneDenkblock(pflichtBilanz, { kopie: N.saKopie, gegen: N.saKopieGegen },
-                await messeDenkblockKopierbar(main, { block: ".vault-rag-sa-running-stream .okit-stream-reasoning", knopf: ".vault-rag-sa-running-stream .okit-stream-reasoning-copy" }));
+                await messeDenkblockKopierbar(main, { block: ".vault-rag-sa-running-stream .okit-stream-reasoning", knopf: ".vault-rag-sa-running-stream .okit-stream-reasoning-copy", erwartetKnopf: true }));
             } else for (const n of [N.saKopie, N.saKopieGegen]) unmeasured(n, "kein Reasoning-Text im laufenden Bereich — der Knopf erscheint erst mit Text");
             // Folge-Regel in der Antwortphase (der Bereich selbst scrollt: .okit-stream-body, 220 px hoch).
             zeichneFolge(bilanz, { kontrolle: N.saKontrolle, folge: N.saFolge, wiederaufnahme: N.saWieder }, await messeFolge(main, { selector: ".vault-rag-sa-running-stream .okit-stream-body", laeuft: () => stub.zaehler().unterwegs > 0, wiederaufnahme: true }));

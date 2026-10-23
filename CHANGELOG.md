@@ -10,8 +10,14 @@ All notable changes to this project are documented here. The format follows
 
 - **`related` (plugin API and the `related_notes` tool) no longer answers for a note under an excluded prefix.** Before, a path under "Exclude" that an older index still carried (indexed before it was excluded) returned its neighbours, while `readNote` refused it. It now answers `not-indexed`, the same as for an unknown path, so the answer does not tell whether the note is in the index. Paths with `..`, an absolute path, NUL or a backslash were never able to reach a file (`related` looks the path up as an exact key in the index and reads nothing); tests now pin that, because Koda hands model paths to this tool unchanged since its own check is gone.
 
+### Added
+
+- **The thinking block in the chat history and in a stored Smart Apply proposal has a copy button**, like the one in the running stream (obsidian-kit 0.65.0 `buildReasoningBlock`). The button copies the thinking as plain text, shows a check mark for a moment and does not fold the block.
+
 ### Changed
 
+- Kit pin `obsidian-kit` 0.63.0 → 0.66.1. Releases skipped: 0.63.1 (`openTextSocket`), 0.64.0 (Diachronic modules), 0.66.0 (chat window, `StreamArea.setReasoningOpen`), 0.66.1 (`CropModal` CSS) bring nothing visible here; `styles.css` needed no new kit CSS (`STREAM_AREA_CSS` is unchanged since 0.63.0). The visible change is the thinking block below.
+- **The thinking block after the stream (chat history, stored Smart Apply proposal) now looks like the one during the stream** (kit look: monospace text, no italic and no left border; the summary line keeps its words "thinking…" while the answer runs and "Thoughts" afterwards). It was an own build with the classes `vault-rag-chat-reasoning*` and `vault-rag-sa-reasoning*`, which are gone with their CSS. The block stays open while the answer has not started, and closed once it has.
 - Kit pin `code-kit` 0.31.0 → 0.34.0. The only visible change for this plugin is in the model name guess (code-kit 0.33.0 `capabilities`): **Claude models are now recognised as image-capable, and recent Claude models (Fable, Mythos, Opus 4.7 and newer, Sonnet 5, Haiku 5) as thinking that cannot be switched off**, so the thinking toggle shows its "lowest level" hint for them. Models that merely carry the word "claude" in a local name (`qwen3.6-claude-opus-distill`) are unchanged. The other 0.32.0 to 0.34.0 modules (word diff, critic markup, folder scope, crop, chat history) are not vendored here.
 - Transposing a table in "Reformat" now writes it through code-kit `markdown-table` (`renderMarkdownTable`); the output is identical (code-kit 0.31.1 shows equality on 9,724 strings).
 

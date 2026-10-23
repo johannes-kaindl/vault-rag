@@ -7,7 +7,7 @@ import type { TemplateRank } from "./template_ranker";
 import { buildThinkingControl, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import type { HubPanel, TabId } from "./hub_panel";
 import type { ApplyMode } from "./note_restructurer";
-import { buildStreamArea, type StreamArea } from "./vendor/kit-obsidian/stream-area";
+import { buildReasoningBlock, buildStreamArea, type StreamArea } from "./vendor/kit-obsidian/stream-area";
 
 // Re-export for consumers (e.g. tests) that import from this module
 export type { ApplyProposal, ApplyResult, SectionDiff } from "./smart_apply";
@@ -670,10 +670,8 @@ export class SmartApplyPanel implements HubPanel {
 
   private renderReasoning(c: HTMLElement, reasoning: string): void {
     if (!reasoning) return;
-    const det = c.createEl("details", { cls: "vault-rag-sa-reasoning" });
-    det.open = false;
-    det.createEl("summary", { cls: "vault-rag-sa-reasoning-sum", text: t("smartApply.reasoningSummary") });
-    det.createDiv({ cls: "vault-rag-sa-reasoning-body", text: reasoning });
+    // Kit-Baustein (§8): derselbe Block wie im Strom (`okit-stream-reasoning`), zugeklappt, mit Kopier-Knopf.
+    buildReasoningBlock(c, { text: reasoning, strings: { summary: t("smartApply.reasoningSummary"), copyReasoning: t("smartApply.copyReasoning") } });
   }
 
   // ── Body: applied ─────────────────────────────────────────────────────────────

@@ -485,7 +485,7 @@ const SHOTS: Shot[] = [
       // Aufgeklappt messen: ein zugeklapptes <details> hat unsichtbare Kinder, und der
       // sonst richtige Sichtbarkeitsfilter zaehlt sie als nicht vorhanden (vault-crews).
       const auf = await cdp.evaluate<boolean>(`
-        const d = [...document.querySelectorAll(".vault-rag-chat-reasoning")]
+        const d = [...document.querySelectorAll(".vault-rag-chat-messages .okit-stream-reasoning")]
           .filter((e) => e.getBoundingClientRect().width > 1).pop();
         if (!d) return false;
         d.open = true;
@@ -507,7 +507,7 @@ const SHOTS: Shot[] = [
       // `thinking.png` den Denkprozess samt Schalter. Zwei Bilder, zwei Aussagen, keine
       // Dopplung — statt zweimal dieselbe halbe Geschichte.
       await cdp.evaluate(`
-        const det = [...document.querySelectorAll(".vault-rag-chat-reasoning")]
+        const det = [...document.querySelectorAll(".vault-rag-chat-messages .okit-stream-reasoning")]
           .filter((e) => e.getBoundingClientRect().width > 1).pop();
         if (det) det.scrollIntoView({ block: "start" });
         await new Promise((r) => setTimeout(r, 500));

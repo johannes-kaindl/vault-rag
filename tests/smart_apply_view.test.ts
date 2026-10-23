@@ -559,8 +559,10 @@ describe("SmartApplyPanel — Cockpit", () => {
     const { container } = mkPanel();
     await clickRun(container);
     await flush();
-    const body = first(container, "vault-rag-sa-reasoning-body");
-    expect(body.textContent).toContain("weil X");
+    const block = first(container, "okit-stream-reasoning");
+    expect(block.querySelector("pre")?.textContent).toContain("weil X");
+    expect((block as HTMLDetailsElement).open).toBe(false);
+    expect(block.querySelector(".okit-stream-reasoning-copy")?.getAttribute("aria-label")).toBe("Copy thinking");
   });
 
   // Step 12 — Dropdowns / ranklist survive state transitions (regression for cache bug)

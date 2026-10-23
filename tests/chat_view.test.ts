@@ -196,11 +196,13 @@ describe("ChatPanel", () => {
       { role: "assistant", content: "Antwort", reasoning: "weil X" },
     ];
     (panel as any).renderMessages();
-    const blocks = all(container, "vault-rag-chat-reasoning");
+    const blocks = all(container, "okit-stream-reasoning");
     expect(blocks.length).toBe(1);
     expect(blocks[0].open).toBe(false);
-    expect(all(container, "vault-rag-chat-reasoning-body")[0].textContent).toBe("weil X");
-    expect(all(container, "vault-rag-chat-reasoning-sum")[0].textContent).toContain("Thoughts");
+    expect(blocks[0].querySelector("pre")?.textContent).toBe("weil X");
+    expect(all(container, "okit-stream-reasoning-label")[0].textContent).toContain("Thoughts");
+    // Kopier-Knopf des Kit-Bausteins, beschriftet (CORE-META-20)
+    expect(blocks[0].querySelector(".okit-stream-reasoning-copy")?.getAttribute("aria-label")).toBe("Copy thinking");
   });
   it("Gedanken-Block ist offen + 'denkt nach' während des Denkens", async () => {
     const { panel, container, session } = await mkPanel();
@@ -209,8 +211,8 @@ describe("ChatPanel", () => {
       { role: "assistant", content: "", reasoning: "denke gerade" },
     ];
     (panel as any).renderMessages();
-    expect(all(container, "vault-rag-chat-reasoning")[0].open).toBe(true);
-    expect(all(container, "vault-rag-chat-reasoning-sum")[0].textContent).toContain("thinking");
+    expect(all(container, "okit-stream-reasoning")[0].open).toBe(true);
+    expect(all(container, "okit-stream-reasoning-label")[0].textContent).toContain("thinking");
   });
   it("kein Gedanken-Block ohne reasoning", async () => {
     const { panel, container, session } = await mkPanel();
@@ -219,7 +221,7 @@ describe("ChatPanel", () => {
       { role: "assistant", content: "Antwort" },
     ];
     (panel as any).renderMessages();
-    expect(all(container, "vault-rag-chat-reasoning").length).toBe(0);
+    expect(all(container, "okit-stream-reasoning").length).toBe(0);
   });
   it("Eingabezeile ist das letzte Element (unten fixiert)", async () => {
     const { container } = await mkPanel();

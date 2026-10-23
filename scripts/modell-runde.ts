@@ -132,7 +132,7 @@ try {
       window.__tp.ticks++;
       const a = document.querySelector(".vault-rag-chat-msg.is-assistant");
       if (a && /Thinking Process|<channel\\|>/.test(a.textContent)) window.__tp.seen++;
-      if (document.querySelector(".vault-rag-chat-reasoning-body")?.textContent?.trim()) window.__tp.reasoningSeen = true;
+      if (document.querySelector(".vault-rag-chat-messages .okit-stream-reasoning pre")?.textContent?.trim()) window.__tp.reasoningSeen = true;
     }, 40);
     document.querySelector(".vault-rag-chat-send").click(); return true;`);
   const antwort = await pollUntil<{ text: string; k: string; sendLabel: string }>(main, `

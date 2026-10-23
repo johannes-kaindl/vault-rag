@@ -4,6 +4,7 @@ import { ContextPanel, ContextPanelDeps } from "./context_panel";
 import { buildThinkingControl, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import { HubPanel, TabId } from "./hub_panel";
 import { t } from "./vendor/kit/i18n";
+import { buildReasoningBlock } from "./vendor/kit-obsidian/stream-area";
 
 export const VIEW_TYPE_CHAT = "vault-rag-chat";
 
@@ -197,10 +198,13 @@ export class ChatPanel implements HubPanel {
     for (const m of msgs) {
       if (m.role === "assistant" && m.reasoning) {
         const live = m === last && m.content === "" && !m.error;
-        const det = el.createEl("details", { cls: "vault-rag-chat-reasoning" });
-        det.open = live;
-        det.createEl("summary", { cls: "vault-rag-chat-reasoning-sum", text: live ? t("panel.chat.reasoningLive") : t("panel.chat.reasoningDone") });
-        det.createDiv({ cls: "vault-rag-chat-reasoning-body", text: m.reasoning });
+        // Kit-Baustein (§8): derselbe Block wie im Strom, mit Kopier-Knopf. Die Liste zeichnet sich bei jedem Stück neu, also steht
+        // „offen“ hier für „läuft noch“ und nicht für die Wahl des Nutzers.
+        buildReasoningBlock(el, {
+          text: m.reasoning,
+          strings: { summary: live ? t("panel.chat.reasoningLive") : t("panel.chat.reasoningDone"), copyReasoning: t("panel.chat.copyReasoning") },
+          open: live,
+        });
       }
       if (m.content) this.appendMessage(el, m, m !== last || !this.running);
       if (m.error) el.createDiv({ cls: "vault-rag-chat-state", text: m.error });

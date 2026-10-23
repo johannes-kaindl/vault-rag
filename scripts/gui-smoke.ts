@@ -2145,8 +2145,8 @@ async function main(): Promise<void> {
           const a = [...document.querySelectorAll(".vault-rag-chat-msg.is-assistant")].pop();
           if (!a) return null;
           // Der Denkblock ist ein Geschwister der Nachricht, kein Kind (chat_view.renderMessages).
-          const body = [...document.querySelectorAll(".vault-rag-chat-reasoning-body")].pop();
-          const sum = [...document.querySelectorAll(".vault-rag-chat-reasoning-sum")].pop();
+          const body = [...document.querySelectorAll(".vault-rag-chat-messages .okit-stream-reasoning pre")].pop();
+          const sum = [...document.querySelectorAll(".vault-rag-chat-messages .okit-stream-reasoning summary")].pop();
           if (!body || !(a.textContent || "").includes("Antwort.")) return null;
           const clone = a;
           return { answer: (clone.textContent || "").trim(), thought: body.textContent || "", hasBlock: !!sum };`, 20_000, 250);

@@ -1,4 +1,5 @@
 // Reine Markdown-Struktur-Transforms (kein obsidian, in Node testbar).
+import { renderMarkdownTable } from "./vendor/kit/markdown-table";
 
 function splitCells(line: string): string[] {
   let s = line.trim();
@@ -24,22 +25,6 @@ function parseTable(md: string): string[][] | null {
   return matrix.map(r => { const c = [...r]; while (c.length < width) c.push(""); return c; });
 }
 
-/** Re-escaped `|` → `\|`, damit ein Zellinhalt mit einem literalen Pipe nicht als zusätzliche
- *  Spaltengrenze gelesen wird (splitCells entschärft beim Parsen — hier muss symmetrisch
- *  wieder escaped werden, sonst bricht das Tabellen-Grid). */
-function escapeCell(cell: string): string {
-  return cell.replace(/\|/g, "\\|");
-}
-
-function renderTable(matrix: string[][]): string {
-  const header = matrix[0];
-  const body = matrix.slice(1);
-  const headerLine = `| ${header.map(escapeCell).join(" | ")} |`;
-  const delim = `| ${header.map(() => "---").join(" | ")} |`;
-  const bodyLines = body.map(r => `| ${r.map(escapeCell).join(" | ")} |`);
-  return [headerLine, delim, ...bodyLines].join("\n");
-}
-
 /** Kippt eine Markdown-Tabelle (Spalten↔Zeilen). null bei Nicht-Tabelle. */
 export function transposeTable(md: string): string | null {
   const m = parseTable(md);
@@ -47,11 +32,11 @@ export function transposeTable(md: string): string | null {
   const cols = m[0].length;
   const transposed: string[][] = [];
   for (let c = 0; c < cols; c++) transposed.push(m.map(row => row[c] ?? ""));
-  return renderTable(transposed);
+  return renderMarkdownTable(transposed[0], transposed.slice(1));
 }
 
 /** Wandelt eine Tabelle in eine Liste: pro Datenzeile ein Punkt mit Header:Wert-Paaren. null bei Nicht-Tabelle.
- *  Bewusst KEIN escapeCell hier (anders als renderTable): ein literales `|` im Listen-Output ist
+ *  Bewusst KEIN escapeTableCell hier (anders als renderMarkdownTable): ein literales `|` im Listen-Output ist
  *  nicht strukturzerstörend — es ist Fließtext hinter einem `-`, keine Tabellen-Spaltengrenze —
  *  und escaping würde nur sichtbare `\|` in der Liste erzeugen, wo ein einfaches `|` genauso
  *  lesbar und korrekt ist. Geprüft, nicht übersehen. */

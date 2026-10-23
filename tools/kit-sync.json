@@ -4,7 +4,7 @@
       "ref": "0.63.0"
     },
     "code-kit": {
-      "ref": "0.31.0"
+      "ref": "0.34.0"
     }
   },
   "targets": [
@@ -48,7 +48,8 @@
         "timeout",
         "model-context",
         "probe-core",
-        "rel-path"
+        "rel-path",
+        "markdown-table"
       ]
     },
     {

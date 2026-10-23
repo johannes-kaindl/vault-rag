@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Kit pin `code-kit` 0.31.0 → 0.34.0. The only visible change for this plugin is in the model name guess (code-kit 0.33.0 `capabilities`): **Claude models are now recognised as image-capable, and recent Claude models (Fable, Mythos, Opus 4.7 and newer, Sonnet 5, Haiku 5) as thinking that cannot be switched off**, so the thinking toggle shows its "lowest level" hint for them. Models that merely carry the word "claude" in a local name (`qwen3.6-claude-opus-distill`) are unchanged. The other 0.32.0 to 0.34.0 modules (word diff, critic markup, folder scope, crop, chat history) are not vendored here.
+- Transposing a table in "Reformat" now writes it through code-kit `markdown-table` (`renderMarkdownTable`); the output is identical (code-kit 0.31.1 shows equality on 9,724 strings).
+
 ## [0.44.0] — 2026-10-18
 
 ### Added

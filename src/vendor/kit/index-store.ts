@@ -1,4 +1,4 @@
-// vendored from code-kit@0.31.0, src/ts/pure/index-store.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.34.0, src/ts/pure/index-store.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/index_store.ts (nur der Container-Pfad von loadIndexStore), 2026-10-11 (Änderungen: IndexStorage statt VaultAdapter, kein Legacy-Tripel; Warnung in der Konsole ohne den Namen des ersten Nutzers)
 /** Loads the container file of a note index and says what it found: `loaded`, `no-index` (no file) or `corrupt` (a file
  *  that does not decode and prove itself). It never writes and never deletes: what to do about `corrupt` is the

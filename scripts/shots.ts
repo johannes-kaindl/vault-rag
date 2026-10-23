@@ -63,6 +63,7 @@ import {
   openExisting,
   pollUntil,
   requireUntil,
+  schliesseEinstellungen,
   setAppConfig,
   setPluginSetting,
 } from "../../tools/obsidian-cdp/cdp.js";
@@ -1228,7 +1229,7 @@ async function main(): Promise<void> {
         } finally {
           sCdp.close();
         }
-        await cdp.evaluate("app.setting.close(); return true;");
+        await schliesseEinstellungen(cdp);
         continue;
       }
       await aufnehmen(shot, cdp, opts);

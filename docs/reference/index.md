@@ -36,7 +36,7 @@ so a streaming answer or a pending Smart Apply is not thrown away.
 |---|---|---|
 | Number of related notes | How many results the related/search panels return | `20` |
 | Minimum similarity | Cosine floor below which hits are discarded | `0.3` |
-| Excluded paths | Path prefixes skipped by indexing and retrieval | `Templates/`, `Archive/` |
+| Excluded paths | Path prefixes skipped by indexing and retrieval. Only this list counts: Obsidian's own “Excluded files” setting is not read | `Templates/`, `Archive/` |
 
 Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclude entry.
 

@@ -114,7 +114,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 | Index folder | Where the synced index lives. Cross-device sync (including iPhone) requires the Obsidian Sync option "Sync all other file types" | `_vaultrag` |
 | Hide index folder in file explorer | Hides the index folder from the file explorer for a cleaner workspace (cosmetic; data and sync are unaffected) | on |
 | Similarity / top-k | Retrieval thresholds | `0.3` · `20` |
-| Excluded paths | Paths skipped by indexing (dot-folders are always skipped) | `Templates/`, `Archive/` |
+| Excluded paths | Paths skipped by indexing (dot-folders are always skipped). Only this list counts: Obsidian's own “Excluded files” setting is not read | `Templates/`, `Archive/` |
 | Progress in status bar | Shows embedding progress (`● indexed \| ⏳ pending`); revealed automatically during a reindex | off |
 | Debounce | How long after a save the note is re-embedded | `3000` ms |
 | Smart Apply | Off by default; enabling it adds the tab, the command and the template settings | off |
@@ -173,7 +173,7 @@ no separate config file. The server only runs while Obsidian is open and picks u
 changes live (reloads whenever the plugin rewrites the index). One server instance per
 vault. The server never writes to your vault.
 
-Note: `read_note` enforces exclude prefixes case-insensitively (safe on case-insensitive filesystems like APFS/NTFS), while `search`/`related` filter result paths case-sensitively — they expose only paths and scores, never content.
+Note: `read_note` enforces exclude prefixes case-insensitively (safe on case-insensitive filesystems like APFS/NTFS), while `search`/`related` filter result paths case-sensitively — they expose only paths and scores, never content. `related` also refuses a note under an exclude prefix as its starting point (answer `not-indexed`).
 
 ## Plugin API (for other Obsidian plugins)
 

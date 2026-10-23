@@ -114,7 +114,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 | Index-Ordner | Wo der gesyncte Index liegt. Geräteübergreifender Sync (auch iPhone) braucht die Obsidian-Sync-Option „Alle anderen Dateitypen synchronisieren" | `_vaultrag` |
 | Index-Ordner ausblenden | Versteckt den Ordner im Datei-Explorer (kosmetisch; Daten und Sync bleiben unberührt) | an |
 | Ähnlichkeit / Top-k | Retrieval-Schwellen | `0.3` · `20` |
-| Ausschluss-Pfade | Pfade, die nicht indiziert werden (Dot-Ordner immer) | `Templates/`, `Archive/` |
+| Ausschluss-Pfade | Pfade, die nicht indiziert werden (Dot-Ordner immer). Nur diese Liste zählt: Obsidians eigene Einstellung „Ausgeschlossene Dateien“ wird nicht gelesen | `Templates/`, `Archive/` |
 | Fortschritt in Statusleiste | Zeigt den Embedding-Fortschritt; beim Reindex automatisch eingeblendet | aus |
 | Debounce | Wie lange nach dem Speichern neu eingebettet wird | `3000` ms |
 | Smart Apply | Standardmäßig aus; aktiviert Tab, Befehl und Template-Einstellungen | aus |

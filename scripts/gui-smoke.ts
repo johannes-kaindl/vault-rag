@@ -32,10 +32,10 @@
  * pgrep -f "user-data-dir=$UD" && echo "Profil belegt — $UD-w19 nehmen"
  * cp ~/Library/Application\ Support/obsidian/obsidian-<version>.asar "$UD"/      # (a) sonst startet die gebündelte, ältere Version
  * # (b)+(c) Restricted Mode und Vertrauensdialog macht `bereiteInstanzVor` im Treiber (nur im Staging-Vault)
- * node -e 'const p=process.env.STAGING_VAULTS_DIR+"/vault-rag";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{v:{path:p,ts:Date.now(),open:true}},language:"en"}))' "$UD"
- * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 &
+ * node -e 'const p=process.env.STAGING_VAULTS_DIR+"/vault-rag";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{v:{path:p,ts:Date.now(),open:true}}}))' "$UD"
+ * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 --lang=en-US &
  * # PID merken: beendet wird NUR sie, nie pkill/killall
- * python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-rag --intent "GUI-Smoke :9399" --exclusive focus --port 9399 --ttl 900
+ * python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-rag --intent "GUI-Smoke :9399" --exclusive all --port 9399 --ttl 900
  * npm run shots -- --port 9399 --prepare                        # Index bauen (18 Notizen, Sekunden; braucht den Embedding-Endpunkt)
  * npm run smoke:gui -- --port 9399
  * python3 ~/.claude/hooks/obsidian-cdp-lock.py release
@@ -92,6 +92,7 @@ import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
 import { EN, DE } from "../src/i18n/strings";
 import { LLM_CONNECTION_STRINGS_EN, LLM_CONNECTION_STRINGS_DE } from "../src/vendor/kit-obsidian/llm-connection-strings";
+import { CHAT_WINDOW_STRINGS_EN, CHAT_WINDOW_STRINGS_DE } from "../src/vendor/kit-obsidian/chat-window-strings";
 
 const PLUGIN_ID = "vault-retrieval";
 /** Name des Staging-Vaults (= Repo-Verzeichnis, verglichen mit `app.vault.getName()`); `manifest.id` weicht ab. */
@@ -174,6 +175,20 @@ const PFLICHT_PUNKTE = {
 } as const;
 const CHAT_GEMMA_PUNKT = "Chat: Gemma 4 ohne Öffner — der Denktext steht im Denkblock, nicht in der Antwort";
 const CHAT_MD_PUNKT = "Chat: eine fertige Antwort erscheint als Markdown (Liste, Fettung), Fernbild bleibt draußen, die Frage bleibt Text";
+/** Chat-Fenster und Modellzeilen (Welle 26, obsidian-kit 0.67.1): am echten Fenster gemessen, nicht am Fake-DOM. `links` ist ein BEKANNTER Befund (Kit-Task Welle 27:
+ *  Linkschutz in Modellantworten): das Kit-Fenster kappt in Links keine Skript-Schemata, und das Plugin hatte bis 0.45.0 denselben Zustand (dieselbe Kette, kein eigener Filter). */
+const W26_PUNKTE = {
+  md: "Chat: Markdown erscheint schon im Lauf — der geschlossene Abschnitt ist gerendert, kein Rohtext von **",
+  chips: "Chat: der Auto-Kontext zeigt beim Tippen Chips (das input-Ereignis erreicht das Fenster)",
+  quelle: "Chat: ein Quellen-Chip unter der Antwort öffnet die Notiz",
+  links: "Chat: Links mit javascript:, data:, file:, obsidian: und app: erscheinen nicht als klickbarer Link (bekannter Befund, Kit-Task Welle 27)",
+  modellChat: "Chat: die Modellzeile wechselt das Modell, und die nächste Anfrage trägt es",
+  sperreChat: "Chat: die Modellzeile ist während des Laufs gesperrt und danach frei",
+  modellSa: "Smart Apply: die Modellzeile wechselt smartApplyModel, „Automatisch“ stellt es zurück",
+  sperreSa: "Smart Apply: die Modellzeile ist während des Laufs gesperrt",
+  escape: "Chat: Escape bricht den laufenden Strom ab (Zustandszeile, Hinweis, Verbindung geschlossen)",
+  eingabe: "Chat: die Eingabe steht auf Wunsch oben und unten (Einstellung, neuer Hub)",
+} as const;
 const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
 const MGR_INDEX_PUNKT = "Manager da: passt das Standardmodell nicht zum Index, nimmt die Anbindung den Endpunkt mit Index-Modell; eine ausdrückliche Wahl bleibt unberührt";
 const MGR_PUNKTE = [
@@ -290,6 +305,7 @@ const PUNKTE = [
   MCP_TOKEN_PUNKT,
   CHAT_MD_PUNKT,
   CHAT_GEMMA_PUNKT,
+  ...Object.values(W26_PUNKTE),
   ...Object.values(PFLICHT_PUNKTE),
   EMBED_ZAEHLER_PUNKT,
   REFORMAT_PRESET_PUNKT,
@@ -688,6 +704,10 @@ async function main(): Promise<void> {
       `return document.documentElement.lang || (window.localStorage && localStorage.getItem("language")) || "en";`,
     );
     const W = uiLang.startsWith("de") ? DE : EN;
+    // Das Chat-Fenster (Kit `buildChatWindow`) sagt „fertig“ in der Zustandszeile (`.okit-chat-status`), nicht mehr im Arbeitstext; das Wort steht im Bündel der
+    // laufenden Oberflächensprache. Ein Lauf ist fertig, wenn die Zeile es nennt: der Zustand „denkt nach“/„schreibt“ durchläuft jede Antwort davor.
+    const CW = uiLang.startsWith("de") ? CHAT_WINDOW_STRINGS_DE : CHAT_WINDOW_STRINGS_EN;
+    const FERTIG_JS = `const s = document.querySelector(".okit-chat-status"); return !!s && (s.textContent || "") === ${JSON.stringify(CW.statusDone)};`;
     // Seit Welle 16 teilen beide Listen das Rollen-Vokabular des Kits; die Embedding-Liste überschreibt
     // nur `skipped-model` (nennt den Index) und trägt sonst dieselben Texte wie die Chat-Liste.
     const KE = (uiLang.startsWith("de") ? LLM_CONNECTION_STRINGS_DE : LLM_CONNECTION_STRINGS_EN).endpointList;
@@ -1441,10 +1461,10 @@ async function main(): Promise<void> {
       `);
 
       // (1) Chat ueber die OBERFLAECHE — nicht ueber Plugin-Interna: der Punkt ist, dass der
-      // trace-Parameter den ganzen Weg Panel → ChatSession → ChatClient uebersteht.
+      // trace-Parameter den ganzen Weg Panel → Chat-Fenster → ChatClient uebersteht.
       // ⚠️ Tippen und Senden sind ZWEI Schritte, und das ist der ganze Punkt.
-      // `scheduleQuery` entprellt die Eingabe 400 ms, bevor das Kontext-Panel embedded und
-      // sucht; `submit()` raeumt genau diesen Timer ab (chat_view.ts). Wer Text setzt und
+      // das `input`-Ereignis des Textfelds bubbelt zur Fenster-Wurzel, dort entprellt `scheduleQuery` 400 ms, bevor das Kontext-Panel embedded und
+      // sucht; `send` raeumt genau diesen Timer ab (chat_view.ts). Wer Text setzt und
       // sofort klickt, sendet also garantiert mit LEEREM Kontext — ein Zustand, den ein
       // Benutzer nie erzeugt, weil Tippen dauert. Der Treiber mass damit bis 2026-09-06 die
       // `contextPaths`-Haelfte unserer Lab-Zusage nie (aufgefallen im llm-lab-Lauf am
@@ -1457,7 +1477,7 @@ async function main(): Promise<void> {
       await main.evaluate(`
         await app.commands.executeCommandById("vault-retrieval:open-vault-chat");
         await new Promise(r => setTimeout(r, 800));
-        const ta = document.querySelector(".vault-rag-chat-input");
+        const ta = document.querySelector(".okit-chat-input");
         ta.value = "Answer with exactly one word. Which note of mine covers vector embeddings and cosine similarity?";
         ta.dispatchEvent(new Event("input", { bubbles: true }));
       `);
@@ -1476,12 +1496,12 @@ async function main(): Promise<void> {
           .filter(Boolean);
       `);
       // ERST JETZT senden — mit gefuelltem Panel.
-      await main.evaluate(`document.querySelector(".vault-rag-chat-send").click();`);
+      await main.evaluate(`document.querySelector(".okit-chat-send").click();`);
       // Auf das ERGEBNIS warten, nie auf den Sende-Knopf: der durchlaeuft im selben Turn
       // mehrere Uebergaenge (Senden→Stop→Senden) und meldet zu frueh "fertig"
       // (_docs/LESSONS.md 2026-08-23, n=2). Die Ergebniszeile stellt nur ein fertiger Lauf her.
       const chatDone = await pollUntil(main,
-        `const w = document.querySelector(".vault-rag-chat-working"); return !!w && /✓/.test(w.textContent || "");`,
+        FERTIG_JS,
         CHAT_FRIST_MS, 1_000).catch(() => false);
       const chatTrace = await main.evaluate<{ n: number; last: Record<string, unknown> | null }>(`
         const seen = window.__vaultRagLabSeen;
@@ -1645,15 +1665,15 @@ async function main(): Promise<void> {
         window.__vaultRagLabBaseline = window.__vaultRagLabSeen.length;
         await app.commands.executeCommandById("vault-retrieval:open-vault-chat");
         await new Promise(r => setTimeout(r, 800));
-        document.querySelector(".vault-rag-chat-new").click();
+        document.querySelector(".okit-chat-new").click();
         await new Promise(r => setTimeout(r, 400));
-        const ta = document.querySelector(".vault-rag-chat-input");
+        const ta = document.querySelector(".okit-chat-input");
         ta.value = "Antworte mit genau einem Wort: Tschuess.";
         ta.dispatchEvent(new Event("input", { bubbles: true }));
-        document.querySelector(".vault-rag-chat-send").click();
+        document.querySelector(".okit-chat-send").click();
       `);
       const offDone = await pollUntil(main,
-        `const w = document.querySelector(".vault-rag-chat-working"); return !!w && /✓/.test(w.textContent || "");`,
+        FERTIG_JS,
         CHAT_FRIST_MS, 1_000).catch(() => false);
       const offTrace = await main.evaluate<{ added: number }>(`
         return { added: window.__vaultRagLabSeen.length - window.__vaultRagLabBaseline };
@@ -2106,24 +2126,24 @@ async function main(): Promise<void> {
           p.settings.chatEndpoints = [{ url: ${JSON.stringify(mdStub.url)}, model: "fake-model" }];
           p.llm.invalidate(); await p.resolveAndReconnectChat();
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
-          document.querySelector(".vault-rag-chat-new")?.click();
-          const ta = document.querySelector(".vault-rag-chat-input");
+          document.querySelector(".okit-chat-new")?.click();
+          const ta = document.querySelector(".okit-chat-input");
           ta.value = "Frage als Text"; ta.dispatchEvent(new Event("input", { bubbles: true }));
-          document.querySelector(".vault-rag-chat-send").click();
+          document.querySelector(".okit-chat-send").click();
           return true;`);
         const md = await pollUntil<{ strong: number; li: number; img: number; evil: number; user: string; userMd: boolean }>(main, `
-          const a = document.querySelector(".vault-rag-chat-msg.is-assistant.is-markdown");
-          const u = document.querySelector(".vault-rag-chat-msg.is-user");
+          const a = document.querySelector(".okit-chat-turn.is-assistant .okit-stream-body");
+          const u = document.querySelector(".okit-chat-turn.is-user .okit-chat-text");
           if (!a || !a.querySelector("li")) return null;
           return { strong: a.querySelectorAll("strong").length, li: a.querySelectorAll("li").length, img: a.querySelectorAll("img").length,
                    evil: [...a.querySelectorAll("img")].filter(i => (i.getAttribute("src") || "").includes("evil.example")).length,
-                   user: u ? u.textContent : "", userMd: !!(u && u.classList.contains("is-markdown")) };`, 20_000, 250);
+                   user: u ? u.textContent : "", userMd: !!(u && u.querySelector("strong, li, p, ul")) };`, 20_000, 250);
         record(CHAT_MD_PUNKT, !!md && md.strong >= 1 && md.li === 2 && md.evil === 0 && md.user === "Frage als Text" && !md.userMd,
           md ? `<strong> ${md.strong} · <li> ${md.li} · Fernbild-Quellen ${md.evil} (img gesamt ${md.img}) · Frage ${md.userMd ? "ALS MARKDOWN" : "als Text"}` : "keine gerenderte Antwort in 20 s");
       } finally {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          document.querySelector(".vault-rag-chat-new")?.click();
+          document.querySelector(".okit-chat-new")?.click();
           p.settings.chatEndpoints = ${JSON.stringify(gesichert)};
           await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
           return true;`);
@@ -2145,32 +2165,32 @@ async function main(): Promise<void> {
           p.settings.chatEndpoints = [{ url: ${JSON.stringify(gemmaStub.url)}, model: "google/gemma-4-e4b" }];
           p.llm.invalidate(); await p.resolveAndReconnectChat();
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
-          document.querySelector(".vault-rag-chat-new")?.click();
-          const ta = document.querySelector(".vault-rag-chat-input");
+          document.querySelector(".okit-chat-new")?.click();
+          const ta = document.querySelector(".okit-chat-input");
           ta.value = "Gemma-Frage"; ta.dispatchEvent(new Event("input", { bubbles: true }));
-          document.querySelector(".vault-rag-chat-send").click();
+          document.querySelector(".okit-chat-send").click();
           return true;`);
-        // MITTEN im Strom lesen: am Ende setzt `chat_session` den Antworttext aus dem Ergebnis neu, ein fehlendes `onContentReset`
+        // MITTEN im Strom lesen: am Ende setzt das Chat-Fenster den Antworttext aus dem Ergebnis neu, ein fehlendes `onContentReset`
         // fiele dort nicht mehr auf. Sichtbar ist es nur, solange die Antwort noch läuft.
         const mid = await pollUntil<string>(main, `
-          const a = [...document.querySelectorAll(".vault-rag-chat-msg.is-assistant")].pop();
+          const a = [...document.querySelectorAll(".okit-chat-turn.is-assistant .okit-stream-body")].pop();
           const t = a ? (a.textContent || "") : "";
           return t.includes("Die fertige") && !t.includes("Antwort.") ? t : null;`, 20_000, 50);
         const g = await pollUntil<{ answer: string; thought: string; hasBlock: boolean }>(main, `
-          const a = [...document.querySelectorAll(".vault-rag-chat-msg.is-assistant")].pop();
+          const a = [...document.querySelectorAll(".okit-chat-turn.is-assistant .okit-stream-body")].pop();
           if (!a) return null;
-          // Der Denkblock ist ein Geschwister der Nachricht, kein Kind (chat_view.renderMessages).
-          const body = [...document.querySelectorAll(".vault-rag-chat-messages .okit-stream-reasoning pre")].pop();
-          const sum = [...document.querySelectorAll(".vault-rag-chat-messages .okit-stream-reasoning summary")].pop();
+          // Der Denkblock ist ein Geschwister des Antwortkörpers (Kit buildStreamArea), kein Kind: Text der Antwort und des Denkens sind getrennt zu lesen.
+          const body = [...document.querySelectorAll(".okit-chat-log .okit-stream-reasoning pre")].pop();
+          const sum = [...document.querySelectorAll(".okit-chat-log .okit-stream-reasoning summary")].pop();
           if (!body || !(a.textContent || "").includes("Antwort.")) return null;
           const clone = a;
           return { answer: (clone.textContent || "").trim(), thought: body.textContent || "", hasBlock: !!sum };`, 20_000, 250);
         record(CHAT_GEMMA_PUNKT, typeof mid === "string" && !mid.includes("wäge") && !mid.includes("channel") && !!g && g.hasBlock && g.answer === "Die fertige Antwort." && g.thought.includes("wäge") && !g.answer.includes("wäge") && !g.answer.includes("channel"),
-          g ? `mitten im Strom „${String(mid).slice(0, 60)}“ · Antwort „${g.answer}“ · Denkblock „${g.thought.slice(0, 40)}“` : `keine Antwort mit Denkblock in 20 s — Lage: ${await main.evaluate<string>(`return [...document.querySelectorAll(".vault-rag-chat-msg")].map(e => e.className + " | " + (e.textContent || "").slice(0, 120)).join(" ## ") + " || " + (document.querySelector(".vault-rag-chat-state")?.textContent ?? "");`)}`);
+          g ? `mitten im Strom „${String(mid).slice(0, 60)}“ · Antwort „${g.answer}“ · Denkblock „${g.thought.slice(0, 40)}“` : `keine Antwort mit Denkblock in 20 s — Lage: ${await main.evaluate<string>(`return [...document.querySelectorAll(".okit-chat-turn")].map(e => e.className + " | " + (e.textContent || "").slice(0, 120)).join(" ## ") + " || " + (document.querySelector(".okit-chat-error")?.textContent ?? "");`)}`);
       } finally {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          document.querySelector(".vault-rag-chat-new")?.click();
+          document.querySelector(".okit-chat-new")?.click();
           p.settings.chatEndpoints = ${JSON.stringify(gesichert)};
           await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
           return true;`);
@@ -2191,7 +2211,7 @@ async function main(): Promise<void> {
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           const rs = app.workspace.rightSplit, vor = window.__pflichtSide;
           if (vor) { rs.setSize(vor.breite); if (vor.eingeklappt) rs.collapse(); delete window.__pflichtSide; }
-          document.querySelector(".vault-rag-chat-new")?.click();
+          document.querySelector(".okit-chat-new")?.click();
           p.settings.chatEndpoints = ${JSON.stringify(gesichertPf)};
           await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
           return true;`).catch(() => undefined);
@@ -2212,30 +2232,30 @@ async function main(): Promise<void> {
           p.settings.chatEndpoints = [{ url: ${JSON.stringify(pfStub.url)}, model: "fake-model" }];
           p.llm.invalidate(); await p.resolveAndReconnectChat();
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
-          document.querySelector(".vault-rag-chat-new")?.click();
-          const ta = document.querySelector(".vault-rag-chat-input");
+          document.querySelector(".okit-chat-new")?.click();
+          const ta = document.querySelector(".okit-chat-input");
           ta.value = "Pflicht-Frage"; ta.dispatchEvent(new Event("input", { bubbles: true }));
-          document.querySelector(".vault-rag-chat-send").click();
+          document.querySelector(".okit-chat-send").click();
           return true;`);
         // Erst messen, wenn der Strom läuft (die Liste wächst), sonst fehlt der Anstrich.
-        const laeuft = await pollUntil<boolean>(main, `const a = [...document.querySelectorAll(".vault-rag-chat-msg.is-assistant")].pop(); return a && (a.textContent || "").length > 40 ? true : null;`, 20_000, 100);
+        const laeuft = await pollUntil<boolean>(main, `const a = [...document.querySelectorAll(".okit-chat-turn.is-assistant .okit-stream-body")].pop(); return a && (a.textContent || "").length > 40 ? true : null;`, 20_000, 100);
         if (!laeuft) {
           for (const n of [PF.fokus, PF.fokusGegen]) unmeasured(n, "kein laufender Strom innerhalb von 20 s — nichts gemessen");
         } else {
-          zeichnePflicht(pflichtBilanz, PF.fokus, await messeFokusErhalt(main, { selector: ".vault-rag-chat-input", text: "abc" }));
-          zeichnePflicht(pflichtBilanz, PF.fokusGegen, await gegenprobeFokus(main, { selector: ".vault-rag-chat-input", text: "abc" }));
+          zeichnePflicht(pflichtBilanz, PF.fokus, await messeFokusErhalt(main, { selector: ".okit-chat-input", text: "abc" }));
+          zeichnePflicht(pflichtBilanz, PF.fokusGegen, await gegenprobeFokus(main, { selector: ".okit-chat-input", text: "abc" }));
         }
         // Strom beenden, bevor die Geometrie gemessen wird.
-        await main.evaluate(`document.querySelector(".vault-rag-chat-new")?.click(); return true;`);
+        await main.evaluate(`document.querySelector(".okit-chat-new")?.click(); return true;`);
         await pfStub.trenneAlle();
         await new Promise((r) => setTimeout(r, 500));
         const opts = {
-          selektoren: [".vault-rag-chat-send", ".vault-rag-chat-new", ".vault-rag-chat-input", ".vault-rag-chat-model"],
-          fuelle: { in: ".vault-rag-chat-messages" },
-          erforderlich: [".vault-rag-chat-send", ".vault-rag-chat-input"],
+          selektoren: [".okit-chat-send", ".okit-chat-new", ".okit-chat-input", ".vault-rag-chat .okit-model-bar-select"],
+          fuelle: { in: ".okit-chat-log" },
+          erforderlich: [".okit-chat-send", ".okit-chat-input"],
         };
         zeichnePflicht(pflichtBilanz, PF.erreichbar, await messeErreichbarkeit(main, opts));
-        const kurz = await mitHoehe(main, { element: ".workspace-leaf", enthaelt: ".vault-rag-chat-input", hoehe: 420 }, () => messeErreichbarkeit(main, opts));
+        const kurz = await mitHoehe(main, { element: ".workspace-leaf", enthaelt: ".okit-chat-input", hoehe: 420 }, () => messeErreichbarkeit(main, opts));
         zeichnePflicht(pflichtBilanz, PF.erreichbarKurz, kurz);
         // Gegenprobe: im Chat liegen die Bedienelemente NEBEN dem Rollbereich (Flex-Geschwister), ihm den Rollbalken zu nehmen ändert an
         // ihrer Lage nichts und die Probe bliebe grün-leer. Der Defekt, vor dem der Punkt schützt, ist ein Nachrichtenbereich, der wächst,
@@ -2246,6 +2266,172 @@ async function main(): Promise<void> {
         for (const n of Object.values(PF)) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
       } finally {
         await pfZustand.schliesse();
+      }
+    }
+
+    // --- 7e1b4. Chat-Fenster und Modellzeilen (Welle 26) -------------------------------------------------------------
+    // Das Kit-Fenster am echten Renderer: Markdown schon im Lauf, Auto-Kontext über das bubbelnde `input`-Ereignis, Quellen-Chips, Escape, Eingabe
+    // oben/unten, die Modellzeile des Chats samt Sperre im Lauf und die von Smart Apply. Ein Stub mit zwei Modellen (die Zeile braucht mindestens zwei).
+    // Die erste Antwort trägt Markdown und fünf Links mit Schemata, die ein Modell nicht setzen dürfte; sie ist lang genug, um mitten im Strom zu messen.
+    if (nur === null) {
+      const N26 = W26_PUNKTE;
+      const lang = [
+        "Erster Absatz mit **fett** und mehr.\n\n", "- eins\n- zwei\n\n",
+        "[js](javascript:alert(1)) [data](data:text/html,x) [file](file:///etc/hosts) [obs](obsidian://open?vault=x) [app](app://local/x) und [ok](https://example.com)\n\n",
+        ...Array.from({ length: 14 }, (_, i) => `Absatz ${i + 1}: noch mehr Text, damit der Strom lange genug läuft.\n\n`),
+      ];
+      const w26Stub = await startLlmStub({ models: ["fake-model", "fake-model-2"], antwort: (_a, n) => (n === 2 ? { stuecke: ["Kurz."], takt: 50 } : { stuecke: lang, takt: 450 }) });
+      const w26Gesichert = await main.evaluate<{ endpoints: unknown; sa: string; position: string }>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        return { endpoints: JSON.parse(JSON.stringify(p.settings.chatEndpoints)), sa: p.settings.smartApplyModel || "", position: p.settings.chatInputPosition };`);
+      const w26Zurueck = async (): Promise<void> => {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          document.querySelector(".okit-chat-new")?.click();
+          p.settings.chatEndpoints = ${JSON.stringify(w26Gesichert.endpoints)};
+          p.settings.smartApplyModel = ${JSON.stringify(w26Gesichert.sa)};
+          p.settings.chatInputPosition = ${JSON.stringify(w26Gesichert.position)};
+          await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
+          return true;`).catch(() => undefined);
+        await w26Stub.stop().catch(() => undefined);
+      };
+      const w26Zustand = beimAbbruch(w26Zurueck, "Chat-Endpunkt und Einstellungen zurückstellen (Chat-Fenster)");
+      const chatZaehler = (): number => w26Stub.anfragen().filter((a) => a.route === "chat").length;
+      try {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.chatEndpoints = [{ url: ${JSON.stringify(w26Stub.url)}, model: "fake-model" }];
+          p.llm.invalidate(); await p.resolveAndReconnectChat();
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 900));
+          document.querySelector(".okit-chat-new")?.click();
+          await new Promise(r => setTimeout(r, 300));
+          const ta = document.querySelector(".okit-chat-input");
+          ta.value = "Answer briefly: which note covers vector embeddings and cosine similarity?";
+          ta.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;`);
+        // Auto-Kontext: das `input`-Ereignis des Textfelds erreicht die Fenster-Wurzel, dort entprellt das Panel 400 ms und sucht.
+        const chips = await pollUntil<string[]>(main, `
+          const c = [...document.querySelectorAll(".vault-rag-ctx-chip")].map(x => (x.textContent || "").trim());
+          return c.length > 0 ? c : null;`, 30_000, 500).catch(() => null);
+        record(N26.chips, Array.isArray(chips) && chips.length > 0, Array.isArray(chips) ? `${chips.length} Chips: ${chips.join(", ")}` : "keine Chips in 30 s — der Embedding-Stub oder das input-Ereignis fehlt");
+        // Senden und MITTEN im Strom messen.
+        await main.evaluate(`document.querySelector(".okit-chat-send").click(); return true;`);
+        const mitten = await pollUntil<{ strong: number; roh: boolean; laeuft: boolean; gesperrt: boolean; select: boolean }>(main, `
+          const b = [...document.querySelectorAll(".okit-chat-turn.is-assistant .okit-stream-body")].pop();
+          const st = document.querySelector(".okit-chat-status");
+          const sel = document.querySelector(".vault-rag-chat .okit-model-bar-select");
+          if (!b || !st || !sel) return null;
+          const bl = [...b.querySelectorAll(".okit-stream-block")];
+          const strong = b.querySelectorAll("strong").length;
+          if (strong < 1) return null;
+          return { strong, roh: bl.some(x => (x.textContent || "").includes("**")), laeuft: st.textContent !== ${JSON.stringify(CW.statusDone)}, gesperrt: sel.disabled === true, select: true };`, 25_000, 100).catch(() => null);
+        if (!mitten) record(N26.md, false, "kein gerendertes <strong> in der laufenden Antwort innerhalb von 25 s");
+        else if (!mitten.laeuft) unmeasured(N26.md, "Messung ungültig: die Antwort war schon fertig, als das erste <strong> gesehen wurde");
+        else record(N26.md, mitten.strong >= 1 && !mitten.roh, `<strong> ${mitten.strong} im geschlossenen Abschnitt, Rohtext „**“ ${mitten.roh ? "STEHT NOCH" : "weg"}, Antwort läuft noch`);
+        // Sperre der Modellzeile im Lauf (dieselbe Messung, der Zustand „läuft“ ist oben belegt).
+        if (!mitten || !mitten.laeuft) unmeasured(N26.sperreChat, "kein laufender Strom gemessen — nichts gemessen");
+        else {
+          // Escape-Probe NACH den Messungen am Strom: ein eigener Lauf, damit die erste Antwort fertig wird (Links, Quellen).
+          await pollUntil(main, FERTIG_JS, 60_000, 500).catch(() => false);
+          const frei = await main.evaluate<boolean>(`return document.querySelector(".vault-rag-chat .okit-model-bar-select").disabled === false;`);
+          record(N26.sperreChat, mitten.gesperrt && frei, `im Lauf ${mitten.gesperrt ? "gesperrt" : "FREI"} · danach ${frei ? "frei" : "GESPERRT"}`);
+        }
+        // Links: die fertige Antwort. Gezählt wird, was ein Klick tun könnte: ein <a> mit href-Attribut und dem Schema.
+        const links = await main.evaluate<{ gesamt: number; schemata: Record<string, number>; sichtbar: boolean }>(`
+          const b = [...document.querySelectorAll(".okit-chat-turn.is-assistant .okit-stream-body")].pop();
+          const a = b ? [...b.querySelectorAll("a")] : [];
+          const schema = (s) => a.filter(x => (x.getAttribute("href") || "").toLowerCase().startsWith(s)).length;
+          return { gesamt: a.length, sichtbar: !!b, schemata: { "javascript:": schema("javascript:"), "data:": schema("data:"), "file:": schema("file:"), "obsidian:": schema("obsidian:"), "app:": schema("app:") } };`);
+        const lebend = Object.entries(links.schemata).filter(([, n]) => n > 0).map(([k]) => k);
+        record(N26.links, links.sichtbar && lebend.length === 0,
+          links.sichtbar ? `${links.gesamt} Links gesamt · klickbar mit Schema: ${lebend.length ? lebend.join(", ") : "keins"} · bekannter Befund, Kit-Task Welle 27 „Linkschutz in Modellantworten“ (dieselbe Probe gegen den Tag 0.45.0, 2026-10-24: javascript: und data: ohne href, file:, obsidian: und app: klickbar — Zustand unverändert)` : "keine fertige Antwort gefunden");
+        // Quellen-Chip: öffnet die Notiz.
+        const quelle = await main.evaluate<{ chips: number; label: string; opened: string | null }>(`
+          const c = [...document.querySelectorAll(".vault-rag-chat-source")];
+          if (!c.length) return { chips: 0, label: "", opened: null };
+          const label = c[0].getAttribute("aria-label") || "";
+          c[0].click();
+          await new Promise(r => setTimeout(r, 800));
+          return { chips: c.length, label, opened: app.workspace.getActiveFile()?.path ?? null };`);
+        record(N26.quelle, quelle.chips > 0 && quelle.opened === quelle.label, quelle.chips ? `${quelle.chips} Chip(s) · geöffnet: ${String(quelle.opened)} · erwartet: ${quelle.label}` : "kein Quellen-Chip unter der Antwort (keine Chips im Kontext?)");
+        // Modellzeile: Wechsel wirkt, die nächste Anfrage trägt das Modell.
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 400));
+          document.querySelector(".okit-chat-new")?.click();
+          await new Promise(r => setTimeout(r, 300));
+          const sel = document.querySelector(".vault-rag-chat .okit-model-bar-select");
+          sel.value = "fake-model-2"; sel.dispatchEvent(new Event("change", { bubbles: true }));
+          await new Promise(r => setTimeout(r, 800));
+          const ta = document.querySelector(".okit-chat-input"); ta.value = "Kurze Frage"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+          document.querySelector(".okit-chat-send").click();
+          return true;`);
+        await pollUntil(main, FERTIG_JS, 30_000, 300).catch(() => false);
+        const model = await main.evaluate<{ inUse: string; shown: string }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          return { inUse: p.llm.modelInUse(), shown: document.querySelector(".vault-rag-chat .okit-model-bar-select")?.value ?? "" };`);
+        const letzte = w26Stub.anfragen().filter((a) => a.route === "chat").pop();
+        const gesendet = (letzte?.json as { model?: string } | null)?.model ?? null;
+        record(N26.modellChat, model.inUse === "fake-model-2" && model.shown === "fake-model-2" && gesendet === "fake-model-2",
+          `Verbindung ${model.inUse} · Dropdown ${model.shown} · Anfrage trägt ${String(gesendet)} (${chatZaehler()} Chat-Anfragen)`);
+        // Escape: ein neuer, langer Lauf.
+        await main.evaluate(`
+          document.querySelector(".okit-chat-new")?.click();
+          await new Promise(r => setTimeout(r, 300));
+          const ta = document.querySelector(".okit-chat-input"); ta.value = "Lange Antwort bitte"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+          document.querySelector(".okit-chat-send").click();
+          return true;`);
+        const laeuft = await pollUntil<boolean>(main, `const b = [...document.querySelectorAll(".okit-chat-turn.is-assistant .okit-stream-body")].pop(); return b && (b.textContent || "").length > 20 ? true : null;`, 20_000, 100).catch(() => null);
+        if (!laeuft) unmeasured(N26.escape, "kein laufender Strom innerhalb von 20 s — nichts gemessen");
+        else {
+          const vorher = w26Stub.zaehler().clientGeschlossen;
+          await main.evaluate(`
+            const ta = document.querySelector(".okit-chat-input");
+            ta.focus();
+            ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+            return true;`);
+          const abgebrochen = await pollUntil<boolean>(main, `
+            const st = document.querySelector(".okit-chat-status");
+            return st && st.textContent === ${JSON.stringify(CW.statusAborted)} && !!document.querySelector(".okit-chat-aborted") ? true : null;`, 10_000, 100).catch(() => null);
+          await new Promise((r) => setTimeout(r, 800));
+          const zu = w26Stub.zaehler().clientGeschlossen - vorher;
+          record(N26.escape, abgebrochen === true && zu >= 1, `Zustand „${CW.statusAborted}“ ${abgebrochen ? "gesetzt" : "NICHT gesetzt"} · Verbindung vom Client geschlossen: ${zu}× · Hinweis „${CW.abortedLine}“`);
+        }
+        await main.evaluate(`document.querySelector(".okit-chat-new")?.click(); return true;`);
+        // Eingabe oben/unten: die Position liest das Fenster beim Bauen, ein neuer Hub zeigt die Einstellung.
+        const lage = async (pos: "top" | "bottom"): Promise<{ composerVorLog: boolean; klasse: boolean }> => main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.chatInputPosition = ${JSON.stringify(pos)}; await p.saveSettings();
+          for (const l of app.workspace.getLeavesOfType("vault-retrieval-hub")) l.detach();
+          await new Promise(r => setTimeout(r, 400));
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 900));
+          const root = document.querySelector(".okit-chat.vault-rag-chat");
+          const kids = root ? [...root.children] : [];
+          const iC = kids.findIndex(k => k.classList.contains("okit-chat-composer")), iL = kids.findIndex(k => k.classList.contains("okit-chat-log"));
+          return { composerVorLog: iC >= 0 && iL >= 0 && iC < iL, klasse: !!root && root.classList.contains("okit-chat--input-top") };`);
+        const oben = await lage("top");
+        const unten = await lage("bottom");
+        record(N26.eingabe, oben.composerVorLog && oben.klasse && !unten.composerVorLog && !unten.klasse,
+          `oben: Eingabe vor Verlauf ${oben.composerVorLog ? "ja" : "NEIN"}, Klasse ${oben.klasse ? "ja" : "NEIN"} · unten: Eingabe vor Verlauf ${unten.composerVorLog ? "JA" : "nein"}`);
+        // Smart Apply: Modellzeile (Wechsel und „Automatisch“).
+        const sa = await main.evaluate<{ da: boolean; gewaehlt: string | null; zurueck: string | null }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          await p.openHub("smart-apply"); await new Promise(r => setTimeout(r, 1200));
+          const sel = document.querySelector(".vault-rag-sa-root .okit-model-bar-select");
+          if (!sel) return { da: false, gewaehlt: null, zurueck: null };
+          sel.value = "fake-model-2"; sel.dispatchEvent(new Event("change", { bubbles: true }));
+          await new Promise(r => setTimeout(r, 800));
+          const gewaehlt = p.settings.smartApplyModel ?? null;
+          const s2 = document.querySelector(".vault-rag-sa-root .okit-model-bar-select");
+          s2.value = ""; s2.dispatchEvent(new Event("change", { bubbles: true }));
+          await new Promise(r => setTimeout(r, 800));
+          return { da: true, gewaehlt, zurueck: p.settings.smartApplyModel ?? null };`);
+        if (!sa.da) { unmeasured(N26.modellSa, "kein Smart-Apply-Tab im Hub (Smart Apply aus?) — nichts gemessen"); }
+        else record(N26.modellSa, sa.gewaehlt === "fake-model-2" && (sa.zurueck ?? "") === "", `gewählt: ${String(sa.gewaehlt)} · Automatisch: „${String(sa.zurueck)}“`);
+      } catch (e) {
+        for (const n of Object.values(N26)) if (n !== N26.sperreSa && !bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+      } finally {
+        await w26Zustand.schliesse();
       }
     }
 
@@ -2311,7 +2497,7 @@ async function main(): Promise<void> {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 500));
-          const ta = document.querySelector(".vault-rag-chat-input");
+          const ta = document.querySelector(".okit-chat-input");
           ta.value = "Frage waehrend der Pause"; ta.dispatchEvent(new Event("input", { bubbles: true }));
           await new Promise(r => setTimeout(r, 1000));
           return true;`);
@@ -2348,7 +2534,7 @@ async function main(): Promise<void> {
           { const t0 = Date.now(); while ((p.embeddingProgress.isEmbedding || p.embeddingProgress.pendingNotes > 0) && Date.now() - t0 < 10000) await new Promise(r => setTimeout(r, 200)); }
           p.settings.showStatusBar = ${JSON.stringify(vorher.showSaved)};
           p.setStatusBarVisible(${JSON.stringify(vorher.showSaved)});
-          document.querySelector(".vault-rag-chat-input") && (document.querySelector(".vault-rag-chat-input").value = "");
+          document.querySelector(".okit-chat-input") && (document.querySelector(".okit-chat-input").value = "");
           return true;`);
       }
     }
@@ -2499,19 +2685,19 @@ async function main(): Promise<void> {
         await main.evaluate(`
           await app.commands.executeCommandById("vault-retrieval:open-vault-chat");
           await new Promise(r => setTimeout(r, 800));
-          const ta = document.querySelector(".vault-rag-chat-input");
+          const ta = document.querySelector(".okit-chat-input");
           ta.value = "Zeig mir ${W15_TOKEN} als Bild";
           ta.dispatchEvent(new Event("input", { bubbles: true }));
           await new Promise(r => setTimeout(r, 700));
-          document.querySelector(".vault-rag-chat-send").click();
+          document.querySelector(".okit-chat-send").click();
         `);
         const fertig = await pollUntil(main,
-          `const w = document.querySelector(".vault-rag-chat-working"); return !!w && /✓/.test(w.textContent || "");`,
+          FERTIG_JS,
           60_000, 500).catch(() => false);
         const img = await main.evaluate<{ imgs: number; hasText: boolean }>(`
           // Gezählt wird, was das Geheimnis verschicken könnte: ein img mit der fremden Adresse. Das
           // Chat-Panel trägt andere img (Notiz-Vorschauen) nicht, die Sidebar aber Icons und Avatare.
-          const root = document.querySelector(".vault-rag-chat-root") || document.body;
+          const root = document.querySelector(".vault-rag-chat") || document.body;
           return { imgs: root.querySelectorAll('img[src*="evil.example"], img[src*="redacted"]').length, hasText: (root.textContent || "").includes("evil.example") };
         `);
         record(W15_PUNKTE[4]!, fertig === true && img.imgs === 0 && img.hasText,
@@ -2992,13 +3178,13 @@ async function main(): Promise<void> {
       try {
         const saved = await main.evaluate<unknown>(`return structuredClone(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.request);`);
         const readKnopf = `
-          const k = document.querySelector(".vault-rag-chat-root .okit-thinking-toggle");
+          const k = document.querySelector(".vault-rag-chat .okit-thinking-toggle");
           const pl = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           return k ? { pressed: k.getAttribute("aria-pressed"), text: k.textContent, stored: pl.settings.request.thinking.grounded ?? null } : null;`;
         const v0 = await main.evaluate<{ pressed: string; text: string; stored: string | null } | null>(`${chatDom} ${readKnopf}`);
-        await main.evaluate(`document.querySelector(".vault-rag-chat-root .okit-thinking-toggle")?.click(); await new Promise(r => setTimeout(r, 500)); return true;`);
+        await main.evaluate(`document.querySelector(".vault-rag-chat .okit-thinking-toggle")?.click(); await new Promise(r => setTimeout(r, 500)); return true;`);
         const v1 = await main.evaluate<{ pressed: string; text: string; stored: string | null } | null>(readKnopf);
-        await main.evaluate(`document.querySelector(".vault-rag-chat-root .okit-thinking-toggle")?.click(); await new Promise(r => setTimeout(r, 500)); return true;`);
+        await main.evaluate(`document.querySelector(".vault-rag-chat .okit-thinking-toggle")?.click(); await new Promise(r => setTimeout(r, 500)); return true;`);
         const v2 = await main.evaluate<{ pressed: string; text: string; stored: string | null } | null>(readKnopf);
         const umgeschaltet = !!v0 && !!v1 && !!v2 && v0.pressed !== v1.pressed && v2.pressed === v0.pressed
           && v0.text !== v1.text && v1.stored !== v0.stored;
@@ -3013,11 +3199,11 @@ async function main(): Promise<void> {
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
           return true;`);
         const n4 = await main.evaluate<{ hasSelect: boolean; buttonGone: boolean; stored: string | null }>(`
-          const sel = document.querySelector(".vault-rag-chat-root .okit-thinking-control select");
+          const sel = document.querySelector(".vault-rag-chat .okit-thinking-control select");
           if (sel) { sel.value = "high"; sel.dispatchEvent(new Event("change")); }
           await new Promise(r => setTimeout(r, 600));
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          return { hasSelect: !!sel, buttonGone: !document.querySelector(".vault-rag-chat-root .okit-thinking-toggle"), stored: p.settings.request.thinking.grounded ?? null };`);
+          return { hasSelect: !!sel, buttonGone: !document.querySelector(".vault-rag-chat .okit-thinking-toggle"), stored: p.settings.request.thinking.grounded ?? null };`);
         record(W7I.n4, n4.hasSelect && n4.buttonGone && n4.stored === "high",
           `Dropdown: ${n4.hasSelect} · Knopf weg: ${n4.buttonGone} · gespeichert: ${String(n4.stored)}`);
         await main.evaluate(`
@@ -3045,17 +3231,17 @@ async function main(): Promise<void> {
         // Chat ueber die Oberflaeche.
         await main.evaluate(`
           ${chatDom}
-          const ta = document.querySelector(".vault-rag-chat-input");
-          document.querySelector(".vault-rag-chat-new")?.click();
+          const ta = document.querySelector(".okit-chat-input");
+          document.querySelector(".okit-chat-new")?.click();
           ta.value = "Antworte mit einem Wort.";
           ta.dispatchEvent(new Event("input", { bubbles: true }));
-          document.querySelector(".vault-rag-chat-send").click();
+          document.querySelector(".okit-chat-send").click();
           return true;`);
         await pollUntil(main, `return window.__w14Bodies.length >= 1;`, 20_000, 250).catch(() => false);
         const chatBody = await main.evaluate<Record<string, unknown> | null>(`return window.__w14Bodies[0] ?? null;`);
         record(W7I.chat, chatBody !== null && chatBody.temperature === 0.4,
           chatBody ? `temperature=${String(chatBody.temperature)} · Felder: ${Object.keys(chatBody).filter((k) => k !== "messages" && k !== "stream").join(", ")}` : "kein Body abgegriffen");
-        await main.evaluate(`document.querySelector(".vault-rag-chat-new")?.click(); return true;`);
+        await main.evaluate(`document.querySelector(".okit-chat-new")?.click(); return true;`);
 
         // Umformatieren ueber den Panel-Knopf (wie 7g), Probe-Notiz im eigenen Tab.
         const before = await main.evaluate<number>(`return window.__w14Bodies.length;`);
@@ -3221,11 +3407,18 @@ async function main(): Promise<void> {
             return true;`);
           if (!gestartet) {
             for (const n of [N.saKontrolle, N.saFolge, N.saWieder, N.saDenk, N.saKopie, N.saKopieGegen, N.saAbsatz]) unmeasured(n, "Lauf-Knopf nicht bedienbar (keine Vorlage/Notiz im Fixture?) — nichts gemessen");
+            unmeasured(W26_PUNKTE.sperreSa, "Lauf-Knopf nicht bedienbar — nichts gemessen");
           } else {
             // Denkblock live: Reasoning wächst, bevor die Antwort beginnt.
             const denkSel = `const r = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning pre"); const t = document.querySelector(".vault-rag-sa-running-stream .okit-stream-tail"); const d = document.querySelector(".vault-rag-sa-running-stream .okit-stream-reasoning");
               return { denk: r ? (r.textContent || "").length : -1, tail: t ? (t.textContent || "").length : -1, offen: Boolean(d && d.open) };`;
             const erst = await pollUntil<{ denk: number; tail: number; offen: boolean }>(main, `const m = (() => { ${denkSel} })(); return m.denk > 0 ? m : null;`, 20_000, 100);
+            {
+              // Welle 26: die Modellzeile im Kopf von Smart Apply ist während der Berechnung gesperrt.
+              const gesperrt = await main.evaluate<boolean | null>(`const s = document.querySelector(".vault-rag-sa-root .okit-model-bar-select"); return s ? s.disabled === true : null;`);
+              if (gesperrt === null) unmeasured(W26_PUNKTE.sperreSa, "keine Modellzeile im Smart-Apply-Kopf — nichts gemessen");
+              else record(W26_PUNKTE.sperreSa, gesperrt, `Dropdown im Lauf ${gesperrt ? "gesperrt" : "FREI"}`);
+            }
             if (!erst) record(N.saDenk, false, "kein Reasoning-Text im laufenden Bereich innerhalb von 20 s");
             else {
               await new Promise((r) => setTimeout(r, 700));

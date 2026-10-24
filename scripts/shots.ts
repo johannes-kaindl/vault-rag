@@ -18,15 +18,15 @@
  *
  * Aufgenommen wird in einer **Zweitinstanz** mit eigenem Profil und eigenem Port; die reguläre Instanz (9222) wird nie
  * angefasst und nie beendet. Der Port ist PFLICHT (`--port <n>`, Wert dieses Rezepts: 9399), es gibt keinen Standardport.
- * Je Bild-Lauf ein frischer Prozess; die Oberfläche steht auf Englisch (`"language":"en"` in `$UD/obsidian.json`).
+ * Je Bild-Lauf ein frischer Prozess; die Oberfläche steht auf Englisch (`--lang=en-US` am Startbefehl; der Schlüssel `"language"` in `obsidian.json` stellt sie nicht um).
  *
  * ```bash
  * npm run build && npm run shots -- --setup         # Vault aus dem Fixture bauen
  * UD=/tmp/obs-test-vault-rag; mkdir -p "$UD"
  * lsof -nP -iTCP:9399 -sTCP:LISTEN && echo "Port belegt — anderen nehmen"
  * cp ~/Library/Application\ Support/obsidian/obsidian-<version>.asar "$UD"/
- * node -e 'const p=process.env.STAGING_VAULTS_DIR+"/vault-rag";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{v:{path:p,ts:Date.now(),open:true}},language:"en"}))' "$UD"
- * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 &
+ * node -e 'const p=process.env.STAGING_VAULTS_DIR+"/vault-rag";require("fs").writeFileSync(process.argv[1]+"/obsidian.json",JSON.stringify({vaults:{v:{path:p,ts:Date.now(),open:true}}}))' "$UD"
+ * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=9399 --lang=en-US &
  * #   ... beim ersten Mal dem Vault-Autor vertrauen, Reindex laufen lassen (oder `npm run shots -- --port 9399 --prepare`)
  * python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-rag --intent "Bilder" --exclusive focus --port 9399 --ttl 900
  *
@@ -324,7 +324,7 @@ async function panelBox(cdp: Cdp, ratio = MAX_RATIO_FEATURE): Promise<Ausschnitt
  * 1. **Die Laenge ist das falsche Mass.** Die Arbeitszeile zaehlt Sekunden hoch —
  *    "2.4 s" und "2.5 s" sind gleich lang. Verglichen wird deshalb der INHALT.
  * 2. **Das letzte Element ist nicht die Antwort.** Solange keine Antwort begonnen hat,
- *    ist die letzte `.vault-rag-chat-msg` die FRAGE — und deren Text aendert sich nie.
+ *    ist die letzte `.okit-chat-turn` die FRAGE — und deren Text aendert sich nie.
  *    Der erste Anlauf hielt das fuer Ruhe und fotografierte ein leeres Panel mit
  *    "generating… 2.4 s". Die Signatur nimmt deshalb die tickende Arbeitszeile MIT auf:
  *    solange gearbeitet wird, kann sie nicht zweimal gleich sein.
@@ -385,7 +385,7 @@ async function lage(cdp: Cdp): Promise<string> {
         .map((e) => ({ sichtbar: e.getBoundingClientRect().width > 1, gesperrt: e.disabled })),
       status: (document.querySelector(".vault-rag-sa-scan-status-label")?.textContent ?? "").slice(0, 80),
       runGesperrt: document.querySelector(".vault-rag-sa-run")?.classList.contains("is-disabled") ?? null,
-      fehler: (document.querySelector(".vault-rag-sa-error, .vault-rag-chat-state")?.textContent ?? "").slice(0, 160),
+      fehler: (document.querySelector(".vault-rag-sa-error, .okit-chat-error")?.textContent ?? "").slice(0, 160),
       stream: (document.querySelector(".vault-rag-sa-stream")?.textContent ?? "").slice(0, 160),
     });
   `);
@@ -485,7 +485,7 @@ const SHOTS: Shot[] = [
       // Aufgeklappt messen: ein zugeklapptes <details> hat unsichtbare Kinder, und der
       // sonst richtige Sichtbarkeitsfilter zaehlt sie als nicht vorhanden (vault-crews).
       const auf = await cdp.evaluate<boolean>(`
-        const d = [...document.querySelectorAll(".vault-rag-chat-messages .okit-stream-reasoning")]
+        const d = [...document.querySelectorAll(".okit-chat-log .okit-stream-reasoning")]
           .filter((e) => e.getBoundingClientRect().width > 1).pop();
         if (!d) return false;
         d.open = true;
@@ -507,7 +507,7 @@ const SHOTS: Shot[] = [
       // `thinking.png` den Denkprozess samt Schalter. Zwei Bilder, zwei Aussagen, keine
       // Dopplung — statt zweimal dieselbe halbe Geschichte.
       await cdp.evaluate(`
-        const det = [...document.querySelectorAll(".vault-rag-chat-messages .okit-stream-reasoning")]
+        const det = [...document.querySelectorAll(".okit-chat-log .okit-stream-reasoning")]
           .filter((e) => e.getBoundingClientRect().width > 1).pop();
         if (det) det.scrollIntoView({ block: "start" });
         await new Promise((r) => setTimeout(r, 500));
@@ -837,7 +837,7 @@ const SHOTS: Shot[] = [
  */
 async function frageStellen(cdp: Cdp, frage: string): Promise<boolean> {
   await cdp.evaluate(`
-    const neu = [...document.querySelectorAll(".vault-rag-chat-new")]
+    const neu = [...document.querySelectorAll(".okit-chat-new")]
       .find((e) => e.getBoundingClientRect().width > 1);
     if (neu) neu.click();
     await new Promise((r) => setTimeout(r, 400));
@@ -852,7 +852,7 @@ async function frageStellen(cdp: Cdp, frage: string): Promise<boolean> {
   // unterhalb `MIN_QUERY` setzt `ranked = []` (context_panel.ts) und leert die Auswahl.
   // Danach ist "Chips vorhanden" wieder eine ehrliche Aussage ueber DIESE Frage.
   await cdp.evaluate(`
-    const input = [...document.querySelectorAll(".vault-rag-chat-input")]
+    const input = [...document.querySelectorAll(".okit-chat-input")]
       .find((e) => e.getBoundingClientRect().width > 1);
     if (input) {
       input.value = "";
@@ -866,7 +866,7 @@ async function frageStellen(cdp: Cdp, frage: string): Promise<boolean> {
   if (!geleert) console.log("      · Kontext liess sich nicht leeren — Messung unsicher");
 
   const getippt = await pollUntil<boolean>(cdp, `
-    const input = [...document.querySelectorAll(".vault-rag-chat-input")]
+    const input = [...document.querySelectorAll(".okit-chat-input")]
       .find((e) => e.getBoundingClientRect().width > 1);
     if (!input) return false;
     input.value = ${JSON.stringify(frage)};
@@ -889,7 +889,7 @@ async function frageStellen(cdp: Cdp, frage: string): Promise<boolean> {
   }
 
   return Boolean(await cdp.evaluate<boolean>(`
-    const send = [...document.querySelectorAll(".vault-rag-chat-send")]
+    const send = [...document.querySelectorAll(".okit-chat-send")]
       .find((e) => e.getBoundingClientRect().width > 1);
     if (!send) return false;
     send.click();
@@ -908,12 +908,12 @@ async function frageStellen(cdp: Cdp, frage: string): Promise<boolean> {
  */
 async function chatFertig(cdp: Cdp, timeoutMs = 300_000): Promise<boolean> {
   const fertig = await pollUntil<boolean>(cdp, `
-    const send = [...document.querySelectorAll(".vault-rag-chat-send")]
+    const send = [...document.querySelectorAll(".okit-chat-send")]
       .find((e) => e.getBoundingClientRect().width > 1);
     if (!send) return false;
     const laeuft = send.textContent.trim() === "Stop";
-    const msgs = [...document.querySelectorAll(".vault-rag-chat-msg")];
-    const antwort = msgs.length >= 2 && (msgs[msgs.length - 1].textContent ?? "").trim().length > 0;
+    const antworten = [...document.querySelectorAll(".okit-chat-turn.is-assistant .okit-stream-body")];
+    const antwort = antworten.length >= 1 && (antworten[antworten.length - 1].textContent ?? "").trim().length > 0;
     return !laeuft && antwort;
   `, timeoutMs, 1500);
   return Boolean(fertig);

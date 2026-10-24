@@ -67,7 +67,7 @@ await main.evaluate(`${P}
   const i = document.querySelector(".vault-rag-search-input"); i.value = "cosine similarity of embeddings"; i.dispatchEvent(new Event("input", { bubbles: true }));
   await new Promise(r => setTimeout(r, 900));
   await p.openHub("chat"); await new Promise(r => setTimeout(r, 400));
-  const ta = document.querySelector(".vault-rag-chat-input"); ta.value = "Wie funktioniert Cosinus-Aehnlichkeit?"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+  const ta = document.querySelector(".okit-chat-input"); ta.value = "Wie funktioniert Cosinus-Aehnlichkeit?"; ta.dispatchEvent(new Event("input", { bubbles: true }));
   await new Promise(r => setTimeout(r, 1200)); return true;`);
 await new Promise((r) => setTimeout(r, 2500));
 const z1 = await main.evaluate<number>(summe);
@@ -122,22 +122,22 @@ try {
   const z3 = await main.evaluate<number>(summe);
   await main.evaluate(`${P}
     await p.openHub("chat"); await new Promise(r => setTimeout(r, 500));
-    document.querySelector(".vault-rag-chat-new")?.click();
+    document.querySelector(".okit-chat-new")?.click();
     for (let i = 0; i < 12; i++) document.querySelector(".vault-rag-ctx-kdec")?.click();
     await new Promise(r => setTimeout(r, 300));
-    const ta = document.querySelector(".vault-rag-chat-input"); ta.value = "Antworte in einem Satz: Worauf stuetzt du dich bei deinen Antworten?";
+    const ta = document.querySelector(".okit-chat-input"); ta.value = "Antworte in einem Satz: Worauf stuetzt du dich bei deinen Antworten?";
     ta.dispatchEvent(new Event("input", { bubbles: true })); await new Promise(r => setTimeout(r, 1200));
     window.__tp = { seen: 0, ticks: 0, reasoningSeen: false };
     window.__tpTimer = setInterval(() => {
       window.__tp.ticks++;
-      const a = document.querySelector(".vault-rag-chat-msg.is-assistant");
+      const a = document.querySelector(".okit-chat-turn.is-assistant .okit-stream-body");
       if (a && /Thinking Process|<channel\\|>/.test(a.textContent)) window.__tp.seen++;
-      if (document.querySelector(".vault-rag-chat-messages .okit-stream-reasoning pre")?.textContent?.trim()) window.__tp.reasoningSeen = true;
+      if (document.querySelector(".okit-chat-log .okit-stream-reasoning pre")?.textContent?.trim()) window.__tp.reasoningSeen = true;
     }, 40);
-    document.querySelector(".vault-rag-chat-send").click(); return true;`);
+    document.querySelector(".okit-chat-send").click(); return true;`);
   const antwort = await pollUntil<{ text: string; k: string; sendLabel: string }>(main, `
-    const a = document.querySelector(".vault-rag-chat-msg.is-assistant");
-    const send = document.querySelector(".vault-rag-chat-send");
+    const a = document.querySelector(".okit-chat-turn.is-assistant .okit-stream-body");
+    const send = document.querySelector(".okit-chat-send");
     if (!a || !a.textContent.trim() || (send && send.textContent.trim() !== "Send")) return null;
     return { text: a.textContent.trim(), k: document.querySelector(".vault-rag-ctx-kval")?.textContent ?? "", sendLabel: send ? send.textContent : "" };`, 240_000, 2_000);
   const bodies = await main.evaluate<{ model: string; system: string; n: number }[]>(`return window.__bodies.map(b => ({ model: b.model, system: (b.messages.find(m => m.role === "system") || {}).content || "", n: b.messages.length }));`);
@@ -149,7 +149,7 @@ try {
   console.log(`Embedding-Anfragen während des Chats (Plugin-Zähler): ${z3} → ${z4}`);
   console.log(`Antwort (${antwort?.text.length ?? 0} Zeichen): ${antwort?.text.slice(0, 900) ?? "KEINE"}`);
 } finally {
-  await main.evaluate(`XMLHttpRequest.prototype.send = window.__send; document.querySelector(".vault-rag-chat-new")?.click(); return true;`).catch(() => undefined);
+  await main.evaluate(`XMLHttpRequest.prototype.send = window.__send; document.querySelector(".okit-chat-new")?.click(); return true;`).catch(() => undefined);
   await main.evaluate(`${P} p.setEmbeddingPaused(true); await p.pendingQueue.clear(); return true;`).catch(() => undefined);
 }
 console.log("\nfertig. ollama ps:\n" + ollamaPs());

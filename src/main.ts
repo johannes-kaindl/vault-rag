@@ -810,6 +810,7 @@ export default class VaultRagPlugin extends Plugin {
     // Mehrere Läufe können gleichzeitig laufen (Start, Tab öffnen, Manager-Abo, Ping, Kit): nur der jüngste schreibt.
     const gen = ++this.chatReconnectGen;
     const cfg = r.config;
+    const before = this.activeChatEndpoint;
     // Lokal heißt aufgelöst erreichbar (die Verbindung pingt jede Zeile). Der Manager nennt auch einen
     // nicht erreichbaren Endpunkt: der zählt erst nach der Probe als aktiv.
     const active = cfg !== null
@@ -817,8 +818,9 @@ export default class VaultRagPlugin extends Plugin {
     if (gen !== this.chatReconnectGen) return;
     this.activeChatEndpoint = active && cfg ? normalizeEndpoint(cfg.url) : null;
     this.chatResolvedHook?.();
-    // Der Endpunkt kann gewechselt haben (Liste, Manager, Ausfall): die Zeilen zeigen dessen Modelle.
-    this.refreshModelBars({ models: true });
+    // Der Endpunkt kann gewechselt haben (Liste, Manager, Ausfall): die Zeilen zeigen dessen Modelle. Die Liste NUR bei einem Wechsel neu laden: der Abruf löst
+    // selbst auf (`llm.models()`), und jede Auflösung ruft hierher zurück: ohne diese Bedingung liefe ein Manager ohne Endpunkt in eine Endlosschleife.
+    this.refreshModelBars(this.activeChatEndpoint !== before ? { models: true } : {});
   }
 
   /** Familie für die Denk-Steuerung eines Panels: weicht das Modell vom aufgelösten ab (Dropdown,

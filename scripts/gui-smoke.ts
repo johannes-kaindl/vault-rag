@@ -275,6 +275,7 @@ const PUNKTE = [
   "Die nach oben geholte Zeile meldet danach ihren Zustand",
   "Die nach oben geholte Zeile trägt keinen Prioritäts-Knopf mehr",
   "Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau",
+  "Die Zeile, die nur die Suche bedient, heißt „für Suche genutzt“ statt „übersprungen“ und gilt nicht als aktiv",
   "Kein liegen gebliebener llm-lab-Stub aus einem abgebrochenen Lauf",
   "Gesperrter Anwenden-Knopf ist sichtbar gesperrt (nicht nur per Klasse)",
   "Defekter Container heilt sich ohne Endpunkt aus dem Backup",
@@ -695,6 +696,7 @@ async function main(): Promise<void> {
       standby: KE.role({ kind: "standby", position: 98765 }).replace("98765", "{0}"),
       unreachable: KE.role({ kind: "unreachable" }),
       skippedModel: KE.role({ kind: "skipped-model" }),
+      searchOnly: KE.role({ kind: "search-only" }),
       checking: KE.probing,
     };
     const L = { ...LK, skippedModel: W["endpointRole.skippedModel"], checking: W["settings.conn.checking"] };
@@ -1158,6 +1160,7 @@ async function main(): Promise<void> {
       escape(V.standby).replace("\\{0\\}", "\\d+"),
       escape(V.unreachable),
       escape(V.skippedModel),
+      escape(V.searchOnly),
       escape(V.checking),
     ].join("|") + ")$");
     const zustandsRegex = { embedding: regexOf(L), chat: regexOf(LK) };
@@ -1275,7 +1278,9 @@ async function main(): Promise<void> {
       const other = options.find(v => v && v !== original);
       if (other === undefined) {
         unmeasured("Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau", "Endpunkt listet nur ein Modell — kein Wechsel möglich");
+        unmeasured("Die Zeile, die nur die Suche bedient, heißt „für Suche genutzt“ statt „übersprungen“ und gilt nicht als aktiv", "Endpunkt listet nur ein Modell — kein Wechsel möglich");
       } else {
+        let aktivBeiFremdem: string | null | undefined;
         const setModel = async (value: string): Promise<string | null> => {
           await settings!.evaluate(`
             const row = [...document.querySelectorAll(".okit-ep-row")][${rowIndex}];
@@ -1286,6 +1291,9 @@ async function main(): Promise<void> {
             await new Promise(r => setTimeout(r, 4000));
           `.replace("__V__", value));
           const rows2 = await readRowsSettled();
+          if (value !== original) {
+            aktivBeiFremdem = await main.evaluate<string | null>(`return app.plugins.plugins["vault-retrieval"].activeEmbeddingEndpoint;`);
+          }
           return rows2[rowIndex]?.state ?? null;
         };
         let withOther: string | null = null;
@@ -1304,12 +1312,19 @@ async function main(): Promise<void> {
           "Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau",
           // Gegen das Woerterbuch der LAUFENDEN Oberflaeche, nicht gegen festes Deutsch — dieselbe
           // Fehlerklasse wie der Sprachbefund vom 2026-08-30 (drei falsch-rote Zustandstexte).
-          withOther === L.skippedModel && withOriginal !== L.skippedModel,
+          withOther === L.searchOnly && withOriginal !== L.searchOnly,
           `mit fremdem Modell „${withOther}" · zurück „${withOriginal}"`,
+        );
+        // Die Zeile bedient mit fremdem Modell weiter die Suche (der Guard sperrt nur das Schreiben): „übersprungen“ wäre falsch, „aktiv“ auch.
+        record(
+          "Die Zeile, die nur die Suche bedient, heißt „für Suche genutzt“ statt „übersprungen“ und gilt nicht als aktiv",
+          withOther === L.searchOnly && withOther !== L.skippedModel && withOther !== L.active && aktivBeiFremdem === null,
+          `Rolle „${withOther}" · activeEmbeddingEndpoint ${JSON.stringify(aktivBeiFremdem)}`,
         );
       }
     } else {
       unmeasured("Rolle folgt dem Zeilen-Modell ohne Tab-Neuaufbau", "kein Embedding-Endpunkt mit Modell konfiguriert");
+      unmeasured("Die Zeile, die nur die Suche bedient, heißt „für Suche genutzt“ statt „übersprungen“ und gilt nicht als aktiv", "kein Embedding-Endpunkt mit Modell konfiguriert");
     }
 
     // --- 7b. llm-lab-Meldestrecke (KONSUMENTEN-Seite) -----------------------

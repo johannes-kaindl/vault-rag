@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **A local embedding endpoint that only serves the search now reads "used for search — does not write" instead of "skipped — model does not match the index".** When no endpoint fits the model of the loaded index, the first reachable row with a model still answers every search query (only writing is blocked); the list called that row "skipped" and showed no row as in use. The row is now named for what it does (obsidian-kit 0.67.0, code-kit 0.36.0, role `search-only`); a row that is not reachable still reads "not reachable". Managed endpoints keep their own text.
+
 - Kit pin `obsidian-kit` 0.66.1 → 0.67.1 and `code-kit` 0.34.0 → 0.36.0, vendored the chat window, the model bar and their helpers (`chat-window`, `model-bar`, `stable-writer`, `chat-history`, `stream-blocks`) and copied `CHAT_WINDOW_CSS` and `MODEL_BAR_CSS` into `styles.css`. Releases skipped: obsidian-kit 0.66.2 (image crop, critic editor), 0.67.0 (model bar, role `search-only`, crop-dialog scrim, image in a PDF list item) and 0.67.1 (`MODEL_BAR_CSS` without `clip-path`); code-kit 0.35.0 (`parseNumeric`) and 0.36.0 (`folder-scope` fails closed, role `search-only`) bring nothing visible on their own: the vault-rag modules the plugin uses did not change except `endpoint_config` and the endpoint list, which gain the `search-only` role (wired up below). No visible change in this step.
 
 ## [0.45.0] — 2026-10-23

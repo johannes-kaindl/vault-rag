@@ -18,6 +18,13 @@ describe("Embedding-Liste: Kit-Bündel mit Überschreibungen", () => {
     expect(x.role({ kind: "skipped-model" })).toBe("skipped — model does not match the index");
   });
 
+  it("Rolle search-only: die Zeile, die nur die Suche bedient, heißt nicht „übersprungen“ (Kit 0.67.0, code-kit 0.36.0)", () => {
+    setLang("en");
+    expect(embeddingListTexts("en").role({ kind: "search-only" })).toBe("used for search — does not write");
+    setLang("de");
+    expect(embeddingListTexts("de").role({ kind: "search-only" })).toBe("für Suche genutzt, schreibt nicht");
+  });
+
   it("Status: die reicheren Texte (timeout, not-an-llm-api, unknown ohne Rohtext) kommen aus dem Kit", () => {
     setLang("en");
     const x = embeddingListTexts("en");

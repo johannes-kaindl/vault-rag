@@ -104,6 +104,10 @@ export default class VaultRagPlugin extends Plugin {
   emb!: EmbeddingConnection;
   chatClient!: ChatClient;
   activeEmbeddingEndpoint: string | null = null;
+  /** Die Zeile, die nur die Suche bedient: kein Endpunkt passt zum Index-Modell (`skipped-model`), die Verbindung wählt aber die erste erreichbare
+   *  Zeile mit Modell als Quelle der Suchanfragen; geschrieben wird nicht (Modell-Guard). Die Liste nennt sie „für Suche genutzt, schreibt nicht“
+   *  statt „übersprungen“ (`isSearchOnly` der Embedding-Verbindung). Nur lokale Zeilen: ein Manager-Endpunkt hat seinen eigenen Text. */
+  searchOnlyEndpoint: string | null = null;
   activeChatEndpoint: string | null = null;
   /** Modell, mit dem der aktuelle LiveIndexer gebaut wurde (aufgelöstes Modell der Verbindung).
    *  Embedder und LiveIndexer/Manifest MÜSSEN immer dasselbe Modell nennen — sonst behauptet
@@ -348,6 +352,7 @@ export default class VaultRagPlugin extends Plugin {
       // (anderer Vektorraum, stille Vergiftung). Das Kit kennt den Index nicht — diese Closure liest ihn live.
       accept: (_cfg, model) => embeddingModelMatchesIndex(model, this.index?.manifest.embedding_model)
         ? true : { skip: this.index?.manifest.embedding_model ?? "" },
+      isSearchOnly: (cfg) => this.searchOnlyEndpoint !== null && normalizeEndpoint(cfg.url) === this.searchOnlyEndpoint,
       onResolved: (r) => { this.applyEmbeddingResolution(r); },
     });
     this.llm = createLlmConnection(chatConnectionOptions({
@@ -745,6 +750,7 @@ export default class VaultRagPlugin extends Plugin {
     }
     this.activeEmbeddingEndpoint = r.state === "active" && cfg ? normalizeEndpoint(cfg.url) : null;
     if (this.activeEmbeddingEndpoint !== null) this.embeddingReachedThisSession = true;
+    this.searchOnlyEndpoint = r.state === "skipped-model" && r.source.kind === "local" && cfg ? normalizeEndpoint(cfg.url) : null;
     this.embeddingModelInUse = m;
     // Die DURCHSETZUNG des Modell-Schutzes hängt nicht hier, sondern an der Schreiboperation
     // (LiveIndexer.persist → assertModelSafeToPersist, Wahrheit aus dem Container auf Platte).

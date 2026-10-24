@@ -15,7 +15,7 @@ eine Datei ohne Eintrag und eine Einbettung ohne Vertragszeile sind je ein Befun
 
 ## Status
 
-**Stand 2026-10-16: alle neun Bilder stehen.** `npm run shots:check` ist die Wahrheit über den
+**Stand 2026-10-24: alle neun Bilder stehen; `chat.png`, `thinking.png` und `smart-apply.png` zeigen seit Welle 26 den Kopf mit der Modellzeile (Kit 0.67.1, echte Modelle).** `npm run shots:check` ist die Wahrheit über den
 Bestand: was hier in Prosa steht, kann veralten, die Prüfung nicht.
 
 ## Die Bilder

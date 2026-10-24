@@ -43,3 +43,6 @@ Gotchas zu Chat-Verbindung, Endpunkt-Schlüsseln und Modellvorrang (`src/chat_*.
   reiner Begleit-Befund — er steht nicht in `CheckId`s hardOk-Formel und erscheint nur, wenn
   ohnehin ein Check fehlgeschlagen ist; eine verwertbare abgeschnittene Antwort bleibt
   fehlerfrei, und die Reformat-Vorschau bleibt anwendbar.
+
+- **Die Modellzeilen laden ihre Liste nach einer Auflösung nur bei einem Wechsel des aktiven Endpunkts neu (`applyChatResolution`, seit Welle 26).** Der Abruf der Liste (`llm.models()`) löst selbst auf, und jede Auflösung ruft `applyChatResolution` zurück: lädt dort jede Auflösung die Liste neu, läuft das mit einem Manager ohne Endpunkt in eine Endlosschleife aus Mikrotasks und friert Obsidian ein (Smoke-Punkt „Schlüsselbund (Embedding) mit installiertem Manager“, `Runtime.evaluate` brach nach der Frist ab; ohne die Bedingung hängt der Teillauf `--only w15,w16`, mit ihr nicht). `saveSettings` und `active-leaf-change` zeichnen die Zeilen nur neu (`bar.update()`, ohne Abruf).
+

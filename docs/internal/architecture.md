@@ -14,7 +14,7 @@ Interface an, nie direkt die Obsidian-API → in Node testbar ohne DOM-Mock (PRO
 ändert beide Stellen) — **dreizehn Dateien, hier vollständig aufgezählt**: `main.ts`, `hub_view.ts`,
 `settings.ts`, `http.ts`, die dünnen Modal-/Picker-Wrapper (`note_picker.ts`,
 `template_picker.ts`, `reformat_picker.ts`, `reformat_preview_modal.ts`), das
-`reformat_panel.ts`, `chat_view.ts`, `integrator_panel.ts` und `smart_apply_view.ts` (nur `setIcon` bzw. zusätzlich
+`reformat_panel.ts`, `chat_view.ts`, `integrator_panel.ts` und `smart_apply_view.ts` (`setIcon`, der `App`-Typ für die Modellzeile bzw. zusätzlich
 `Notice`) sowie `mcp/http_server.ts` (Platform-Gate, desktop-only). Diese Wrapper
 sind **bewusst nicht unit-getestet** — das Test-Gewicht trägt der pure Kern; neue obsidian-Views
 folgen diesem Muster statt Tests mit DOM-Mocks aufzubauen. Historisch —
@@ -168,8 +168,15 @@ settings.ts       ⚠️ **Der Endpunkt-Zeilen-Editor kommt seit 2026-09-06 aus 
 view.ts           RelatedPanel (HubPanel) — rendert Hits (`renderHitList` aus dem Kit, auch von search_view.ts
                   genutzt), Klick öffnet Notiz.
 search_view.ts    SearchPanel (HubPanel) — Wortsuche über den Index (Debounce 400 ms, Min. 3 Zeichen).
-chat_view.ts      ChatPanel (HubPanel) — Chat-UI: SSE-Streaming, Kontext-Panel, Reasoning-Anzeige,
-                  Modell-/Thinking-Auswahl.
+chat_view.ts      ChatPanel (HubPanel) — dünne Hülle um das Kit-Chat-Fenster (`buildChatWindow`, UI-STANDARD § 8
+                  Baustein 12): `send` (Kontext und Prompt über `prepareChatAsk`, Tracing, Fehlerabbildung über
+                  `chatSendFailure`), Auto-Kontext (`ContextPanel`, Suche über das `input`-Ereignis an der Fenster-
+                  Wurzel), Quellen-Chips unter fertigen Antworten, Modellzeile (`buildModelBar`, Denk-Steuerung in
+                  der Zeile). Verlauf (`ChatHistory`), Eingabe, Abbruch, Fehlerzeile und Markdown trägt das Kit.
+chat_ask.ts       `prepareChatAsk` (Anfrage einer Runde: System-Prompt + Kontext, frühere Runden, Frage), `sentFromMeta`.
+chat_error.ts     Fehlerklassen des Chat-Transports (`ChatHttpError`, `ChatTimeoutError`, `ChatNoEndpointError`,
+                  `ChatNetworkError`) und `chatSendFailure`: bildet einen geworfenen Fehler auf das Ergebnis ab, das das
+                  Kit-Fenster erwartet (die Serverbegründung eines HTTP-Fehlers bleibt erhalten).
 smart_apply_view.ts SmartApplyPanel (HubPanel) — Diff-Gate-Cockpit (Scan-Guard, Frontmatter-Diff,
                   Body-Reflow, Relevanz-Rangliste, Rohtext on-demand).
 hub_panel.ts      HubPanel-Interface + TabId ("related"|"search"|"chat"|"smart-apply"|"reformat"|

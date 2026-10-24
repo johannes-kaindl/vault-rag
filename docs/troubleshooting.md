@@ -73,14 +73,13 @@ Each entry starts with what you see — the wording is the plugin's own English 
 
 ## The chat does not answer
 
-> ○ Chat LLM offline — check the settings
-> Chat LLM unreachable — server down, wrong address, or network/VPN not connected.
-> Empty response from the chat LLM — check the endpoint/model in the settings.
+> Could not reach the endpoint — server down, wrong address, or network/VPN not connected.
+> Empty response from the model — check the endpoint and model in the settings.
 > Access denied (HTTP 401/403) — API key missing, invalid or expired.
 > Chat path not found (HTTP 404) — check the endpoint address.
-> No chat endpoint is reachable. Check the endpoints in the settings (or the LLM Endpoint Manager).
+> No endpoint reachable. Check the endpoint list in the settings — the test button says which one answers.
 
-**Cause:** the **Chat endpoints** are separate from the embedding endpoints. The chat list is tried in order and uses the first row that answers; when none does, the last message above appears (earlier versions tried the first row anyway). Its row status uses its own wording — *active — this one is used*, *reachable — fallback N*, *not reachable — skipped*, and for failures *Timed out — network unreachable.*, *Access denied — API key missing or invalid.*. The server is off, the address or key is wrong, or no model is chosen.
+**Cause:** the **Chat endpoints** are separate from the embedding endpoints. The chat list is tried in order and uses the first row that answers; when none does, the last message above appears (earlier versions tried the first row anyway). The model row above the conversation shows a warning sign when the endpoint does not answer; the reload button next to it asks again. For an HTTP error the line under the answer ends with the server's own reason, and **Send again** repeats the question. Its row status uses its own wording — *active — this one is used*, *reachable — fallback N*, *not reachable — skipped*, and for failures *Timed out — network unreachable.*, *Access denied — API key missing or invalid.*. The server is off, the address or key is wrong, or no model is chosen.
 
 **Fix:** open **Settings → Vault Retrieval → Chat**, check the row's status and model. Set up chat: [How-to](how-to/index.md#set-up-grounded-chat). "Too many requests (HTTP 429)" and "Server error at the chat endpoint" come from the server; try again later.
 

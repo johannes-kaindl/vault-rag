@@ -23,7 +23,7 @@ Everything lives in **one sidebar view** with tabs: related notes, search, chat,
 - **Semantic search** — find notes by *meaning*, not just keywords.
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/search.png" width="820" alt="The search tab: the query “how do I stop forgetting what I read” returns Spaced repetition and Reading workflow, neither of which contains those words">
-- **Grounded RAG chat** — ask your vault a question and get an answer grounded in retrieved notes, streamed token-by-token from your chat LLM. An editable live-context panel shows exactly which notes feed the answer, with source chips that link back.
+- **Grounded RAG chat** — ask your vault a question and get an answer grounded in retrieved notes, streamed token-by-token from your chat LLM. An editable live-context panel shows exactly which notes feed the answer, with source chips that link back. Answers appear as Markdown while they are written, and a model row above the conversation switches model and thinking (the same row heads Smart Apply).
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/chat.png" width="820" alt="The chat tab: a streamed answer about keeping an index small, with the notes that ground it listed as clickable source chips below and in the live context panel">
 - **Visible thinking, with an off switch** — for reasoning models, the live "💭 thinking" stream appears in a collapsible block above the answer and folds away once it arrives (and is never sent back into the conversation history). A toggle suppresses thinking when you want faster answers — via cross-server-portable hints — and a settings test tells you whether your model actually honours it.

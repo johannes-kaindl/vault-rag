@@ -21,7 +21,7 @@ questions). [LM Studio](https://lmstudio.ai) is a common choice.
 
 1. Start your LLM server and note its address (LM Studio defaults to `http://localhost:1234`).
 2. In **Settings → Vault Retrieval**, set the chat endpoint and pick a model — the dropdown
-   populates from the server.
+   populates from the server. The same model row sits above the conversation in the chat tab and in the Smart Apply tab: it switches the model, offers *Automatic*, reloads the list and carries the thinking button; it is locked while an answer is being written.
 3. Open the sidebar (**layers** ribbon icon) and switch to the chat tab.
 
 Ask a question. The plugin retrieves the most relevant notes, feeds them as context, and streams
@@ -30,7 +30,7 @@ can remove one and re-ask to see the difference.
 
 **Enter behaviour** is configurable: by default Enter sends and Shift+Enter inserts a newline.
 
-**Thinking models:** if the model emits reasoning, it appears in a collapsible block above the answer and is never fed back into the conversation. The brain button next to the model switches thinking off or on for that tab (Settings → Model requests → Request lets you pick a level instead); if the model thinks although it was switched off, the **Request** section lists it under "deviations" and a notice tells you once per session.
+**Thinking models:** if the model emits reasoning, it appears in a collapsible block above the answer and is never fed back into the conversation. The brain button in the model row switches thinking off or on for that tab (Settings → Model requests → Request lets you pick a level instead); if the model thinks although it was switched off, the **Request** section lists it under "deviations" and a notice tells you once per session.
 
 ## Reformat a selection
 

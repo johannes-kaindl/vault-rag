@@ -13,6 +13,7 @@ import { findEndpointManager, onEndpointManagerChanged } from "./vendor/kit-obsi
 import { probeEndpoint } from "./http";
 import { describeModel, type EndpointSourceResult } from "./vendor/kit/endpoint-source";
 import { createLlmConnection, type LlmConnection } from "./vendor/kit-obsidian/llm-connection";
+import type { ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
 import type { EmbeddingConnection, EmbeddingResolution } from "./vendor/kit-obsidian/embedding-connection";
 import { thinkingOffTexts, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import { sanitizeRequestSettings, thinkingFor, onLevelFor, type FamilyId, type ModeId, type RequestSettings } from "./vendor/kit/sampling-profiles";
@@ -659,10 +660,9 @@ export default class VaultRagPlugin extends Plugin {
           const f = this.app.workspace.getActiveFile();
           return f instanceof TFile && f.extension === "md" ? f.path : null;
         },
-        listModels: () => this.chatClient.listModels(),
+        app: this.app,
+        llm: this.smartApplyModelBarLlm(),
         ping: () => this.chatReady(),
-        getModel: () => this.smartApplyModelInUse,
-        setModel: (m: string) => { this.settings.smartApplyModel = m; void this.saveSettings(); },
         rankTemplates: (notePath: string): Promise<TemplateRank[]> => this.templateRanker!.rank(notePath),
         thinking: this.thinkingDeps(MODE_SMART_APPLY, () => this.smartApplyModelInUse),
         templateDefaultMode: (templatePath: string) => this.templateDefaultMode(templatePath),
@@ -865,6 +865,18 @@ export default class VaultRagPlugin extends Plugin {
    *  Wahl aus dem Dropdown (Kit `modelInUse`, seit 0.53.0). Getter statt Feld, damit eine Wahl sofort wirkt. */
   get chatModelInUse(): string {
     return this.llm.modelInUse();
+  }
+
+  /** Die Verbindung der Smart-Apply-Modellzeile: Liste und Endpunkt kommen von der Chat-Verbindung, die Wahl steht in `smartApplyModel` (kein Wechsel des
+   *  Speicherorts). `modelInUse` ist die WAHL: leer heißt „folgt dem Chat“ und zeigt sich als „Automatisch (<Chat-Modell>)“, nicht als dessen Name
+   *  (sonst spränge die Anzeige nach „Automatisch“ auf ein Modell). */
+  private smartApplyModelBarLlm(): ModelBarConnection {
+    return {
+      models: (opts) => this.llm.models(opts),
+      source: () => ({ ...this.llm.source(), defaultModel: this.chatModelInUse }),
+      modelInUse: () => this.settings.smartApplyModel?.trim() ?? "",
+      setModel: async (m) => { this.settings.smartApplyModel = m; await this.saveSettings(); },
+    };
   }
 
   /** `smartApplyModel` schlägt das Zeilen-Modell (E1): kennt ein Fallback-Endpunkt den Namen nicht,

@@ -151,7 +151,6 @@
 .vault-rag-sa-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .vault-rag-sa-header { display: flex; flex-direction: column; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--background-modifier-border); margin-bottom: 8px; }
 .vault-rag-sa-header-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.vault-rag-sa-model { flex: 1; min-width: 0; font-size: 12px; }
 .vault-rag-sa-template { flex: 1; min-width: 0; font-size: 12px; }
 .vault-rag-sa-conn { font-size: 11px; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; width: 100%; }
 .vault-rag-sa-conn-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -461,7 +460,6 @@
 
 /* ── Denk-Steuerung (Kit `thinking-control`, THINKING_CONTROL_CSS @0.60.1, verbatim) ──
    Das Kit injiziert bewusst kein CSS selbst; der Consumer uebernimmt es. Die beiden Huellen darunter sind unsere. */
-.vault-rag-chat-think, .vault-rag-sa-think { display: inline-flex; align-items: center; }
 .okit-thinking-control { display: inline-flex; align-items: center; }
 .okit-thinking-toggle {
   display: inline-flex; align-items: center; gap: var(--size-2-1);

@@ -1,10 +1,11 @@
-import { setIcon, Notice } from "obsidian";
-import { t } from "./vendor/kit/i18n";
+import { setIcon, Notice, type App } from "obsidian";
+import { getLang, t } from "./vendor/kit/i18n";
 import type { FmValue, FmChange, FmRow, Confidence } from "./frontmatter";
 import type { ApplyProposal, ApplyResult, ApplySelection } from "./smart_apply";
 import { assembleProposedText, defaultSelection } from "./smart_apply";
 import type { TemplateRank } from "./template_ranker";
-import { buildThinkingControl, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
+import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
+import { buildModelBar, type ModelBar, type ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
 import type { HubPanel, TabId } from "./hub_panel";
 import type { ApplyMode } from "./note_restructurer";
 import { buildReasoningBlock, buildStreamArea, type StreamArea } from "./vendor/kit-obsidian/stream-area";
@@ -21,11 +22,12 @@ export interface SmartApplyViewDeps {
   openPath: (p: string) => void;
   abort: () => void;
   activeNotePath: () => string | null;
-  listModels: () => Promise<string[]>;
-  getModel: () => string;
-  setModel: (m: string) => void;
+  app: App;
+  /** Modell und Endpunkt dieser Aufgabe für die Modellzeile (Kit `buildModelBar`): ein Adapter, weil Smart Apply sein Modell in einem eigenen Feld hält
+   *  (`smartApplyModel`) und sonst dem Chat folgt. */
+  llm: ModelBarConnection;
   rankTemplates: (notePath: string) => Promise<TemplateRank[]>;
-  /** Denk-Steuerung (Kit `thinking-control`), Modus `structured`. */
+  /** Denk-Steuerung (Kit `thinking-control`) in der Modellzeile, Modus `structured`. */
   thinking: Omit<ThinkingControlOptions, "containerEl">;
   ping: () => Promise<boolean>;
   /** Liest+parst die Vorlage, liefert ihren defaultMode (Fallback: Settings-Default). */
@@ -87,12 +89,10 @@ export class SmartApplyPanel implements HubPanel {
   private elapsedEl: HTMLElement | null = null;
 
   // Header refs
-  private modelSel: HTMLSelectElement | null = null;
+  private bar: ModelBar | null = null;
   private connEl: HTMLElement | null = null;
-  private thinkCtl: { refresh(): void } | null = null;
 
-  // Dropdown / connection cache — populated by refresh* methods, filled synchronously on every render
-  private models: string[] = [];
+  // Connection cache — populated by refreshConn, filled synchronously on every render
   private ranking: TemplateRank[] = [];
   private expandedRanks = false;
   private userOverrodeTemplate = false;
@@ -123,7 +123,6 @@ export class SmartApplyPanel implements HubPanel {
   }
 
   private async initAsync(): Promise<void> {
-    await this.refreshModels();
     await this.refreshConn();
     await this.recomputeRanking();
   }
@@ -131,7 +130,7 @@ export class SmartApplyPanel implements HubPanel {
   /** Tab wird sichtbar — kontextsensitiv: holt einen ausstehenden Recompute nach. */
   onShow(): void {
     this.visible = true;
-    this.renderThink();   // Stufe oder Stufenwahl koennen in den Einstellungen geaendert worden sein
+    this.bar?.update();   // Modell, Stufe oder Stufenwahl koennen in den Einstellungen geaendert worden sein
     if (this.dirty) { this.scheduleRecompute(); this.dirty = false; }
   }
 
@@ -150,7 +149,15 @@ export class SmartApplyPanel implements HubPanel {
     if (this.visible) { this.scheduleRecompute(); this.dirty = false; } else { this.dirty = true; }
   }
 
+  /** Modell, Endpunkt oder Denkstufe haben sich außerhalb des Panels geändert (Einstellungen, Manager). */
+  refreshModelBar(opts: { models?: boolean } = {}): void {
+    this.bar?.update();
+    if (opts.models === true) void this.bar?.refresh();
+  }
+
   destroy(): void {
+    this.bar?.destroy();
+    this.bar = null;
     this.stopTimer();
     if (this.rankTimer !== null) { window.clearTimeout(this.rankTimer); this.rankTimer = null; }
   }
@@ -159,6 +166,9 @@ export class SmartApplyPanel implements HubPanel {
 
   private render(): void {
     const c = this.container;
+    // Das Kit gibt eine alte Modellzeile nicht frei: vor dem Leeren abmelden, sonst zeichnet sie weiter in einen abgehängten Knoten.
+    this.bar?.destroy();
+    this.bar = null;
     c.empty();
     // Re-build resets transient element refs (no leaks across re-renders).
     this.streamArea = null;
@@ -183,21 +193,16 @@ export class SmartApplyPanel implements HubPanel {
     // Verbindungsstatus zuerst, als eigene ruhige Zeile (gibt dem Modell-Dropdown darunter Platz).
     this.renderConnStatus(header);
 
-    const row1 = header.createDiv({ cls: "vault-rag-sa-header-row" });
-    this.modelSel = row1.createEl("select", { cls: "vault-rag-sa-model dropdown" });
-    // Fill model select synchronously from cache
-    const cur = this.deps.getModel();
-    const modelList = this.models.length > 0
-      ? (this.models.includes(cur) ? this.models : [cur, ...this.models])
-      : [cur];
-    for (const m of modelList) { const o = this.modelSel.createEl("option", { text: m }); o.value = m; }
-    this.modelSel.value = cur;
-    this.modelSel.addEventListener("change", () => {
-      this.deps.setModel(this.modelSel?.value ?? "");
-      this.renderThink();
+    // Modell und Denk-Steuerung in einer Zeile (Kit `buildModelBar`); gesperrt, solange ein Vorschlag berechnet wird.
+    this.bar = buildModelBar({
+      app: this.deps.app,
+      containerEl: header,
+      llm: this.deps.llm,
+      label: t("smartApply.label"),
+      strings: { lang: getLang() },
+      thinking: this.deps.thinking,
+      disabled: () => this.state === "running",
     });
-
-    this.thinkCtl = buildThinkingControl({ containerEl: row1.createDiv({ cls: "vault-rag-sa-think" }), ...this.deps.thinking });
 
     const row2 = header.createDiv({ cls: "vault-rag-sa-header-row" });
 
@@ -296,14 +301,6 @@ export class SmartApplyPanel implements HubPanel {
       const more = wrap.createDiv({ cls: "vault-rag-sa-rank-more", text: t("smartApply.moreRanks", this.ranking.length - TOP_N) });
       more.addEventListener("click", () => { this.expandedRanks = true; this.render(); });
     }
-  }
-
-  private renderThink(): void { this.thinkCtl?.refresh(); }
-
-  private async refreshModels(): Promise<void> {
-    const models = await this.deps.listModels();
-    this.models = models;
-    this.render();
   }
 
   private scheduleRecompute(): void {

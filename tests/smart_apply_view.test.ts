@@ -106,6 +106,17 @@ function mkThinking(over: Partial<{ level: string; family: string | null; onLeve
   };
 }
 
+/** Die Verbindung der Modellzeile (Adapter aus main.ts): Liste und Endpunkt vom Chat, die Wahl im eigenen Feld. */
+function mkLlm(over: Partial<SmartApplyViewDeps["llm"]> = {}): SmartApplyViewDeps["llm"] & { setModel: ReturnType<typeof vi.fn>; models: ReturnType<typeof vi.fn> } {
+  return {
+    models: vi.fn(async () => ({ models: ["fast-model", "smart-model"], reachable: true })),
+    source: () => ({ defaultModel: "fast-model" }),
+    modelInUse: () => "fast-model",
+    setModel: vi.fn(async () => {}),
+    ...over,
+  } as never;
+}
+
 function mkDeps(over: Partial<SmartApplyViewDeps> = {}): SmartApplyViewDeps {
   return {
     build: vi.fn(async (_notePath: string, _templatePath: string, _mode: ApplyMode, _onToken: (t: string) => void, _onReasoning: (t: string) => void) => mkProposal()),
@@ -114,9 +125,8 @@ function mkDeps(over: Partial<SmartApplyViewDeps> = {}): SmartApplyViewDeps {
     openPath: vi.fn(),
     abort: vi.fn(),
     activeNotePath: vi.fn(() => "Inbox/roh.md"),
-    listModels: vi.fn(async () => ["fast-model", "smart-model"]),
-    getModel: vi.fn(() => "fast-model"),
-    setModel: vi.fn(),
+    app: { plugins: { plugins: {} } } as never,
+    llm: mkLlm(),
     rankTemplates: vi.fn(async (_notePath: string): Promise<TemplateRank[]> => ranksFixture()),
     thinking: mkThinking().deps as SmartApplyViewDeps["thinking"],
     ping: vi.fn(async () => true),
@@ -180,22 +190,71 @@ describe("SmartApplyPanel — Cockpit", () => {
   // Step 1 — Header immer sichtbar
   it("mount() rendert immer die Header-Elemente (Modell/Verbindung/💭/Rangliste/Run/Stop)", () => {
     const { container } = mkPanel();
-    expect(first(container, "vault-rag-sa-model")).toBeTruthy();
+    expect(first(container, "okit-model-bar")).toBeTruthy();
     expect(first(container, "vault-rag-sa-conn")).toBeTruthy();
-    expect(first(container, "vault-rag-sa-think")).toBeTruthy();
+    expect(first(container, "okit-thinking-control")).toBeTruthy();
     expect(first(container, "vault-rag-sa-ranklist")).toBeTruthy();
     expect(first(container, "vault-rag-sa-run")).toBeTruthy();
     expect(first(container, "vault-rag-sa-stop")).toBeTruthy();
   });
 
-  it("Modell-Select füllt sich aus listModels und setzt setModel bei Wechsel", async () => {
-    const { container, deps } = mkPanel();
+  it("die Modellzeile trägt den Namen „Smart Apply“, hat die Denk-Steuerung in sich und keinen zweiten Knopf", () => {
+    const { container } = mkPanel();
+    const bar = first(container, "okit-model-bar");
+    expect(first(bar, "okit-model-bar-label").textContent).toBe("Smart Apply");
+    expect(all(container, "okit-thinking-control").length).toBe(1);
+    expect(all(bar, "okit-thinking-control").length).toBe(1);
+    expect(all(container, "vault-rag-sa-model").length).toBe(0);
+  });
+
+  it("das Dropdown füllt sich aus llm.models(), ein Wechsel ruft setModel des Adapters", async () => {
+    const llm = mkLlm();
+    const { container } = mkPanel({ llm });
     await flush();
-    const sel = first(container, "vault-rag-sa-model");
-    expect(sel.children.length).toBe(2);
+    const sel = first(container, "okit-model-bar-select");
+    // „Automatisch (<Standard>)“, dann die Modelle des Endpunkts; „Anderer Endpunkt …“ gibt es nur mit Endpunkt-Manager (hier keiner)
+    expect(sel.children.map((o: any) => o.textContent)).toEqual(["Automatic (fast-model)", "fast-model", "smart-model"]);
     sel.value = "smart-model";
     (sel._listeners?.change ?? []).forEach((cb: any) => cb());
-    expect(deps.setModel).toHaveBeenCalledWith("smart-model");
+    await flush();
+    expect(llm.setModel).toHaveBeenCalledWith("smart-model");
+  });
+
+  it("die Zeile ist während eines Laufs gesperrt und danach frei; jeder render() baut genau EINE Zeile", async () => {
+    let release: (p: ApplyProposal) => void = () => {};
+    const { container } = mkPanel({ build: vi.fn(() => new Promise<ApplyProposal>((r) => { release = r; })) as never });
+    await flush();
+    expect(first(container, "okit-model-bar-select").disabled ?? false).toBe(false);
+    await clickRun(container);
+    await flush(8);
+    expect(first(container, "okit-model-bar-select").disabled).toBe(true);
+    expect(all(container, "okit-model-bar").length).toBe(1);
+    release(mkProposal());
+    await flush(20);
+    expect(first(container, "okit-model-bar-select").disabled ?? false).toBe(false);
+    expect(all(container, "okit-model-bar").length).toBe(1);
+  });
+
+  it("die alte Zeile wird vor dem Neuzeichnen abgemeldet (das Kit gibt sie nicht frei)", async () => {
+    const { container, panel } = mkPanel();
+    await flush();
+    const before = first(container, "okit-model-bar");
+    (panel as any).render();
+    const after = first(container, "okit-model-bar");
+    expect(after).not.toBe(before);
+    expect(all(container, "okit-model-bar").length).toBe(1);
+  });
+
+  it("refreshModelBar zeichnet die Zeile neu; `models` lädt die Liste neu; destroy meldet sie ab", async () => {
+    const llm = mkLlm();
+    const { container, panel } = mkPanel({ llm });
+    await flush();
+    const n = llm.models.mock.calls.length;
+    panel.refreshModelBar({ models: true });
+    await flush();
+    expect(llm.models.mock.calls.length).toBeGreaterThan(n);
+    panel.destroy();
+    expect(all(container, "okit-model-bar").length).toBe(0);
   });
 
   it("💭-Toggle: Klick bei „an“ ruft setLevel(off), bei „aus“ setLevel(onLevel)", () => {
@@ -571,7 +630,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     await flush(8);
 
     // After mount + flush: model select and ranklist should be present
-    const modelSelAfterOpen = first(container, "vault-rag-sa-model");
+    const modelSelAfterOpen = first(container, "okit-model-bar-select");
     const ranklistAfterOpen = first(container, "vault-rag-sa-ranklist");
     expect(modelSelAfterOpen.children.length).toBeGreaterThan(0);
     expect(ranklistAfterOpen).toBeTruthy();
@@ -581,7 +640,7 @@ describe("SmartApplyPanel — Cockpit", () => {
     await flush(8);
 
     // After diff state: model select and ranklist must still be present
-    const modelSelAfterDiff = first(container, "vault-rag-sa-model");
+    const modelSelAfterDiff = first(container, "okit-model-bar-select");
     const ranklistAfterDiff = first(container, "vault-rag-sa-ranklist");
     expect(modelSelAfterDiff.children.length).toBeGreaterThan(0);
     expect(ranklistAfterDiff).toBeTruthy();

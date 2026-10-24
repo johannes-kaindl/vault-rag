@@ -81,9 +81,9 @@ export class RetrievalFacade {
    *  steht hinter dem Path-Guard (`resolveNotePath`: Traversal, absolute Pfade, NUL, Nicht-Markdown und `exclude` enden als `unknown`, ohne einen Dateizugriff),
    *  und die Antwort für einen Pfad, den es nicht gibt, ist dieselbe wie für einen unzulässigen. Chunks zählt derselbe Chunker, der beim Einbetten entscheidet. */
   async notIndexedCause(relPath: string): Promise<NotIndexedCause> {
-    // Zusätzlich zum Path-Guard: Backslash und Steuerzeichen (Windows-Laufwerkspfad, Backspace in einem Dateinamen) lesen wir nie. `resolveNotePath` lässt sie durch (sie
+    // Zusätzlich zum Path-Guard: Backslash und Steuerzeichen (Windows-Laufwerkspfad, Backspace in einem Dateinamen) lesen wir nie. `resolveNotePath` normalisiert den Backslash zum Schrägstrich und lässt Steuerzeichen durch (sie
     // enden bei `readNote` als „nicht gefunden“); hier wäre ein Treffer eine Aussage über die Datei, und `related` hat sie nie gelesen.
-    if (/[\\\u0000-\u001f]/.test(relPath)) return "unknown";
+    if ([...relPath].some((ch) => ch === "\\" || ch.charCodeAt(0) < 0x20)) return "unknown";
     let rel: string;
     try { rel = resolveNotePath(relPath, this.deps.settings().exclude); } catch { return "unknown"; }
     let text: string;

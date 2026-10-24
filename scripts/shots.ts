@@ -136,6 +136,8 @@ interface Shot {
   klasse: "hero" | "feature" | "detail";
   /** Aus welchem Fenster: der Workspace oder das eigene Einstellungs-Fenster. */
   fenster?: "workspace" | "settings";
+  /** Fensterhöhe in CSS-Pixeln für dieses Bild (Standard `FENSTER_HOEHE`). */
+  fensterHoehe?: number;
   /**
    * Zustand herstellen — laeuft IMMER im Workspace-Fenster, auch bei `fenster: "settings"`.
    *
@@ -453,6 +455,7 @@ const SHOTS: Shot[] = [
   {
     name: "chat.png",
     klasse: "feature",
+    fensterHoehe: 720,
     async run(cdp) {
       if (!(await openExisting(cdp, HERO_NOTIZ, "preview"))) return null;
       await closeExtraLeaves(cdp);
@@ -1232,6 +1235,9 @@ async function main(): Promise<void> {
         await schliesseEinstellungen(cdp);
         continue;
       }
+      // Das Kit-Chatfenster füllt die Höhe des Panels: ein Bild mit kurzer Antwort bekäme sonst eine leere Fläche zwischen Antwort und Eingabe
+      // (readme_lint `image-whitespace`). Je Bild die Fensterhöhe, die der Inhalt braucht; ohne Angabe die Standardhöhe.
+      await setWindowSize(cdp, FENSTER_BREITE, shot.fensterHoehe ?? FENSTER_HOEHE);
       await aufnehmen(shot, cdp, opts);
     }
   } finally {

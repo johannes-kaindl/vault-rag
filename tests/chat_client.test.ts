@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import "../src/i18n/strings";
-import { ChatHttpError, ChatTimeoutError, chatErrorMessage } from "../src/chat_error";
+import { ChatHttpError, ChatTimeoutError, chatSendFailure } from "../src/chat_error";
 import { requestUrl } from "obsidian";
 import { installFakeXHR } from "./fake_xhr";
 import { harness, recordingTransport, fakeSecretStorage } from "./helpers/llm";
@@ -333,7 +333,7 @@ describe("ChatClient über den Kit-Client (Welle 11)", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     const e = await caught;
     expect(e).toBeInstanceOf(ChatTimeoutError);
-    expect(chatErrorMessage(e)).toMatch(/120/);
+    expect(chatSendFailure(e)).toEqual({ ok: false, kind: "timeout", detail: "no data for 120s" });
   });
 
   it("bis zum ersten Chunk gilt eine längere Frist (ein JIT-ladendes Modell braucht Minuten)", async () => {
@@ -355,7 +355,7 @@ describe("ChatClient über den Kit-Client (Welle 11)", () => {
     xhr.feed(['{"error":{"message":"model not loaded"}}'], 200);
     const e = await p.catch((err: unknown) => err);
     expect(e).toBeInstanceOf(ChatHttpError);
-    expect(chatErrorMessage(e)).toContain("model not loaded");
+    expect(chatSendFailure(e)).toMatchObject({ ok: false, kind: "http", status: 200, body: expect.stringContaining("model not loaded") });
   });
 
   it("abgeschnitten OHNE Text bleibt ein Ergebnis mit finishReason length — kein Wurf, wie zuvor", async () => {

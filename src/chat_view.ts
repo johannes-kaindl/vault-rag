@@ -1,253 +1,204 @@
-import { setIcon } from "obsidian";
-import { ChatSession } from "./chat_session";
+import { setIcon, type App } from "obsidian";
+import { prepareChatAsk, sentFromMeta, type AskDeps } from "./chat_ask";
+import { chatSendFailure } from "./chat_error";
+import type { ChatClient } from "./chat_client";
 import { ContextPanel, ContextPanelDeps } from "./context_panel";
-import { buildThinkingControl, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
+import { newTurnId } from "./lab_client";
+import { MODE_CHAT } from "./request_profile";
 import { HubPanel, TabId } from "./hub_panel";
-import { t } from "./vendor/kit/i18n";
-import { buildReasoningBlock } from "./vendor/kit-obsidian/stream-area";
+import { getLang, t } from "./vendor/kit/i18n";
+import { EMPTY_CHAT, type ChatHistory, type ChatModelMessage } from "./vendor/kit/chat-history";
+import { buildChatWindow, type ChatSendHandlers, type ChatSendResult, type ChatWindow } from "./vendor/kit-obsidian/chat-window";
+import { buildModelBar, type ModelBar, type ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
+import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 
 export const VIEW_TYPE_CHAT = "vault-rag-chat";
 
-export interface ChatViewDeps extends ContextPanelDeps {
-  session: ChatSession;
+/** Der Auto-Kontext sucht beim Tippen mit dieser Verzögerung (wie vor dem Chat-Fenster). */
+const CONTEXT_DEBOUNCE_MS = 400;
+
+export interface ChatViewDeps extends ContextPanelDeps, AskDeps {
+  app: App;
+  /** Modell und Endpunkt der Chat-Verbindung: die Modellzeile im Kopf des Fensters liest und schreibt sie. */
+  llm: ModelBarConnection;
+  client: () => Pick<ChatClient, "stream">;
+  /** Modell der Anfrage; die Sampling-Felder (Modus `grounded`) und die Antwortprüfung baut die Verbindung des Plugins. */
+  model: () => string;
   openPath: (path: string) => void;
-  ping: () => Promise<boolean>;
-  copyText: (text: string) => void;
-  listModels: () => Promise<string[]>;
-  getModel: () => string;
-  setModel: (m: string) => void;
   inputPosition: () => "bottom" | "top";
   autoK: number;
-  /** Denk-Steuerung (Kit `thinking-control`): Stufe je Modus `grounded`, Familie des aktiven Modells,
-   *  Speichern. Ersetzt den eigenen Suppress-Schalter. */
+  /** Denk-Steuerung (Kit `thinking-control`) in der Modellzeile: Stufe je Modus `grounded`, Familie des aktiven Modells, Speichern. */
   thinking: Omit<ThinkingControlOptions, "containerEl">;
   enterSends: () => boolean;
-  /** Rendert Modell-Markdown in ein Element (Obsidian-Renderer, vom Plugin gestellt, mit Entschärfung und DOM-Wächter).
-   *  Fehlt sie (Tests), bleibt die Antwort Rohtext. Gerendert wird nur der FERTIGE Zustand einer Antwort. */
-  renderMarkdown?: (el: HTMLElement, markdown: string) => Promise<void>;
+  /** Rendert Modell-Markdown in ein Element (Obsidian-Renderer, vom Plugin gestellt). Das Fenster neutralisiert und schützt selbst (`domGuard`). */
+  renderMarkdown: (el: HTMLElement, markdown: string) => Promise<void>;
+  /** Nur im Test mit dem Fake-DOM `false` (Durchgriff an den Schreiber des Kits). */
+  domGuard?: boolean;
 }
 
+/** Der Chat im Hub: eine dünne Hülle um das Kit-Chat-Fenster (`buildChatWindow`, UI-STANDARD § 8 Baustein 12). Hier steht nur, was dieses Plugin selbst
+ *  sagt: Kontext und Prompt (`prepareChatAsk`), der Auto-Kontext über dem Textfeld, die Quellen unter der Antwort und die Modellzeile im Kopf. Verlauf,
+ *  Eingabe, Abbruch, Fehlerzeile, Kopieren und Markdown trägt das Kit. */
 export class ChatPanel implements HubPanel {
   readonly id: TabId = "chat";
   get label(): string { return t("panel.chat.label"); }
   readonly icon = "message-square";
-  private container!: HTMLElement;
+  private container: HTMLElement | null = null;
   private panel: ContextPanel;
-  private messagesEl: HTMLElement | null = null;
-  private workingEl: HTMLElement | null = null;
-  private statusEl: HTMLElement | null = null;
-  private modelSel: HTMLSelectElement | null = null;
-  private inputEl: HTMLTextAreaElement | null = null;
-  private thinkCtl: { refresh(): void } | null = null;
-  private sendBtn: HTMLElement | null = null;
-  private timer: number | null = null;
+  private win: ChatWindow | null = null;
+  private bar: ModelBar | null = null;
   private debTimer: number | null = null;
-  private workStart = 0;
-  private running = false;
-  /** Fertig gerenderte Antworten je Nachricht: das Panel zeichnet die Liste bei jedem Token neu, ein Rendern je
-   *  Zeichnung liefe quadratisch und flackerte. Der Knoten wird beim Neuzeichnen umgehängt, nicht neu gerendert. */
-  private rendered = new WeakMap<object, { content: string; el: HTMLElement }>();
+  /** Der Verlauf lebt im Panel, nicht im Fenster: das Panel bleibt über `destroy()` und ein erneutes `mount()` hinweg dieselbe Instanz. */
+  private history: ChatHistory = EMPTY_CHAT;
 
   constructor(private deps: ChatViewDeps) {
     this.panel = new ContextPanel(deps, deps.autoK);
   }
 
+  /** Baut das Fenster in den Container. Wiederholbar: ein zweiter Aufruf (nach `destroy()`) zeichnet mit dem gehaltenen Verlauf neu. */
   mount(container: HTMLElement): void {
-    const c = this.container = container; c.empty();
-    c.addClass("vault-rag-chat-root");
-    this.statusEl = c.createDiv({ cls: "vault-rag-chat-status" });
-    this.statusEl.addEventListener("click", () => void this.refreshStatus());
-    // Modell-Dropdown + Thinking-Toggle in einer kompakten Zeile (kein zentriertes Einzelelement).
-    const modelRow = c.createDiv({ cls: "vault-rag-chat-model-row" });
-    this.modelSel = modelRow.createEl("select", { cls: "vault-rag-chat-model dropdown" });
-    this.modelSel.addEventListener("change", () => { this.deps.setModel(this.modelSel?.value ?? ""); this.renderThinkToggle(); });
-    this.thinkCtl = buildThinkingControl({ containerEl: modelRow.createDiv({ cls: "vault-rag-chat-think" }), ...this.deps.thinking });
-
-    const buildMessages = (): void => {
-      this.messagesEl = c.createDiv({ cls: "vault-rag-chat-messages" });
-      this.workingEl = c.createDiv({ cls: "vault-rag-chat-working" });
-    };
-    const buildInput = (): void => {
-      this.panel.mount(c.createDiv({ cls: "vault-rag-chat-context" }));
-      const row = c.createDiv({ cls: "vault-rag-chat-input-row" });
-      const input = row.createEl("textarea", { cls: "vault-rag-chat-input" });
-      input.rows = 3; input.placeholder = t("panel.chat.inputPlaceholder");
-      this.inputEl = input;
-      input.addEventListener("input", () => { this.autoGrow(); this.scheduleQuery(input.value ?? ""); });
-      input.addEventListener("keydown", (e: KeyboardEvent) => this.onKeydown(e));
-      this.sendBtn = row.createEl("button", { cls: "vault-rag-chat-send mod-cta", text: t("panel.chat.send") });
-      this.sendBtn.addEventListener("click", () => this.onSendClick());
-      row.createEl("button", { cls: "vault-rag-chat-new", text: t("panel.chat.new") }).addEventListener("click", () => this.newChat());
-    };
-
-    if (this.deps.inputPosition() === "top") { buildInput(); buildMessages(); }
-    else { buildMessages(); buildInput(); }
-
-    this.renderMessages();
-    this.renderThinkToggle();
-    void this.initAsync().catch(() => {});
+    this.container = container;
+    this.teardown();
+    container.empty();
+    // Der Wirt braucht eine begrenzte Höhe, sonst rollt der Verlauf nicht (Kit-Falle); die Regel steht in der styles.css.
+    container.addClass("vault-rag-chat-host");
+    const d = this.deps;
+    this.win = buildChatWindow(container, {
+      cls: "vault-rag-chat",
+      strings: { lang: getLang(), placeholder: t("panel.chat.inputPlaceholder") },
+      send: (messages, h) => this.send(messages, h),
+      render: (el, markdown) => d.renderMarkdown(el, markdown),
+      enterSends: () => d.enterSends(),
+      inputPosition: () => d.inputPosition(),
+      header: (el) => { this.drawHeader(el); },
+      composer: (el) => { this.drawComposer(el); },
+      afterAnswer: (el, entry) => {
+        // Das Kit ruft den Einschub auch bei gescheiterten und abgebrochenen Antworten: Quellen gehören nur an eine fertige.
+        if (entry.state !== "done") return;
+        const sent = sentFromMeta(entry.meta);
+        if (sent !== null) this.drawSources(el, sent.sources);
+      },
+      initial: this.history,
+      onChange: (h) => {
+        this.history = h;
+        // Die Zeile sperrt sich während eines Laufs und gibt sich danach frei.
+        this.bar?.update();
+      },
+      ...(d.domGuard === undefined ? {} : { domGuard: d.domGuard }),
+    });
+    // Die Suche beim Tippen: das Fenster hat keinen Rückruf für das Textfeld, das Ereignis bubbelt aber bis zur Wurzel. Im selben Wurzelknoten liegt auch
+    // der Auto-Kontext (seine Knöpfe lösen kein `input` aus), gefiltert wird deshalb am Ziel.
+    this.win.rootEl.addEventListener("input", (e: Event) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.hasClass("okit-chat-input")) this.scheduleQuery((el as HTMLTextAreaElement).value);
+    });
   }
 
-  private async initAsync(): Promise<void> {
-    await this.refreshStatus();
-    await this.refreshModels();
+  /** Ob eine Antwort läuft: das Kit-Fenster hat kein `running()`, aber `startAnswer` läuft vor `send`, also zeigt der Verlauf den Lauf. Null-sicher: das Fenster
+   *  ruft `header` und `composer` schon im Konstruktor, `win` ist dann noch nicht zugewiesen. */
+  private running(): boolean {
+    return this.win?.history().entries.some((e) => e.kind === "assistant" && e.state === "streaming") ?? false;
   }
 
-  private async refreshModels(): Promise<void> {
-    const sel = this.modelSel; if (!sel) return;
-    const cur = this.deps.getModel();
-    const models = await this.deps.listModels();
-    sel.empty();
-    const list = models.includes(cur) ? models : [cur, ...models];
-    for (const m of list) { const o = sel.createEl("option", { text: m }); o.value = m; }
-    sel.value = cur;
+  private drawHeader(el: HTMLElement): void {
+    // `refresh()` ruft den Einschub erneut; die alte Zeile gibt das Kit nicht frei (kein Abmelde-Hook), also hier.
+    this.bar?.destroy();
+    const d = this.deps;
+    this.bar = buildModelBar({
+      app: d.app,
+      containerEl: el,
+      llm: d.llm,
+      label: t("panel.chat.label"),
+      strings: { lang: getLang() },
+      thinking: d.thinking,
+      disabled: () => this.running(),
+    });
+  }
+
+  private drawComposer(el: HTMLElement): void {
+    this.panel.mount(el.createDiv({ cls: "vault-rag-chat-context" }));
+  }
+
+  private drawSources(el: HTMLElement, sources: string[]): void {
+    if (sources.length === 0) return;
+    const row = el.createDiv({ cls: "vault-rag-chat-sources" });
+    for (const p of sources) {
+      const chip = row.createEl("button", { cls: "vault-rag-chat-source", attr: { type: "button", "aria-label": p }, text: p.split("/").pop()?.replace(/\.md$/, "") ?? p });
+      setIcon(chip.createSpan({ cls: "vault-rag-chat-source-icon" }), "file-text");
+      chip.addEventListener("click", () => { this.deps.openPath(p); });
+    }
   }
 
   private scheduleQuery(q: string): void {
-    if (this.debTimer !== null) window.clearTimeout(this.debTimer);
-    this.debTimer = window.setTimeout(() => void this.panel.setQuery(q), 400);
+    this.clearDebounce();
+    this.debTimer = window.setTimeout(() => { void this.panel.setQuery(q); }, CONTEXT_DEBOUNCE_MS);
   }
 
-  private autoGrow(): void {
-    const el = this.inputEl; if (!el) return;
-    // Auto-Grow bis 180px (CSS-Klasse cappt zusätzlich). setCssStyles statt direkter style-Zuweisung
-    // (Obsidian-Guideline no-static-styles-assignment).
-    el.setCssStyles({ height: "auto" });
-    el.setCssStyles({ height: `${Math.min(el.scrollHeight, 180)}px` });
-  }
-
-  private onKeydown(e: KeyboardEvent): void {
-    if (e.key === "Escape" && this.running) { this.deps.session.abort(); return; }
-    if (e.isComposing || e.key === "Process") return;          // IME-Guard
-    if (e.key !== "Enter") return;
-    const plain = !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
-    const sends = this.deps.enterSends() ? plain : e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey;
-    if (sends) { e.preventDefault(); void this.submit(); }
-  }
-
-  /** Nach einem Modellwechsel: die Familie (und damit „nicht abschaltbar“) kann sich geaendert haben. */
-  private renderThinkToggle(): void { this.thinkCtl?.refresh(); }
-
-  async refreshStatus(): Promise<void> {
-    const el = this.statusEl; if (!el) return;
-    el.setText(t("panel.chat.checking"));
-    const ok = await this.deps.ping();
-    el.setText(ok ? t("panel.chat.connected") : t("panel.chat.offline"));
-  }
-
-  newChat(): void {
-    this.deps.session.reset();
-    this.stopWorking();
-    this.running = false; this.sendBtn?.setText(t("panel.chat.send"));
-    this.workingEl?.setText("");
-    this.renderMessages();
-  }
-
-  private onSendClick(): void {
-    if (this.running) { this.deps.session.abort(); return; }
-    void this.submit();
-  }
-
-  async submit(): Promise<void> {
-    if (this.running) return;
-    const q = (this.inputEl?.value ?? "").trim();
-    if (!q) return;
+  private clearDebounce(): void {
     if (this.debTimer !== null) { window.clearTimeout(this.debTimer); this.debTimer = null; }
-    if (this.inputEl) this.inputEl.value = "";
+  }
+
+  /** Eine Runde: Kontext und Prompt bauen, streamen, Fehler dem Fenster so geben, dass die Begründung des Servers erhalten bleibt. */
+  private async send(messages: readonly ChatModelMessage[], h: ChatSendHandlers): Promise<ChatSendResult> {
+    const d = this.deps;
+    // `startAnswer` ist vor `send` gelaufen: ab hier ist der Lauf im Verlauf sichtbar, die Zeile sperrt sich.
+    this.bar?.update();
+    // Die Frage ist gesendet: die Entprellung darf nicht mit dem alten Text nachfeuern und die Chips nach dem Zurücksetzen neu schreiben
+    // (das programmatische Leeren des Textfelds löst kein `input` aus).
+    this.clearDebounce();
     const paths = this.panel.currentPaths();
-    this.running = true; this.sendBtn?.setText(t("panel.chat.stop"));
-    const pending = this.deps.session.send(q, paths, () => this.renderMessages());
-    this.renderMessages();   // Frage erscheint sofort (User-Nachricht wurde synchron gepusht)
-    this.startWorking();
-    await pending;
-    this.stopWorking();
-    this.running = false; this.sendBtn?.setText(t("panel.chat.send"));
     this.panel.reset();
-    this.renderMessages();
-  }
-
-  private startWorking(): void {
-    const el = this.workingEl; if (!el) return;
-    this.workStart = Date.now();
-    const tick = () => {
-      const msgs = this.deps.session.messages;
-      const live = msgs[msgs.length - 1];
-      const thinking = !!live && live.role === "assistant" && live.content === "" && !!(live.reasoning ?? "");
-      const elapsed = ((Date.now() - this.workStart) / 1000).toFixed(1);
-      el.setText(thinking ? t("panel.chat.workingThinking", elapsed) : t("panel.chat.workingGenerating", elapsed));
-    };
-    tick();
-    this.timer = window.setInterval(tick, 100);
-  }
-
-  private stopWorking(): void {
-    if (this.timer !== null) { window.clearInterval(this.timer); this.timer = null; }
-    if (this.workStart && this.workingEl) {
-      this.workingEl.setText(t("panel.chat.answeredIn", ((Date.now() - this.workStart) / 1000).toFixed(1)));
+    let ask;
+    try {
+      ask = await prepareChatAsk(messages, paths, d);
+    } catch {
+      throw new Error(t("chatSession.contextLoadFailed"));
     }
-  }
-
-  private renderMessages(): void {
-    const el = this.messagesEl; if (!el) return;
-    // Scroll-Position VOR dem Leeren merken: nur automatisch ans Ende scrollen, wenn der Nutzer
-    // ohnehin unten war — sonst reißt es ihn beim Lesen älterer Turns nach unten (beide Eingabe-Positionen).
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    el.empty();
-    const msgs = this.deps.session.messages;
-    const last = msgs[msgs.length - 1];
-    for (const m of msgs) {
-      if (m.role === "assistant" && m.reasoning) {
-        const live = m === last && m.content === "" && !m.error;
-        // Kit-Baustein (§8): derselbe Block wie im Strom, mit Kopier-Knopf. Die Liste zeichnet sich bei jedem Stück neu, also steht
-        // „offen“ hier für „läuft noch“ und nicht für die Wahl des Nutzers.
-        buildReasoningBlock(el, {
-          text: m.reasoning,
-          strings: { summary: live ? t("panel.chat.reasoningLive") : t("panel.chat.reasoningDone"), copyReasoning: t("panel.chat.copyReasoning") },
-          open: live,
-        });
-      }
-      if (m.content) this.appendMessage(el, m, m !== last || !this.running);
-      if (m.error) el.createDiv({ cls: "vault-rag-chat-state", text: m.error });
-      if (m.role === "assistant" && m.content) {
-        const actions = el.createDiv({ cls: "vault-rag-chat-msg-actions" });
-        const copyBtn = actions.createEl("button", { cls: "vault-rag-chat-copy clickable-icon", attr: { "aria-label": t("panel.chat.copyAnswerAria") } });
-        setIcon(copyBtn, "copy");
-        copyBtn.addEventListener("click", () => this.deps.copyText(m.content));
-      }
-      if (m.sources && m.sources.length) {
-        const row = el.createDiv({ cls: "vault-rag-chat-sources" });
-        for (const p of m.sources) {
-          const chip = row.createSpan({ cls: "vault-rag-chat-source", text: p.split("/").pop()?.replace(/\.md$/, "") ?? p });
-          chip.addEventListener("click", () => this.deps.openPath(p));
-        }
-      }
+    h.setMeta(ask.sent);
+    try {
+      const res = await d.client().stream(
+        ask.messages,
+        (c) => { h.onToken(c); },
+        (r) => { h.onReasoning(r); },
+        h.signal,
+        {
+          model: d.model(),
+          mode: MODE_CHAT,
+          onContentReset: () => { h.onContentReset(); },
+          trace: { feature: "chat", app: d.app, contextPaths: ask.sent.sources, promptTemplate: ask.preamble, turnId: newTurnId() },
+        },
+      );
+      return { ok: true, content: res.content, reasoning: res.reasoning, ...(res.finishReason === "length" ? { truncated: true } : {}) };
+    } catch (e) {
+      const failure = chatSendFailure(e);
+      if (failure === null) throw e;
+      return failure;
     }
-    if (atBottom) el.scrollTop = el.scrollHeight;   // dem Stream folgen, aber manuelles Hochscrollen respektieren
-  }
-
-  /** Eine Nachricht in die Liste. Antworten des Modells werden als Markdown gezeigt, sobald sie FERTIG sind (die
-   *  laufende bleibt Rohtext, sonst rendert jedes Token neu); eigene Fragen bleiben Text. */
-  private appendMessage(list: HTMLElement, m: { role: string; content: string }, finished: boolean): void {
-    const render = this.deps.renderMarkdown;
-    if (m.role !== "assistant" || !render || !finished) {
-      list.createDiv({ cls: `vault-rag-chat-msg is-${m.role}`, text: m.content });
-      return;
-    }
-    const hit = this.rendered.get(m);
-    if (hit && hit.content === m.content) { list.appendChild(hit.el); return; }
-    const box = list.createDiv({ cls: `vault-rag-chat-msg is-${m.role} is-markdown` });
-    this.rendered.set(m, { content: m.content, el: box });
-    render(box, m.content).catch(() => { box.empty(); box.setText(m.content); });
   }
 
   /** Pause an/aus: Auto-Kontext ruht bzw. sucht die letzte Eingabe neu (Spec 2026-09-17 §3.3). */
   onEmbeddingPause(paused: boolean): void { if (paused) this.panel.onPause(); else this.panel.onResume(); }
 
-  /** Tab wird sichtbar: Stufe und Stufenwahl koennen in den Einstellungen geaendert worden sein. */
-  onShow(): void { this.renderThinkToggle(); }
+  /** Tab wird sichtbar: Modell, Endpunkt und Denkstufe können in den Einstellungen geändert worden sein. */
+  onShow(): void { this.bar?.update(); }
+
+  /** Modell oder Endpunkt haben sich außerhalb der Zeile geändert (Einstellungen, Manager): die Zeile zeichnet sich aus dem Zustand neu;
+   *  `models: true` lädt zusätzlich die Liste neu (der Endpunkt oder die Liste der Endpunkte hat sich geändert). */
+  refreshModelBar(opts: { models?: boolean } = {}): void {
+    this.bar?.update();
+    if (opts.models === true) void this.bar?.refresh();
+  }
+
+  private teardown(): void {
+    this.clearDebounce();
+    this.win?.destroy();
+    this.bar?.destroy();
+    this.win = null;
+    this.bar = null;
+  }
 
   destroy(): void {
-    if (this.timer !== null) { window.clearInterval(this.timer); this.timer = null; }
-    if (this.debTimer !== null) { window.clearTimeout(this.debTimer); this.debTimer = null; }
+    this.teardown();
+    this.container?.removeClass("vault-rag-chat-host");
   }
 }

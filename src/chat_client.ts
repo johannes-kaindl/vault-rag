@@ -7,8 +7,7 @@ import type { EndpointStatus } from "./vendor/kit/endpoint_diagnostics";
 import { readLabApi } from "./vendor/kit-obsidian/lab-client";
 import { redactExchange, JIT_FIRST_CHUNK_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS } from "./vendor/kit-obsidian/chat-client";
 import type { LlmConnection, LlmResult } from "./vendor/kit-obsidian/llm-connection";
-import { ChatHttpError, ChatTimeoutError } from "./chat_error";
-import { t } from "./vendor/kit/i18n";
+import { ChatHttpError, ChatNetworkError, ChatNoEndpointError, ChatTimeoutError } from "./chat_error";
 
 export interface ChatMessage { role: "system" | "user" | "assistant"; content: string; reasoning?: string; sources?: string[]; error?: string }
 
@@ -131,9 +130,8 @@ export class ChatClient {
     throw err;
   }
 
-  /** Kit-`kind` → der Fehler, den die Aufrufer schon kennen: `ChatHttpError` (Status + Rohbody, die
-   *  Anzeige übersetzt sie in `chat_error.ts`), `AbortError`, `ChatTimeoutError`, sonst der
-   *  übersetzte Netzfehlertext. `detail` (Servermeldung) bleibt im Body bzw. im Lab-Log. */
+  /** Kit-`kind` → der Fehler, den die Aufrufer schon kennen: `ChatHttpError` (Status + Rohbody; das Chat-Fenster
+   *  bildet sie über `chatSendFailure` ab), `AbortError`, `ChatTimeoutError`, `ChatNoEndpointError`, sonst `ChatNetworkError` (übersetzter Text). `detail` (Servermeldung) bleibt im Body bzw. im Lab-Log. */
   private failure(res: Extract<LlmResult, { ok: false }>): Error {
     switch (res.kind) {
       case "http":
@@ -149,9 +147,9 @@ export class ChatClient {
         return new ChatTimeoutError(
           (res.timing.firstChunkAt === undefined ? JIT_FIRST_CHUNK_TIMEOUT_MS : DEFAULT_IDLE_TIMEOUT_MS) / 1000);
       case "no-endpoint":
-        return new Error(t("error.noEndpoint"));
+        return new ChatNoEndpointError();
       default:
-        return new Error(t("sse.networkError"));
+        return new ChatNetworkError();
     }
   }
 

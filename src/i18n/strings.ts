@@ -89,8 +89,6 @@ export const EN = {
   "settings.source.importFailed": "Copying failed.",
 
   // main.ts
-  "main.copied": "Copied",
-  "main.copyFailed": "Could not copy — clipboard unavailable",
   "main.unknown": "unknown",
   "main.embeddingEndpointSkipped": "Embedding endpoint skipped: {0} does not match the index's model ({1}). Changing the embedding model requires a full index rebuild.",
   "main.embeddingEndpointNoModel": "Vault Retrieval: {0} skipped — no model selected for this endpoint yet. Pick one in the settings under \"Embedding endpoints\".",
@@ -141,7 +139,7 @@ export const EN = {
   "main.embedderOffline": "no index / embedder offline",
   "main.smartApplyDisabled": "Smart Apply is disabled",
 
-  // main.ts status bar + chat_error.ts
+  // main.ts status bar + chat_error.ts (error classes)
   "status.indexCorrupt": "⚠ Search index corrupted",
   "status.reindexing": "↻ Indexing {0}/{1}",
   "status.embedding": "↻ embedding…",
@@ -151,22 +149,14 @@ export const EN = {
   "confirm.completeIndex.message": "{0} of {1} notes are missing from the index. Only the missing ones will be re-embedded (delta) — the existing index remains intact.",
   "confirm.completeIndex.confirm": "Complete now",
   "confirm.completeIndex.cancel": "Later",
-  "chatError.serverDetail": "{0} — server: {1}",
-  "chatError.denied": "Access denied (HTTP {0}) — API key missing, invalid or expired.",
-  "chatError.notFound": "Chat path not found (HTTP 404) — check the endpoint address.",
-  "chatError.tooMany": "Too many requests (HTTP 429) — try again later.",
-  "chatError.serverError": "Server error at the chat endpoint (HTTP {0}).",
-  "chatError.rejected": "Request rejected (HTTP {0}).",
-  "chatError.unreachable": "Chat LLM unreachable — server down, wrong address, or network/VPN not connected.",
   "error.noEndpoint": "No chat endpoint is reachable. Check the endpoints in the settings (or the LLM Endpoint Manager).",
   "chatError.timeout": "No answer from the chat LLM for {0} s — it may still be loading the model or is stuck. Try again.",
 
   // chat_client.ts (Kit-Client, Netzfehler — reaches reformatPreview.error / the Smart Apply error box raw)
   "sse.networkError": "Chat network error",
 
-  // chat_session.ts (assistant.error — rendered verbatim by chat_view.ts)
+  // chat_view.ts (error line of a round, when the context cannot be loaded)
   "chatSession.contextLoadFailed": "Could not load context.",
-  "chatSession.emptyResponse": "Empty response from the chat LLM — check the endpoint/model in the settings.",
 
   // main.ts commands (command palette)
   "command.reindexVault": "Reindex vault",
@@ -275,20 +265,7 @@ export const EN = {
   "panel.search.noIndex": "No index — create it with the \"Reindex vault\" command.",
   "panel.search.noHits": "No matches above the threshold.",
   "panel.chat.label": "Chat",
-  "panel.chat.checking": "Chat LLM: checking…",
-  "panel.chat.connected": "● Chat LLM connected",
-  "panel.chat.offline": "○ Chat LLM offline — check the settings",
   "panel.chat.inputPlaceholder": "Ask your vault…",
-  "panel.chat.send": "Send",
-  "panel.chat.stop": "Stop",
-  "panel.chat.new": "New",
-  "panel.chat.copyAnswerAria": "Copy answer",
-  "panel.chat.workingThinking": "● thinking… {0} s",
-  "panel.chat.workingGenerating": "● generating… {0} s",
-  "panel.chat.answeredIn": "✓ Answered in {0} s",
-  "panel.chat.reasoningLive": "💭 thinking…",
-  "panel.chat.reasoningDone": "💭 Thoughts",
-  "panel.chat.copyReasoning": "Copy thinking",
   "panel.reformat.label": "Reformat",
   "panel.reformat.groupInstant": "Instant · offline",
   "panel.reformat.groupPreview": "With preview · local LLM",
@@ -639,8 +616,6 @@ export const DE = {
   "settings.source.imported": "Übernommen: {0} neu, {1} zusammengeführt.",
   "settings.source.importFailed": "Übernahme fehlgeschlagen.",
 
-  "main.copied": "Kopiert",
-  "main.copyFailed": "Nicht kopiert — Zwischenablage nicht verfügbar",
   "main.unknown": "unbekannt",
   "main.embeddingEndpointSkipped": "Embedding-Endpunkt übersprungen: {0} passt nicht zum Modell des Index ({1}). Ein Wechsel des Embedding-Modells erfordert einen vollständigen Neuaufbau des Index.",
   "main.embeddingEndpointNoModel": "Vault Retrieval: {0} übersprungen — für diesen Endpunkt ist noch kein Modell gewählt. In den Einstellungen unter „Embedding-Endpunkte“ eines wählen.",
@@ -691,7 +666,7 @@ export const DE = {
   "main.embedderOffline": "kein Index / Embedder offline",
   "main.smartApplyDisabled": "Smart Apply ist deaktiviert",
 
-  // main.ts status bar + chat_error.ts
+  // main.ts status bar + chat_error.ts (error classes)
   "status.indexCorrupt": "⚠ Suchindex beschädigt",
   "status.reindexing": "↻ Indiziere {0}/{1}",
   "status.embedding": "↻ embedding…",
@@ -701,22 +676,14 @@ export const DE = {
   "confirm.completeIndex.message": "{0} von {1} Notizen fehlen im Index. Nur die fehlenden werden neu eingebettet (Delta) — der bestehende Index bleibt erhalten.",
   "confirm.completeIndex.confirm": "Jetzt vervollständigen",
   "confirm.completeIndex.cancel": "Später",
-  "chatError.serverDetail": "{0} — Server: {1}",
-  "chatError.denied": "Zugriff verweigert (HTTP {0}) — API-Schlüssel fehlt, ist ungültig oder abgelaufen.",
-  "chatError.notFound": "Chat-Pfad nicht gefunden (HTTP 404) — Adresse des Endpunkts prüfen.",
-  "chatError.tooMany": "Zu viele Anfragen (HTTP 429) — später erneut versuchen.",
-  "chatError.serverError": "Server-Fehler am Chat-Endpunkt (HTTP {0}).",
-  "chatError.rejected": "Anfrage abgelehnt (HTTP {0}).",
-  "chatError.unreachable": "Chat-LLM nicht erreichbar — Server aus, Adresse falsch oder Netz/VPN nicht verbunden.",
   "error.noEndpoint": "Kein Chat-Endpunkt erreichbar. Endpunkte in den Einstellungen prüfen (oder im LLM Endpoint Manager).",
   "chatError.timeout": "Seit {0} s keine Antwort vom Chat-LLM — es lädt das Modell vielleicht noch oder hängt. Später erneut versuchen.",
 
   // chat_client.ts (Kit-Client, Netzfehler — landet roh in reformatPreview.error / der Smart-Apply-Fehlerbox)
   "sse.networkError": "Chat-Netzwerkfehler",
 
-  // chat_session.ts (assistant.error — wird von chat_view.ts unverändert gerendert)
+  // chat_view.ts (Fehlerzeile einer Runde, wenn der Kontext nicht zu laden ist)
   "chatSession.contextLoadFailed": "Kontext konnte nicht geladen werden.",
-  "chatSession.emptyResponse": "Leere Antwort vom Chat-LLM — Endpoint/Modell in den Settings prüfen.",
 
   "command.reindexVault": "Vault neu indizieren",
   "command.cancelReindex": "Vault-Indizierung stoppen",
@@ -821,20 +788,7 @@ export const DE = {
   "panel.search.noIndex": "Kein Index — über den Befehl „Vault neu indizieren“ erstellen.",
   "panel.search.noHits": "Keine Treffer über der Schwelle.",
   "panel.chat.label": "Chat",
-  "panel.chat.checking": "Chat-LLM: prüfe…",
-  "panel.chat.connected": "● Chat-LLM verbunden",
-  "panel.chat.offline": "○ Chat-LLM offline — in den Settings prüfen",
   "panel.chat.inputPlaceholder": "Frag deinen Vault…",
-  "panel.chat.send": "Senden",
-  "panel.chat.stop": "Stop",
-  "panel.chat.new": "Neu",
-  "panel.chat.copyAnswerAria": "Antwort kopieren",
-  "panel.chat.workingThinking": "● denkt nach… {0} s",
-  "panel.chat.workingGenerating": "● generiert… {0} s",
-  "panel.chat.answeredIn": "✓ Antwort in {0} s",
-  "panel.chat.reasoningLive": "💭 denkt nach…",
-  "panel.chat.reasoningDone": "💭 Gedanken",
-  "panel.chat.copyReasoning": "Denken kopieren",
   "panel.reformat.label": "Umformatieren",
   "panel.reformat.groupInstant": "Sofort · offline",
   "panel.reformat.groupPreview": "Mit Vorschau · lokales LLM",

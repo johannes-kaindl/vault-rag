@@ -18,6 +18,9 @@ export interface HubPanel {
   onFileOpen?(path: string | null): void;
   /** Der Pause-Zustand des Embeddings hat sich geändert (Spec 2026-09-17). Nur Panels, die Embeddings brauchen oder anzeigen. */
   onEmbeddingPause?(paused: boolean): void;
+  /** Modell, Endpunkt oder Denkstufe haben sich außerhalb des Panels geändert (Einstellungen, Endpunkt-Manager): die Modellzeile zeichnet sich neu;
+   *  `models: true` lädt zusätzlich die Liste der Modelle neu. Nur Panels mit Modellzeile. */
+  refreshModelBar?(opts?: { models?: boolean }): void;
   /** Cleanup: Timer/Intervalle/Streams abbrechen. */
   destroy(): void;
 }

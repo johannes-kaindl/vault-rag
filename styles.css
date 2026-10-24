@@ -6,21 +6,11 @@
 .vault-rag-empty { color: var(--text-muted); padding: 8px; }
 .vault-rag-search-input { width: 100%; margin-bottom: 8px; }
 .vault-rag-search-state { color: var(--text-muted); padding: 4px 0; }
-.vault-rag-chat-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
-.vault-rag-chat-messages { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1 1 auto; min-height: 0; padding-right: 4px; }
-.vault-rag-chat-msg { padding: 6px 8px; border-radius: 6px; white-space: pre-wrap; }
-.vault-rag-chat-msg.is-user { background: var(--background-modifier-hover); align-self: flex-end; }
-.vault-rag-chat-msg.is-assistant { background: var(--background-secondary); }
-/* Gerendertes Markdown (fertige Antwort): Absätze tragen ihre eigenen Umbrüche. */
-.vault-rag-chat-msg.is-markdown { white-space: normal; }
-.vault-rag-chat-msg.is-markdown > :first-child { margin-top: 0; }
-.vault-rag-chat-msg.is-markdown > :last-child { margin-bottom: 0; }
+.vault-rag-chat-host { height: 100%; }
 .vault-rag-chat-sources { display: flex; flex-wrap: wrap; gap: 4px; }
-.vault-rag-chat-source { font-size: 11px; padding: 2px 6px; border-radius: 10px; background: var(--background-modifier-border); cursor: pointer; }
-.vault-rag-chat-state { color: var(--text-error); padding: 4px 0; }
-.vault-rag-chat-input-row { display: flex; gap: 4px; margin-top: 8px; flex: 0 0 auto; }
-.vault-rag-chat-input { flex: 1; resize: none; min-height: 60px; max-height: 180px; overflow-y: auto; }
-.vault-rag-chat-model-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex: 0 0 auto; }
+.vault-rag-chat-source { display: inline-flex; align-items: center; gap: 4px; height: auto; font-size: var(--font-ui-smaller); padding: 2px 8px; border-radius: 10px; box-shadow: none; background: var(--background-modifier-border); cursor: pointer; }
+.vault-rag-chat-source-icon { display: inline-flex; }
+.vault-rag-chat-source-icon svg { width: var(--icon-xs); height: var(--icon-xs); }
 .vault-rag-cap { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
 .vault-rag-cap-icon { display: inline-flex; }
 .vault-rag-cap-icon svg { width: 14px; height: 14px; }
@@ -150,19 +140,12 @@
 }
 .vault-rag-sa-conn-refresh { margin-left: 6px; display: inline-flex; align-items: center; }
 .vault-rag-sa-conn-refresh svg { width: 14px; height: 14px; }
-.vault-rag-chat-status { font-size: 11px; color: var(--text-muted); cursor: pointer; padding: 2px 0; margin-bottom: 6px; flex: 0 0 auto; }
-.vault-rag-chat-working { font-size: 11px; color: var(--text-accent); padding: 4px 0; min-height: 16px; flex: 0 0 auto; }
-.vault-rag-chat-new { font-size: 12px; }
 .vault-rag-chat-context { border-top: 1px solid var(--background-modifier-border); padding-top: 6px; margin-top: 6px; flex: 0 0 auto; max-height: 30vh; overflow-y: auto; }
 .vault-rag-ctx-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; flex-wrap: wrap; }
 .vault-rag-ctx-k { display: flex; align-items: center; gap: 2px; }
 .vault-rag-ctx-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .vault-rag-ctx-chip { font-size: 11px; padding: 2px 6px; border-radius: 10px; cursor: pointer; background: var(--background-modifier-border); }
 .vault-rag-ctx-chip.is-pinned { background: var(--interactive-accent); color: var(--text-on-accent); }
-.vault-rag-chat-msg-actions { display: flex; gap: 4px; }
-.vault-rag-chat-copy.clickable-icon { color: var(--text-faint); padding: 2px 4px; height: auto; width: auto; }
-.vault-rag-chat-copy.clickable-icon:hover { color: var(--text-normal); }
-.vault-rag-chat-model { flex: 1; min-width: 0; font-size: 12px; }
 /* ── Smart Apply Cockpit ─────────────────────────────────────────────────── */
 .vault-rag-sa-root { display: flex; flex-direction: column; padding: 8px; gap: 8px; height: 100%; overflow: hidden; }
 .vault-rag-sa-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }

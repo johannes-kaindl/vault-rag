@@ -1,7 +1,7 @@
 import { EmbedCounter } from "./embed_counter";
 import { EmbeddingPause, EmbeddingPauseStorageError, EMBEDDING_PAUSE_KEY } from "./embedding_pause";
 import type { Embedder } from "./vendor/kit/embeddings-client";
-import { Component, Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView, getLanguage } from "obsidian";
+import { Component, MarkdownRenderer, Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView, getLanguage } from "obsidian";
 import "./i18n/strings";
 import { getLang, pickLang, setLang, t } from "./vendor/kit/i18n";
 import { VectorIndex } from "./vendor/kit/vector-index";
@@ -23,12 +23,9 @@ import { rowModel, migrateEndpointList, type EndpointConfig } from "./endpoint_c
 import { fillMissingRowModels } from "./vendor/kit/endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { hydrateLocalEndpoints, migrateLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
-import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import { effectiveSystemPrompt, migrateSystemPrompt, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
-import { neutralizeModelMarkdown } from "./vendor/kit/safe-markdown";
-import { renderMarkdownGuarded } from "./vendor/kit-obsidian/dom-guard";
 import { loadSecretValue, persistSecretValue } from "./vendor/kit/secret-value";
 import { secretIdFor } from "./vendor/kit/secrets";
 import { obsidianSecretStore, secretStorageAvailable } from "./vendor/kit-obsidian/secrets";
@@ -40,7 +37,6 @@ import { ChatClient } from "./chat_client";
 import { newTurnId } from "./lab_client";
 import { buildContext } from "./context_source";
 import { pickNote } from "./note_picker";
-import { ChatSession } from "./chat_session";
 import { ChatPanel, VIEW_TYPE_CHAT } from "./chat_view";
 import { SmartApply, type ApplyProposal } from "./smart_apply";
 import { SmartApplyPanel, VIEW_TYPE_SMART_APPLY } from "./smart_apply_view";
@@ -600,6 +596,7 @@ export default class VaultRagPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       this.captureSelection();
       this.reformatPanel?.refresh();
+      this.refreshModelBars();
     }));
 
     this.app.workspace.onLayoutReady(() => this.migrateOldLeaves());
@@ -618,24 +615,18 @@ export default class VaultRagPlugin extends Plugin {
         resume: () => this.setEmbeddingPaused(false),
       }),
       new ChatPanel({
-        session: new ChatSession({
-          client: () => this.chatClient,
-          assemble: (paths) => buildContext(paths, {
-            read: (p) => this.app.vault.adapter.read(p),
-            budget: this.settings.contextCharBudget,
-          }),
-          systemPreamble: (hasContext) => effectiveSystemPrompt(this.settings.chatSystemPrompt, hasContext),
-          model: () => this.chatModelInUse,
-          app: () => this.app,
-        }),
-        openPath: this.openPath,
-        copyText: (text: string) => { void copyToClipboard(text, { copiedMessage: t("main.copied"), failedMessage: t("main.copyFailed") }); },
-        ping: () => this.chatReady(),
-        listModels: () => this.chatClient.listModels(),
-        getModel: () => this.chatModelInUse,
-        // Kein globales Feld: die Verbindung schreibt die Wahl in die Zeile des aktiven Chat-Endpunkts,
+        app: this.app,
+        // Die Modellzeile im Kopf des Fensters liest und schreibt die Chat-Verbindung: die Wahl geht in die Zeile des aktiven Endpunkts,
         // mit Manager in `chatChoice` (Kit `setModel`).
-        setModel: (m: string) => { void this.llm.setModel(m); },
+        llm: this.llm,
+        client: () => this.chatClient,
+        assemble: (paths) => buildContext(paths, {
+          read: (p) => this.app.vault.adapter.read(p),
+          budget: this.settings.contextCharBudget,
+        }),
+        systemPreamble: (hasContext) => effectiveSystemPrompt(this.settings.chatSystemPrompt, hasContext),
+        model: () => this.chatModelInUse,
+        openPath: this.openPath,
         inputPosition: () => this.settings.chatInputPosition,
         getActivePath: () => this.app.workspace.getActiveFile()?.path ?? null,
         embed: async (q) => {
@@ -651,7 +642,8 @@ export default class VaultRagPlugin extends Plugin {
         autoK: this.settings.chatK,
         isPaused: () => this.pause.isPaused(),
         thinking: this.thinkingDeps(MODE_CHAT, () => this.chatModelInUse),
-        renderMarkdown: (el, md) => renderMarkdownGuarded(this.app, neutralizeModelMarkdown(md), el, "", this.markdownComponent),
+        // Das Fenster neutralisiert die Antwort und schützt den DOM selbst (`createStableWriter`): hier nur der Renderer.
+        renderMarkdown: (el, md) => MarkdownRenderer.render(this.app, md, el, "", this.markdownComponent),
         enterSends: () => this.settings.enterSends,
       }),
     ];
@@ -825,6 +817,8 @@ export default class VaultRagPlugin extends Plugin {
     if (gen !== this.chatReconnectGen) return;
     this.activeChatEndpoint = active && cfg ? normalizeEndpoint(cfg.url) : null;
     this.chatResolvedHook?.();
+    // Der Endpunkt kann gewechselt haben (Liste, Manager, Ausfall): die Zeilen zeigen dessen Modelle.
+    this.refreshModelBars({ models: true });
   }
 
   /** Familie für die Denk-Steuerung eines Panels: weicht das Modell vom aufgelösten ab (Dropdown,
@@ -2207,5 +2201,17 @@ export default class VaultRagPlugin extends Plugin {
     return this.runMcpOp(() => this.doStartMcpServer());
   }
 
-  async saveSettings() { await this.saveData({ ...this.settings, mcpToken: this.mcpTokenInFile }); }
+  async saveSettings() {
+    await this.saveData({ ...this.settings, mcpToken: this.mcpTokenInFile });
+    // Modell, Denkstufe und Endpunkt stehen in den Einstellungen: die Modellzeilen der offenen Hubs folgen jeder Änderung.
+    this.refreshModelBars();
+  }
+
+  /** Die Modellzeilen (Chat, Smart Apply) in allen offenen Hubs neu zeichnen; `models: true` lädt auch die Listen neu (Endpunkt gewechselt). */
+  refreshModelBars(opts: { models?: boolean } = {}): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_HUB)) {
+      const v = leaf.view;
+      if (v instanceof VaultRetrievalView) v.refreshModelBars(opts);
+    }
+  }
 }

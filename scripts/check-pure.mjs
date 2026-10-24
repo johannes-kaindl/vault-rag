@@ -30,7 +30,7 @@ const EDGE = new Set([
   "src/reformat_picker.ts",
   "src/reformat_preview_modal.ts",
   "src/reformat_panel.ts",
-  "src/chat_view.ts",                 // nur setIcon
+  "src/chat_view.ts",                 // setIcon, App (Typ); das Kit-Chatfenster ist die Kante
   "src/smart_apply_view.ts",          // setIcon + Notice (Fehler-Feedback)
   "src/integrator_panel.ts",          // nur setIcon
   "src/mcp/http_server.ts",           // Platform-Gate (desktop-only)

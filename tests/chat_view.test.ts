@@ -1,352 +1,441 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeAll, describe, it, expect, vi } from "vitest";
 import { ChatPanel } from "../src/chat_view";
+import { ChatHttpError, ChatNetworkError, ChatNoEndpointError, ChatTimeoutError } from "../src/chat_error";
 import { makeFakeEl } from "./__mocks__/obsidian";
+import { setLang } from "../src/vendor/kit/i18n";
 import "../src/i18n/strings"; // Register i18n strings
 
-function all(el: any, cls: string): any[] {
-  const out: any[] = [];
-  const has = (c: any) => String(c.className ?? "").split(" ").includes(cls);
-  const walk = (n: any) => (n.children ?? []).forEach((c: any) => { if (has(c)) out.push(c); walk(c); });
-  walk(el); return out;
-}
+// Das Kit-Fenster nimmt seine Uhr aus `window` (Renderer); die Testumgebung ist Node.
+beforeAll(() => { vi.stubGlobal("window", globalThis); });
+afterEach(() => { vi.useRealTimers(); setLang("en"); });
 
-
-/** Denk-Steuerung-Mock (Kit `thinking-control`): Stufe, Familie und Speicherwirkung je Test einstellbar. */
-function mkThinking(over: Partial<{ level: string; family: string | null; onLevel: string; picker: boolean }> = {}) {
-  const state = { level: over.level ?? "low" };
+/** Denk-Steuerung-Mock (Kit `thinking-control`). */
+type Level = "off" | "low" | "medium" | "high";
+function mkThinking() {
+  const state: { level: Level } = { level: "low" };
   return {
     state,
     deps: {
-      family: () => (over.family === undefined ? null : over.family),
+      family: () => null,
       current: () => state.level,
-      onLevel: () => over.onLevel ?? "low",
-      setLevel: vi.fn(async (l: string) => { state.level = l; }),
-      levelPicker: () => over.picker ?? false,
+      onLevel: (): Level => "low",
+      setLevel: vi.fn(async (l: Level) => { state.level = l; }),
+      levelPicker: () => false,
       strings: {
-        button: (level: string, offNotPossible: boolean) => level === "off"
-          ? (offNotPossible ? `Thinking: ${level} (cannot fully turn off)` : "Thinking off")
-          : `Thinking: ${level}`,
-        level: (l: string) => l,
+        button: (level: Level) => (level === "off" ? "Thinking off" : `Thinking: ${level}`),
+        level: (l: Level) => l,
         pickerLabel: "Thinking level",
       },
     },
   };
 }
 
-async function mkPanel(opts: { send?: any; ping?: any; copyText?: any; listModels?: any; getModel?: any; setModel?: any; inputPosition?: any; thinking?: any; enterSends?: any; renderMarkdown?: any } = {}) {
-  const session: any = {
-    messages: [],
-    send: opts.send ?? vi.fn(async (q: string, _paths: string[], onToken: (t: string) => void) => {
-      session.messages.push({ role: "user", content: q });
-      const a: any = { role: "assistant", content: "" }; session.messages.push(a);
-      onToken("Ant"); a.content = "Antwort"; a.sources = ["notes/a.md"];
-      return { sources: ["notes/a.md"] };
-    }),
-    abort: vi.fn(), reset: vi.fn(() => { session.messages = []; }),
-  };
+type Stream = (msgs: any[], onC: (t: string) => void, onR: (t: string) => void, signal: AbortSignal, opts: any) => Promise<any>;
+
+function mkPanel(opts: { stream?: Stream; assemble?: any; inputPosition?: () => "top" | "bottom"; enterSends?: () => boolean; embed?: any; search?: any } = {}) {
+  const stream = vi.fn<Parameters<Stream>, ReturnType<Stream>>(opts.stream ?? (async (_m, onC) => { onC("Ant"); onC("wort"); return { content: "Antwort", reasoning: "" }; }));
   const opened: string[] = [];
+  const thinking = mkThinking();
+  const llm = {
+    models: vi.fn(async () => ({ models: ["m1", "m2"], reachable: true })),
+    setModel: vi.fn(async (_m: string) => {}),
+    modelInUse: () => "m1",
+    source: () => ({ family: null, model: "m1", sentModel: "m1", kind: "local" }),
+  };
+  const assemble = opts.assemble ?? vi.fn(async (paths: string[]) => ({ text: paths.map((p) => `## ${p}\nINHALT`).join("\n\n"), sources: paths }));
+  const embed = opts.embed ?? vi.fn(async () => new Float32Array([1, 0]));
+  const search = opts.search ?? vi.fn(() => ["auto.md"]);
   const panel = new ChatPanel({
-    session, openPath: (p: string) => opened.push(p),
-    ping: opts.ping ?? (async () => true),
-    copyText: opts.copyText ?? vi.fn(),
-    listModels: opts.listModels ?? (async () => []),
-    getModel: opts.getModel ?? (() => "qwen3"),
-    setModel: opts.setModel ?? vi.fn(),
+    app: { plugins: { plugins: {} } } as never,
+    llm: llm as never,
+    client: () => ({ stream }) as never,
+    assemble,
+    systemPreamble: (hasContext: boolean) => (hasContext ? "MIT-KONTEXT" : "OHNE-KONTEXT"),
+    model: () => "mx",
+    openPath: (p: string) => opened.push(p),
     inputPosition: opts.inputPosition ?? (() => "bottom"),
-    thinking: opts.thinking ?? mkThinking().deps,
+    thinking: thinking.deps,
     enterSends: opts.enterSends ?? (() => true),
-    renderMarkdown: opts.renderMarkdown,
+    renderMarkdown: vi.fn(async (el: any, md: string) => { el.setText(md); }),
     getActivePath: () => "aktiv.md",
-    embed: async () => new Float32Array([1, 0]),
-    search: () => ["x.md"],
+    embed, search,
     pickNote: async () => null,
     autoK: 3,
+    domGuard: false,
   });
-  const container = makeFakeEl();
+  const container = makeFakeEl() as any;
   panel.mount(container);
-  await (panel as any).initAsync();   // mount() ist synchron; Netzwerk-Init (Status/Modelle) explizit abwarten
-  return { panel, container, session, opened };
+  return { panel, container, stream, llm, assemble, embed, search, opened, thinking };
 }
+type Ctx = ReturnType<typeof mkPanel>;
 
-describe("ChatPanel label", () => {
-  it("nennt den Tab auf Englisch (Default-Sprache)", async () => {
-    const { panel } = await mkPanel();
-    expect(panel.label).toBe("Chat");
-  });
-});
-
-describe("ChatPanel — Antworten als Markdown", () => {
-  it("rendert nur die FERTIGE Antwort, nicht die laufende, und nicht die eigene Frage", async () => {
-    const renderMarkdown = vi.fn(async (el: any, md: string) => { el.setText(`MD:${md}`); });
-    let midRenders = -1;
-    const send = vi.fn(async (q: string, _p: string[], onUpdate: () => void) => {
-      const s: any = (send as any)._s;
-      s.messages.push({ role: "user", content: q });
-      const a: any = { role: "assistant", content: "**fett**" }; s.messages.push(a);
-      onUpdate();                                 // mitten im Strom: die letzte Nachricht läuft noch
-      midRenders = renderMarkdown.mock.calls.length;
-      return { sources: [] };
-    });
-    const { panel, container, session } = await mkPanel({ send, renderMarkdown });
-    (send as any)._s = session;
-    (panel as any).inputEl.value = "frage";
-    await panel.submit();
-    expect(midRenders).toBe(0);                    // laufende Antwort bleibt Rohtext
-    expect(renderMarkdown).toHaveBeenCalledTimes(1);
-    expect(renderMarkdown.mock.calls[0]![1]).toBe("**fett**");
-    const msgs = all(container, "vault-rag-chat-msg");
-    expect(msgs.map(m => String(m.className).includes("is-markdown"))).toEqual([false, true]);
-  });
-  it("zeichnet eine fertige Antwort beim nächsten Neuzeichnen nicht noch einmal (Cache je Nachricht)", async () => {
-    const renderMarkdown = vi.fn(async (el: any, md: string) => { el.setText(md); });
-    const { panel, container, session } = await mkPanel({ renderMarkdown });
-    (panel as any).inputEl.value = "eins"; await panel.submit();
-    (panel as any).renderMessages(); (panel as any).renderMessages();
-    expect(renderMarkdown).toHaveBeenCalledTimes(1);
-    expect(all(container, "is-markdown").length).toBe(1);
-    expect(session.messages.length).toBe(2);
-  });
-  it("ein werfender Renderer kostet die Formatierung, nicht den Text", async () => {
-    const renderMarkdown = vi.fn(async () => { throw new Error("kaputt"); });
-    const { panel, container } = await mkPanel({ renderMarkdown });
-    (panel as any).inputEl.value = "frage"; await panel.submit();
-    await Promise.resolve(); await Promise.resolve();
-    expect(all(container, "is-markdown")[0].textContent).toBe("Antwort");
-  });
-  it("ohne Renderer bleibt alles Rohtext", async () => {
-    const { panel, container } = await mkPanel();
-    (panel as any).inputEl.value = "frage"; await panel.submit();
-    expect(all(container, "is-markdown").length).toBe(0);
-  });
-});
+const all = (c: any, sel: string): any[] => c.querySelectorAll(sel);
+const text = (c: any): string => c.textContent as string;
+const input = (c: any): any => all(c, ".okit-chat-input")[0];
+/** Sendet eine Frage über den Knopf und wartet, bis die Runde fertig ist (eine weitere Antwort steht da, der Knopf heißt wieder „Send“). */
+const ask = async (x: Ctx, q = "Frage?"): Promise<void> => {
+  const before = all(x.container, ".is-assistant").length;
+  input(x.container).value = q;
+  all(x.container, ".okit-chat-send")[0].click();
+  await vi.waitFor(() => { expect(all(x.container, ".is-assistant").length).toBe(before + 1); });
+  await vi.waitFor(() => { expect(all(x.container, ".okit-chat-send")[0].textContent).toBe("Send"); });
+};
+const key = (el: any, k: string, mods: Record<string, boolean> = {}) => {
+  const ev = { type: "keydown", key: k, shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, isComposing: false, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...mods };
+  el.dispatchEvent(ev);
+  return ev;
+};
+/** Das Fake-DOM lässt Ereignisse nicht bubbeln; im Renderer erreicht `input` die Wurzel von selbst. */
+const typeInto = (x: Ctx, value: string): void => {
+  const el = input(x.container);
+  el.value = value;
+  const root = all(x.container, ".okit-chat")[0];
+  root.dispatchEvent({ type: "input", target: el });
+};
 
 describe("ChatPanel", () => {
-  it("id ist 'chat'", async () => {
-    expect((await mkPanel()).panel.id).toBe("chat");
+  it("id und Beschriftung", () => {
+    const { panel } = mkPanel();
+    expect(panel.id).toBe("chat");
+    expect(panel.label).toBe("Chat");
   });
-  it("submit ruft session.send mit (query, paths, onToken) und rendert", async () => {
-    const { panel, container, session, opened } = await mkPanel();
-    (panel as any).inputEl.value = "frage";
-    await panel.submit();
-    expect(session.send).toHaveBeenCalledWith("frage", expect.any(Array), expect.any(Function));
-    expect(all(container, "vault-rag-chat-msg").length).toBe(2);
-    const chips = all(container, "vault-rag-chat-source");
-    expect(chips.length).toBe(1);
-    chips[0].click();
-    expect(opened).toEqual(["notes/a.md"]);
+
+  it("der Wirt trägt die Klasse, die dem Fenster eine begrenzte Höhe gibt", () => {
+    const { container } = mkPanel();
+    expect(container.hasClass("vault-rag-chat-host")).toBe(true);
+    expect(all(container, ".okit-chat").length).toBe(1);
   });
-  it("Multi-Turn: Quellen früherer Turns bleiben", async () => {
-    const { panel, container } = await mkPanel();
-    (panel as any).inputEl.value = "eins"; await panel.submit();
-    (panel as any).inputEl.value = "zwei"; await panel.submit();
-    expect(all(container, "vault-rag-chat-source").length).toBe(2);
-  });
-  it("Fehler-Zustand wird gerendert", async () => {
-    const send = vi.fn(async (q: string) => {
-      const s: any = (send as any)._s;
-      s.messages.push({ role: "user", content: q });
-      s.messages.push({ role: "assistant", content: "", error: "Chat-LLM nicht erreichbar (lokal/VPN)." });
-      return { sources: [], error: "x" };
+
+  describe("send", () => {
+    it("die Anfrage trägt Prompt und Kontext im System, die Frage zuletzt; Modell, Modus und Tracing kommen mit", async () => {
+      const x = mkPanel();
+      await ask(x, "Wie geht das?");
+      const [msgs, , , signal, opts] = x.stream.mock.calls[0]!;
+      expect(msgs.map((m: any) => m.role)).toEqual(["system", "user"]);
+      expect(msgs[1]).toEqual({ role: "user", content: "Wie geht das?" });
+      expect(msgs[0].content.startsWith("OHNE-KONTEXT")).toBe(true);   // keine Notiz gewählt, kein Kontext
+      expect(signal.aborted).toBe(false);
+      expect(opts.model).toBe("mx");
+      expect(opts.mode).toBe("grounded");
+      expect(typeof opts.onContentReset).toBe("function");
     });
-    const { panel, container, session } = await mkPanel({ send });
-    (send as any)._s = session;
-    (panel as any).inputEl.value = "frage";
-    await panel.submit();
-    expect(all(container, "vault-rag-chat-state").length).toBe(1);
+
+    it("das llm-lab-Tracing kommt an: feature chat, die Quellen als contextPaths, nur der Preamble als promptTemplate, eine turnId je Frage", async () => {
+      const x = mkPanel();
+      x.panel.onShow();
+      // gepinnte Notiz über den Kontext-Panel-Weg: die Quelle geht als contextPaths mit
+      const pinned = (x.panel as any).panel as { pin(p: string): void };
+      pinned.pin("a.md");
+      await ask(x, "eins");
+      await ask(x, "zwei");
+      const traces = x.stream.mock.calls.map((c) => c[4].trace);
+      expect(traces[0]).toMatchObject({ feature: "chat", contextPaths: ["a.md"], promptTemplate: "MIT-KONTEXT", turnId: expect.any(String) });
+      expect(traces[0].app).toBeDefined();
+      expect(traces[0].promptTemplate).not.toContain("INHALT");
+      expect(traces[1].turnId).not.toBe(traces[0].turnId);
+      expect(x.stream.mock.calls[0]![0][0].content).toContain("## a.md\nINHALT");
+    });
+
+    it("frühere Runden gehen mit Frage und Antwort mit, nie erneut mit Kontext", async () => {
+      const x = mkPanel();
+      await ask(x, "eins");
+      await ask(x, "zwei");
+      const second = x.stream.mock.calls[1]![0].map((m: any) => `${m.role}:${m.content}`);
+      expect(second.slice(1)).toEqual(["user:eins", "assistant:Antwort", "user:zwei"]);
+    });
+
+    it("eine abgebrochene oder gescheiterte Antwort geht nicht als Verlauf ans Modell", async () => {
+      let n = 0;
+      const x = mkPanel({ stream: async () => { if (++n === 1) throw new ChatNetworkError(); return { content: "ok", reasoning: "" }; } });
+      await ask(x, "Qf");
+      await ask(x, "Qn");
+      expect(x.stream.mock.calls[1]![0].filter((m: any) => m.role === "user").map((m: any) => m.content)).toEqual(["Qn"]);
+    });
+
+    it("Reasoning und Content-Reset des Clients erreichen das Fenster", async () => {
+      const x = mkPanel({
+        stream: async (_m, onC, onR, _s, o) => {
+          onC("Thinking Process: …");
+          o.onContentReset();
+          onR("denke");
+          onC("Antwort");
+          return { content: "Antwort", reasoning: "denke" };
+        },
+      });
+      await ask(x);
+      expect(text(x.container)).toContain("Antwort");
+      expect(text(x.container)).not.toContain("Thinking Process");
+      expect(text(x.container)).toContain("denke");
+    });
+
+    it("ein Abschneiden am Token-Limit sagt das Fenster (finishReason length)", async () => {
+      const x = mkPanel({ stream: async (_m, onC) => { onC("halb"); return { content: "halb", reasoning: "", finishReason: "length" }; } });
+      await ask(x);
+      expect(text(x.container)).toContain("cut off");
+    });
+
+    it("eine leere Antwort ist eine Fehlerzeile, kein stiller Erfolg", async () => {
+      const x = mkPanel({ stream: async () => ({ content: "", reasoning: "" }) });
+      await ask(x);
+      expect(all(x.container, ".okit-chat-error")[0].textContent).toContain("Empty response");
+    });
   });
-  it("leere Eingabe ruft send nicht", async () => {
-    const { panel, session } = await mkPanel();
-    (panel as any).inputEl.value = "  ";
-    await panel.submit();
-    expect(session.send).not.toHaveBeenCalled();
+
+  describe("Fehlerabbildung (der Client wirft, das Fenster erwartet ein Ergebnis)", () => {
+    it("HTTP: die Begründung des Servers bleibt in der Fehlerzeile, mit dem Status", async () => {
+      const x = mkPanel({ stream: async () => { throw new ChatHttpError(401, '{"detail":"Not authenticated"}'); } });
+      await ask(x);
+      const line = all(x.container, ".okit-chat-error")[0].textContent as string;
+      expect(line).toContain("401");
+      expect(line).toContain("Not authenticated");
+    });
+
+    it("HTTP 400: der Grund (fehlender Modellname) steht da", async () => {
+      const x = mkPanel({ stream: async () => { throw new ChatHttpError(400, '{"error":{"message":"model not found"}}'); } });
+      await ask(x);
+      expect(all(x.container, ".okit-chat-error")[0].textContent).toContain("model not found");
+    });
+
+    it("Timeout nennt die Frist in Sekunden", async () => {
+      const x = mkPanel({ stream: async () => { throw new ChatTimeoutError(120); } });
+      await ask(x);
+      expect(all(x.container, ".okit-chat-error")[0].textContent).toContain("120");
+    });
+
+    it("kein Endpunkt und Netzfehler haben je ihre eigene Zeile", async () => {
+      const a = mkPanel({ stream: async () => { throw new ChatNoEndpointError(); } });
+      await ask(a);
+      const noEp = all(a.container, ".okit-chat-error")[0].textContent as string;
+      const b = mkPanel({ stream: async () => { throw new ChatNetworkError(); } });
+      await ask(b);
+      const net = all(b.container, ".okit-chat-error")[0].textContent as string;
+      expect(noEp).not.toBe(net);
+      expect(net).toContain("Could not reach the endpoint");
+    });
+
+    it("ein Abbruch ist keine Fehlerzeile, sondern „Stopped.“ (Escape bricht ab)", async () => {
+      const x = mkPanel({
+        stream: (_m, _c, _r, signal) => new Promise((_res, rej) => { signal.addEventListener("abort", () => { const e = new Error("Aborted"); e.name = "AbortError"; rej(e); }); }),
+      });
+      input(x.container).value = "Frage?";
+      const pending = x.container.querySelectorAll(".okit-chat-send")[0].click();
+      await vi.waitFor(() => { expect(x.stream).toHaveBeenCalled(); });
+      key(input(x.container), "Escape");
+      await pending;
+      await vi.waitFor(() => { expect(text(x.container)).toContain("Stopped."); });
+      expect(x.stream.mock.calls[0]![3].aborted).toBe(true);
+      expect(all(x.container, ".okit-chat-error").length).toBe(0);
+    });
+
+    it("ein Unbekanntes wird nicht erfunden: das Fenster zeigt die Nachricht", async () => {
+      const x = mkPanel({ stream: async () => { throw new Error("boom"); } });
+      await ask(x);
+      expect(all(x.container, ".okit-chat-error")[0].textContent).toContain("boom");
+    });
+
+    it("ein Kontext, der nicht zu laden ist, wird eine Fehlerzeile der Runde; die Frage geht nicht ans Modell", async () => {
+      const x = mkPanel({ assemble: vi.fn(async () => { throw new Error("ctx weg"); }) });
+      await ask(x);
+      expect(x.stream).not.toHaveBeenCalled();
+      expect(all(x.container, ".okit-chat-error")[0].textContent).toContain("Could not load context.");
+    });
   });
-  it("zeigt Verbindungsstatus nach mount", async () => {
-    const okP = await mkPanel({ ping: async () => true });
-    expect(all(okP.container, "vault-rag-chat-status")[0].textContent).toContain("connected");
-    const offP = await mkPanel({ ping: async () => false });
-    expect(all(offP.container, "vault-rag-chat-status")[0].textContent).toContain("offline");
+
+  describe("Quellen unter der Antwort", () => {
+    it("stehen als Chips unter einer fertigen Antwort, ein Klick öffnet die Notiz", async () => {
+      const x = mkPanel();
+      (x.panel as any).panel.pin("ordner/Notiz eins.md");
+      await ask(x);
+      const chips = all(x.container, ".vault-rag-chat-source");
+      expect(chips.length).toBe(1);
+      expect(chips[0].textContent).toContain("Notiz eins");
+      chips[0].click();
+      expect(x.opened).toEqual(["ordner/Notiz eins.md"]);
+    });
+
+    it("an einer gescheiterten Runde stehen keine", async () => {
+      const x = mkPanel({ stream: async () => { throw new ChatNetworkError(); } });
+      (x.panel as any).panel.pin("a.md");
+      await ask(x);
+      expect(all(x.container, ".vault-rag-chat-source").length).toBe(0);
+    });
+
+    it("ohne Kontext keine Zeile", async () => {
+      const x = mkPanel();
+      await ask(x);
+      expect(all(x.container, ".vault-rag-chat-sources").length).toBe(0);
+    });
   });
-  it("Senden-Button wird zu Stop während einer laufenden Anfrage", async () => {
-    let finish: () => void = () => {};
-    const send = vi.fn(() => new Promise<{ sources: string[] }>(r => { finish = () => r({ sources: [] }); }));
-    const { panel, container } = await mkPanel({ send });
-    (panel as any).inputEl.value = "frage";
-    const p = panel.submit();
-    const btn = () => all(container, "vault-rag-chat-send")[0];
-    expect(btn().textContent).toBe("Stop");
-    finish(); await p;
-    expect(btn().textContent).toBe("Send");
+
+  describe("Auto-Kontext beim Tippen", () => {
+    it("das input-Ereignis des Textfelds startet nach 400 ms die Suche, jedes weitere setzt die Frist zurück", async () => {
+      vi.useFakeTimers();
+      const x = mkPanel();
+      typeInto(x, "retrieval");
+      await vi.advanceTimersByTimeAsync(399);
+      expect(x.embed).not.toHaveBeenCalled();
+      typeInto(x, "retrieval augmented");
+      await vi.advanceTimersByTimeAsync(399);
+      expect(x.embed).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2);
+      expect(x.embed).toHaveBeenCalledTimes(1);
+      expect(x.embed).toHaveBeenCalledWith("retrieval augmented");
+      expect(text(x.container)).toContain("auto");   // der Treffer steht als Chip da
+    });
+
+    it("andere input-Ziele im Wurzelknoten (der Auto-Kontext liegt im selben Knoten) lösen keine Suche aus", async () => {
+      vi.useFakeTimers();
+      const x = mkPanel();
+      const root = all(x.container, ".okit-chat")[0];
+      root.dispatchEvent({ type: "input", target: makeFakeEl() });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(x.embed).not.toHaveBeenCalled();
+    });
+
+    it("Senden nimmt die Chips mit, setzt sie zurück und löscht die Entprellung: nach dem Senden feuert nichts mit dem alten Text nach", async () => {
+      vi.useFakeTimers();
+      const x = mkPanel();
+      typeInto(x, "retrieval");
+      await vi.advanceTimersByTimeAsync(401);
+      expect(x.embed).toHaveBeenCalledTimes(1);
+      typeInto(x, "retrieval mehr");   // Entprellung läuft
+      const send = all(x.container, ".okit-chat-send")[0].click();
+      await vi.advanceTimersByTimeAsync(1);
+      await send;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(x.assemble).toHaveBeenCalledWith(["auto.md"]);   // die Chips gingen mit
+      expect(x.embed).toHaveBeenCalledTimes(1);               // die Entprellung feuerte nicht nach
+    });
+
+    it("nach dem Senden kommen die weggeklickten Auto-Treffer wieder in Frage (der Kontext-Panel wird zurückgesetzt)", async () => {
+      const x = mkPanel();
+      const p = (x.panel as any).panel;
+      p.excludeAuto("auto.md");
+      expect(p.excluded.has("auto.md")).toBe(true);
+      await ask(x);
+      expect(p.excluded.size).toBe(0);
+    });
+
+    it("Pause und Fortsetzen erreichen den Kontext-Panel", () => {
+      const x = mkPanel();
+      const p = (x.panel as any).panel;
+      const pause = vi.spyOn(p, "onPause");
+      const resume = vi.spyOn(p, "onResume");
+      x.panel.onEmbeddingPause(true);
+      x.panel.onEmbeddingPause(false);
+      expect(pause).toHaveBeenCalledTimes(1);
+      expect(resume).toHaveBeenCalledTimes(1);
+    });
   });
-  it("Neuer Chat leert den Verlauf und die Anzeige", async () => {
-    const { panel, container, session } = await mkPanel();
-    (panel as any).inputEl.value = "frage"; await panel.submit();
-    expect(all(container, "vault-rag-chat-msg").length).toBeGreaterThan(0);
-    panel.newChat();
-    expect(session.reset).toHaveBeenCalled();
-    expect(all(container, "vault-rag-chat-msg").length).toBe(0);
+
+  describe("Eingabe", () => {
+    it("Enter sendet, Umschalt+Enter nicht (enterSends = true)", async () => {
+      const x = mkPanel();
+      input(x.container).value = "Frage?";
+      expect(key(input(x.container), "Enter", { shiftKey: true }).defaultPrevented).toBe(false);
+      expect(x.stream).not.toHaveBeenCalled();
+      expect(key(input(x.container), "Enter").defaultPrevented).toBe(true);
+      await vi.waitFor(() => { expect(x.stream).toHaveBeenCalledTimes(1); });
+    });
+
+    it("enterSends = false kehrt um: Enter macht eine Zeile, Umschalt+Enter sendet", async () => {
+      const x = mkPanel({ enterSends: () => false });
+      input(x.container).value = "Frage?";
+      expect(key(input(x.container), "Enter").defaultPrevented).toBe(false);
+      expect(x.stream).not.toHaveBeenCalled();
+      expect(key(input(x.container), "Enter", { shiftKey: true }).defaultPrevented).toBe(true);
+      await vi.waitFor(() => { expect(x.stream).toHaveBeenCalledTimes(1); });
+    });
+
+    it("inputPosition „top“ setzt die Eingabe vor den Verlauf", () => {
+      const x = mkPanel({ inputPosition: () => "top" });
+      const root = all(x.container, ".okit-chat")[0];
+      const order = root.children.map((c: any) => String(c.className ?? ""));
+      const iComposer = order.findIndex((c: string) => c.includes("okit-chat-composer"));
+      const iLog = order.findIndex((c: string) => c.includes("okit-chat-log"));
+      expect(iComposer).toBeGreaterThanOrEqual(0);
+      expect(iComposer).toBeLessThan(iLog);
+    });
+
+    it("das Textfeld trägt den Platzhalter des Plugins", () => {
+      const { container } = mkPanel();
+      expect(input(container).placeholder ?? input(container).getAttribute("placeholder")).toBe("Ask your vault…");
+    });
   });
-  it("Kontext-Panel ist gemountet", async () => {
-    const { container } = await mkPanel();
-    expect(all(container, "vault-rag-ctx-list").length).toBe(1);
+
+  describe("Modellzeile", () => {
+    it("steht im Kopf des Fensters mit dem Namen „Chat“, die Denk-Steuerung ist in ihr, es gibt keinen zweiten Knopf", () => {
+      const { container } = mkPanel();
+      const header = all(container, ".okit-chat-header")[0];
+      expect(header.querySelectorAll(".okit-model-bar").length).toBe(1);
+      expect(header.querySelector(".okit-model-bar-label").textContent).toBe("Chat");
+      expect(all(container, ".okit-thinking-control").length).toBe(1);
+      expect(all(container, ".okit-model-bar")[0].querySelectorAll(".okit-thinking-control").length).toBe(1);
+      expect(all(container, ".vault-rag-chat-model").length).toBe(0);
+    });
+
+    it("ein Wechsel im Dropdown ruft setModel der Chat-Verbindung", async () => {
+      const x = mkPanel();
+      const select = all(x.container, ".okit-model-bar-select")[0];
+      await vi.waitFor(() => { expect(select.querySelectorAll("option").length).toBeGreaterThan(2); });
+      select.value = "m2";
+      select.dispatchEvent({ type: "change" });
+      await vi.waitFor(() => { expect(x.llm.setModel).toHaveBeenCalledWith("m2"); });
+    });
+
+    it("sperrt sich während eines Laufs und gibt sich danach frei", async () => {
+      let release: (r: any) => void = () => {};
+      const x = mkPanel({ stream: () => new Promise((resolve) => { release = resolve; }) });
+      const select = (): any => all(x.container, ".okit-model-bar-select")[0];
+      expect(select().disabled ?? false).toBe(false);
+      input(x.container).value = "Frage?";
+      const pending = all(x.container, ".okit-chat-send")[0].click();
+      await vi.waitFor(() => { expect(x.stream).toHaveBeenCalled(); });
+      expect(select().disabled).toBe(true);
+      release({ content: "fertig", reasoning: "" });
+      await pending;
+      await vi.waitFor(() => { expect(select().disabled ?? false).toBe(false); });
+    });
+
+    it("onShow und refreshModelBar zeichnen die Zeile neu (Stufe und Modell können sich in den Einstellungen geändert haben); `models` lädt die Liste neu", async () => {
+      const x = mkPanel();
+      expect(text(x.container)).toContain("Thinking: low");
+      x.thinking.state.level = "high";
+      x.panel.onShow();
+      expect(text(x.container)).toContain("Thinking: high");
+      x.thinking.state.level = "off";
+      x.panel.refreshModelBar();
+      expect(text(x.container)).toContain("Thinking off");
+      await new Promise((r) => setTimeout(r, 0));
+      const before = x.llm.models.mock.calls.length;
+      x.panel.refreshModelBar({ models: true });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(x.llm.models.mock.calls.length).toBeGreaterThan(before);
+    });
   });
-  it("rendert aufklappbaren Gedanken-Block, zugeklappt wenn Antwort da", async () => {
-    const { panel, container, session } = await mkPanel();
-    session.messages = [
-      { role: "user", content: "q" },
-      { role: "assistant", content: "Antwort", reasoning: "weil X" },
-    ];
-    (panel as any).renderMessages();
-    const blocks = all(container, "okit-stream-reasoning");
-    expect(blocks.length).toBe(1);
-    expect(blocks[0].open).toBe(false);
-    expect(blocks[0].querySelector("pre")?.textContent).toBe("weil X");
-    expect(all(container, "okit-stream-reasoning-label")[0].textContent).toContain("Thoughts");
-    // Kopier-Knopf des Kit-Bausteins, beschriftet (CORE-META-20)
-    expect(blocks[0].querySelector(".okit-stream-reasoning-copy")?.getAttribute("aria-label")).toBe("Copy thinking");
-  });
-  it("Gedanken-Block ist offen + 'denkt nach' während des Denkens", async () => {
-    const { panel, container, session } = await mkPanel();
-    session.messages = [
-      { role: "user", content: "q" },
-      { role: "assistant", content: "", reasoning: "denke gerade" },
-    ];
-    (panel as any).renderMessages();
-    expect(all(container, "okit-stream-reasoning")[0].open).toBe(true);
-    expect(all(container, "okit-stream-reasoning-label")[0].textContent).toContain("thinking");
-  });
-  it("kein Gedanken-Block ohne reasoning", async () => {
-    const { panel, container, session } = await mkPanel();
-    session.messages = [
-      { role: "user", content: "q" },
-      { role: "assistant", content: "Antwort" },
-    ];
-    (panel as any).renderMessages();
-    expect(all(container, "okit-stream-reasoning").length).toBe(0);
-  });
-  it("Eingabezeile ist das letzte Element (unten fixiert)", async () => {
-    const { container } = await mkPanel();
-    const kids = container.children;
-    expect(String(kids[kids.length - 1].className)).toContain("vault-rag-chat-input-row");
-  });
-  it("Senden-Button nutzt Obsidians mod-cta-Stil", async () => {
-    const { container } = await mkPanel();
-    expect(String(all(container, "vault-rag-chat-send")[0].className)).toContain("mod-cta");
-  });
-  it("Kopier-Button an der Antwort kopiert den Antworttext", async () => {
-    const copyText = vi.fn();
-    const { panel, container, session } = await mkPanel({ copyText });
-    session.messages = [
-      { role: "user", content: "frage" },
-      { role: "assistant", content: "Die Antwort." },
-    ];
-    (panel as any).renderMessages();
-    const btns = all(container, "vault-rag-chat-copy");
-    expect(btns.length).toBe(1);
-    btns[0].click();
-    expect(copyText).toHaveBeenCalledWith("Die Antwort.");
-  });
-  it("kein Kopier-Button an der User-Nachricht", async () => {
-    const { panel, container, session } = await mkPanel();
-    session.messages = [{ role: "user", content: "frage" }];
-    (panel as any).renderMessages();
-    expect(all(container, "vault-rag-chat-copy").length).toBe(0);
-  });
-  it("Modell-Switcher ruft setModel bei Auswahl", async () => {
-    const setModel = vi.fn();
-    const { container } = await mkPanel({ setModel, listModels: async () => ["a", "b"] });
-    const sel = all(container, "vault-rag-chat-model")[0];
-    expect(sel).toBeTruthy();
-    sel.value = "b";
-    (sel._listeners["change"] ?? []).forEach((cb: any) => cb());
-    expect(setModel).toHaveBeenCalledWith("b");
-  });
-  it("inputPosition 'top' rendert die Eingabe vor den Nachrichten", async () => {
-    const { container } = await mkPanel({ inputPosition: () => "top" });
-    const kids: any[] = Array.from(container.children);
-    const idxInput = kids.findIndex(k => String(k.className).includes("vault-rag-chat-input-row"));
-    const idxMsgs = kids.findIndex(k => String(k.className).includes("vault-rag-chat-messages"));
-    expect(idxInput).toBeGreaterThanOrEqual(0);
-    expect(idxInput).toBeLessThan(idxMsgs);
-  });
-  it("Eingabe ist eine Textarea", async () => {
-    const { panel } = await mkPanel();
-    expect(String((panel as any).inputEl.tagName)).toBe("TEXTAREA");
-  });
-  it("Enter sendet, Shift+Enter nicht (enterSends=true)", async () => {
-    const { panel, session } = await mkPanel();
-    (panel as any).inputEl.value = "frage";
-    const ta = (panel as any).inputEl;
-    const ev = (over: any) => ({ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, isComposing: false, preventDefault: () => {}, ...over });
-    (ta._listeners["keydown"] ?? []).forEach((cb: any) => cb(ev({ shiftKey: true })));
-    expect(session.send).not.toHaveBeenCalled();
-    (ta._listeners["keydown"] ?? []).forEach((cb: any) => cb(ev({})));
-    expect(session.send).toHaveBeenCalled();
-  });
-  it("sendet nicht während IME-Komposition", async () => {
-    const { panel, session } = await mkPanel();
-    (panel as any).inputEl.value = "字";
-    const ta = (panel as any).inputEl;
-    (ta._listeners["keydown"] ?? []).forEach((cb: any) =>
-      cb({ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, isComposing: true, preventDefault: () => {} }));
-    expect(session.send).not.toHaveBeenCalled();
-  });
-  it("enterSends=false: Enter macht keine Sendung, Shift+Enter schon", async () => {
-    const { panel, session } = await mkPanel({ enterSends: () => false });
-    (panel as any).inputEl.value = "frage";
-    const ta = (panel as any).inputEl;
-    const ev = (over: any) => ({ key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, isComposing: false, preventDefault: () => {}, ...over });
-    (ta._listeners["keydown"] ?? []).forEach((cb: any) => cb(ev({})));
-    expect(session.send).not.toHaveBeenCalled();
-    (ta._listeners["keydown"] ?? []).forEach((cb: any) => cb(ev({ shiftKey: true })));
-    expect(session.send).toHaveBeenCalled();
-  });
-  it("Thinking-Toggle: Klick bei „an“ ruft setLevel(off), bei „aus“ setLevel(onLevel)", async () => {
-    const on = mkThinking({ level: "low" });
-    const a = await mkPanel({ thinking: on.deps });
-    all(a.container, "okit-thinking-toggle")[0].click();
-    expect(on.deps.setLevel).toHaveBeenCalledWith("off");
-    const off = mkThinking({ level: "off", onLevel: "medium" });
-    const b = await mkPanel({ thinking: off.deps });
-    all(b.container, "okit-thinking-toggle")[0].click();
-    expect(off.deps.setLevel).toHaveBeenCalledWith("medium");
-  });
-  it("Thinking-Toggle zeigt den Zustand über Icon, Text UND aria-pressed (UI-STANDARD §8)", async () => {
-    const { container } = await mkPanel({ thinking: mkThinking({ level: "low" }).deps });
-    const toggle = all(container, "okit-thinking-toggle")[0];
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    expect(toggle.children[0].getAttribute("data-icon")).toBe("brain-cog");
-    expect(toggle.textContent).toContain("Thinking: low");
-  });
-  it("Thinking-Toggle: ausgeschaltet zeigt brain UND aria-pressed=false", async () => {
-    const { container } = await mkPanel({ thinking: mkThinking({ level: "off" }).deps });
-    const toggle = all(container, "okit-thinking-toggle")[0];
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
-    expect(toggle.children[0].getAttribute("data-icon")).toBe("brain");
-    expect(toggle.textContent).toContain("Thinking off");
-  });
-  it("Familie, die das Denken nicht abschalten kann (gpt-oss): der Text sagt es, der Knopf bleibt bedienbar", async () => {
-    const { container } = await mkPanel({ thinking: mkThinking({ level: "off", family: "gpt-oss" }).deps });
-    const toggle = all(container, "okit-thinking-toggle")[0];
-    expect(toggle.textContent).toContain("cannot fully turn off");
-  });
-  it("onShow zeichnet die Denk-Steuerung neu (die Stufe kann in den Einstellungen geändert worden sein)", async () => {
-    const t = mkThinking({ level: "off" });
-    const { panel, container } = await mkPanel({ thinking: t.deps });
-    expect(all(container, "okit-thinking-toggle")[0].textContent).toContain("Thinking off");
-    t.state.level = "medium";
-    panel.onShow();
-    expect(all(container, "okit-thinking-toggle")[0].textContent).toContain("Thinking: medium");
-  });
-  it("ein Modellwechsel zeichnet die Denk-Steuerung neu (die Familie kann sich geändert haben)", async () => {
-    let fam: string | null = null;
-    const t = mkThinking({ level: "off" });
-    t.deps.family = () => fam;
-    const { container } = await mkPanel({ thinking: t.deps, listModels: async () => ["a", "b"] });
-    expect(all(container, "okit-thinking-toggle")[0].textContent).toContain("Thinking off");
-    fam = "gpt-oss";
-    const sel = all(container, "vault-rag-chat-model")[0];
-    sel.value = "b";
-    (sel._listeners?.change ?? []).forEach((cb: any) => cb());
-    expect(all(container, "okit-thinking-toggle")[0].textContent).toContain("cannot fully turn off");
+
+  describe("mount nach destroy (Tab-Wechsel im Hub: dieselbe Instanz)", () => {
+    it("der Verlauf bleibt, es gibt genau ein Fenster und genau eine Modellzeile", async () => {
+      const x = mkPanel();
+      await ask(x, "eins");
+      expect(text(x.container)).toContain("eins");
+      x.panel.destroy();
+      x.panel.mount(x.container);
+      expect(all(x.container, ".okit-chat").length).toBe(1);
+      expect(all(x.container, ".okit-model-bar").length).toBe(1);
+      expect(text(x.container)).toContain("eins");
+      expect(text(x.container)).toContain("Antwort");
+      await ask(x, "zwei");
+      expect(x.stream.mock.calls[1]![0].map((m: any) => m.content)).toContain("eins");
+    });
+
+    it("destroy löscht die Entprellung: danach läuft keine Suche mehr", async () => {
+      vi.useFakeTimers();
+      const x = mkPanel();
+      typeInto(x, "retrieval");
+      x.panel.destroy();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(x.embed).not.toHaveBeenCalled();
+    });
   });
 });

@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Kit pin `obsidian-kit` 0.66.1 → 0.67.1 and `code-kit` 0.34.0 → 0.36.0, vendored the chat window, the model bar and their helpers (`chat-window`, `model-bar`, `stable-writer`, `chat-history`, `stream-blocks`) and copied `CHAT_WINDOW_CSS` and `MODEL_BAR_CSS` into `styles.css`. Releases skipped: obsidian-kit 0.66.2 (image crop, critic editor), 0.67.0 (model bar, role `search-only`, crop-dialog scrim, image in a PDF list item) and 0.67.1 (`MODEL_BAR_CSS` without `clip-path`); code-kit 0.35.0 (`parseNumeric`) and 0.36.0 (`folder-scope` fails closed, role `search-only`) bring nothing visible on their own: the vault-rag modules the plugin uses did not change except `endpoint_config` and the endpoint list, which gain the `search-only` role (wired up below). No visible change in this step.
+
 ## [0.45.0] — 2026-10-23
 
 ### Fixed

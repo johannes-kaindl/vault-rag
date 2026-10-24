@@ -1,4 +1,4 @@
-// vendored from code-kit@0.34.0, src/ts/pure/vector-index.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.36.0, src/ts/pure/vector-index.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/index.ts (ohne IndexLoader, VaultIndex → VectorIndex, VaultAdapter → IndexStorage) und vault-rag/src/retriever.ts, 2026-10-11 (Änderungen: `noUncheckedIndexedAccess`-clean; Fehlermeldungen ohne den Präfix "vault-rag")
 /** The loaded form of a note index: a manifest, one path per row and a matrix of unit vectors, plus the cosine search
  *  over it. Where the bytes come from is {@link IndexStorage}'s concern (a Node file system, Obsidian's vault

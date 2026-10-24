@@ -1,4 +1,4 @@
-// vendored from code-kit@0.34.0, src/ts/pure/markdown-table.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.36.0, src/ts/pure/markdown-table.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Text that stands in a Markdown table cell: what is written around it and what is done to it.
  *
  *  Two different jobs that five local versions did under one name, measured 2026-10-18:

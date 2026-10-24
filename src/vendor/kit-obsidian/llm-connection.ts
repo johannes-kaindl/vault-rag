@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.66.1, src/obsidian/llm-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.67.1, src/obsidian/llm-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Die LLM-Anbindung eines Fachplugins als EINE Komposition: Endpunkt-Quelle (Manager oder lokale
  *  Liste mit Schlüsselbund), gemerkte Auflösung, Modellliste, Anfrage-Parameter je Modus, Client mit
  *  Transport und Fristen, Prüfung der Antwort und beide Settings-Abschnitte.
@@ -120,6 +120,10 @@ export interface LlmConnectionOptions {
    *  geladenes verdrängen würde (nur LM Studio). Default: `fetchLoadedModelsAt` (`GET /api/v1/models`, nur lesend). `null` = unbekannt. */
   loadedModels?: (cfg: EndpointConfig) => Promise<readonly LoadedModel[] | null>;
   managerOnly?: boolean;
+  /** Seit 0.67.0: bedient diese Zeile nur die Suche? Dann trägt sie in der gezeichneten Liste die Rolle `search-only` („für Suche genutzt, schreibt nicht“)
+   *  statt `skipped-model`/`standby` (`buildEndpointList` `isSearchOnly`; Vorrang `active` > `unreachable` > `search-only`). Fehlt die Option, bleibt die Liste
+   *  wie bisher. Die Verbindung selbst ändert nichts: das Wissen, welche Zeile nur sucht, bleibt beim Plugin. */
+  isSearchOnly?: (cfg: EndpointConfig) => boolean;
   transports?: LlmConnectionTransports;
   timeouts?: LlmConnectionTimeouts;
   /** Sampling-Modus; je Aufruf überschreibbar. */
@@ -539,6 +543,7 @@ function createChatConnection(o: LlmConnectionOptions): LlmConnection {
           reconnect: async () => { invalidate(); await resolve().catch(() => undefined); },
           rerender, app: o.app, pluginId: o.pluginId,
           ...(o.contextLength === false ? {} : { modelContext: plumbing.modelContext }),
+          ...(o.isSearchOnly ? { isSearchOnly: o.isSearchOnly } : {}),
         });
       },
       rerender,

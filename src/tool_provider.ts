@@ -1,5 +1,6 @@
 import { getLang, setLang, t } from "./vendor/kit/i18n";
 import type { ApiHit, ApiOverrides, ApiResult } from "./plugin_api";
+import type { NotIndexedCause } from "./retrieval_facade";
 
 /** Werkzeug-Anbieter (Branch feat/tool-provider): vault-rag beschreibt seine Fähigkeiten als
  *  LLM-Werkzeuge, ein Wirt (koda-agent) montiert sie, statt sie nachzubauen. Form:
@@ -50,7 +51,9 @@ export type ApiToolResult =
   | { ok: false; reason: "needs-confirm"; message: string }
   /** Anbieter geladen, Voraussetzung fehlt: `detail` nennt sie (`no-index`, `offline`). */
   | { ok: false; reason: "unavailable"; detail: "no-index" | "offline" | "paused"; message: string }
-  | { ok: false; reason: "not-indexed"; path: string; message: string };
+  /** `cause` nur für diese Werkzeug-Antwort (die öffentliche API kennt es nicht): `frontmatter-only` (Notiz ohne Text, erst Inhalt schreiben) oder `pending` (der
+   *  Indexer zieht nach, nochmal versuchen). Fehlt es, ist die Ursache unbekannt. `reason`, `path` und `message` stehen in jedem Fall da. */
+  | { ok: false; reason: "not-indexed"; path: string; message: string; cause?: "frontmatter-only" | "pending" };
 
 /** Gleiche Obergrenze wie der Slider `k` in den Einstellungen. */
 const K_MAX = 50;
@@ -58,7 +61,12 @@ const K_MAX = 50;
 export interface ToolTarget {
   search(query: string, opts?: ApiOverrides): Promise<ApiResult>;
   related(path: string, opts?: ApiOverrides): Promise<ApiResult>;
+  /** Warum eine Notiz nicht im Index steht; nur gefragt, wenn `related` mit `not-indexed` antwortet. Fehlt es, bleibt die Antwort allgemein. */
+  notIndexedCause?(path: string): Promise<NotIndexedCause>;
 }
+
+/** Was `run` dem `render` übergibt: das Ergebnis der Quelle, bei `not-indexed` samt der (nur hier ermittelten) Ursache. */
+type ToolRaw = ApiResult | { ok: false; reason: "not-indexed"; path: string; cause: NotIndexedCause };
 
 /** Ein Werkzeug: Definition, Argumentprüfung, Ausführung. Die Registry unten ist die EINZIGE
  *  Stelle, an der Namen entstehen — dadurch ist Eindeutigkeit prüfbar (Test). */
@@ -71,9 +79,9 @@ interface ToolImpl {
   /** Nebenwirkungsfreie Vorschau — nur für `writes:true`. */
   preview?(args: Record<string, unknown>): ToolConfirmPreview;
   /** Rechnet OHNE Text zu formulieren (die Sprache darf sich über ein await nicht ändern). */
-  run(args: Record<string, unknown>, target: ToolTarget): Promise<ApiResult>;
+  run(args: Record<string, unknown>, target: ToolTarget): Promise<ToolRaw>;
   /** Formuliert das Ergebnis synchron — nur hier wird `t()` aufgerufen. */
-  render(r: ApiResult, args: Record<string, unknown>): ApiToolResult;
+  render(r: ToolRaw, args: Record<string, unknown>): ApiToolResult;
 }
 
 const score = (n: number): string => n.toFixed(2);
@@ -88,12 +96,19 @@ function hitLines(hits: ApiHit[]): string {
 
 /** Erwartbare Zustände der Quelle → Text fürs Modell (die Sätze aus koda-agents
  *  `formatRelatedResult`, dort deutsch hartkodiert, hier übersetzt). */
-function failure(r: Exclude<ApiResult, { ok: true }>): ApiToolResult {
+function failure(r: Exclude<ToolRaw, { ok: true }>): ApiToolResult {
   switch (r.reason) {
     case "no-index": return { ok: false, reason: "unavailable", detail: "no-index", message: t("tools.msg.noIndex") };
     case "offline": return { ok: false, reason: "unavailable", detail: "offline", message: t("tools.msg.offline") };
     case "paused": return { ok: false, reason: "unavailable", detail: "paused", message: t("tools.msg.paused") };
-    case "not-indexed": return { ok: false, reason: "not-indexed", path: r.path, message: t("tools.msg.notIndexed", r.path) };
+    case "not-indexed": {
+      // Zwei Fälle, zwei Antworten: ohne Text bleibt die Notiz dauerhaft draußen, mit Text zieht der Indexer nach. Unbekannt: die allgemeine Antwort wie bisher.
+      const cause = "cause" in r && r.cause !== "unknown" ? r.cause : undefined;
+      const message = cause === "frontmatter-only" ? t("tools.msg.notIndexedEmpty", r.path)
+        : cause === "pending" ? t("tools.msg.notIndexedPending", r.path)
+        : t("tools.msg.notIndexed", r.path);
+      return { ok: false, reason: "not-indexed", path: r.path, message, ...(cause === undefined ? {} : { cause }) };
+    }
   }
 }
 
@@ -140,7 +155,12 @@ const RELATED: ToolImpl = {
     };
   },
   check: (args) => (nonEmptyString(args.path) ? null : "path"),
-  run: (args, target) => target.related(args.path as string),
+  async run(args, target) {
+    const path = args.path as string;
+    const r = await target.related(path);
+    if (r.ok || r.reason !== "not-indexed" || !target.notIndexedCause) return r;
+    return { ok: false, reason: "not-indexed", path: r.path, cause: await target.notIndexedCause(path) };
+  },
   render(r, args) {
     const path = args.path as string;
     if (!r.ok) return failure(r);

@@ -158,7 +158,8 @@ export function createVaultRetrievalApi(
     },
 
     executeTool(name, args, opts) {
-      return runTool(name, args, api, opts);
+      // Nur der Werkzeugweg fragt die Facade nach der Ursache von `not-indexed` (Dateizugriff hinter dem Path-Guard); `api.related` bleibt ohne.
+      return runTool(name, args, { search: api.search, related: api.related, notIndexedCause: (p) => facade.notIndexedCause(p) }, opts);
     },
   };
   return api;

@@ -38,7 +38,7 @@ describe("Plugin-API — related_notes: Pfade aus dem Modell", () => {
     // a=[1,0] b=[0.92,0.39] c=[0,1] Templates/t=[1,0] (ein veralteter Eintrag aus der Zeit vor dem Ausschluss)
     return parseIndex(m, ["a.md", "b.md", "c.md", "Templates/t.md"], new Int8Array([127, 0, 117, 50, 0, 127, 127, 0]).buffer);
   }
-  const HOSTILE = ["../a.md", "a/../../a.md", "/a.md", "/etc/passwd", "a\0.md", "a\b.md", "..\a.md", "C:\\a.md", "a\u0000.md", "\u0000", "a/../a.md", " ../a.md", "a/.. /a.md"];
+  const HOSTILE = ["../a.md", "a/../../a.md", "/a.md", "/etc/passwd", "a\0.md", "a\b.md", "a\\b.md", "..\\a.md", "C:\\a.md", "a\u0000.md", "\u0000", "a/../a.md", " ../a.md", "a/.. /a.md"];
 
   it("Gegenprobe: ein gültiger Pfad liefert Treffer — sonst wäre „kein Treffer“ unten wertlos", async () => {
     const r = await api({ getIndex: idxMitAusgeschlossen }).executeTool("related_notes", { path: "a.md" }, { lang: "en" });
@@ -215,9 +215,11 @@ describe("Plugin-API — Werkzeug-Anbieter: executeTool()", () => {
       .resolves.toMatchObject({ ok: false, reason: "unavailable", detail: "offline", message: "Semantischer Index: Endpunkt nicht erreichbar." });
   });
 
-  it("eine unbekannte Notiz heisst not-indexed samt Pfad", async () => {
-    await expect(api().executeTool("related_notes", { path: "missing.md" }, { lang: "de" }))
-      .resolves.toMatchObject({ ok: false, reason: "not-indexed", path: "missing.md", message: expect.stringContaining("missing.md") });
+  it("eine unbekannte Notiz heisst not-indexed samt Pfad, ohne Ursache (die Datei gibt es nicht)", async () => {
+    const r = await api({ readVault: async () => { throw new Error("ENOENT"); } }).executeTool("related_notes", { path: "missing.md" }, { lang: "de" });
+    expect(r).toMatchObject({ ok: false, reason: "not-indexed", path: "missing.md", message: expect.stringContaining("missing.md") });
+    expect("cause" in r).toBe(false);
+    expect((r as { message: string }).message).toBe("\"missing.md\" ist nicht im Index — verwandte Notizen lassen sich dafür nicht bestimmen.");
   });
 
   it("wirft nie: ein Fehler im Retrieval wird zu reason failed", async () => {
@@ -289,5 +291,89 @@ describe("Werkzeug-Anbieter: Registry und Bestaetigung", () => {
     let called = false;
     await api().executeTool("related_notes", { path: "a.md" }, { confirm: async () => { called = true; return true; } });
     expect(called).toBe(false);
+  });
+});
+
+/** `related_notes` unterscheidet bei `not-indexed` zwei Fälle, die verschieden zu behandeln sind (Befund koda-w25: Koda tat es durch Dateilesen und
+ *  hat sein eigenes Werkzeug entfernt). Das Datei-Lesen passiert nur in `run` des Werkzeugs, hinter dem Pfad-Guard (`resolveNotePath`); die öffentliche
+ *  API (`related()`, `reason: "not-indexed"`) bleibt unverändert und liest nie eine Datei. */
+describe("Plugin-API — related_notes: not-indexed unterscheidet zwei Ursachen", () => {
+  const FM_ONLY = "---\ntitle: Neu\ntags: [x]\n---\n";
+  const reads = (map: Record<string, string>, log: string[] = []) => async (p: string): Promise<string> => {
+    log.push(p);
+    if (p in map) return map[p]!;
+    throw new Error("ENOENT");
+  };
+
+  it("nur Frontmatter: bleibt dauerhaft draußen — erst Inhalt schreiben (cause frontmatter-only), EN und DE", async () => {
+    const a = api({ readVault: reads({ "neu.md": FM_ONLY }) });
+    const en = await a.executeTool("related_notes", { path: "neu.md" }, { lang: "en" });
+    expect(en).toMatchObject({ ok: false, reason: "not-indexed", path: "neu.md", cause: "frontmatter-only" });
+    expect((en as { message: string }).message).toContain("neu.md");
+    expect((en as { message: string }).message).toMatch(/no text yet/);
+    expect((en as { message: string }).message).toMatch(/write some content/);
+    const de = await a.executeTool("related_notes", { path: "neu.md" }, { lang: "de" });
+    expect((de as { message: string }).message).toMatch(/noch keinen Text/);
+    expect((de as { message: string }).message).toMatch(/Inhalt schreiben/);
+  });
+
+  it("eine leere Datei zählt wie nur Frontmatter", async () => {
+    const r = await api({ readVault: reads({ "leer.md": "" }) }).executeTool("related_notes", { path: "leer.md" }, { lang: "en" });
+    expect(r).toMatchObject({ reason: "not-indexed", cause: "frontmatter-only" });
+  });
+
+  it("mit Text: der Indexer zieht gleich nach — nochmal versuchen (cause pending), EN und DE", async () => {
+    const a = api({ readVault: reads({ "frisch.md": "# Frisch\n\nEin Absatz mit Inhalt." }) });
+    const en = await a.executeTool("related_notes", { path: "frisch.md" }, { lang: "en" });
+    expect(en).toMatchObject({ ok: false, reason: "not-indexed", path: "frisch.md", cause: "pending" });
+    expect((en as { message: string }).message).toMatch(/try again/);
+    const de = await a.executeTool("related_notes", { path: "frisch.md" }, { lang: "de" });
+    expect((de as { message: string }).message).toMatch(/gleich noch einmal versuchen/);
+    expect((en as { message: string }).message).not.toBe((await a.executeTool("related_notes", { path: "neu.md" }, { lang: "en" }) as { message: string }).message);
+  });
+
+  it("die Maschinen-Felder bleiben: reason, path und message stehen in jedem Fall da, `cause` ist nur ein Zusatz", async () => {
+    const a = api({ readVault: reads({ "neu.md": FM_ONLY, "frisch.md": "Text" }) });
+    for (const p of ["neu.md", "frisch.md", "weg.md"]) {
+      const r = await a.executeTool("related_notes", { path: p }, { lang: "en" });
+      expect(r).toMatchObject({ ok: false, reason: "not-indexed", path: p, message: expect.stringContaining(p) });
+    }
+  });
+
+  it("unavailable/no-index bleibt wie es war, ohne ein Datei-Lesen", async () => {
+    const log: string[] = [];
+    const r = await api({ getIndex: () => null, readVault: reads({ "neu.md": FM_ONLY }, log) }).executeTool("related_notes", { path: "neu.md" }, { lang: "en" });
+    expect(r).toMatchObject({ ok: false, reason: "unavailable", detail: "no-index" });
+    expect("cause" in r).toBe(false);
+    expect(log).toEqual([]);
+  });
+
+  it("ein Pfad im Index liest keine Datei: Treffer wie bisher", async () => {
+    const log: string[] = [];
+    const r = await api({ readVault: reads({}, log) }).executeTool("related_notes", { path: "a.md" }, { lang: "en" });
+    expect(r.ok).toBe(true);
+    expect(log).toEqual([]);
+  });
+
+  it("der Pfad-Guard steht davor: feindliche und ausgeschlossene Pfade bleiben ohne Ursache und ohne Dateizugriff", async () => {
+    const log: string[] = [];
+    const a = api({ readVault: reads({ "Templates/t.md": "Text", "../a.md": "Text", "/etc/passwd": "x" }, log) });
+    for (const p of ["../a.md", "a/../../a.md", "/etc/passwd", "a\0.md", "Templates/t.md", "templates/t.md", "notiz.txt"]) {
+      const r = await a.executeTool("related_notes", { path: p }, { lang: "en" });
+      expect(r).toMatchObject({ ok: false, reason: "not-indexed", path: p });
+      expect("cause" in r).toBe(false);
+    }
+    expect(log).toEqual([]);
+  });
+
+  it("die öffentliche API ändert sich nicht: related() liefert wie bisher nur reason und path und liest nie eine Datei", async () => {
+    const log: string[] = [];
+    const a = api({ readVault: reads({ "neu.md": FM_ONLY }, log) });
+    expect(await a.related("neu.md")).toEqual({ ok: false, reason: "not-indexed", path: "neu.md" });
+    expect(log).toEqual([]);
+  });
+
+  it("die Oberfläche der API bleibt: kein neues Feld am Anbieter-Objekt", () => {
+    expect(Object.keys(api()).sort()).toEqual(["apiVersion", "applyLink", "executeTool", "proposeLinks", "related", "search", "status", "tools", "version"]);
   });
 });

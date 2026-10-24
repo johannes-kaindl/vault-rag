@@ -4,6 +4,7 @@ import {
 } from "./vendor/kit/retrieval-facade";
 import type { RetrieveOpts } from "./vendor/kit/vector-index";
 import { normalizeRelPath } from "./vendor/kit/rel-path";
+import { chunkMarkdown } from "./vendor/kit/chunker";
 
 export type {
   RetrieveOverrides, EmbedResult, SearchResult, VecSearchResult, RelatedResult,
@@ -20,6 +21,10 @@ export interface RetrievalDeps extends KitRetrievalDeps {
 
 /** Pause ist eine Entscheidung des Nutzers, kein Ausfall: ein eigener Zustand neben `offline`, nie dahinein gefaltet. */
 export type PausedResult = { kind: "paused" };
+
+/** Warum eine vorhandene Notiz nicht im Index steht: ohne Text (nur Frontmatter oder leer, bleibt dauerhaft draußen, bis jemand Inhalt schreibt) oder mit Text
+ *  (der Indexer zieht nach). `unknown`: die Datei ist nicht zu lesen oder der Pfad nicht zulässig — dann bleibt es bei der allgemeinen Antwort. */
+export type NotIndexedCause = "frontmatter-only" | "pending" | "unknown";
 
 export type ReadResult = { kind: "ok"; text: string } | { kind: "not-found"; path: string } | { kind: "invalid"; path: string; reason: string };
 
@@ -70,6 +75,20 @@ export class RetrievalFacade {
     const lower = path.toLowerCase();
     if (this.deps.settings().exclude.some(e => e && lower.startsWith(e.toLowerCase()))) return { kind: "not-indexed", path };
     return this.core.related(path, opts);
+  }
+
+  /** Warum `related` für `relPath` mit `not-indexed` antwortet. Nur für den Werkzeugweg (`related_notes`), nie für die öffentliche API: das Lesen der Datei
+   *  steht hinter dem Path-Guard (`resolveNotePath`: Traversal, absolute Pfade, NUL, Nicht-Markdown und `exclude` enden als `unknown`, ohne einen Dateizugriff),
+   *  und die Antwort für einen Pfad, den es nicht gibt, ist dieselbe wie für einen unzulässigen. Chunks zählt derselbe Chunker, der beim Einbetten entscheidet. */
+  async notIndexedCause(relPath: string): Promise<NotIndexedCause> {
+    // Zusätzlich zum Path-Guard: Backslash und Steuerzeichen (Windows-Laufwerkspfad, Backspace in einem Dateinamen) lesen wir nie. `resolveNotePath` lässt sie durch (sie
+    // enden bei `readNote` als „nicht gefunden“); hier wäre ein Treffer eine Aussage über die Datei, und `related` hat sie nie gelesen.
+    if (/[\\\u0000-\u001f]/.test(relPath)) return "unknown";
+    let rel: string;
+    try { rel = resolveNotePath(relPath, this.deps.settings().exclude); } catch { return "unknown"; }
+    let text: string;
+    try { text = await this.deps.readVault(rel); } catch { return "unknown"; }
+    return chunkMarkdown(text).length === 0 ? "frontmatter-only" : "pending";
   }
 
   /** Volltext einer Notiz mit Path-Guard. Ungültige Pfade → invalid (Grund erhalten). */

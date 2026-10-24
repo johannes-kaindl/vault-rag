@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The `related_notes` tool tells two cases of "not in the index" apart.** For a note that exists but is not indexed, the answer now says either that the note has no text yet (only frontmatter or empty: it stays out until content is written) or that the indexer is probably still catching up (try again in a moment); EN and DE. The answer keeps its machine fields (`reason: "not-indexed"`, `path`, `message`) and gains `cause: "frontmatter-only" | "pending"` for hosts such as Koda. A path that does not exist, is unsafe or is excluded gets the general answer as before. Only the tool reads the file (behind the path guard); the public API (`related()`) is unchanged and never reads a file. Note: the tool answer now tells that a non-excluded note of that path exists in the vault, the same scope as `read_note` of the MCP server.
+
 ### Changed
 
 - **The chat uses the chat window of obsidian-kit (`buildChatWindow`) instead of an own build, with the same model row as Smart Apply.** What you will notice:

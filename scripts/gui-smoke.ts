@@ -247,6 +247,7 @@ const W27_PUNKTE = {
   reloadZwischenstand: "Index-Reload: die Zwischenstände eines laufenden Voll-Reindex lösen keinen Reload aus",
   stempelNull: "Index-Zustand: ein vollständig gestempelter Index zeigt keine Stempel-Lücke (Nullfall)",
   stempelPositiv: "Index-Zustand: drei Zeilen ohne Stempel stehen als „3 of 20“ mit dem Satz zur Folge in der Zeile (Positivfall)",
+  reformatZeile: "Umformatieren: die Modellzeile wechselt das Chat-Modell (dieselbe Verbindung), im Chat-Tab steht dasselbe, „Automatisch“ stellt es zurück",
   stempelLive: "Index-Zustand: nach einer Live-Änderung einer dieser Notizen sinkt die Zahl auf 2, ohne dass der Index neu geladen wird",
 } as const;
 
@@ -2290,6 +2291,7 @@ async function main(): Promise<void> {
     // Die erste Antwort trägt Markdown und fünf Links mit Schemata, die ein Modell nicht setzen dürfte; sie ist lang genug, um mitten im Strom zu messen.
     if (nur === null) {
       const N26 = W26_PUNKTE;
+      const N27 = W27_PUNKTE;
       const lang = [
         "Erster Absatz mit **fett** und mehr.\n\n", "- eins\n- zwei\n\n",
         "[js](javascript:alert(1)) [data](data:text/html,x) [file](file:///etc/hosts) [obs](obsidian://open?vault=x) [app](app://local/x) und [ok](https://example.com)\n\n",
@@ -2443,8 +2445,37 @@ async function main(): Promise<void> {
           return { da: true, gewaehlt, zurueck: p.settings.smartApplyModel ?? null };`);
         if (!sa.da) { unmeasured(N26.modellSa, "kein Smart-Apply-Tab im Hub (Smart Apply aus?) — nichts gemessen"); }
         else record(N26.modellSa, sa.gewaehlt === "fake-model-2" && (sa.zurueck ?? "") === "", `gewählt: ${String(sa.gewaehlt)} · Automatisch: „${String(sa.zurueck)}“`);
+        // Umformatieren (Welle 27, V5): die Zeile teilt die Wahl mit dem Chat. Vorher steht das Standardmodell; nach dem Wechsel im Umformatier-Tab das
+        // gewählte im Chat-Dropdown und in `chatModelInUse`; „Automatisch“ stellt das Standardmodell wieder her.
+        const rf = await main.evaluate<{ da: boolean; vorher: string; inUse: string; chatZeigt: string | null; zurueck: string; chatZurueck: string | null }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+          await p.openHub("reformat"); await warte(900);
+          const sel = document.querySelector(".vault-rag-reformat-panel .okit-model-bar-select");
+          if (!sel) return { da: false, vorher: "", inUse: "", chatZeigt: null, zurueck: "", chatZurueck: null };
+          // Ausgangslage: der Chat-Abschnitt davor hat „fake-model-2“ gewählt; „Automatisch“ stellt das Standardmodell her.
+          sel.value = ""; sel.dispatchEvent(new Event("change", { bubbles: true }));
+          await warte(900);
+          const vorher = p.chatModelInUse;
+          const sel1 = document.querySelector(".vault-rag-reformat-panel .okit-model-bar-select");
+          sel1.value = "fake-model-2"; sel1.dispatchEvent(new Event("change", { bubbles: true }));
+          await warte(900);
+          const inUse = p.chatModelInUse;
+          await p.openHub("chat"); await warte(900);
+          const chatZeigt = document.querySelector(".vault-rag-chat .okit-model-bar-select")?.value ?? null;
+          await p.openHub("reformat"); await warte(600);
+          const s2 = document.querySelector(".vault-rag-reformat-panel .okit-model-bar-select");
+          s2.value = ""; s2.dispatchEvent(new Event("change", { bubbles: true }));
+          await warte(900);
+          const zurueck = p.chatModelInUse;
+          await p.openHub("chat"); await warte(900);
+          return { da: true, vorher, inUse, chatZeigt, zurueck, chatZurueck: document.querySelector(".vault-rag-chat .okit-model-bar-select")?.value ?? null };`);
+        if (!rf.da) unmeasured(N27.reformatZeile, "keine Modellzeile im Umformatier-Tab — nichts gemessen");
+        else record(N27.reformatZeile, rf.vorher !== "fake-model-2" && rf.inUse === "fake-model-2" && rf.chatZeigt === "fake-model-2" && rf.zurueck === rf.vorher && (rf.chatZurueck ?? "") === "",
+          `vorher ${rf.vorher} · nach dem Wechsel ${rf.inUse} · Chat-Dropdown ${String(rf.chatZeigt)} · Automatisch ${rf.zurueck} (Chat-Dropdown „${String(rf.chatZurueck)}“)`);
       } catch (e) {
         for (const n of Object.values(N26)) if (n !== N26.sperreSa && !bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+        if (!bilanz.eintraege().some((x) => x.name === N27.reformatZeile)) unmeasured(N27.reformatZeile, `Messung abgebrochen: ${String(e)}`);
       } finally {
         await w26Zustand.schliesse();
       }

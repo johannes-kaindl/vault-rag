@@ -720,6 +720,9 @@ export default class VaultRagPlugin extends Plugin {
       getReadiness: () => this.reformatReadiness(),
       run: (def, instruction) => void this.runTransform(def, instruction),
       transforms: () => buildTransforms(this.settings.reformatPresets),
+      app: this.app,
+      llm: this.llm,
+      thinking: this.thinkingDeps(MODE_REFORMAT, () => this.chatModelInUse),
     });
     this.reformatPanel = reformat;
     panels.push(reformat);

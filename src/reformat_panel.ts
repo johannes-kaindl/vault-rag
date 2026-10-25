@@ -3,7 +3,10 @@ import { TransformDef, transformLabel } from "./reformat_transforms";
 import {
   ReformatReadiness, canRun, readinessMessage, selectionPreview, groupTransforms,
 } from "./reformat_selection_state";
-import { t } from "./vendor/kit/i18n";
+import type { App } from "obsidian";
+import { getLang, t } from "./vendor/kit/i18n";
+import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
+import { buildModelBar, type ModelBar, type ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
 
 export interface ReformatPanelDeps {
   /** Aktueller Bereitschaftszustand (vom Plugin mitgeschrieben). */
@@ -12,6 +15,12 @@ export interface ReformatPanelDeps {
   run: (def: TransformDef, instruction?: string) => void;
   /** Die aktuelle Registry samt eigener Funktionen aus den Einstellungen. */
   transforms: () => TransformDef[];
+  app: App;
+  /** Die Verbindung der Modellzeile: dieselbe wie im Chat. Die Umformatier-Anfragen gehen über den Chat-Client mit dem Chat-Modell,
+   *  ein Wechsel hier ist ein Wechsel im Chat (kein eigenes Setting). */
+  llm: ModelBarConnection;
+  /** Denk-Steuerung (Kit `thinking-control`) in der Modellzeile, Modus `reformat`. */
+  thinking: Omit<ThinkingControlOptions, "containerEl">;
 }
 
 /** Sidebar-Tab: launcht die Transforms aus der Registry. Buttons sind deaktiviert,
@@ -24,6 +33,7 @@ export class ReformatPanel implements HubPanel {
   private statusEl: HTMLElement | null = null;
   private buttons: HTMLButtonElement[] = [];
   private instructionEl: HTMLTextAreaElement | null = null;
+  private bar: ModelBar | null = null;
 
   constructor(private deps: ReformatPanelDeps) {}
 
@@ -31,10 +41,23 @@ export class ReformatPanel implements HubPanel {
 
   mount(container: HTMLElement): void {
     this.container = container;
+    // Das Kit gibt eine alte Modellzeile nicht frei: vor dem Leeren abmelden, sonst zeichnet sie weiter in einen abgehängten Knoten.
+    this.bar?.destroy();
+    this.bar = null;
     container.empty();
     this.buttons = [];
     this.instructionEl = null;
     container.addClass("vault-rag-reformat-panel");
+    // Modell und Denk-Steuerung in einer Zeile (Kit `buildModelBar`). Nie gesperrt: die Vorschau ist ein Modal, das Panel ist währenddessen
+    // ohnehin nicht bedienbar, und ein Wechsel gilt für die nächste Anfrage.
+    this.bar = buildModelBar({
+      app: this.deps.app,
+      containerEl: container,
+      llm: this.deps.llm,
+      label: t("panel.reformat.modelLabel"),
+      strings: { lang: getLang() },
+      thinking: this.deps.thinking,
+    });
     this.statusEl = container.createDiv({ cls: "vault-rag-reformat-status" });
 
     const groups = groupTransforms(this.deps.transforms());
@@ -101,9 +124,20 @@ export class ReformatPanel implements HubPanel {
   /** Die Registry hat sich geändert (Einstellungen): Knöpfe neu aufbauen. */
   rebuild(): void { if (this.container) this.mount(this.container); }
 
-  onShow(): void { this.refresh(); }
+  onShow(): void {
+    this.refresh();
+    this.bar?.update();   // Modell, Stufe oder Stufenwahl können in den Einstellungen oder im Chat geändert worden sein
+  }
+
+  /** Modell, Endpunkt oder Denkstufe haben sich außerhalb des Panels geändert (Einstellungen, Chat, Manager). */
+  refreshModelBar(opts: { models?: boolean } = {}): void {
+    this.bar?.update();
+    if (opts.models === true) void this.bar?.refresh();
+  }
 
   destroy(): void {
+    this.bar?.destroy();
+    this.bar = null;
     this.buttons = [];
     this.statusEl = null;
     this.instructionEl = null;

@@ -21,7 +21,7 @@ questions). [LM Studio](https://lmstudio.ai) is a common choice.
 
 1. Start your LLM server and note its address (LM Studio defaults to `http://localhost:1234`).
 2. In **Settings → Vault Retrieval**, set the chat endpoint and pick a model — the dropdown
-   populates from the server. The same model row sits above the conversation in the chat tab and in the Smart Apply tab: it switches the model, offers *Automatic*, reloads the list and carries the thinking button; it is locked while an answer is being written.
+   populates from the server. The same model row sits above the conversation in the chat tab and in the Smart Apply tab, and at the top of the Reformat tab: it switches the model, offers *Automatic*, reloads the list and carries the thinking button; it is locked while an answer is being written. In the Reformat tab the row is labelled *Reformat (chat model)* because the rewrites go through the chat connection: a model chosen there is the chat's model too.
 3. Open the sidebar (**layers** ribbon icon) and switch to the chat tab.
 
 Ask a question. The plugin retrieves the most relevant notes, feeds them as context, and streams

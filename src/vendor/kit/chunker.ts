@@ -1,4 +1,4 @@
-// vendored from code-kit@0.37.3, src/ts/pure/chunker.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.37.5, src/ts/pure/chunker.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/chunker.ts, 2026-10-11 (Änderungen: `FRONTMATTER_RE` durch den linearen `stripFrontmatter` ersetzt, `noUncheckedIndexedAccess`-clean; Ergebnis unverändert). 0.27.1: die Heading-Suche läuft mit einem Zeiger statt eines `filter` über alle Positionen je Chunk (linear; Ergebnis unverändert, Differentialtest gegen die Fassung 0.27.0)
 /** Splits Markdown into overlapping chunks for embedding: frontmatter off, a cut preferably at a heading, after a
  *  hard cut an overlap for continuity. Offsets refer to the text AFTER `stripFrontmatter` and `trim`.

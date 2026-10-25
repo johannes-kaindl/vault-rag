@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.67.1, src/build/node-builtin-require.mjs — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.70.0, src/build/node-builtin-require.mjs — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/esbuild.config.mjs:16-30, 2026-10-12 (Welle 19; mailstone/esbuild.config.mjs:9-24 ist eine Kopie davon)
 // Build-Baustein für `esbuild.config.mjs` eines Plugins mit `format: "cjs"` — kein Laufzeitcode, nie im Bundle.
 // Konsumiert per kit-sync: `{ "dir": "scripts/vendor", "from": "src/build", "modules": ["node-builtin-require.mjs"] }`,

@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.67.1"
+      "ref": "0.70.0"
     },
     "code-kit": {
-      "ref": "0.37.3"
+      "ref": "0.37.5"
     }
   },
   "targets": [
@@ -61,7 +61,8 @@
       "from": "src/ts/web",
       "modules": [
         "clipboard",
-        "remote-resources"
+        "remote-resources",
+        "link-guard"
       ],
       "rewrite": [
         [

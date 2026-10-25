@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.67.1, src/obsidian/model-bar.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.70.0, src/obsidian/model-bar.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /**
  * Modellzeile (UI-STANDARD § 8, neu in 0.67.0): eine Zeile, in der man sieht, welches Modell eine Aufgabe benutzt, und es wechselt — Dropdown mit den Modellen
  * des aktiven Endpunkts, „Anderer Endpunkt …“, Neu-laden-Knopf und optional die Denk-Steuerung. Läuft eigenständig in jeder Seitenleiste und im
@@ -35,25 +35,37 @@
  * ## Fallen beim Übernehmen
  *
  * 1. **Das Kit injiziert kein CSS.** `MODEL_BAR_CSS` (und `THINKING_CONTROL_CSS`, wenn `thinking` gesetzt ist) gehört in die `styles.css` des Consumers.
- * 2. **Mehrere Aufgaben mit eigenem Modell = mehrere Zeilen.** `llm` ist nur die Teilmenge `ModelBarConnection` von `LlmConnection`; eine Aufgabe, deren
+ * 2. **Mehrere Aufgaben mit eigenem Modell = mehrere Zeilen.** `llm` ist das eigene Interface `ModelBarConnection` (eine `LlmConnection` passt hinein, die Zeile braucht sie nicht); eine Aufgabe, deren
  *    Modell anderswo gespeichert wird (vault-rag Smart Apply: `smartApplyModel`), reicht einen Adapter mit denselben vier Methoden. Jede Zeile bekommt
  *    ein `label` (sichtbarer Aufgabenname, auch Teil des `aria-label`).
  * 3. **Das Kit weiß nicht, wann sich die Einstellungen ändern.** Ändert sich Modell oder Endpunkt außerhalb der Zeile (Settings-Tab, Manager),
- *    ruft das Plugin `update()` (zeichnet aus dem Zustand neu) oder `refresh()` (lädt die Liste neu).
- * 4. **Im Kopf des Chatfensters** zeichnet `win.refresh()` die Kopfzeile neu: der Einschub baut dann eine neue Zeile. Die alte gibt der Einschub
- *    nicht frei (kein Abmelde-Hook); sie zeichnet höchstens in einen abgehängten Knoten, die Modell-Liste kommt aus dem Cache der Verbindung.
+ *    ruft das Plugin `update()` (zeichnet aus dem Zustand neu) oder `refresh()` (lädt die Liste neu). Hängt es das an `onResolved` der
+ *    Verbindung, gilt seit 0.70.0: `llm.models()` (und damit `refresh()`) meldet über `onResolved` nur noch eine Änderung, ein Rückruf, der
+ *    `models()` ruft, läuft nicht mehr im Kreis. Trotzdem nur neu zeichnen, wenn sich das Ergebnis geändert hat.
+ * 4. **Im Kopf des Chatfensters** zeichnen `win.refresh()` und `win.refreshHeader()` die Kopfzeile neu: der Einschub baut dann eine neue Zeile. Die alte gibt der
+ *    Einschub über seine Rückgabe frei (seit 0.70.0: `header: (el) => { const bar = buildModelBar(…); return () => { bar.destroy(); }; }`, das Fenster ruft sie vor
+ *    der nächsten Zeichnung und bei `destroy()`); `disabled: () => win.running()` mit `onRunChange: () => { bar.update(); }` sperrt die Zeile während eines Laufs.
  */
 
 import { setIcon, type App } from "obsidian";
 import { resolveModelChoice } from "../kit/model-choice";
 import type { ModelListResult } from "../kit/model-list-cache";
 import { findEndpointManager, openEndpointManagerSettings } from "./endpoint-source";
-import type { LlmConnection } from "./llm-connection";
 import { resolveModelBarStrings, type ModelBarStringsOverride } from "./model-bar-strings";
 import { buildThinkingControl, type ThinkingControlOptions } from "./thinking-control";
 
-/** Die vier Methoden von `LlmConnection`, die die Zeile braucht. Ein Adapter genügt (andere Einstellung, gleiche Form). */
-export type ModelBarConnection = Pick<LlmConnection, "models" | "setModel" | "modelInUse" | "source">;
+/** Die vier Methoden, die die Zeile braucht. Ein eigenes Interface, kein `Pick` von `LlmConnection` (seit 0.70.0): eine `LlmConnection` ist dem Typ zuweisbar, ein
+ *  Adapter genügt (andere Einstellung, gleiche Form), und wer die Zeile vendort, nimmt die Kette von `llm-connection` nicht mit (zehn statt 28 Kit-Module). */
+export interface ModelBarConnection {
+  /** Die Modelle des aktiven Endpunkts; `force` lädt neu. */
+  models(opts?: { force?: boolean }): Promise<ModelListResult>;
+  /** Wählt das Modell (`""` = automatisch); wirft, wenn es sich nicht übernehmen lässt. */
+  setModel(model: string): Promise<void>;
+  /** Das Modell, das jetzt gilt. */
+  modelInUse(): string;
+  /** Vom Endpunkt gemeldet: das Standard-Modell (für „Automatisch (qwen …)“). Mehr liest die Zeile nicht. */
+  source(): { defaultModel?: string };
+}
 
 export interface ModelBarOptions {
   app: App;

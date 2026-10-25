@@ -19,7 +19,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- Kit: code-kit 0.36.0 → 0.37.3 (obsidian-kit stays at 0.67.1 for now). What reaches you: `stampsSnapshot` and the map form of `init` (0.37.3) carry the change marks along when the indexer is re-seeded (see above); the cut behind "a.md, b.md (+3)" in the messages above is the kit's `summarizeList` (0.37.2; same output as before for a limit of 1 or more); the Anthropic branch of `model-context` (0.37.0) is not used by vault-rag (it only acts when a plugin sets `provider: "anthropic"`), so nothing changes for the context window; `withThinkingLevel` (0.37.1) and `countUnstampedRows` (0.37.0) are new functions that vault-rag does not call yet; the link guard, `json-error-position`, `text-window` and `llm-answer` of 0.37.0 are not vendored here.
+- Kit: obsidian-kit 0.67.1 → 0.70.0 and code-kit 0.36.0 → 0.37.5. What reaches you:
+  - **Links in chat answers are guarded.** A link in an answer whose target uses `file:`, `app:` or `obsidian:` was clickable before (`javascript:` and `data:` were already cut); now none of the five is. `javascript:`, `data:`, `file:` and `app:` are always cut, `obsidian://` by default (a setting for it follows). A cut link still looks like a link (colour, underline) but does nothing. The icon of a callout and the copy button of a code block stay (code-kit 0.37.4).
+  - **The question in the chat has the same font size as the answer and a thin border** (before 15 px against 13 px, and a background that was invisible in the sidebar).
+  - **A model switch is no longer reloaded in a circle:** `llm.models()` reports a resolution only when something changed; the plugin's own guard stays.
+  - **`restoreContent: "json"` puts a masked original back unchanged** (Smart Apply): a secret that came from a JSON text no longer comes back with a doubled backslash.
+  - Not used by vault-rag and without effect: the Anthropic branch of `model-context`, `fetchEndpointContext` with a provider, `withThinkingLevel`, the labels of the chat window, the Reformat/links settings row (the settings row follows), `installTabRefreshOnOpen`, the kit's own lint.
+  - `summarizeList` (0.37.2) and `stampsSnapshot` (0.37.3) are used, see above.
 - **The messages about changed notes and about unusable vectors name up to five of the notes** (in the message and in the console). A note that is reported again in three reloads in a row is named once as "always the same note" and not repeated.
 
 ## [0.46.0] — 2026-10-24

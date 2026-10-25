@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.67.1, src/obsidian/chat-window-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.70.0, src/obsidian/chat-window-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Default-Texte (EN/DE) für `buildChatWindow` — nach dem Muster von `llm-connection-strings.ts`. Ohne sie formulierte jedes Plugin rund
  *  zwanzig Texte selbst, obwohl „Senden“ oder „Zugriff verweigert (HTTP 401)“ je Plugin nichts anderes heißen soll.
  *
@@ -50,6 +50,8 @@ export interface ChatWindowStrings {
   /** `seconds` fehlt, wenn die Frist aus dem Ergebnis nicht zu lesen war. */
   errTimeout: (seconds: number | undefined) => string;
   errNetwork: string;
+  /** Hängt das (geschwärzte, gekürzte) Detail des Transports an den Netzfehlertext („fetch failed: connect ECONNREFUSED …“). */
+  errNetworkDetail: (text: string, detail: string) => string;
   /** Nach Status: 401/403, 404, 429, 5xx, sonst „abgelehnt“. */
   errHttp: (status: number | undefined) => string;
   /** Hängt die gekürzte Begründung des Servers an einen HTTP-Text. */
@@ -104,6 +106,7 @@ export const CHAT_WINDOW_STRINGS_EN: ChatWindowStrings = {
     return `Request rejected (HTTP ${status}).`;
   },
   errServer: (text, reason) => `${text} — server: ${reason}`,
+  errNetworkDetail: (text, detail) => `${text} (${detail})`,
   errOverflow: "The conversation is too long for the model.",
   errTruncated: "The answer was cut off before the first word — thinking used up the token limit.",
   errGeneric: "The request failed.",
@@ -147,6 +150,7 @@ export const CHAT_WINDOW_STRINGS_DE: ChatWindowStrings = {
     return `Anfrage abgelehnt (HTTP ${status}).`;
   },
   errServer: (text, reason) => `${text} — Server: ${reason}`,
+  errNetworkDetail: (text, detail) => `${text} (${detail})`,
   errOverflow: "Das Gespräch ist zu lang für das Modell.",
   errTruncated: "Die Antwort wurde vor dem ersten Wort abgeschnitten — das Denken hat das Token-Limit verbraucht.",
   errGeneric: "Die Anfrage ist fehlgeschlagen.",

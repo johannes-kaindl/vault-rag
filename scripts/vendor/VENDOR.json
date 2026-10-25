@@ -1,6 +1,6 @@
 {
   "source": "obsidian-kit",
-  "version": "0.67.1",
-  "sha": "a4e0caa",
+  "version": "0.70.0",
+  "sha": "86a2d2d",
   "vendored": "node-builtin-require.mjs"
 }

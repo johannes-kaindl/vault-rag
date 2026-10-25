@@ -494,8 +494,13 @@
   flex-direction: row; align-items: flex-start; justify-content: space-between; gap: var(--size-4-2);
   padding: var(--size-4-2) var(--size-4-3); border-radius: var(--radius-m);
   background: var(--background-secondary);
+  /* Zweiter Kanal neben der Fläche: in einer Seitenleiste hat sie dieselbe Farbe wie der Grund (gemessen: Kontrast 1,000:1, hell wie dunkel). */
+  border: 1px solid var(--background-modifier-border);
 }
-.okit-chat-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+/* Dieselbe Größe wie der Antwortkörper (okit-stream-body in STREAM_AREA_CSS): vorher erbte die Frage 15 px, die Antwort setzte 13 px. */
+.okit-chat-user-col { display: flex; flex-direction: column; gap: var(--size-2-1); min-width: 0; flex: 1 1 auto; }
+.okit-chat-name { font-size: var(--font-ui-smaller); font-weight: var(--font-semibold); color: var(--text-muted); }
+.okit-chat-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; font-size: var(--font-ui-small); line-height: var(--line-height-normal); }
 .okit-chat-steps:empty { display: none; }
 .okit-chat-actions { display: flex; gap: var(--size-4-1); }
 .okit-chat-actions:empty { display: none; }

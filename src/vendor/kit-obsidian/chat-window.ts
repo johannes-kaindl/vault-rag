@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.67.1, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.70.0, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /**
  * Chat-Fenster (UI-STANDARD §8, Baustein 12): Verlauf, Eingabe, Ablauf, Abbruch, Fehlerzeile und Leerzustand eines Fach-Chats.
  *
@@ -21,7 +21,11 @@
  * 3. **Gescheiterte und abgebrochene Runden gehen nicht ans Modell** (`historyForModel`).
  * 4. **Antworten werden immer als Markdown über `createStableWriter` gezeigt**: Neutralisierung als Grenze, `domGuard` als Netz.
  *    Es gibt keinen `raw`-Ausgang. Nutzereinträge sind Klartext.
- * 5. **Serverbegründung nur bei HTTP-Fehlern** (Entscheidung Johannes 2026-10-11); sonst werden `detail` und `body` nie gezeigt.
+ * 5. **Begründung nur bei `http` und `network`.** `http` zeigt die Begründung des Servers (Entscheidung Johannes 2026-10-11: eine falsche Vermutung bei einem 401 wäre
+ *    schlimmer als keine). `network` zeigt seit 0.70.0 eine Zeile Detail des Transports (Entscheidung Johannes 2026-10-25, überstimmt die vom 2026-10-11 für diese Art:
+ *    ein Netzfehler ohne Anlass ist für Nutzer und Support unbrauchbar, und der Grund der alten Entscheidung galt für `network` nicht), durch die Schwärzung des Kits
+ *    (`redactText` mit den Geheimnis-Regeln: Schlüssel, Token, Bearer, PEM) geschickt und auf 200 Zeichen gekürzt; ein Schlüssel ohne bekanntes Muster wird nicht erkannt.
+ *    Bei `timeout`, `overflow`, `truncated` und allem anderen werden `detail` und `body` nie gezeigt (bei `timeout` steht die Frist schon in der Zeile, gerundet).
  *
  * ## Fallen beim Übernehmen
  *
@@ -29,17 +33,27 @@
  * 2. **`render` kommt vom Plugin** (`MarkdownRenderer.render` braucht dessen `App` und `Component`), wie beim `StableMarkdownWriter`.
  * 3. **`refresh()` zeichnet nie das Textfeld**, damit ein getippter Entwurf einen Neuaufbau überlebt.
  * 4. **Kein `role="log"`** am Verlauf: es ist implizit live und sagte jedes Token an. Angesagt wird nur die Zustandszeile.
+ * 5. **Laufzustand, Teil-Refresh, Abmelde-Hook (seit 0.70.0).** `running()` und `onRunChange` melden den Lauf; der Wirt sperrt damit, was während des Laufs
+ *    gesperrt sein soll (die Modellzeile), statt den Verlauf nach einem `streaming`-Eintrag abzusuchen und ein `bar.update()` in `send` zu setzen.
+ *    `refreshHeader()` und `refreshComposer()` zeichnen nur den jeweiligen Einschub neu; `refresh()` zeichnet weiter alles, und nur über `refresh()`
+ *    wechselt die Eingabeposition (`inputPosition`). `header` und `composer` dürfen eine Abmeldung zurückgeben (`return () => { bar.destroy(); }`), die das
+ *    Fenster vor der nächsten Zeichnung des Einschubs und bei `destroy()` ruft, genau einmal je Zeichnung.
+ * 6. **Namen (`labels`, seit 0.70.0).** Der Name gehört zur Figur und damit dem Wirt: er reicht seine übersetzten Namen herein, das Kit bringt keine Texte dafür mit.
+ *    Mit Namen steht die Frage in einer inneren Spalte (Name über Text), damit die Zeile mit dem Kopier-Knopf nicht zerreißt; `.okit-chat-turn.is-user .okit-chat-text`
+ *    trifft weiter, ein Selektor mit Kindkombinator (`>`) träfe nicht mehr. `textContent` eines Turns enthält den Namen, Kopieren und Modellnachrichten nie.
  */
 
 import { setIcon } from "obsidian";
 import { buildReasoningBlock, buildStreamArea, type StreamArea } from "./stream-area";
 import { createStableWriter, type StableMarkdownWriter } from "./stable-writer";
+import type { DomGuardOptions } from "./dom-guard";
 import { copyToClipboard } from "./clipboard";
 import { realClock, type ClockPort } from "./clock";
 import { resolveChatWindowStrings, type ChatWindowStrings, type ChatWindowStringsOverride } from "./chat-window-strings";
 import { noEndpointText, resolveLlmConnectionStrings, transportMissingText } from "./llm-connection-strings";
 import type { SourceKind } from "../kit/endpoint-source";
 import { errorMessageFromText } from "../kit/error_body";
+import { redactText, SECRET_REDACT_RULES } from "../kit/redact";
 import {
   EMPTY_CHAT, abortAnswer, addExt, addUser, appendAnswer, canRetry, chatRounds, clearChat, failAnswer, finishAnswer, historyForModel,
   resetAnswerText, retryLast, setAnswerMeta, startAnswer, updateExt,
@@ -106,10 +120,12 @@ export interface ChatWindowOptions {
   /** Enter sendet (Default `true`); `false` kehrt um: Umschalt+Enter sendet, Enter macht eine neue Zeile. Cmd/Strg+Enter sendet immer. */
   enterSends?: () => boolean;
   inputPosition?: () => "top" | "bottom";
-  /** Kopfzeile des Fensters (Status, Modellzeile, Denk-Knopf). */
-  header?: (el: HTMLElement) => void;
-  /** Bereich über dem Textfeld (Kontext-Panel, Chips). */
-  composer?: (el: HTMLElement) => void;
+  /** Kopfzeile des Fensters (Status, Modellzeile, Denk-Knopf). Darf eine Abmeldung zurückgeben (seit 0.70.0): das Fenster ruft sie vor der nächsten Zeichnung
+   *  des Kopfs (`refresh()`, `refreshHeader()`) und bei `destroy()`, genau einmal je Zeichnung; ein Einschub ohne Rückgabe verhält sich wie bisher. Dort gehört
+   *  hin, was der Kopf angelegt hat und `empty()` nicht abräumt (die Modellzeile: `return () => { bar.destroy(); }`). */
+  header?: (el: HTMLElement) => void | (() => void);
+  /** Bereich über dem Textfeld (Kontext-Panel, Chips). Wie `header` mit Abmelde-Rückgabe; neu zeichnen: `refresh()` oder `refreshComposer()`. */
+  composer?: (el: HTMLElement) => void | (() => void);
   /** Bereich unter jeder Antwort (Quellen, Profil-Blöcke); wird nach dem Ende der Antwort und nach jedem `setMeta` neu gezeichnet. */
   afterAnswer?: (el: HTMLElement, entry: ChatAnswerEntry) => void;
   /** Nur Anzeige: vor der Neutralisierung auf jeden stabilen Abschnitt und den Endtext angewandt (`StableWriterOptions.transform`). */
@@ -124,9 +140,21 @@ export interface ChatWindowOptions {
   onChange?: (history: ChatHistory) => void;
   /** Kopieren; Default `copyToClipboard`. `true` heißt kopiert. */
   copy?: (text: string) => Promise<boolean>;
-  /** Durchgriff an `createStableWriter`, Default `true`; `false` nur im Test mit dem Fake-DOM. */
-  domGuard?: boolean;
+  /** Durchgriff an `createStableWriter`, Default `true`; `false` nur im Test mit dem Fake-DOM. Seit 0.70.0 auch ein `DomGuardOptions`-Objekt (`allowObsidianLinks`,
+   *  `allowLocalImages`, beide Default aus) oder ein **Getter** `() => boolean | DomGuardOptions`: das Fenster ruft ihn **je Antwort** (beim Anlegen des Schreibers), ein Umschalten
+   *  in den Einstellungen wirkt also auf die nächste Antwort und auf jede Zeichnung des Verlaufs (`refresh()`), ohne das Fenster neu zu bauen. Was schon gezeichnet ist, behält,
+   *  was der Wächter damals entfernt hat. */
+  domGuard?: boolean | DomGuardOptions | (() => boolean | DomGuardOptions);
   clock?: ClockPort;
+  /** Namen über Frage und Antwort (seit 0.70.0), zum Beispiel `{ user: "Du", assistant: "Kuro" }`. Default: keine Köpfe, das DOM bleibt wie es war. Der Name ist echter Text im Turn
+   *  (kein CSS-`content`), kein Fokusziel und ohne eigenes ARIA: ein Screenreader liest ihn im Fluss des Turns. Er gehört zur Figur und damit dem Wirt; das Kit kennt keine
+   *  Namen und bringt keine Texte dafür mit, der Wirt reicht seine übersetzten herein. Kopieren und die Nachrichten ans Modell tragen ihn nie. Ein leerer Name zählt als keiner. */
+  labels?: { user?: string; assistant?: string };
+  /** Der Lauf beginnt (`true`) oder endet (`false`: ok, Fehler, Abbruch, `clear()` im Lauf), nur bei einem Wechsel, durch `guarded` gerufen (ein Wurf stört den
+   *  Lauf nicht), nie nach `destroy()`. Im Rückruf stimmt `running()` mit dem Argument überein; `false` kommt, wenn Antwort und Verlauf abgeschlossen sind (vor
+   *  `onChange`). Für den Wirt, der während des Laufs etwas sperrt (die Modellzeile: `disabled: () => win.running()` und hier `bar.update()`), statt dafür
+   *  `win.history()` nach einem `streaming`-Eintrag abzusuchen. */
+  onRunChange?: (running: boolean) => void;
   /** Würfe aus Einschüben und `onChange`. Default `console.error`. */
   onError?: (error: unknown) => void;
   /** Überschreibt den Text zu `no-endpoint` (Default: `noEndpointText` aus dem Bündel der Sprache). */
@@ -136,12 +164,19 @@ export interface ChatWindowOptions {
 export interface ChatWindow {
   readonly rootEl: HTMLElement;
   history(): ChatHistory;
+  /** Läuft gerade eine Antwort? Wahr ab dem Start des Laufs (vor dem ersten Token), falsch ab seinem Ende, auch bei Abbruch und `clear()`. */
+  running(): boolean;
   submit(text?: string): Promise<void>;
   abort(): void;
   clear(): void;
   draft(): string;
   setDraft(text: string): void;
+  /** Alles neu: Kopf, Composer, ext-Einträge und die Bereiche unter den Antworten. Die Eingabeposition (`inputPosition`) wechselt nur hier. */
   refresh(): void;
+  /** Nur den Kopf neu (seit 0.70.0): `afterAnswer`-Bereiche, Composer, Entwurf und Verlauf bleiben, wie sie sind. */
+  refreshHeader(): void;
+  /** Nur den Bereich über dem Textfeld neu (seit 0.70.0); sonst wie `refreshHeader()`. */
+  refreshComposer(): void;
   destroy(): void;
 }
 
@@ -179,6 +214,12 @@ function serverReason(r: ChatSendFailure): string {
   return oneLine(raw);
 }
 
+/** Das Detail eines Netzfehlers (`e.message` des Transports) für die Zeile: erst durch die Schwärzung des Kits (Schlüssel, Token, Bearer, PEM), dann eine Zeile,
+ *  gekürzt. Die Reihenfolge ist Absicht: nach dem Kürzen schnitte die Grenze ein Token mittendurch, und der Rest erkennt kein Muster mehr. `""` ohne Verwertbares. */
+function networkReason(r: ChatSendFailure): string {
+  return oneLine(redactText(r.detail ?? "", [...SECRET_REDACT_RULES]).text);
+}
+
 /** Die Frist aus `detail` („no data for 600s“); `undefined`, wenn sie nicht zu lesen ist. */
 function secondsOf(detail: string | undefined): number | undefined {
   const m = /(\d+(?:\.\d+)?)\s*s\b/.exec(detail ?? "");
@@ -195,6 +236,8 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   const clock = opts.clock ?? realClock;
   const enterSends = opts.enterSends ?? ((): boolean => true);
   const extensions = opts.extensions ?? [];
+  const userName = opts.labels?.user?.trim() ?? "";
+  const assistantName = opts.labels?.assistant?.trim() ?? "";
   const reportError = opts.onError ?? ((e: unknown): void => { console.error(e); });
   const guarded = (fn: () => void): void => { try { fn(); } catch (e) { reportError(e); } };
 
@@ -207,6 +250,8 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   }
   let runNo = 0;
   let running = false;
+  // Was `onRunChange` zuletzt gehört hat: `false` kommt erst am Ende des Abschlusses, `running` ist da schon seit dem Anfang von `endRun` falsch.
+  let runAnnounced = false;
   let submitting = false;
   let destroyed = false;
   let controller: AbortController | null = null;
@@ -305,8 +350,9 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   const errorText = (e: ChatError | undefined): string => {
     if (e === undefined) return strings.errGeneric;
     switch (e.kind) {
-      case "timeout": return strings.errTimeout(e.seconds);
-      case "network": return strings.errNetwork;
+      // Gerundet gezeigt (eine gebrochene Einstellung wie 1,5 s wäre „1.5“), mindestens 1 s; der Verlauf behält den genauen Wert.
+      case "timeout": return strings.errTimeout(e.seconds === undefined ? undefined : Math.max(1, Math.round(e.seconds)));
+      case "network": return e.detail !== undefined && e.detail !== "" ? strings.errNetworkDetail(strings.errNetwork, e.detail) : strings.errNetwork;
       case "http": {
         const text = strings.errHttp(e.status);
         return e.detail !== undefined && e.detail !== "" ? strings.errServer(text, e.detail) : text;
@@ -378,7 +424,10 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   const makeRound = (text: string, id: number): RoundView => {
     const el = logEl.createDiv({ cls: "okit-chat-round" });
     const userTurnEl = el.createDiv({ cls: "okit-chat-turn is-user" });
-    userTurnEl.createDiv({ cls: "okit-chat-text", text });
+    // Mit Namen steht Name über Text in einer inneren Spalte, damit die Zeile (Text, Kopier-Knopf) nicht zerreißt; ohne Namen bleibt das DOM wie vor 0.70.0.
+    const userColEl = userName === "" ? userTurnEl : userTurnEl.createDiv({ cls: "okit-chat-user-col" });
+    if (userName !== "") userColEl.createDiv({ cls: "okit-chat-name", text: userName });
+    userColEl.createDiv({ cls: "okit-chat-text", text });
     copyButton(userTurnEl, strings.copyQuestion, () => text);
     const stepsEl = el.createDiv({ cls: "okit-chat-steps" });
     const view: RoundView = { id, el, userTurnEl, stepsEl };
@@ -403,6 +452,7 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
 
   const makeAnswerView = (round: RoundView, id: number): AnswerView => {
     const turnEl = round.el.createDiv({ cls: "okit-chat-turn is-assistant" });
+    if (assistantName !== "") turnEl.createDiv({ cls: "okit-chat-name", text: assistantName });
     const contentEl = turnEl.createDiv({ cls: "okit-chat-answer" });
     const actionsEl = turnEl.createDiv({ cls: "okit-chat-actions" });
     const noteEl = turnEl.createDiv({ cls: "okit-chat-note" });
@@ -412,13 +462,16 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     return view;
   };
 
-  const makeWriter = (area: StreamArea): StableMarkdownWriter => createStableWriter({
-    area,
-    render: opts.render,
-    ...(opts.answerTransform === undefined ? {} : { transform: opts.answerTransform }),
-    ...(opts.domGuard === undefined ? {} : { domGuard: opts.domGuard }),
-    clock,
-  });
+  const makeWriter = (area: StreamArea): StableMarkdownWriter => {
+    const domGuard = typeof opts.domGuard === "function" ? opts.domGuard() : opts.domGuard;   // je Antwort: ein Getter folgt der Einstellung
+    return createStableWriter({
+      area,
+      render: opts.render,
+      ...(opts.answerTransform === undefined ? {} : { transform: opts.answerTransform }),
+      ...(domGuard === undefined ? {} : { domGuard }),
+      clock,
+    });
+  };
 
   const areaStrings = {
     reasoning: strings.reasoning, copyReasoning: strings.copyReasoning,
@@ -487,11 +540,28 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     statusbarEl.toggleClass("okit-chat-hidden", emptyNow);
   };
 
-  const drawSlots = (): void => {
+  // Die Abmeldung, die der Einschub bei der letzten Zeichnung zurückgegeben hat; je Zeichnung genau einmal gerufen (vor der nächsten und bei `destroy()`).
+  let headerOff: (() => void) | null = null;
+  let composerOff: (() => void) | null = null;
+  const callOff = (off: (() => void) | null): void => { if (off !== null) guarded(off); };
+  const drawHeader = (): void => {
+    const off = headerOff;
+    headerOff = null;
+    callOff(off);
     headerEl.empty();
-    if (opts.header !== undefined) guarded(() => { opts.header?.(headerEl); });
+    if (opts.header !== undefined) guarded(() => { const r = opts.header?.(headerEl); if (typeof r === "function") headerOff = r; });
+  };
+  const drawComposer = (): void => {
+    const off = composerOff;
+    composerOff = null;
+    callOff(off);
     composerExtraEl.empty();
-    if (opts.composer !== undefined) guarded(() => { opts.composer?.(composerExtraEl); });
+    if (opts.composer !== undefined) guarded(() => { const r = opts.composer?.(composerExtraEl); if (typeof r === "function") composerOff = r; });
+  };
+
+  const drawSlots = (): void => {
+    drawHeader();
+    drawComposer();
     for (const round of chatRounds(history)) {
       const rv = roundViews.get(round.user.id);
       if (rv === undefined) continue;
@@ -511,6 +581,13 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   };
 
   const notifyChange = (): void => { guarded(() => { opts.onChange?.(history); }); };
+
+  /** Meldet einen Wechsel des Laufzustands, genau einmal je Wechsel; nach `destroy()` nie. */
+  const announceRun = (value: boolean): void => {
+    if (destroyed || runAnnounced === value) return;
+    runAnnounced = value;
+    guarded(() => { opts.onRunChange?.(value); });
+  };
 
   // ── Ablauf ──────────────────────────────────────────────────────────────────────────────────────
   /** Beendet den Lauf `myRun` mit dem Ergebnis. Ein veralteter Lauf (nach „Neu“, Abbruch, Abbau) tut nichts. */
@@ -575,6 +652,7 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     syncAllRetry();
     syncSendButton();
     syncEmpty();
+    announceRun(false);
     notifyChange();
     focusInput();
   };
@@ -603,6 +681,7 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     syncAllRetry();
     setStatus(strings.statusThinking);
     tick();
+    announceRun(true);
 
     const fresh = (): boolean => myRun === runNo;
     let writing = false;
@@ -682,6 +761,9 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
       if (seconds !== undefined) error.seconds = seconds;
     } else if (r.kind === "http") {
       const reason = serverReason(r);
+      if (reason !== "") error.detail = reason;
+    } else if (r.kind === "network") {
+      const reason = networkReason(r);
       if (reason !== "") error.detail = reason;
     } else if (r.kind === "no-endpoint") {
       error.message = noEndpointMessage(r);
@@ -764,6 +846,7 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     timerEl.setText("");
     syncSendButton();
     syncEmpty();
+    announceRun(false);
     notifyChange();
     focusInput();
   };
@@ -779,6 +862,10 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     copiedTimers.clear();
     for (const v of answerViews.values()) v.writer?.destroy();
     destroyed = true;
+    const offs = [headerOff, composerOff];
+    headerOff = null;
+    composerOff = null;
+    for (const off of offs) callOff(off);
     rootEl.remove();
   };
 
@@ -818,12 +905,15 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   return {
     rootEl,
     history: () => history,
+    running: () => running,
     submit,
     abort,
     clear,
     draft: () => inputEl.value,
     setDraft: (text: string) => { inputEl.value = text; growInput(); },
     refresh,
+    refreshHeader: () => { if (!destroyed) drawHeader(); },
+    refreshComposer: () => { if (!destroyed) drawComposer(); },
     destroy,
   };
 }
@@ -840,8 +930,13 @@ export const CHAT_WINDOW_CSS = `
   flex-direction: row; align-items: flex-start; justify-content: space-between; gap: var(--size-4-2);
   padding: var(--size-4-2) var(--size-4-3); border-radius: var(--radius-m);
   background: var(--background-secondary);
+  /* Zweiter Kanal neben der Fläche: in einer Seitenleiste hat sie dieselbe Farbe wie der Grund (gemessen: Kontrast 1,000:1, hell wie dunkel). */
+  border: 1px solid var(--background-modifier-border);
 }
-.okit-chat-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+/* Dieselbe Größe wie der Antwortkörper (okit-stream-body in STREAM_AREA_CSS): vorher erbte die Frage 15 px, die Antwort setzte 13 px. */
+.okit-chat-user-col { display: flex; flex-direction: column; gap: var(--size-2-1); min-width: 0; flex: 1 1 auto; }
+.okit-chat-name { font-size: var(--font-ui-smaller); font-weight: var(--font-semibold); color: var(--text-muted); }
+.okit-chat-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; font-size: var(--font-ui-small); line-height: var(--line-height-normal); }
 .okit-chat-steps:empty { display: none; }
 .okit-chat-actions { display: flex; gap: var(--size-4-1); }
 .okit-chat-actions:empty { display: none; }

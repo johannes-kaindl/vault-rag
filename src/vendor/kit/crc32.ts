@@ -1,4 +1,4 @@
-// vendored from code-kit@0.37.3, src/ts/pure/crc32.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.37.5, src/ts/pure/crc32.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/index_container.ts:30, 2026-10-11 (derselbe Algorithmus steht byte-gleich in epub-exporter/src/core/zip-writer.ts:19)
 /** CRC-32/ISO-HDLC — the checksum of zlib, gzip, PNG and zip (polynomial 0xEDB88320, reflected, initial value and
  *  final XOR 0xFFFFFFFF). Returned UNSIGNED. `crc32("123456789")` is `0xCBF43926`.

@@ -1,4 +1,4 @@
-// vendored from code-kit@0.37.3, src/ts/pure/index-delta.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.37.5, src/ts/pure/index-delta.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/index_delta.ts (computeIndexDelta, classifyChunkless, splitHealTargets), 2026-10-11 (indexDeltaReadout und healResultMessage rufen t() mit vault-rag-Schlüsseln und bleiben dort)
 import { chunkMarkdown } from "./chunker";
 

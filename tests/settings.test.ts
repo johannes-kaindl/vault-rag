@@ -154,7 +154,7 @@ function makeFakeHost() {
     // Von renderImperative (display-Fallback) synchron aufgerufene render-Hatch-Methoden —
     // ungemockt würden sie beim Walk sofort werfen (undefined ist keine Funktion).
     embedderReady: vi.fn().mockResolvedValue(true),
-    indexDelta: vi.fn().mockReturnValue({ embedded: 0, total: 0, healthy: true, emptyCount: 0 }),
+    indexDelta: vi.fn().mockReturnValue({ embedded: 0, total: 0, healthy: true, emptyCount: 0, stampGap: { kind: "none" } }),
     indexHealthReadout: vi.fn().mockReturnValue(""),
     mcpServerRunning: vi.fn().mockReturnValue(false),
     mcpServerAddress: vi.fn().mockReturnValue(null),

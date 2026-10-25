@@ -91,6 +91,7 @@ embedder.ts       EmbeddingClient → Ollama/MLX HTTP-Endpoint; ping() + Batch-E
 http.ts           httpJson() über Obsidians requestUrl — einziger obsidian-Import der Netz-Schicht.
 pending_queue.ts  PendingQueue → Dirty-List in pending.json; drain-on-reconnect.
 index_reload.ts  IndexReloadWatch → wann `maybeReload` neu lädt: nur bei fremder Änderung von index.bin, nie während eines eigenen Laufs; eigene Schreibvorgänge (`runIndexOp`, Voll-Reindex, Heilung) ziehen die mtime nach.
+stamp_gap.ts    StampGap → die Lücke im Stempel-Wächter (Zeilen mit `[0, 0]`): gezählt aus dem geladenen Container (Definition: Kit `countUnstampedRows`), nachgeführt bei Live-Update, Drain, Umbenennen und Löschen; `describeStampGap` wählt „keine Zahl“, „N von M“ oder den Satz für einen Container ohne Stempel; `indexDeltaReadout` hängt den Text an. Der Zähler sitzt im Plugin, nicht am LiveIndexer (dessen `noteStamps` ist privat; ein Zugriff ist ein Kit-Task).
 index_notices.ts Meldungen nach dem Laden: `shouldOfferCompletion` (Fenster „Index vervollständigen“), `formatPathList` (bis fünf Pfade), `RecurringFindings` (derselbe Pfad in drei Reloads).
 live-indexer   LiveIndexer → note-level Vektor-Map; update/remove/rename · buildIndex ·
                   persist(reason) schreibt EINE Datei (`index-container` → `index.bin`, kein

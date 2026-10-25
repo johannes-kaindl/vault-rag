@@ -67,6 +67,7 @@ import { ReformatPanel } from "./reformat_panel";
 import { mapStartError, describeStartError, classifySelfCheck, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
 import { indexDeltaReadout, healResultMessage } from "./index_delta";
 import { IndexReloadWatch } from "./index_reload";
+import { StampGap, type StampGapView } from "./stamp_gap";
 import { MAX_PATHS_IN_NOTICE, RecurringFindings, shouldOfferCompletion } from "./index_notices";
 import { summarizeList } from "./vendor/kit/list-summary";
 import { computeIndexDelta, classifyChunkless, splitHealTargets } from "./vendor/kit/index-delta";
@@ -106,6 +107,8 @@ export default class VaultRagPlugin extends Plugin {
     busy: () => this.embeddingProgress.isEmbedding || this.indexOpsRunning > 0,
   });
   private indexOpsRunning = 0;
+  /** Die Lücke im Stempel-Wächter (Zeilen mit `[0, 0]`) für die Index-Zustand-Zeile; wird beim Laden gezählt und bei Live-Änderungen nachgeführt (`stamp_gap.ts`). */
+  private readonly stampGap = new StampGap();
   /** Die Meldungen nach dem Laden zählen mit: derselbe Pfad in drei Reloads derselben Sitzung wird einmal als Befund genannt. */
   private readonly staleFindings = new RecurringFindings();
   private readonly deadFindings = new RecurringFindings();
@@ -1199,9 +1202,9 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   /** Kompakter Zustands-Text für die Robustheits-Sektion in den Einstellungen. */
-  indexHealthReadout(embedded: number, total: number, healthy: boolean, emptyCount = 0): string {
+  indexHealthReadout(embedded: number, total: number, healthy: boolean, emptyCount = 0, stampGap?: StampGapView): string {
     if (!healthy) return t("main.indexDamagedLoadFailed");
-    return indexDeltaReadout(embedded, total, emptyCount);
+    return indexDeltaReadout(embedded, total, emptyCount, stampGap);
   }
 
   /** Erfasste vs. Soll-Notizzahl für die Index-Zustand-Zeile. `embedded = total − fehlende`
@@ -1211,10 +1214,10 @@ export default class VaultRagPlugin extends Plugin {
    *  Chunk-lose Notizen (emptyNotePaths) zählen weder als fehlend noch ins Soll — sie können
    *  nie im Index landen; sonst zeigte die Zeile ein dauerhaftes Phantom-Defizit.
    *  `healthy` spiegelt den Schreibschutz-Zustand für die Zeile + Button. */
-  indexDelta(): { embedded: number; total: number; healthy: boolean; emptyCount: number } {
+  indexDelta(): { embedded: number; total: number; healthy: boolean; emptyCount: number; stampGap: StampGapView } {
     const vaultPaths = this.vaultMarkdownPaths();
     const missing = this.index ? diffIndexVsVault([...this.index.paths], vaultPaths).missing : vaultPaths;
-    return { ...computeIndexDelta(vaultPaths.length, missing, this.emptyNotePaths), healthy: this.indexHealthy };
+    return { ...computeIndexDelta(vaultPaths.length, missing, this.emptyNotePaths), healthy: this.indexHealthy, stampGap: this.stampGap.view(this.index?.count ?? 0) };
   }
 
   /** Die Meldung über veraltete oder unbrauchbare Zeilen: bis zu fünf Pfade im Text und in der Konsole; ein Pfad, der in drei
@@ -1245,6 +1248,7 @@ export default class VaultRagPlugin extends Plugin {
       this.autoHealAttempted = false;
       this.index = result.index;
       this.liveIndexer.init(this.index, result.stamps);
+      this.stampGap.load(this.index.paths, result.stamps);
       const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/${CONTAINER_FILE}`);
       if (st) this.reloadWatch.note(st.mtime);
       this.indexHealthy = true;
@@ -1304,6 +1308,7 @@ export default class VaultRagPlugin extends Plugin {
     } else if (result.state === "no-index") {
       // Frische Installation: leerer Indexer darf gefahrlos aufbauen.
       this.index = null;
+      this.stampGap.load([], []);
       this.liveIndexer.markFresh();
       this.indexHealthy = true;
       this.syncProgress();
@@ -1312,6 +1317,7 @@ export default class VaultRagPlugin extends Plugin {
       // und explizit auf not-ready setzen (auch mid-session, falls er zuvor schon ready war —
       // sonst würde der persist-Guard trotz Gefahrenzustand nicht greifen). Laut anzeigen.
       this.index = null;
+      this.stampGap.load([], []);
       this.liveIndexer.markUnready();
       this.indexHealthy = false;
       this.syncProgress();
@@ -1705,6 +1711,7 @@ export default class VaultRagPlugin extends Plugin {
         this.embeddingProgress.isEmbedding = true;
         try {
           const updated = await this.underEmbedOp("modify", () => li.update(path, content, this.stampOf(path)));
+          if (this.stampOf(path)) this.stampGap.stamped(path);
           if (updated === "empty") this.emptyNotePaths.add(path); else this.emptyNotePaths.delete(path);
           // buildIndex ERST nach erfolgreichem persist: ein geblockter Persist darf `this.index`
           // nicht mit dem Manifest des Indexers überschreiben (das trägt dessen Embedding-Modell).
@@ -1749,6 +1756,7 @@ export default class VaultRagPlugin extends Plugin {
     await this.runIndexOp(async () => {
       try {
         li.remove(path);
+        this.stampGap.stamped(path);
         this.emptyNotePaths.delete(path);
         // buildIndex ERST nach erfolgreichem persist (analog handleModify): sonst trüge
         // `this.index.manifest.embedding_model` nach einem geblockten Persist das Modell des
@@ -1776,6 +1784,7 @@ export default class VaultRagPlugin extends Plugin {
       await this.runIndexOp(async () => {
         try {
           li.rename(oldPath, newPath);
+          this.stampGap.moved(oldPath, newPath);
           if (this.emptyNotePaths.delete(oldPath)) this.emptyNotePaths.add(newPath);
           // buildIndex ERST nach erfolgreichem persist — siehe handleModify/handleDelete.
           await li.persist("live");
@@ -1816,6 +1825,7 @@ export default class VaultRagPlugin extends Plugin {
           try {
             const content = await this.app.vault.adapter.read(path);
             const updated = await this.underEmbedOp("drain", () => li.update(path, content, this.stampOf(path)));
+            if (this.stampOf(path)) this.stampGap.stamped(path);
             if (updated === "empty") this.emptyNotePaths.add(path); else this.emptyNotePaths.delete(path);
           } catch { /* Datei gelöscht oder unlesbar — überspringen */ }
         }
@@ -1933,6 +1943,7 @@ export default class VaultRagPlugin extends Plugin {
         this.emptyNotePaths = next;
       }
       this.index = this.liveIndexer.buildIndex();
+      if (!report.cancelled) this.stampGap.settle();   // ein Voll-Reindex stempelt jede Zeile (ein Abbruch mischt, dann bleibt die Zahl wie sie war)
       await this.liveIndexer.persist("reindex");
       this.indexHealthy = true;
       this.refresh();

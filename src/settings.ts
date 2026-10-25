@@ -20,6 +20,7 @@ import { createModelListCache, type ModelListCache } from "./vendor/kit/model-li
 import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./mcp/client_snippets";
 import { describeStartError, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
 import { getLang, t } from "./vendor/kit/i18n";
+import type { StampGapView } from "./stamp_gap";
 
 export { DEFAULT_SETTINGS };
 export type { VaultRagSettings };
@@ -75,8 +76,8 @@ export interface VaultRagPluginHost extends Plugin {
   changeIndexDir(newDir: string): Promise<void>;
   listBackups(): Promise<{ name: string; count: number }[]>;
   restoreBackup(name: string): Promise<void>;
-  indexHealthReadout(embedded: number, total: number, healthy: boolean, emptyCount?: number): string;
-  indexDelta(): { embedded: number; total: number; healthy: boolean; emptyCount: number };
+  indexHealthReadout(embedded: number, total: number, healthy: boolean, emptyCount?: number, stampGap?: StampGapView): string;
+  indexDelta(): { embedded: number; total: number; healthy: boolean; emptyCount: number; stampGap: StampGapView };
   mcpServerRunning(): boolean;
   mcpServerAddress(): string | null;
   restartMcpServer(): Promise<void>;
@@ -525,10 +526,10 @@ export class VaultRagSettingTab extends PluginSettingTab {
    *  „Vervollständigen"-Button); indexDelta() wird bei jedem Render/update() frisch geholt. */
   private renderIndexHealth = (setting: Setting): void => {
     const host = settingBodyHost(setting);
-    const { embedded, total, healthy, emptyCount } = this.plugin.indexDelta();
+    const { embedded, total, healthy, emptyCount, stampGap } = this.plugin.indexDelta();
     new Setting(host)
       .setName(t("settings.indexHealth.name"))
-      .setDesc(this.plugin.indexHealthReadout(embedded, total, healthy, emptyCount))
+      .setDesc(this.plugin.indexHealthReadout(embedded, total, healthy, emptyCount, stampGap))
       .addButton(b => b
         .setButtonText(t("settings.button.complete"))
         .setDisabled(!healthy || embedded >= total)

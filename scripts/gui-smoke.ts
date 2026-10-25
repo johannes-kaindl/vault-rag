@@ -82,6 +82,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
+import { decodeContainer, encodeContainer } from "../src/vendor/kit/index-container";
 
 import { Cdp, attachTo, beimAbbruch, bereiteInstanzVor, istAbgebrochen, entferneFakeManager, fakeManagerAufrufe, installFakeManager, pollUntil, requireVisible, schliesseEinstellungen } from "../../tools/obsidian-cdp/cdp.js";
 import { startLlmStub } from "../../tools/obsidian-cdp/llm-stub.js";
@@ -244,6 +245,9 @@ const W27_PUNKTE = {
   reloadFremd: "Index-Reload: eine fremde Änderung von index.bin lädt genau einmal neu (Gegenprobe)",
   pendingLeer: "pending.json ist nach einem erfolgreichen Drain leer",
   reloadZwischenstand: "Index-Reload: die Zwischenstände eines laufenden Voll-Reindex lösen keinen Reload aus",
+  stempelNull: "Index-Zustand: ein vollständig gestempelter Index zeigt keine Stempel-Lücke (Nullfall)",
+  stempelPositiv: "Index-Zustand: drei Zeilen ohne Stempel stehen als „3 of 20“ mit dem Satz zur Folge in der Zeile (Positivfall)",
+  stempelLive: "Index-Zustand: nach einer Live-Änderung einer dieser Notizen sinkt die Zahl auf 2, ohne dass der Index neu geladen wird",
 } as const;
 
 const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch wenn beim Laden ein Pop-out aktiv ist";
@@ -3586,6 +3590,104 @@ async function main(): Promise<void> {
         for (const n of [N27.reloadEigen, N27.reloadLauf, N27.reloadFremd, N27.pendingLeer]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
       }
       unmeasured(N27.reloadZwischenstand, "das Fixture hat 20 Notizen, `reindexAll` schreibt Zwischenstände erst alle 250 (CHECKPOINT_EVERY): belegt ist die Sperre durch den laufenden Drain (Punkt oben) und den Unit-Test, nicht der Zwischenstand selbst");
+    }
+
+    // --- 7l. Stempel-Lücke in der Index-Zustand-Zeile (Welle 27, V4) -------------------------------------------------------
+    // Das Fixture trägt keine Zeilen ohne Stempel (der Schnappschuss hat 20 echte Stempel, gemessen), der Nullfall ist also der Aufbau-Zustand.
+    // Für den Positivfall setzt der Treiber im STAGING-Vault drei Stempel auf `[0, 0]` (Container lesen, schreiben, `loadIndex`), nie am
+    // Schnappschuss und in keinem anderen Vault; die Original-Bytes stehen danach wieder da. Erst warten, bis Warteschlange und Lauf leer sind
+    // (der Start-Drain der frischen Instanz stempelt Zeilen neu).
+    if (nur === null) {
+      const N27 = W27_PUNKTE;
+      const stempelPunkte = [N27.stempelNull, N27.stempelPositiv, N27.stempelLive];
+      let originalBytes: Buffer | null = null;
+      let indexDatei = "";
+      try {
+        const bereit = await pollUntil<boolean>(main, `
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          return p.pendingQueue.size === 0 && !p.embeddingProgress.isEmbedding && p.indexOpsRunning === 0 ? true : null;`, 150000, 1000);
+        const stagingRoot = process.env.STAGING_VAULTS_DIR;
+        const indexDir = await main.evaluate<string>(`return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.indexDir;`);
+        indexDatei = stagingRoot ? join(stagingRoot, vault, indexDir, "index.bin") : "";
+        if (!bereit) for (const n of stempelPunkte) unmeasured(n, "die Warteschlange wurde nicht leer (Start-Drain), kein sauberer Ausgangspunkt");
+        else if (!stagingRoot || !existsSync(indexDatei) || indexDatei.includes("_snapshots")) for (const n of stempelPunkte) unmeasured(n, "kein Index im Staging-Vault zum Präparieren");
+        else {
+          /** Text der Index-Zustand-Zeile, gelesen aus dem Einstellungs-Tab (dieselbe Zeile, die der Nutzer sieht). */
+          const zeile = async (): Promise<string | null> => {
+            await schliesseEinstellungen(main);
+            await openSettings(main);
+            const sicht = await attachTo("settings", port, vault);
+            if (!sicht) return null;
+            try {
+              return await sicht.evaluate<string | null>(`
+                const z = [...document.querySelectorAll(".setting-item")].find((e) => /^(Index health|Index-Zustand)$/.test(e.querySelector(".setting-item-name")?.textContent ?? ""));
+                return z ? (z.querySelector(".setting-item-description")?.textContent ?? "") : null;`);
+            } finally { sicht.close(); await schliesseEinstellungen(main); }
+          };
+          const gapKind = () => main.evaluate<{ kind: string; unstamped?: number; total?: number }>(`return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].indexDelta().stampGap;`);
+
+          // Ausgangslage herstellen: alle Stempel echt, aus den Dateien des Staging-Vaults. Der Aufbau-Zustand (Schnappschuss mit 20 echten
+          // Stempeln) ist an dieser Stelle des Laufs nicht mehr da: das Neusäen des LiveIndexer (`resolveAndReconnectEmbedder`) verliert die
+          // Stempel, und der nächste Persist schreibt `[0, 0]` für die übrigen Zeilen (Task „Stempel gehen verloren …“, Welle 27).
+          originalBytes = readFileSync(indexDatei);
+          const ab = originalBytes.buffer.slice(originalBytes.byteOffset, originalBytes.byteOffset + originalBytes.byteLength) as ArrayBuffer;
+          const dec = decodeContainer(ab);
+          const echt = await main.evaluate<[number, number][]>(`
+            return ${JSON.stringify(dec.paths)}.map((pfad) => { const f = app.vault.getAbstractFileByPath(pfad); return f && f.stat ? [f.stat.mtime, f.stat.size] : [1, 1]; });`);
+          const schreibe = (stempel: [number, number][]): void => {
+            writeFileSync(indexDatei, Buffer.from(encodeContainer(dec.manifest as never, dec.paths, new Uint8Array(dec.matrix), stempel)));
+          };
+          schreibe(echt);
+          await main.evaluate(`await app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].loadIndex(); return true;`);
+
+          // Nullfall: jede Zeile trägt einen echten Stempel
+          const nullGap = await gapKind();
+          const nullText = await zeile();
+          record(N27.stempelNull, nullGap.kind === "none" && nullText !== null && !/change mark|Änderungsmarke/.test(nullText),
+            `stampGap ${JSON.stringify(nullGap)} · Zeile: ${nullText === null ? "nicht gefunden" : nullText.slice(0, 90)}`);
+
+          // Positivfall: drei Stempel auf [0, 0], nur im Staging-Vault
+          if (dec.paths.length < 4) {
+            unmeasured(N27.stempelPositiv, "zu wenige Zeilen im Container zum Präparieren");
+            unmeasured(N27.stempelLive, "zu wenige Zeilen im Container zum Präparieren");
+          } else {
+            const N = 3;
+            schreibe(echt.map((st, i) => (i < N ? ([0, 0] as [number, number]) : st)));
+            const geladen = await main.evaluate<{ kind: string; unstamped?: number; total?: number }>(`
+              const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+              await p.loadIndex();
+              return p.indexDelta().stampGap;`);
+            const posText = await zeile();
+            const erwartet = `${N} of ${dec.paths.length} notes have no change mark`;
+            record(N27.stempelPositiv, geladen.kind === "some" && geladen.unstamped === N && geladen.total === dec.paths.length && posText !== null && posText.includes(erwartet) && /not noticed there/.test(posText),
+              `stampGap ${JSON.stringify(geladen)} · Zeile enthält „${erwartet}“: ${posText?.includes(erwartet) ? "ja" : "NEIN"}`);
+
+            // Live-Änderung: eine der drei Notizen läuft durch den Drain und bekommt einen echten Stempel — ohne Neuladen
+            const live = await main.evaluate<{ gap: { kind: string; unstamped?: number }; reloads: number }>(`
+              const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+              let calls = 0; const orig = p.loadIndex; p.loadIndex = function (...a) { calls++; return orig.apply(this, a); };
+              try {
+                await new Promise((r) => setTimeout(r, 1100));
+                await p.pendingQueue.add(${JSON.stringify(dec.paths[0])});
+                await p.drainPending();
+                await p.maybeReload();
+                return { gap: p.indexDelta().stampGap, reloads: calls };
+              } finally { delete p.loadIndex; }`);
+            record(N27.stempelLive, live.gap.kind === "some" && live.gap.unstamped === N - 1 && live.reloads === 0,
+              `stampGap nach dem Drain von ${dec.paths[0]}: ${JSON.stringify(live.gap)} · loadIndex-Aufrufe ${live.reloads} (Soll 0)`);
+          }
+        }
+      } catch (e) {
+        for (const n of stempelPunkte) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+      } finally {
+        // Die Original-Bytes zurück (nur im Staging-Vault) und neu laden, damit die folgenden Abschnitte den Aufbau-Zustand sehen.
+        if (originalBytes && indexDatei) {
+          try {
+            writeFileSync(indexDatei, originalBytes);
+            await main.evaluate(`await app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].loadIndex(); return true;`);
+          } catch (e) { console.log(`  ! Index im Staging-Vault konnte nicht zurückgesetzt werden: ${String(e)}`); }
+        }
+      }
     }
 
     // --- 8. Auto-Heal-Kaskade: defekter Container ohne Endpunkt ------------

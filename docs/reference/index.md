@@ -60,7 +60,7 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 
 | Item | Effect |
 |---|---|
-| Index state | Read-only summary: how many notes are indexed vs. present |
+| Index state | Read-only summary: how many notes are indexed vs. present. When rows carry no change mark (the file date and size noted when a note is indexed), it says so: "N of M notes have no change mark — edits made outside Obsidian are not noticed there". Such a note is only re-embedded once you change it in Obsidian; a full re-index sets the marks |
 | Restore from backup | Opens the snapshot picker (last three, device-local) |
 | Reindex vault | Full rebuild — the last resort |
 

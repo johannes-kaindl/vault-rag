@@ -1,4 +1,4 @@
-// vendored from code-kit@0.36.0, src/ts/pure/index-guard.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.37.2, src/ts/pure/index-guard.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/index_guard.ts, 2026-10-11 (Änderungen: `noUncheckedIndexedAccess`-clean; neu `assertDimSafeToPersist` und die Art "dim-mismatch"; sonst Code und Meldungen unverändert)
 // Pure core: decisions where data can be lost, in one place and testable in isolation. Origin: vault-rag (spec 2026-07-10, index robustness).
 // The message texts are German and stay as they were: the consumer's tests and its users' notices carry them.
@@ -348,4 +348,26 @@ export function findStaleVectorPaths(
     if (jetzt[0] !== mtime || jetzt[1] !== size) stale.push(path);
   }
   return stale;
+}
+
+/**
+ * How many rows carry no usable stamp: the rows whose stamp is {@link UNBEKANNTER_STEMPEL}, `[0, 0]`.
+ *
+ * The counterpart of {@link findStaleVectorPaths}: that guard skips exactly these rows ("not checked is not suspicious"), so a
+ * stale vector under such a row passes unseen. Which rows are those, and how many: this answers the second. Only `[0, 0]`
+ * counts, both numbers zero — `[0, 1]` and `[1, 0]` are stamps of a real note, however odd. A row the index holds without a
+ * stamp is not a defect, it is a gap in the guard's view; showing the number keeps the gap from being silent (decision Johannes
+ * 2026-10-24, question of ragkoda-w27 for vault-rag's index state line).
+ *
+ * @param stamps  stamp per row; `undefined` for an index built before the guard existed. Then the result is `0`: the whole index
+ *                is unchecked, which is a different statement from "some rows are", and the caller tells them apart by
+ *                `stamps === undefined`. A hole or a row that is not a pair is not counted either.
+ */
+export function countUnstampedRows(stamps: readonly (readonly [number, number])[] | undefined): number {
+  if (!stamps) return 0;
+  let n = 0;
+  for (const stamp of stamps) {
+    if (stamp && stamp[0] === UNBEKANNTER_STEMPEL[0] && stamp[1] === UNBEKANNTER_STEMPEL[1]) n++;
+  }
+  return n;
 }

@@ -4,7 +4,7 @@
       "ref": "0.67.1"
     },
     "code-kit": {
-      "ref": "0.36.0"
+      "ref": "0.37.2"
     }
   },
   "targets": [
@@ -50,6 +50,7 @@
         "probe-core",
         "rel-path",
         "markdown-table",
+        "list-summary",
         "chat-history",
         "stream-blocks"
       ]

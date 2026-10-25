@@ -22,6 +22,11 @@ describe("chatSendFailure", () => {
     const abort = new Error("Aborted"); abort.name = "AbortError";
     expect(chatSendFailure(abort)).toEqual({ ok: false, kind: "aborted" });
   });
+  it("ein Netzfehler trägt das Detail des Transports in `detail`, wo das Fenster es liest (Kit 0.70.0); ohne Detail bleibt es bei der Art", () => {
+    expect(chatSendFailure(new ChatNetworkError("fetch failed: connect ECONNREFUSED 127.0.0.1:1234"))).toEqual({ ok: false, kind: "network", detail: "fetch failed: connect ECONNREFUSED 127.0.0.1:1234" });
+    expect(chatSendFailure(new ChatNetworkError(""))).toEqual({ ok: false, kind: "network" });
+    expect(new ChatNetworkError("x").message).toBe("Chat network error");   // die übersetzte Nachricht bleibt (Reformat-Vorschau, Smart Apply)
+  });
   it("alles Unbekannte bleibt ein Wurf (`null`): das Fenster zeigt dann die Nachricht, statt sie zu erfinden", () => {
     expect(chatSendFailure(new Error("boom"))).toBeNull();
     expect(chatSendFailure("text")).toBeNull();

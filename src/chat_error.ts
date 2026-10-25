@@ -39,9 +39,10 @@ export class ChatNoEndpointError extends Error {
   }
 }
 
-/** Netzfehler ohne HTTP-Antwort. Die Nachricht ist übersetzt (siehe oben). */
+/** Netzfehler ohne HTTP-Antwort. Die Nachricht ist übersetzt (siehe oben); `detail` ist der technische Kurztext des Transports („fetch failed: connect
+ *  ECONNREFUSED …“), den das Chat-Fenster seit obsidian-kit 0.70.0 hinter die Art setzt (geschwärzt und auf eine Zeile gekürzt vom Kit). */
 export class ChatNetworkError extends Error {
-  constructor() {
+  constructor(readonly detail: string = "") {
     super(t("sse.networkError"));
     this.name = "ChatNetworkError";
   }
@@ -63,7 +64,7 @@ export function chatSendFailure(e: unknown): ChatSendError | null {
   // Das Fenster liest die Frist aus `detail` („… 120s“).
   if (e instanceof ChatTimeoutError) return { ok: false, kind: "timeout", detail: `no data for ${e.seconds}s` };
   if (e instanceof ChatNoEndpointError) return { ok: false, kind: "no-endpoint" };
-  if (e instanceof ChatNetworkError) return { ok: false, kind: "network" };
+  if (e instanceof ChatNetworkError) return { ok: false, kind: "network", ...(e.detail !== "" ? { detail: e.detail } : {}) };
   if ((e as { name?: unknown } | null)?.name === "AbortError") return { ok: false, kind: "aborted" };
   return null;
 }

@@ -8,7 +8,7 @@ import { MODE_CHAT } from "./request_profile";
 import { HubPanel, TabId } from "./hub_panel";
 import { getLang, t } from "./vendor/kit/i18n";
 import { EMPTY_CHAT, type ChatHistory, type ChatModelMessage } from "./vendor/kit/chat-history";
-import { buildChatWindow, type ChatSendHandlers, type ChatSendResult, type ChatWindow } from "./vendor/kit-obsidian/chat-window";
+import { buildChatWindow, type ChatSendHandlers, type ChatSendResult, type ChatWindow, type ChatWindowOptions } from "./vendor/kit-obsidian/chat-window";
 import { buildModelBar, type ModelBar, type ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
 import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 
@@ -33,7 +33,7 @@ export interface ChatViewDeps extends ContextPanelDeps, AskDeps {
   /** Rendert Modell-Markdown in ein Element (Obsidian-Renderer, vom Plugin gestellt). Das Fenster neutralisiert und schützt selbst (`domGuard`). */
   renderMarkdown: (el: HTMLElement, markdown: string) => Promise<void>;
   /** Nur im Test mit dem Fake-DOM `false` (Durchgriff an den Schreiber des Kits). */
-  domGuard?: boolean;
+  domGuard?: ChatWindowOptions["domGuard"];
 }
 
 /** Der Chat im Hub: eine dünne Hülle um das Kit-Chat-Fenster (`buildChatWindow`, UI-STANDARD § 8 Baustein 12). Hier steht nur, was dieses Plugin selbst
@@ -70,7 +70,8 @@ export class ChatPanel implements HubPanel {
       render: (el, markdown) => d.renderMarkdown(el, markdown),
       enterSends: () => d.enterSends(),
       inputPosition: () => d.inputPosition(),
-      header: (el) => { this.drawHeader(el); },
+      // Die Rückgabe meldet die Modellzeile vor der nächsten Zeichnung und bei `destroy()` ab (Kit 0.70.0).
+      header: (el) => this.drawHeader(el),
       composer: (el) => { this.drawComposer(el); },
       afterAnswer: (el, entry) => {
         // Das Kit ruft den Einschub auch bei gescheiterten und abgebrochenen Antworten: Quellen gehören nur an eine fertige.
@@ -79,11 +80,9 @@ export class ChatPanel implements HubPanel {
         if (sent !== null) this.drawSources(el, sent.sources);
       },
       initial: this.history,
-      onChange: (h) => {
-        this.history = h;
-        // Die Zeile sperrt sich während eines Laufs und gibt sich danach frei.
-        this.bar?.update();
-      },
+      onChange: (h) => { this.history = h; },
+      // Die Zeile sperrt sich während eines Laufs und gibt sich danach frei (Kit `running()`, 0.70.0).
+      onRunChange: () => { this.bar?.update(); },
       ...(d.domGuard === undefined ? {} : { domGuard: d.domGuard }),
     });
     // Die Suche beim Tippen: das Fenster hat keinen Rückruf für das Textfeld, das Ereignis bubbelt aber bis zur Wurzel. Im selben Wurzelknoten liegt auch
@@ -94,25 +93,23 @@ export class ChatPanel implements HubPanel {
     });
   }
 
-  /** Ob eine Antwort läuft: das Kit-Fenster hat kein `running()`, aber `startAnswer` läuft vor `send`, also zeigt der Verlauf den Lauf. Null-sicher: das Fenster
-   *  ruft `header` und `composer` schon im Konstruktor, `win` ist dann noch nicht zugewiesen. */
-  private running(): boolean {
-    return this.win?.history().entries.some((e) => e.kind === "assistant" && e.state === "streaming") ?? false;
-  }
-
-  private drawHeader(el: HTMLElement): void {
-    // `refresh()` ruft den Einschub erneut; die alte Zeile gibt das Kit nicht frei (kein Abmelde-Hook), also hier.
-    this.bar?.destroy();
+  private drawHeader(el: HTMLElement): () => void {
     const d = this.deps;
-    this.bar = buildModelBar({
+    const bar = buildModelBar({
       app: d.app,
       containerEl: el,
       llm: d.llm,
       label: t("panel.chat.label"),
       strings: { lang: getLang() },
       thinking: d.thinking,
-      disabled: () => this.running(),
+      // Null-sicher: das Fenster ruft `header` und `composer` schon im Konstruktor, `win` ist dann noch nicht zugewiesen.
+      disabled: () => this.win?.running() ?? false,
     });
+    this.bar = bar;
+    return () => {
+      bar.destroy();
+      if (this.bar === bar) this.bar = null;
+    };
   }
 
   private drawComposer(el: HTMLElement): void {
@@ -141,8 +138,6 @@ export class ChatPanel implements HubPanel {
   /** Eine Runde: Kontext und Prompt bauen, streamen, Fehler dem Fenster so geben, dass die Begründung des Servers erhalten bleibt. */
   private async send(messages: readonly ChatModelMessage[], h: ChatSendHandlers): Promise<ChatSendResult> {
     const d = this.deps;
-    // `startAnswer` ist vor `send` gelaufen: ab hier ist der Lauf im Verlauf sichtbar, die Zeile sperrt sich.
-    this.bar?.update();
     // Die Frage ist gesendet: die Entprellung darf nicht mit dem alten Text nachfeuern und die Chips nach dem Zurücksetzen neu schreiben
     // (das programmatische Leeren des Textfelds löst kein `input` aus).
     this.clearDebounce();
@@ -191,8 +186,7 @@ export class ChatPanel implements HubPanel {
 
   private teardown(): void {
     this.clearDebounce();
-    this.win?.destroy();
-    this.bar?.destroy();
+    this.win?.destroy();   // meldet auch die Modellzeile ab (Abmelde-Rückgabe des Kopfs)
     this.win = null;
     this.bar = null;
   }

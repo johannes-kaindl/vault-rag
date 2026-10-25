@@ -5,6 +5,13 @@ import { makeFakeEl } from "./__mocks__/obsidian";
 import { setLang } from "../src/vendor/kit/i18n";
 import "../src/i18n/strings"; // Register i18n strings
 
+// Jede gebaute Modellzeile wird mitgezählt (Pass-through): der Test zur Abmelde-Rückgabe liest, wie oft `destroy` an welcher Zeile ankam.
+const bars = vi.hoisted(() => ({ made: [] as { destroy: { mock: { calls: unknown[] } } }[] }));
+vi.mock("../src/vendor/kit-obsidian/model-bar", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/vendor/kit-obsidian/model-bar")>();
+  return { ...real, buildModelBar: (o: Parameters<typeof real.buildModelBar>[0]) => { const b = real.buildModelBar(o); bars.made.push({ destroy: vi.spyOn(b, "destroy") }); return b; } };
+});
+
 // Das Kit-Fenster nimmt seine Uhr aus `window` (Renderer); die Testumgebung ist Node.
 beforeAll(() => { vi.stubGlobal("window", globalThis); });
 afterEach(() => { vi.useRealTimers(); setLang("en"); });
@@ -209,6 +216,11 @@ describe("ChatPanel", () => {
       const b = mkPanel({ stream: async () => { throw new ChatNetworkError(); } });
       await ask(b);
       const net = all(b.container, ".okit-chat-error")[0].textContent as string;
+      // Mit Detail steht eine Zeile des Transports dahinter (Kit 0.70.0, geschwärzt und gekürzt vom Kit).
+      const d = mkPanel({ stream: async () => { throw new ChatNetworkError("fetch failed: connect ECONNREFUSED 127.0.0.1:1234"); } });
+      await ask(d);
+      expect(all(d.container, ".okit-chat-error")[0].textContent as string).toContain("ECONNREFUSED 127.0.0.1:1234");
+      expect(net).not.toContain("ECONNREFUSED");
       expect(noEp).not.toBe(net);
       expect(net).toContain("Could not reach the endpoint");
     });
@@ -381,6 +393,19 @@ describe("ChatPanel", () => {
       select.value = "m2";
       select.dispatchEvent({ type: "change" });
       await vi.waitFor(() => { expect(x.llm.setModel).toHaveBeenCalledWith("m2"); });
+    });
+
+    it("ein Neuzeichnen des Kopfs meldet die alte Zeile genau einmal ab (Abmelde-Rückgabe des Kits), `destroy` die letzte", () => {
+      bars.made.length = 0;
+      const x = mkPanel();
+      expect(bars.made.length).toBe(1);
+      (x.panel as any).win.refresh();
+      expect(bars.made.length).toBe(2);
+      expect(bars.made[0]!.destroy.mock.calls.length).toBe(1);
+      expect(bars.made[1]!.destroy.mock.calls.length).toBe(0);
+      x.panel.destroy();
+      expect(bars.made[1]!.destroy.mock.calls.length).toBe(1);
+      expect(bars.made[0]!.destroy.mock.calls.length).toBe(1);
     });
 
     it("sperrt sich während eines Laufs und gibt sich danach frei", async () => {

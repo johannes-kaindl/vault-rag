@@ -149,7 +149,7 @@ export class ChatClient {
       case "no-endpoint":
         return new ChatNoEndpointError();
       default:
-        return new ChatNetworkError();
+        return new ChatNetworkError(res.detail);
     }
   }
 

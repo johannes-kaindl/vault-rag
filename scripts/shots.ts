@@ -211,6 +211,9 @@ async function zeigerWeg(cdp: Cdp): Promise<void> {
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 });
   await cdp.evaluate(`
     for (const el of document.querySelectorAll(".tooltip")) el.remove();
+    // Meldungen der frischen Instanz (Staging-Vault aus dem Schnappschuss: „N notes have changed since they were indexed“, Welle 27) decken sonst
+    // die Tab-Leiste ab; sie gehoeren dem Wirt, nicht dem Produktbild.
+    for (const n of document.querySelectorAll(".notice")) n.remove();
     return true;
   `);
   await new Promise((r) => setTimeout(r, 200));
@@ -626,6 +629,8 @@ const SHOTS: Shot[] = [
   {
     name: "integrator.png",
     klasse: "feature",
+    // Weniger Weissraum unter dem Inhalt (readme_lint: 38 % identische Zeilen bei der Standardhoehe, Grenze 25 %).
+    fensterHoehe: 620,
     async run(cdp) {
       // Der Integrator rechnet offline aus dem Index, ohne Sprachmodell. Ausgangslage aus dem
       // getrackten Fixture herstellen (ein frueherer Lauf hat die Notiz veraendert), sonst

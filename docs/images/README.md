@@ -18,6 +18,8 @@ eine Datei ohne Eintrag und eine Einbettung ohne Vertragszeile sind je ein Befun
 **Stand 2026-10-24: alle neun Bilder stehen; `chat.png`, `thinking.png` und `smart-apply.png` zeigen seit Welle 26 den Kopf mit der Modellzeile (Kit 0.67.1, echte Modelle).** `npm run shots:check` ist die Wahrheit über den
 Bestand: was hier in Prosa steht, kann veralten, die Prüfung nicht.
 
+**2026-10-25 (Welle 27):** `integrator.png` neu aufgenommen (Fensterhöhe 620 statt 900: das alte Bild trug 38 % Weissraum, `readme_lint` meldete es als Warnung; das Rezept räumt vor der Aufnahme auch Meldungen weg). Offen und bewusst nicht neu aufgenommen: `chat.png` und `thinking.png` stammen aus Welle 26 (Kit 0.67.1) und zeigen die Frage noch in der alten Schrift und ohne Rand (Kit 0.70.0 ändert sie); der Inhalt stimmt, eine Neuaufnahme braucht die echten Modelle (RAM-Slot). Die Modellzeile im Umformatier-Tab hat kein README-Bild.
+
 ## Die Bilder
 
 | Datei | Klasse | referenziert von | muss zeigen |

@@ -236,6 +236,16 @@ const STREAM_PUNKTE = {
   rfAbsatz: "Umformulieren: der Ergebnisbereich folgt auch bei absatzgroßen Stücken (Kontrolle)",
 } as const;
 
+/** Welle 27 (V2): der Reload-Wächter und `pending.json`. Alle vier laufen am Drain der Stub-Lage; die Zwischenstände von
+ *  `reindexAll` (alle 250 Notizen) erzeugt das Fixture mit 20 Notizen nicht, dieser Punkt bleibt darum „nichts gemessen“. */
+const W27_PUNKTE = {
+  reloadEigen: "Index-Reload: nach einem eigenen Drain-Persist lädt maybeReload den Index nicht neu",
+  reloadLauf: "Index-Reload: während ein eigener Drain läuft und schreibt, lädt maybeReload nicht neu",
+  reloadFremd: "Index-Reload: eine fremde Änderung von index.bin lädt genau einmal neu (Gegenprobe)",
+  pendingLeer: "pending.json ist nach einem erfolgreichen Drain leer",
+  reloadZwischenstand: "Index-Reload: die Zwischenstände eines laufenden Voll-Reindex lösen keinen Reload aus",
+} as const;
+
 const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch wenn beim Laden ein Pop-out aktiv ist";
 
   const PUNKT_TREU = "Umformulieren: zum Modell gehen nur Platzhalter, ein Ergebnis mit allen Links bleibt anwendbar";
@@ -316,6 +326,7 @@ const PUNKTE = [
   PUNKT_UMBRUCH,
   ...Object.values(W7I),
   ...Object.values(STREAM_PUNKTE),
+  ...Object.values(W27_PUNKTE),
 ] as const;
 
 // --- Prüfpunkte -------------------------------------------------------------
@@ -3516,6 +3527,65 @@ async function main(): Promise<void> {
           await rfZustand.schliesse();
         }
       }
+    }
+
+    // --- 7k. Index-Reload und pending.json (Welle 27, V2) ------------------------------------------------------------------
+    // `maybeReload` lud neu, sobald `index.bin` eine andere mtime trug: auch nach dem EIGENEN Schreiben. Gemessen wird am Zähler um
+    // `loadIndex`, der Aufruf von `maybeReload` ist direkt (statt auf das 30-s-Intervall zu warten). Die frische Instanz hat einen
+    // Start-Drain (die Fixture-Notizen sind jünger als die Stempel des Schnappschusses): erst warten, bis Warteschlange und Lauf leer
+    // sind, sonst misst der Zähler den Start-Drain. Das Skript liefert `null`, solange die Bedingung nicht gilt (Poll-Falle).
+    if (nur === null) {
+      const N27 = W27_PUNKTE;
+      try {
+        const bereit = await pollUntil<boolean>(main, `
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          return p.pendingQueue.size === 0 && !p.embeddingProgress.isEmbedding && p.indexOpsRunning === 0 ? true : null;`, 150000, 1000);
+        if (!bereit) {
+          for (const n of [N27.reloadEigen, N27.reloadLauf, N27.reloadFremd, N27.pendingLeer]) unmeasured(n, "die Warteschlange wurde nicht leer (Start-Drain), kein sauberer Ausgangspunkt");
+        } else {
+          const NOTE = "Notes/Atomic notes.md";
+          const m = await main.evaluate<{ eigen: number; lauf: number; fremd: number; pending: string; sahLauf: boolean; polls: number; kopiert: boolean }>(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            const dir = p.settings.indexDir;
+            const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+            let calls = 0;
+            const orig = p.loadIndex;
+            p.loadIndex = function (...a) { calls++; return orig.apply(this, a); };
+            try {
+              // Fall 1: ein Drain mit eigenem Persist (mtime von index.bin ändert sich)
+              await warte(1100);
+              await p.pendingQueue.add(${JSON.stringify(NOTE)});
+              await p.drainPending();
+              const pending = await app.vault.adapter.read(dir + "/pending.json");
+              await p.maybeReload();
+              const eigen = calls;
+              // Fall 2: maybeReload feuert, WÄHREND der Drain läuft und schreibt
+              await warte(1100);
+              await p.pendingQueue.add(${JSON.stringify(NOTE)});
+              const lauf = p.drainPending();
+              let fertig = false; lauf.then(() => { fertig = true; }, () => { fertig = true; });
+              let sahLauf = false; let polls = 0;
+              while (!fertig && polls < 3000) { if (p.embeddingProgress.isEmbedding || p.indexOpsRunning > 0) sahLauf = true; await p.maybeReload(); polls++; await warte(2); }
+              await lauf; await p.maybeReload();
+              const laufZaehler = calls - eigen;
+              // Gegenprobe: dieselben Bytes von außen neu geschrieben (Sync von einem anderen Gerät) — neue mtime ohne eigenen Lauf
+              await warte(1100);
+              const bytes = await app.vault.adapter.readBinary(dir + "/index.bin");
+              await app.vault.adapter.writeBinary(dir + "/index.bin", bytes);
+              const vorFremd = calls;
+              await p.maybeReload();
+              return { eigen, lauf: laufZaehler, fremd: calls - vorFremd, pending, sahLauf, polls, kopiert: bytes.byteLength > 0 };
+            } finally { delete p.loadIndex; }`);
+          record(N27.reloadEigen, m.eigen === 0, `loadIndex-Aufrufe nach dem Drain-Persist: ${m.eigen} (Soll 0)`);
+          if (!m.sahLauf) unmeasured(N27.reloadLauf, `maybeReload sah den Lauf nie als aktiv (${m.polls} Aufrufe): die Messung fiel nicht in das Fenster`);
+          else record(N27.reloadLauf, m.lauf === 0, `loadIndex-Aufrufe während und nach dem laufenden Drain: ${m.lauf} bei ${m.polls} Aufrufen von maybeReload (Soll 0)`);
+          record(N27.reloadFremd, m.kopiert && m.fremd === 1, `loadIndex-Aufrufe nach der fremden Änderung: ${m.fremd} (Soll 1)`);
+          record(N27.pendingLeer, m.pending.trim() === "[]", `pending.json nach dem Drain: ${m.pending.slice(0, 80)}`);
+        }
+      } catch (e) {
+        for (const n of [N27.reloadEigen, N27.reloadLauf, N27.reloadFremd, N27.pendingLeer]) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+      }
+      unmeasured(N27.reloadZwischenstand, "das Fixture hat 20 Notizen, `reindexAll` schreibt Zwischenstände erst alle 250 (CHECKPOINT_EVERY): belegt ist die Sperre durch den laufenden Drain (Punkt oben) und den Unit-Test, nicht der Zwischenstand selbst");
     }
 
     // --- 8. Auto-Heal-Kaskade: defekter Container ohne Endpunkt ------------

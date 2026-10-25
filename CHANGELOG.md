@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The window "Complete index?" and the messages about changed or unusable notes no longer come back without a reason.** The plugin took its own writes of the index file for a change from outside and reloaded the index after at most 30 seconds, each time with the messages and the window. It now reloads only when the file was changed from outside (a sync from another device), and never while its own run is writing (the intermediate states of a long re-index included). The window also stays away while the index is being written, while embedding is paused, when the missing notes are already queued, and it shows at most once per session.
+- **The queue file `pending.json` is rewritten after each finished run of the queue.** Before, it kept listing notes that were already embedded until the next note was queued, so a restart or another device embedded them a second time.
+
+### Changed
+
+- Kit: code-kit 0.36.0 → 0.37.2 (obsidian-kit stays at 0.67.1 for now). What reaches you: the cut behind "a.md, b.md (+3)" in the messages above is the kit's `summarizeList` (0.37.2; same output as before for a limit of 1 or more); the Anthropic branch of `model-context` (0.37.0) is not used by vault-rag (it only acts when a plugin sets `provider: "anthropic"`), so nothing changes for the context window; `withThinkingLevel` (0.37.1) and `countUnstampedRows` (0.37.0) are new functions that vault-rag does not call yet; the link guard, `json-error-position`, `text-window` and `llm-answer` of 0.37.0 are not vendored here.
+- **The messages about changed notes and about unusable vectors name up to five of the notes** (in the message and in the console). A note that is reported again in three reloads in a row is named once as "always the same note" and not repeated.
+
 ## [0.46.0] — 2026-10-24
 
 ### Added

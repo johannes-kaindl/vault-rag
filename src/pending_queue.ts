@@ -26,6 +26,13 @@ export class PendingQueue {
     await this.save();
   }
 
+  has(path: string): boolean { return this.pending.has(path); }
+
+  /** Schreibt den AKTUELLEN Stand nach `pending.json` — anders als `clear()` bleiben Pfade, die seit `drain()` neu hineinkamen.
+   *  `drain()` leert nur den Speicher; wer einen Drain erfolgreich beendet hat, ruft das einmal auf (die Datei liegt im
+   *  gesyncten Index-Ordner: kein Schreiben je Pfad). */
+  async flush(): Promise<void> { await this.save(); }
+
   drain(): string[] {
     const paths = [...this.pending];
     this.pending.clear();

@@ -85,6 +85,46 @@ describe("PendingQueue", () => {
     expect(q.size).toBe(0);
   });
 
+  // Befund Welle 27: `drain()` leert nur den Speicher. Ohne ein folgendes `add()` zeigt die Datei im
+  // gesyncten Index-Ordner weiter alle Pfade, und ein Neustart oder ein anderes Gerät bettet sie noch einmal ein.
+  it("drain allein schreibt nichts: die Datei zeigt danach noch die alten Pfade", async () => {
+    const adapter = makeAdapter({ "_vaultrag/pending.json": '["a.md","b.md"]' });
+    const q = new PendingQueue(adapter, "_vaultrag");
+    await q.load();
+    q.drain();
+    expect(JSON.parse(adapter.store.get("_vaultrag/pending.json")!)).toEqual(["a.md", "b.md"]);
+  });
+
+  it("flush schreibt den aktuellen Stand: nach einem erfolgreichen Drain ist die Datei leer", async () => {
+    const adapter = makeAdapter({ "_vaultrag/pending.json": '["a.md","b.md"]' });
+    const q = new PendingQueue(adapter, "_vaultrag");
+    await q.load();
+    q.drain();
+
+    await q.flush();
+
+    expect(JSON.parse(adapter.store.get("_vaultrag/pending.json")!)).toEqual([]);
+    expect(adapter.write).toHaveBeenCalledTimes(1);
+  });
+
+  it("flush behält Pfade, die während des Laufs neu hineinkamen (anders als clear)", async () => {
+    const adapter = makeAdapter({ "_vaultrag/pending.json": '["a.md"]' });
+    const q = new PendingQueue(adapter, "_vaultrag");
+    await q.load();
+    q.drain();
+    await q.add("neu.md");           // kommt während des Drain-Laufs hinzu
+    await q.flush();
+
+    expect(JSON.parse(adapter.store.get("_vaultrag/pending.json")!)).toEqual(["neu.md"]);
+  });
+
+  it("has sagt, ob ein Pfad vorgemerkt ist (für das Fenster „Index vervollständigen“)", async () => {
+    const q = new PendingQueue(makeAdapter({ "_vaultrag/pending.json": '["a.md"]' }), "_vaultrag");
+    await q.load();
+    expect(q.has("a.md")).toBe(true);
+    expect(q.has("b.md")).toBe(false);
+  });
+
   it("clear schreibt leeres Array nach pending.json", async () => {
     const adapter = makeAdapter();
     const q = new PendingQueue(adapter, "_vaultrag");

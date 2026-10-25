@@ -66,6 +66,9 @@ import { ReformatReadiness, readinessMessage, canRun, isRangeStale } from "./ref
 import { ReformatPanel } from "./reformat_panel";
 import { mapStartError, describeStartError, classifySelfCheck, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
 import { indexDeltaReadout, healResultMessage } from "./index_delta";
+import { IndexReloadWatch } from "./index_reload";
+import { MAX_PATHS_IN_NOTICE, RecurringFindings, shouldOfferCompletion } from "./index_notices";
+import { summarizeList } from "./vendor/kit/list-summary";
 import { computeIndexDelta, classifyChunkless, splitHealTargets } from "./vendor/kit/index-delta";
 import type { McpServerHandle } from "./mcp/http_server";
 import { RetrievalFacade } from "./retrieval_facade";
@@ -95,7 +98,19 @@ export default class VaultRagPlugin extends Plugin {
    *  Siehe `plugin_api.ts` — bewusst schmaler als die Facade (kein Dateizugriff, keine Vektoren). */
   api!: VaultRetrievalApi;
   private guardedRead: (rel: string) => Promise<string> = (p) => this.app.vault.adapter.read(p);
-  private lastMtime = 0;
+  /** Wann `maybeReload` den Index neu lädt: nur bei einer FREMDEN Änderung von `index.bin` und nie während eines eigenen Laufs
+   *  (`index_reload.ts`). Die Datei schreibt das Plugin selbst — jeder `runIndexOp` und jeder Voll-Reindex/jede Heilung zieht die
+   *  mtime am Ende nach. */
+  private readonly reloadWatch = new IndexReloadWatch({
+    mtime: async () => (await this.app.vault.adapter.stat(`${this.settings.indexDir}/${CONTAINER_FILE}`))?.mtime ?? null,
+    busy: () => this.embeddingProgress.isEmbedding || this.indexOpsRunning > 0,
+  });
+  private indexOpsRunning = 0;
+  /** Die Meldungen nach dem Laden zählen mit: derselbe Pfad in drei Reloads derselben Sitzung wird einmal als Befund genannt. */
+  private readonly staleFindings = new RecurringFindings();
+  private readonly deadFindings = new RecurringFindings();
+  /** Das Fenster „Index vervollständigen“ kommt höchstens einmal je Sitzung. */
+  private completionOffered = false;
   /** Die Embedding-Anbindung (Kit `createLlmConnection({ capability: "embedding" })`, Welle 17): Endpunkt-Quelle,
    *  gemerkte Auflösung mit Index-Passung (`accept`), Zustände je Zeile, der `Embedder` und der Einstellungs-Abschnitt. */
   emb!: EmbeddingConnection;
@@ -201,9 +216,23 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private runIndexOp(fn: () => Promise<void>): Promise<void> {
-    const next = this.indexOpChain.then(fn, fn);
+    const run = async (): Promise<void> => {
+      this.indexOpsRunning++;
+      try { await fn(); }
+      finally {
+        this.indexOpsRunning--;
+        // Der Lauf hat `index.bin` womöglich selbst geschrieben: die mtime als gesehen nachziehen, sonst hielte `maybeReload` sie für fremd.
+        await this.adoptOwnIndexWrite();
+      }
+    };
+    const next = this.indexOpChain.then(run, run);
     this.indexOpChain = next.catch(() => {});
     return next;
+  }
+
+  /** Zieht die mtime von `index.bin` nach einem eigenen Schreiben als gesehen nach (`IndexReloadWatch.adoptOwnWrite`). */
+  private async adoptOwnIndexWrite(): Promise<void> {
+    try { await this.reloadWatch.adoptOwnWrite(); } catch { /* kein Container: nichts nachzuziehen */ }
   }
 
   /** Serialisiert Start/Stop/Restart des MCP-Servers, damit ein Toggle+Port-Edit-Race
@@ -1010,13 +1039,13 @@ export default class VaultRagPlugin extends Plugin {
     return this.runIndexOp(async () => {
       try {
         const root = this.backupsRoot();
-        // Zeitstempel aus dem Container-Header (fällt sonst auf lastMtime zurück).
+        // Zeitstempel aus dem Container-Header (fällt sonst auf die zuletzt gesehene mtime zurück).
         let builtAt = "";
         try {
           const buf = await this.app.vault.adapter.readBinary(`${this.settings.indexDir}/${CONTAINER_FILE}`);
           builtAt = ((decodeContainer(buf).manifest as { built_at?: string }).built_at) ?? "";
         } catch { /* ignore */ }
-        if (!builtAt) builtAt = new Date(this.lastMtime || Date.now()).toISOString();
+        if (!builtAt) builtAt = new Date(this.reloadWatch.lastSeen || Date.now()).toISOString();
         const name = backupDirName(builtAt);
         const dest = `${root}/${name}`;
         if (await this.app.vault.adapter.exists(`${dest}/${CONTAINER_FILE}`)) return; // schon gesichert
@@ -1188,6 +1217,25 @@ export default class VaultRagPlugin extends Plugin {
     return { ...computeIndexDelta(vaultPaths.length, missing, this.emptyNotePaths), healthy: this.indexHealthy };
   }
 
+  /** Die Meldung über veraltete oder unbrauchbare Zeilen: bis zu fünf Pfade im Text und in der Konsole; ein Pfad, der in drei
+   *  Reloads in Folge wieder auftaucht, steht einmal als „immer dieselbe Notiz“ und danach nicht mehr in der Meldung. */
+  private announceFindings(all: string[], seen: { report: string[]; recurring: string[] }, key: "main.staleVectorsFound" | "main.deadVectorsFound"): void {
+    // „a.md, b.md (+3)“: bis zu fünf Pfade, der Rest als Zahl (ohne Wort, damit der Text keine Übersetzung braucht).
+    const named = (paths: string[]): string => {
+      const { shown, rest } = summarizeList(paths, MAX_PATHS_IN_NOTICE);
+      return rest > 0 ? `${shown.join(", ")} (+${rest})` : shown.join(", ");
+    };
+    if (seen.report.length > 0) {
+      new Notice(t(key, seen.report.length, named(seen.report)), 8000);
+      console.warn(`vault-rag: ${key}`, seen.report);
+    }
+    if (seen.recurring.length > 0) {
+      new Notice(t("main.recurringFinding", named(seen.recurring)), 12000);
+      console.warn("vault-rag: main.recurringFinding", seen.recurring);
+    }
+    if (seen.report.length === 0 && seen.recurring.length === 0) console.debug(`vault-rag: ${key} (unverändert wiederkehrend, ${all.length} Pfade)`, all);
+  }
+
   async loadIndex() {
     // Container-first (Task 2): loadIndexStore kapselt exists-Konservativität, Legacy-Migration
     // und die Korruptions-Klassifikation an einer Stelle (obsidian-frei, getestet).
@@ -1198,7 +1246,7 @@ export default class VaultRagPlugin extends Plugin {
       this.index = result.index;
       this.liveIndexer.init(this.index, result.stamps);
       const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/${CONTAINER_FILE}`);
-      if (st) this.lastMtime = st.mtime;
+      if (st) this.reloadWatch.note(st.mtime);
       this.indexHealthy = true;
       this.refresh();
       this.syncProgress();
@@ -1217,20 +1265,32 @@ export default class VaultRagPlugin extends Plugin {
       // erfassbar — der Schaden, den bis 2026-09-04 kein Waechter sehen konnte. Ohne Stempel
       // im Container (Altbestand) liefert die Funktion leer: ungeprueft ist nicht verdaechtig.
       const stale = findStaleVectorPaths([...this.index.paths], result.stamps, this.vaultStamps());
+      const staleSeen = this.staleFindings.observe(stale);
       if (stale.length > 0) {
-        new Notice(t("main.staleVectorsFound", stale.length), 8000);
+        this.announceFindings(stale, staleSeen, "main.staleVectorsFound");
         try { await this.pendingQueue.addMany(stale); }
         catch (e) { console.error("vault-rag: veraltete Index-Zeilen konnten nicht vorgemerkt werden", e); }
       }
       const dead = findDeadVectorPaths([...this.index.paths], this.index.vectors, this.index.dim);
+      const deadSeen = this.deadFindings.observe(dead);
       if (dead.length > 0) {
-        new Notice(t("main.deadVectorsFound", dead.length), 8000);
+        this.announceFindings(dead, deadSeen, "main.deadVectorsFound");
         try { await this.pendingQueue.addMany(dead); }
         catch (e) { console.error("vault-rag: tote Index-Zeilen konnten nicht vorgemerkt werden", e); }
       }
       // Konservativ: nur bei substanzieller Lücke laut werden (>5% UND >20 Notizen),
       // und nur wenn der Embedder erreichbar ist (sonst ist die Lücke evtl. temporär).
-      if (embeddable.length > 20 && embeddable.length > vaultPaths.length * 0.05 && await this.embedderReady()) {
+      // Nicht, wenn ein Lauf schreibt, die Einbettung pausiert ist, die Notizen schon in der Warteschlange stehen oder das Fenster
+      // in dieser Sitzung schon kam (`shouldOfferCompletion`, `index_notices.ts`).
+      if (shouldOfferCompletion({
+        missing: embeddable,
+        total: vaultPaths.length,
+        running: this.embeddingProgress.isEmbedding || this.indexOpsRunning > 0,
+        paused: this.pause.isPaused(),
+        queued: (p) => this.pendingQueue.has(p),
+        offered: this.completionOffered,
+      }) && await this.embedderReady()) {
+        this.completionOffered = true;
         new Notice(t("main.notesMissingFromIndex", embeddable.length, vaultPaths.length), 8000);
         // Fire-and-forget: loadIndex() blockiert onload() nicht auf User-Interaktion.
         void confirmAction(this.app, {
@@ -1425,11 +1485,11 @@ export default class VaultRagPlugin extends Plugin {
   async maybeReload() {
     if (this.isSwitchingIndexDir) return;
     try {
-      const st = await this.app.vault.adapter.stat(`${this.settings.indexDir}/${CONTAINER_FILE}`);
-      if (st && st.mtime !== this.lastMtime) {
+      // Nur eine FREMDE Änderung lädt neu (Sync von einem anderen Gerät): eigene Schreibvorgänge und die Zwischenstände
+      // eines laufenden Reindex sieht `reloadWatch` nicht als Änderung (`index_reload.ts`).
+      if (await this.reloadWatch.foreignChange()) {
         const prevCount = this.index?.count ?? 0;
         const prevIndex = this.index;
-        this.lastMtime = st.mtime;
         await this.loadIndex();
         // Jeden "schlechteren" Ausgang abfangen — sowohl Gefahrenzustand (!this.index, z.B.
         // abgeschnittenes notes.i8 eines Fremdgeräts) als auch Suspicious-Shrink —, solange wir
@@ -1764,6 +1824,11 @@ export default class VaultRagPlugin extends Plugin {
         // buildIndex ERST nach erfolgreichem persist (Begründung s. handleModify): ein geblockter
         // Persist lässt `this.index` unberührt, statt ihn mit einem fremden Modell zu stempeln.
         await li.persist("live");
+        // `drain()` leerte nur den Speicher: ohne diesen Schreibvorgang zeigt `pending.json` im gesyncten Index-Ordner weiter alle
+        // Pfade, und ein Neustart oder ein anderes Gerät bettet sie noch einmal ein. Einmal je Drain, mit dem Stand von jetzt
+        // (Pfade, die während des Laufs hineinkamen, bleiben).
+        try { await this.pendingQueue.flush(); }
+        catch (e) { console.warn("vault-rag: pending.json nach dem Drain nicht neu geschrieben", e); }
         this.index = li.buildIndex();
         this.indexHealthy = true;
         this.syncProgress();
@@ -1881,6 +1946,7 @@ export default class VaultRagPlugin extends Plugin {
     } finally {
       this.embeddingProgress.reindex = null;
       this.embeddingProgress.isEmbedding = false;
+      await this.adoptOwnIndexWrite();   // Zwischenstände und Endstand von `index.bin` sind eigene Schreibvorgänge
       this.syncProgress();
       if (statusReveal) this.setStatusBarVisible(this.settings.showStatusBar);
       window.setTimeout(() => notice.hide(), 4000);
@@ -1955,6 +2021,7 @@ export default class VaultRagPlugin extends Plugin {
     } finally {
       this.embeddingProgress.reindex = null;
       this.embeddingProgress.isEmbedding = false;
+      await this.adoptOwnIndexWrite();   // Zwischenstände und Endstand von `index.bin` sind eigene Schreibvorgänge
       this.syncProgress();
       if (statusReveal) this.setStatusBarVisible(this.settings.showStatusBar);
       window.setTimeout(() => notice.hide(), 4000);

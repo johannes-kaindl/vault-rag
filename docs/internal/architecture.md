@@ -90,6 +90,8 @@ embedder.ts       EmbeddingClient → Ollama/MLX HTTP-Endpoint; ping() + Batch-E
                   listModels() + fetchCapabilities().
 http.ts           httpJson() über Obsidians requestUrl — einziger obsidian-Import der Netz-Schicht.
 pending_queue.ts  PendingQueue → Dirty-List in pending.json; drain-on-reconnect.
+index_reload.ts  IndexReloadWatch → wann `maybeReload` neu lädt: nur bei fremder Änderung von index.bin, nie während eines eigenen Laufs; eigene Schreibvorgänge (`runIndexOp`, Voll-Reindex, Heilung) ziehen die mtime nach.
+index_notices.ts Meldungen nach dem Laden: `shouldOfferCompletion` (Fenster „Index vervollständigen“), `formatPathList` (bis fünf Pfade), `RecurringFindings` (derselbe Pfad in drei Reloads).
 live-indexer   LiveIndexer → note-level Vektor-Map; update/remove/rename · buildIndex ·
                   persist(reason) schreibt EINE Datei (`index-container` → `index.bin`, kein
                   Multi-File-Write mehr), gegen `index_guard` geguarded (ready + Live-Disk-Read des

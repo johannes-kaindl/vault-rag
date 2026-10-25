@@ -675,6 +675,8 @@ export default class VaultRagPlugin extends Plugin {
         autoK: this.settings.chatK,
         isPaused: () => this.pause.isPaused(),
         thinking: this.thinkingDeps(MODE_CHAT, () => this.chatModelInUse),
+        // Linkschutz der Antworten (Kit `domGuard`): ein Getter, den das Fenster je Antwort ruft, damit ein Umlegen in den Einstellungen ohne Neuaufbau wirkt.
+        domGuard: () => ({ allowObsidianLinks: this.settings.allowObsidianLinks, allowLocalImages: this.settings.allowLocalImages }),
         // Das Fenster neutralisiert die Antwort und schützt den DOM selbst (`createStableWriter`): hier nur der Renderer.
         renderMarkdown: (el, md) => MarkdownRenderer.render(this.app, md, el, "", this.markdownComponent),
         enterSends: () => this.settings.enterSends,

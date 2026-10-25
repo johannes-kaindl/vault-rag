@@ -34,6 +34,9 @@ export interface VaultRagSettings {
   chatSystemPrompt: string;
   chatInputPosition: "bottom" | "top";
   enterSends: boolean;
+  /** Linkschutz der Chat-Antworten (Kit `domGuard`, Default aus): `obsidian://`-Links behalten ihr Ziel, Bilder aus dem Vault werden gezeigt. */
+  allowObsidianLinks: boolean;
+  allowLocalImages: boolean;
   smartApplyEnabled: boolean;
   templateDir: string;
   smartApplyModel: string;
@@ -152,6 +155,8 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   chatSystemPrompt: "",
   chatInputPosition: "bottom",
   enterSends: true,
+  allowObsidianLinks: false,
+  allowLocalImages: false,
   smartApplyEnabled: false,
   templateDir: "Templates/",
   smartApplyModel: "",

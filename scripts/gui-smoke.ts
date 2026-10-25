@@ -182,7 +182,7 @@ const W26_PUNKTE = {
   md: "Chat: Markdown erscheint schon im Lauf — der geschlossene Abschnitt ist gerendert, kein Rohtext von **",
   chips: "Chat: der Auto-Kontext zeigt beim Tippen Chips (das input-Ereignis erreicht das Fenster)",
   quelle: "Chat: ein Quellen-Chip unter der Antwort öffnet die Notiz",
-  links: "Chat: Links mit javascript:, data:, file:, obsidian: und app: erscheinen nicht als klickbarer Link (bekannter Befund, Kit-Task Welle 27)",
+  links: "Chat: Links mit javascript:, data:, file:, obsidian: und app: erscheinen nicht als klickbarer Link (Linkschutz des Kits, Standard)",
   modellChat: "Chat: die Modellzeile wechselt das Modell, und die nächste Anfrage trägt es",
   sperreChat: "Chat: die Modellzeile ist während des Laufs gesperrt und danach frei",
   modellSa: "Smart Apply: die Modellzeile wechselt smartApplyModel, „Automatisch“ stellt es zurück",
@@ -245,6 +245,7 @@ const W27_PUNKTE = {
   reloadFremd: "Index-Reload: eine fremde Änderung von index.bin lädt genau einmal neu (Gegenprobe)",
   pendingLeer: "pending.json ist nach einem erfolgreichen Drain leer",
   reloadZwischenstand: "Index-Reload: die Zwischenstände eines laufenden Voll-Reindex lösen keinen Reload aus",
+  linkEinstellung: "Einstellungen: die Gruppe „Links and images in answers“ hat zwei Schalter, beide aus, und ein Umlegen schreibt die Einstellung (und zurück)",
   stempelNull: "Index-Zustand: ein vollständig gestempelter Index zeigt keine Stempel-Lücke (Nullfall)",
   stempelPositiv: "Index-Zustand: drei Zeilen ohne Stempel stehen als „3 of 20“ mit dem Satz zur Folge in der Zeile (Positivfall)",
   reformatZeile: "Umformatieren: die Modellzeile wechselt das Chat-Modell (dieselbe Verbindung), im Chat-Tab steht dasselbe, „Automatisch“ stellt es zurück",
@@ -2362,7 +2363,7 @@ async function main(): Promise<void> {
           return { gesamt: a.length, sichtbar: !!b, schemata: { "javascript:": schema("javascript:"), "data:": schema("data:"), "file:": schema("file:"), "obsidian:": schema("obsidian:"), "app:": schema("app:") } };`);
         const lebend = Object.entries(links.schemata).filter(([, n]) => n > 0).map(([k]) => k);
         record(N26.links, links.sichtbar && lebend.length === 0,
-          links.sichtbar ? `${links.gesamt} Links gesamt · klickbar mit Schema: ${lebend.length ? lebend.join(", ") : "keins"} · bekannter Befund, Kit-Task Welle 27 „Linkschutz in Modellantworten“ (dieselbe Probe gegen den Tag 0.45.0, 2026-10-24: javascript: und data: ohne href, file:, obsidian: und app: klickbar — Zustand unverändert)` : "keine fertige Antwort gefunden");
+          links.sichtbar ? `${links.gesamt} Links gesamt · klickbar mit Schema: ${lebend.length ? lebend.join(", ") : "keins"} (Standard: beide Schalter „Links und Bilder in Antworten“ aus)` : "keine fertige Antwort im Chat gefunden");
         // Quellen-Chip: öffnet die Notiz.
         const quelle = await main.evaluate<{ chips: number; label: string; opened: string | null }>(`
           const c = [...document.querySelectorAll(".vault-rag-chat-source")];
@@ -3736,6 +3737,44 @@ async function main(): Promise<void> {
             await main.evaluate(`await app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].loadIndex(); return true;`);
           } catch (e) { console.log(`  ! Index im Staging-Vault konnte nicht zurückgesetzt werden: ${String(e)}`); }
         }
+      }
+    }
+
+    // --- 7m. Linkschutz-Einstellung (Welle 27, Kit `link-settings`) -----------------------------------------------------------
+    // Die Gruppe steht hinter dem Chat, beide Schalter sind im Default aus; ein Klick schreibt `allowObsidianLinks` und `allowLocalImages` (das
+    // Chat-Fenster liest sie je Antwort über einen Getter). Die Wirkung auf einen Link misst die Probe „Links … erscheinen nicht als klickbarer Link“
+    // für den Standard; mit dem Schalter an bleibt das Ziel eines `obsidian://`-Links (Kit-Test), hier wird nur die Verdrahtung gemessen.
+    if (nur === null) {
+      const N27 = W27_PUNKTE;
+      try {
+        await schliesseEinstellungen(main);
+        await openSettings(main);
+        const sicht = await attachTo("settings", port, vault);
+        if (!sicht) unmeasured(N27.linkEinstellung, "Einstellungs-Fenster nicht erreichbar");
+        else {
+          try {
+            const liesDom = `
+              const gruppe = [...document.querySelectorAll(".setting-item")].filter((e) => ["Allow obsidian:// links", "Show local images from the vault"].includes(e.querySelector(".setting-item-name")?.textContent ?? ""));
+              return { zeilen: gruppe.length, an: gruppe.map((e) => e.querySelector(".checkbox-container")?.classList.contains("is-enabled") ?? null) };`;
+            // Das Einstellungs-Fenster ist ein eigener Renderer ohne `app`: die Werte kommen aus dem Hauptfenster.
+            const liesWerte = () => main.evaluate<{ links: boolean; bilder: boolean }>(`
+              const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+              return { links: p.settings.allowObsidianLinks, bilder: p.settings.allowLocalImages };`);
+            const klick = `
+              const z = [...document.querySelectorAll(".setting-item")].find((e) => e.querySelector(".setting-item-name")?.textContent === "Allow obsidian:// links");
+              z?.querySelector(".checkbox-container")?.click(); await new Promise((r) => setTimeout(r, 700)); return true;`;
+            const dom = await sicht.evaluate<{ zeilen: number; an: (boolean | null)[] }>(liesDom);
+            const vorher = await liesWerte();
+            await sicht.evaluate(klick);
+            const an = await liesWerte();
+            await sicht.evaluate(klick);
+            const zurueck = await liesWerte();
+            record(N27.linkEinstellung, dom.zeilen === 2 && vorher.links === false && vorher.bilder === false && dom.an.every((x) => x === false) && an.links === true && an.bilder === false && zurueck.links === false,
+              `Zeilen ${dom.zeilen} · vorher links ${String(vorher.links)}/Bilder ${String(vorher.bilder)} · nach dem Klick links ${String(an.links)} · zurück ${String(zurueck.links)}`);
+          } finally { sicht.close(); await schliesseEinstellungen(main); }
+        }
+      } catch (e) {
+        if (!bilanz.eintraege().some((x) => x.name === N27.linkEinstellung)) unmeasured(N27.linkEinstellung, `Messung abgebrochen: ${String(e)}`);
       }
     }
 

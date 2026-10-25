@@ -75,6 +75,17 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 | Input position | Composer above or below the transcript | bottom |
 | Enter sends | On: Enter sends, Shift+Enter newline · Off: reversed | on |
 
+### Links and images in answers
+
+The chat cuts dangerous link targets out of an answer (`javascript:`, `data:`, `file:`, `app:`) whatever you set here. Two kinds of target are off by default and can be allowed:
+
+| Setting | Effect | Default |
+|---|---|---|
+| Allow obsidian:// links | Answers can contain links that trigger Obsidian actions, such as opening another vault. Only turn this on if you trust the answers | off |
+| Show local images from the vault | Show images from your vault in answers. Remote images always stay blocked | off |
+
+A switch works on the next answer and when the transcript is redrawn; an answer already on screen keeps what was cut from it. A cut link still looks like a link but does nothing.
+
 ### Model requests
 
 One collapsible section **Request** covers all three call sites: chat (*grounded*), Smart Apply (*structured*) and reformatting (*transform*). It shows what is sent per mode and whether it takes effect on your backend, takes overrides per mode × model family, and shows the last request and any deviations of the session. The values come from a shared table by model family and backend (LM Studio, Open WebUI, unknown); with an LLM Endpoint Manager the family of an alias comes from there, otherwise it is estimated from the name. A temperature or "suppress thinking" you had set in an older version was carried over into this section on the first start.

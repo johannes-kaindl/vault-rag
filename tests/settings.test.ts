@@ -45,6 +45,12 @@ describe("settings", () => {
     expect(DEFAULT_SETTINGS.enterSends).toBe(true);
   });
 
+  // Linkschutz der Chat-Antworten (Welle 27, Kit 0.70.0): beide Schalter aus.
+  it("Linkschutz: obsidian://-Links und lokale Bilder sind im Default aus", () => {
+    expect(DEFAULT_SETTINGS.allowObsidianLinks).toBe(false);
+    expect(DEFAULT_SETTINGS.allowLocalImages).toBe(false);
+  });
+
   it("hat Smart-Apply-Defaults", () => {
     expect(DEFAULT_SETTINGS.smartApplyEnabled).toBe(false);
     expect(DEFAULT_SETTINGS.templateDir).toBe("Templates/");
@@ -323,6 +329,25 @@ describe("getSettingDefinitions – Struktur", () => {
     const items = g.items as any[];
     expect(items.length).toBe(1);
     expect(typeof items[0].render).toBe("function");
+  });
+
+  it("Gruppe „Links and images in answers“ steht hinter dem Chat: zwei Schalter in der Wortwahl des Kits, ein Umlegen speichert in die Einstellung", async () => {
+    const { tab, host } = makeTab();
+    const defs = tab.getSettingDefinitions() as any[];
+    const g = defs.find(d => d.heading === "Links and images in answers");
+    expect(g).toBeTruthy();
+    expect(defs.indexOf(g)).toBe(defs.findIndex(d => d.heading === "Chat") + 1);
+    const items = g.items as any[];
+    expect(items.map(i => i.name)).toEqual(["Allow obsidian:// links", "Show local images from the vault"]);
+    // Die Schalter über das Kit-Fake-`Setting` zeichnen und umlegen.
+    for (const [i, key] of [[0, "allowObsidianLinks"], [1, "allowLocalImages"]] as const) {
+      let onChange: ((v: boolean) => void) | null = null;
+      const setting: any = { setName: () => setting, setDesc: () => setting, addToggle: (cb: any) => { cb({ setValue: () => ({ onChange: (f: any) => { onChange = f; } }) }); return setting; } };
+      items[i].render(setting);
+      onChange!(true);
+      await vi.waitFor(() => { expect(host.settings[key]).toBe(true); });
+    }
+    expect(host.saveSettings).toHaveBeenCalledTimes(2);
   });
 
   it("Chat-Gruppe: deklarative Keys + render-Hatches, keine Sampling-Regler mehr", () => {

@@ -21,6 +21,7 @@ import { MCP_CLIENTS, buildClientSnippet, maskToken, type McpClientId } from "./
 import { describeStartError, type SelfCheckResult, type StartErrorReason } from "./mcp/mcp_diagnostics";
 import { getLang, t } from "./vendor/kit/i18n";
 import type { StampGapView } from "./stamp_gap";
+import { linkSettingDefinitions, resolveLinkSettingsStrings, type LinkSettingKey } from "./vendor/kit-obsidian/link-settings";
 
 export { DEFAULT_SETTINGS };
 export type { VaultRagSettings };
@@ -210,7 +211,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         reportIssue: t("settings.help.reportIssue"),
       },
     });
-    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.reformatGroup(), this.smartApplyGroup(), this.integratorGroup()];
+    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.linksGroup(), this.reformatGroup(), this.smartApplyGroup(), this.integratorGroup()];
   }
 
   /** Einmal-pro-Öffnen die aktiven Endpunkte auflösen. An ein echtes Render-Signal (erster
@@ -357,6 +358,18 @@ export class VaultRagSettingTab extends PluginSettingTab {
       { name: t("settings.chat.enterSends.name"), desc: t("settings.chat.enterSends.desc"),
         control: { type: "toggle", key: "enterSends" } },
     ] };
+  }
+
+  /** „Links und Bilder in Antworten“ (Kit `link-settings`, UI-STANDARD §8): zwei Schalter, beide aus. Das Chat-Fenster liest sie je Antwort über einen Getter
+   *  (`main.ts`, `domGuard`), ein Umlegen wirkt also auf die nächste Antwort ohne Neuaufbau. */
+  private linksGroup(): SettingDefinitionGroup {
+    const strings = { lang: getLang() };
+    return { type: "group", heading: resolveLinkSettingsStrings(strings).heading, items: linkSettingDefinitions({
+      allowObsidianLinks: this.plugin.settings.allowObsidianLinks,
+      allowLocalImages: this.plugin.settings.allowLocalImages,
+      strings,
+      onChange: async (key: LinkSettingKey, value: boolean) => { this.plugin.settings[key] = value; await this.plugin.saveSettings(); },
+    }) };
   }
 
   /** Smart-Apply-Gruppe: fast vollständig deklarativ. „Verbindung" ist eine reine Info-Zeile

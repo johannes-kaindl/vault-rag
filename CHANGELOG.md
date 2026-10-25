@@ -13,6 +13,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **The Reformat tab has the model row of the other tabs** (label "Reformat (chat model)"): model dropdown with *Automatic*, reload button and the thinking control in one row, above the buttons. Reformat requests go through the chat connection, so a model chosen there is the chat's model too (and the other way round); there is no new setting. The row is never locked, because the preview is a dialog and the tab cannot be used while it is open.
 - **The index state line in the settings names the gap in the change check.** Rows of the index without a change mark (the file date and size noted when a note is indexed) are skipped by the check for notes that changed outside Obsidian, so such an edit goes unnoticed. The line now says "N of M notes have no change mark — edits made outside Obsidian are not noticed there; a full re-index sets it", counted from the loaded index and kept up to date while you work. For an index built before the marks existed it says so in one sentence instead of a number. Nothing is stamped afterwards and a full re-index stays your decision.
 
 ### Changed

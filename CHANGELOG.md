@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.47.0] — 2026-10-25
+
 ### Fixed
 
 - **The index rows no longer lose their change marks.** Whenever the plugin switched its embedding connection (at start, after a settings change), restored a backup in the auto-heal or fell back after a bad reload, it handed the index to a new indexer without the marks (the file date and size noted when a note was indexed). The next change of any note then wrote "no mark" for every other row, which is why almost every row of a long-used index had none and edits made outside Obsidian went unnoticed. The marks now travel with the index (code-kit 0.37.3, `stampsSnapshot`), and the backup's own marks are restored with it. Nothing is stamped afterwards. An index that already lost its marks does not get them back by this: the index state line shows how many rows are affected, and the next full re-index sets them.

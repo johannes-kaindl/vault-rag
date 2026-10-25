@@ -53,7 +53,7 @@ index-container  Container-Codec (seit 0.18.0): kodiert/dekodiert `_vaultrag/ind
                   kein Datei-I/O.
 index_store.ts    Container-first-Load: liest `index.bin`, fällt bei Fehlen/Korruption auf das
                   Legacy-Tripel zurück und migriert es beim ersten Load byte-level in den
-                  Container (verlustfrei, kein Reindex). `verifyBackupCandidate` prüft ein
+                  Container (verlustfrei, kein Reindex). `verifyBackupCandidate` (und `loadBackupCandidate`, mit den Stempeln des Backups) prüft ein
                   geräte-lokales Backup per CRC, bevor die Auto-Heal-Kaskade (main.ts) es
                   übernimmt.
 index_delta.ts    Pure Delta-/Heal-Anzeige-Logik (keine Obsidian-Abhängigkeit): indexDeltaReadout

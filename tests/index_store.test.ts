@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { VaultAdapter } from "../src/index";
 import { IndexManifest } from "../src/vendor/kit/vector-index";
 import { CONTAINER_FILE, encodeContainer, decodeContainer } from "../src/vendor/kit/index-container";
-import { loadIndexStore, verifyBackupCandidate } from "../src/index_store";
+import { loadIndexStore, verifyBackupCandidate, loadBackupCandidate } from "../src/index_store";
 
 const DIM = 4;
 
@@ -117,6 +117,26 @@ describe("index_store", () => {
     await a.writeBinary(`${bdir}/${CONTAINER_FILE}`, encodeContainer(makeManifest(3), PATHS3, makeMatrix(3)));
     const idx = await verifyBackupCandidate(a, bdir);
     expect(idx?.count).toBe(3);
+  });
+
+  it("loadBackupCandidate: das Container-Backup bringt seine Stempel mit (Auto-Heal darf sie nicht verlieren)", async () => {
+    const bdir = path.join(root, "backup-stamps");
+    await a.mkdir(bdir);
+    const stamps: [number, number][] = [[1, 10], [2, 20], [3, 30]];
+    await a.writeBinary(`${bdir}/${CONTAINER_FILE}`, encodeContainer(makeManifest(3), PATHS3, makeMatrix(3), stamps));
+    const c = await loadBackupCandidate(a, bdir);
+    expect(c?.index.count).toBe(3);
+    expect(c?.stamps).toEqual(stamps);
+  });
+
+  it("loadBackupCandidate: ein Backup ohne Stempel-Feld und ein Legacy-Tripel liefern keine Stempel, aber den Index", async () => {
+    const bdir = path.join(root, "backup-ohne-stempel");
+    await a.mkdir(bdir);
+    await a.writeBinary(`${bdir}/${CONTAINER_FILE}`, encodeContainer(makeManifest(3), PATHS3, makeMatrix(3)));
+    const c = await loadBackupCandidate(a, bdir);
+    expect(c?.index.count).toBe(3);
+    expect(c?.stamps).toBeUndefined();
+    expect(await loadBackupCandidate(a, path.join(root, "gibt-es-nicht"))).toBeNull();
   });
 
   it("verifyBackupCandidate: Legacy-Tripel-Backup (Prä-0.18-Bestand) wird geladen", async () => {

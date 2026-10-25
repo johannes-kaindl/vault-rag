@@ -18,8 +18,8 @@ Gotchas zu Auto-Heal, leeren Notizen, Index-Ordner und Reindex (`src/main.ts`, `
   (deckt `.obsidian/`, `.trash/` ab) — daher `.trash/` **nicht** mehr in `DEFAULT_SETTINGS.exclude`.
 
 - **Auto-Heal-Kaskade (höchstens einmal je Episode):** Liefert der Load einen CRC-defekten Container,
-  sucht `main.ts` das neueste per `verifyBackupCandidate` CRC-bewiesene geräte-lokale Backup, übernimmt
-  es und ergänzt fehlende Notizen per Delta-Reindex. **Die Reihenfolge ist bedeutungstragend:**
+  sucht `main.ts` das neueste per `loadBackupCandidate` (`verifyBackupCandidate` mit den Stempeln) CRC-bewiesene geräte-lokale Backup, übernimmt
+  es samt seinen Stempeln (`li.init(base, stempel)`; ohne sie schriebe der nächste Persist `[0, 0]`) und ergänzt fehlende Notizen per Delta-Reindex. **Die Reihenfolge ist bedeutungstragend:**
   Backup-Suche und Modell-Guard laufen VOR jeder Endpunkt-Bedingung, weil beide kein Netz brauchen —
   nur der Delta-Reindex braucht einen. Vorher stand ein `if (!ready) return` davor, und damit hing die
   Übernahme am Reindex: wer offline war, blieb dauerhaft auf dem defekten Container sitzen, obwohl die

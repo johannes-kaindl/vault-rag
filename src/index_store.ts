@@ -71,14 +71,21 @@ async function cleanupLegacyTriple(adapter: VaultAdapter, dir: string): Promise<
 /** Beweist ein Backup (Container ODER Prä-0.18-Tripel) via Decode + parseIndex.
  *  null = nicht beweisbar (korrupt/unvollständig) — nie werfen, Kaskade probiert das nächste. */
 export async function verifyBackupCandidate(adapter: VaultAdapter, backupDir: string): Promise<VectorIndex | null> {
+  return (await loadBackupCandidate(adapter, backupDir))?.index ?? null;
+}
+
+/** Wie `verifyBackupCandidate`, aber MIT den Stempeln des Backup-Containers (Welle 27): ein `VectorIndex` trägt keine, und ein LiveIndexer, der aus
+ *  dem Backup gesät wird, schriebe sonst für jede Zeile, die er nicht selbst anfasst, `[0, 0]`. `stamps` fehlt bei einem Container ohne Stempel-Feld
+ *  und beim Legacy-Tripel (das hat nie welche getragen). Es wird nichts nachgestempelt. */
+export async function loadBackupCandidate(adapter: VaultAdapter, backupDir: string): Promise<{ index: VectorIndex; stamps?: FileStamp[] } | null> {
   try {
     if (await adapter.exists(`${backupDir}/${CONTAINER_FILE}`)) {
-      const { manifest, paths, matrix } = decodeContainer(await adapter.readBinary(`${backupDir}/${CONTAINER_FILE}`));
-      return parseIndex(manifest, paths, matrix);
+      const { manifest, paths, matrix, stamps } = decodeContainer(await adapter.readBinary(`${backupDir}/${CONTAINER_FILE}`));
+      return { index: parseIndex(manifest, paths, matrix), ...(stamps ? { stamps } : {}) };
     }
   } catch { /* Container unbrauchbar → Legacy versuchen */ }
   try {
-    return (await readLegacyTriple(adapter, backupDir)).index;
+    return { index: (await readLegacyTriple(adapter, backupDir)).index };
   } catch {
     return null;
   }

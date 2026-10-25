@@ -248,6 +248,7 @@ const W27_PUNKTE = {
   stempelNull: "Index-Zustand: ein vollständig gestempelter Index zeigt keine Stempel-Lücke (Nullfall)",
   stempelPositiv: "Index-Zustand: drei Zeilen ohne Stempel stehen als „3 of 20“ mit dem Satz zur Folge in der Zeile (Positivfall)",
   reformatZeile: "Umformatieren: die Modellzeile wechselt das Chat-Modell (dieselbe Verbindung), im Chat-Tab steht dasselbe, „Automatisch“ stellt es zurück",
+  stempelNeusaeen: "Stempel: nach dem Neusäen des LiveIndexer (resolveAndReconnectEmbedder) und einer Notiz-Änderung stehen auf der Platte noch alle echten Stempel",
   stempelLive: "Index-Zustand: nach einer Live-Änderung einer dieser Notizen sinkt die Zahl auf 2, ohne dass der Index neu geladen wird",
 } as const;
 
@@ -3630,7 +3631,7 @@ async function main(): Promise<void> {
     // (der Start-Drain der frischen Instanz stempelt Zeilen neu).
     if (nur === null) {
       const N27 = W27_PUNKTE;
-      const stempelPunkte = [N27.stempelNull, N27.stempelPositiv, N27.stempelLive];
+      const stempelPunkte = [N27.stempelNull, N27.stempelPositiv, N27.stempelLive, N27.stempelNeusaeen];
       let originalBytes: Buffer | null = null;
       let indexDatei = "";
       try {
@@ -3706,6 +3707,23 @@ async function main(): Promise<void> {
               } finally { delete p.loadIndex; }`);
             record(N27.stempelLive, live.gap.kind === "some" && live.gap.unstamped === N - 1 && live.reloads === 0,
               `stampGap nach dem Drain von ${dec.paths[0]}: ${JSON.stringify(live.gap)} · loadIndex-Aufrufe ${live.reloads} (Soll 0)`);
+
+            // Neusäen (Task „Stempel gehen verloren …“): alle Stempel echt, dann `resolveAndReconnectEmbedder` (sät einen neuen LiveIndexer) und eine
+            // Notiz-Änderung über den Drain. Ohne den Snapshot des Vorgängers schriebe der Persist `[0, 0]` für jede andere Zeile (gemessen: 18 von 20).
+            schreibe(echt);
+            await main.evaluate(`await app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].loadIndex(); return true;`);
+            await main.evaluate(`
+              const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+              await p.resolveAndReconnectEmbedder();
+              await new Promise((r) => setTimeout(r, 1100));
+              await p.pendingQueue.add(${JSON.stringify(dec.paths[1])});
+              await p.drainPending();
+              return true;`);
+            const auf = decodeContainer((() => { const b = readFileSync(indexDatei); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer; })());
+            const nullen = (auf.stamps ?? []).filter((st) => st[0] === 0 && st[1] === 0).length;
+            const gleich = (auf.stamps ?? []).every((st, i) => st[0] === echt[i]![0] && st[1] === echt[i]![1]);
+            record(N27.stempelNeusaeen, auf.stamps !== undefined && nullen === 0 && gleich,
+              `Stempel auf der Platte nach Neusäen und Drain von ${dec.paths[1]}: ${auf.stamps === undefined ? "kein Stempel-Feld" : `${nullen} von ${auf.paths.length} Zeilen auf [0,0]`}${gleich ? ", alle wie vorher" : ", nicht alle wie vorher"}`);
           }
         }
       } catch (e) {

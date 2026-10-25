@@ -53,8 +53,8 @@ import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestF
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
 import type { HubPanel, TabId } from "./hub_panel";
 import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, findStaleVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal, decideHealWrite, backupAgeMs } from "./vendor/kit/index-guard";
-import { loadIndexStore, verifyBackupCandidate } from "./index_store";
-import { CONTAINER_FILE, decodeContainer } from "./vendor/kit/index-container";
+import { loadIndexStore, loadBackupCandidate } from "./index_store";
+import { CONTAINER_FILE, decodeContainer, type FileStamp } from "./vendor/kit/index-container";
 import { McpTools } from "./mcp/tools";
 import { generateToken } from "./mcp/auth";
 import { pickTransform, promptInstruction } from "./reformat_picker";
@@ -787,8 +787,11 @@ export default class VaultRagPlugin extends Plugin {
       r.state === "no-model" && cfg ? [cfg.url] : [],
       indexModel,
     );
+    // Die Stempel des Vorgängers gehen mit: ein `VectorIndex` trägt keine, und ein Indexer ohne sie schriebe nach dem nächsten Update für jede nicht
+    // angefasste Zeile `[0, 0]` (Welle 27, Task „Stempel gehen verloren …“). Der Snapshot ist eine Kopie; nachgestempelt wird nichts.
+    const vorgaenger = this.liveIndexer;
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait"), m, { dim: 256 });
-    if (this.index) this.liveIndexer.init(this.index);
+    if (this.index) this.liveIndexer.init(this.index, vorgaenger?.stampsSnapshot());
     else if (this.indexHealthy) this.liveIndexer.markFresh();
     // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
   }
@@ -1358,10 +1361,11 @@ export default class VaultRagPlugin extends Plugin {
     // das CRC-bewiesene Backup danebenlag (so beobachtet 2026-08-14). Die Aufteilung, was
     // Netz braucht und was nicht, macht `planAutoHeal` explizit.
     let candidate: VectorIndex | null = null;
+    let candidateStamps: FileStamp[] | undefined;
     let candidateName = "";
     for (const b of await this.listBackups()) { // sortBackupsNewestFirst-Reihenfolge
-      candidate = await verifyBackupCandidate(this.app.vault.adapter, `${this.backupsRoot()}/${b.name}`);
-      if (candidate) { candidateName = b.name; break; }
+      const found = await loadBackupCandidate(this.app.vault.adapter, `${this.backupsRoot()}/${b.name}`);
+      if (found) { candidate = found.index; candidateStamps = found.stamps; candidateName = b.name; break; }
     }
     // `!Platform.isMobile` ist die ehrlichste verfügbare Antwort auf „kann dieses Gerät den
     // Index je selbst vervollständigen?" — grob, aber in die sichere Richtung grob: auf dem
@@ -1438,7 +1442,8 @@ export default class VaultRagPlugin extends Plugin {
         // Re-Check (2/2): zwischen Kaskadenstart und dem Zug an der runIndexOp-Kette kann der
         // gute Index zurück sein — dann nichts anfassen (auch kein markUnready).
         if (this.indexHealthy) { aborted = true; return; }
-        li.init(base);
+        li.init(base, candidateStamps);   // die Stempel des Backups gehen mit (siehe resolveAndReconnectEmbedder)
+        this.stampGap.load(base.paths, candidateStamps);
         if (plan.kind === "restore-and-reindex") {
           const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
           const report = await this.underEmbedOp("auto-heal", () => li.healMissing(missing, (p) => this.app.vault.adapter.read(p),
@@ -1499,6 +1504,9 @@ export default class VaultRagPlugin extends Plugin {
       if (await this.reloadWatch.foreignChange()) {
         const prevCount = this.index?.count ?? 0;
         const prevIndex = this.index;
+        // Vor dem Laden festhalten: `loadIndex` sät den Indexer neu (mit den Stempeln des geladenen Containers), ein Rückfall auf `prevIndex` braucht
+        // die Stempel von davor.
+        const prevStamps = this.liveIndexer.stampsSnapshot();
         await this.loadIndex();
         // Jeden "schlechteren" Ausgang abfangen — sowohl Gefahrenzustand (!this.index, z.B.
         // abgeschnittenes notes.i8 eines Fremdgeräts) als auch Suspicious-Shrink —, solange wir
@@ -1508,7 +1516,8 @@ export default class VaultRagPlugin extends Plugin {
           const newCount = this.index?.count ?? 0;
           this.index = prevIndex;
           this.indexHealthy = true;
-          this.liveIndexer.init(prevIndex);
+          this.liveIndexer.init(prevIndex, prevStamps);
+          this.stampGap.load(prevIndex.paths, prevIndex.paths.map((p) => prevStamps.get(p) ?? ([0, 0] as [number, number])));
           this.syncProgress();
           new Notice(t("main.reloadWorseIndex", newCount, prevCount), 10000);
         } else {

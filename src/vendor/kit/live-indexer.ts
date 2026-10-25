@@ -1,4 +1,4 @@
-// vendored from code-kit@0.37.2, src/ts/pure/live-indexer.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.37.3, src/ts/pure/live-indexer.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/live_indexer.ts, 2026-10-11 (Änderungen: Dimension als Option statt Konstante INDEX_DIM, Embedder-Interface statt der Klasse EmbeddingClient, IndexStorage statt VaultAdapter, `now` injizierbar, source_dim aus dem beobachteten Vektor, Dimensions-Guard, `noUncheckedIndexedAccess`-clean; Ablauf und Guards sonst unverändert; die Warnungen in der Konsole tragen nicht mehr den Namen des ersten Nutzers)
 /** The indexer: holds one vector per note in memory, keeps them current note by note (`update`, `remove`, `rename`),
  *  rebuilds all (`reindexAll`) or only the missing ones (`healMissing`), and writes the container with the guards of
@@ -58,6 +58,12 @@ export interface LiveIndexerOptions {
   dim?: number;
   /** Clock for `built_at`; default `new Date()`. For tests. */
   now?: () => Date;
+}
+
+/** A stamp is a pair of finite numbers — the same test the container applies per entry. `Number.isFinite` does not coerce, so a string or
+ *  `undefined` is no stamp either. */
+function isStamp(st: unknown): st is FileStamp {
+  return Array.isArray(st) && st.length === 2 && Number.isFinite(st[0]) && Number.isFinite(st[1]);
 }
 
 export class LiveIndexer {
@@ -141,8 +147,13 @@ export class LiveIndexer {
   }
 
   /** Takes over a loaded index. Throws `PersistBlockedError("dim-mismatch")` if it has other columns than this indexer
-   *  (an empty index has no vectors to damage and is taken as it is). */
-  init(index: VectorIndex, stamps?: readonly FileStamp[]): void {
+   *  (an empty index has no vectors to damage and is taken as it is).
+   *
+   *  `stamps` is either parallel to `index.paths` (an array of the same length; any other length is ignored) or a map by path, such as
+   *  {@link stampsSnapshot} hands over: a `VectorIndex` carries no stamps, so an indexer that is re-seeded from another one's `buildIndex()`
+   *  would otherwise write `[0, 0]` for every row it did not touch itself. A map is taken for the rows this index holds, entries that are
+   *  no stamp are skipped, and a row without an entry stays unstamped: nothing is stamped that was not. */
+  init(index: VectorIndex, stamps?: readonly FileStamp[] | ReadonlyMap<string, FileStamp>): void {
     if (index.count > 0) {
       const decision = assertDimSafeToPersist(index.dim, this.dim, "live");
       if (!decision.allowed) throw new PersistBlockedError("dim-mismatch", decision.message ?? "Dimension passt nicht zum Index.");
@@ -158,10 +169,26 @@ export class LiveIndexer {
     }
     // Ohne diese Uebernahme waere der Waechter nach jedem Neustart blind: der erste
     // Live-Persist schriebe den Container stempellos zurueck.
-    if (stamps && stamps.length === index.paths.length) {
-      index.paths.forEach((p, i) => { const st = stamps[i]; if (st && this.noteVectors.has(p)) this.noteStamps.set(p, st); });
+    if (Array.isArray(stamps)) {
+      const list = stamps as readonly FileStamp[];
+      if (list.length === index.paths.length) index.paths.forEach((p, i) => { const st = list[i]; if (st && this.noteVectors.has(p)) this.noteStamps.set(p, st); });
+    } else if (stamps) {
+      const byPath = stamps as ReadonlyMap<string, FileStamp>;
+      for (const p of this.noteVectors.keys()) {
+        const st = byPath.get(p);
+        if (isStamp(st)) this.noteStamps.set(p, [st[0], st[1]]);
+      }
     }
     this.ready = true;
+  }
+
+  /** The stamps this indexer holds, by path, as a copy: hand it to the next indexer's `init(index, stamps)` when the index is re-seeded
+   *  (`new LiveIndexer(…).init(old.buildIndex(), old.stampsSnapshot())`). Only the rows that were stamped appear, a row without a
+   *  stamp has no entry. */
+  stampsSnapshot(): Map<string, FileStamp> {
+    const out = new Map<string, FileStamp>();
+    for (const [p, st] of this.noteStamps) out.set(p, [st[0], st[1]]);
+    return out;
   }
 
   /** Remembers the length of the first vector the model returns, for `source_dim`. */

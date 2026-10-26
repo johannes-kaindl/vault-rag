@@ -2365,14 +2365,17 @@ async function main(): Promise<void> {
           record(N26.sperreChat, mitten.gesperrt && frei, `im Lauf ${mitten.gesperrt ? "gesperrt" : "FREI"} · danach ${frei ? "frei" : "GESPERRT"}`);
         }
         // Links: die fertige Antwort. Gezählt wird, was ein Klick tun könnte: ein <a> mit href-Attribut und dem Schema.
-        const links = await main.evaluate<{ gesamt: number; schemata: Record<string, number>; sichtbar: boolean }>(`
+        const links = await main.evaluate<{ gesamt: number; schemata: Record<string, number>; sichtbar: boolean; gekappt: number; wieLink: number }>(`
           const b = [...document.querySelectorAll(".okit-chat-turn.is-assistant .okit-stream-body")].pop();
           const a = b ? [...b.querySelectorAll("a")] : [];
           const schema = (s) => a.filter(x => (x.getAttribute("href") || "").toLowerCase().startsWith(s)).length;
-          return { gesamt: a.length, sichtbar: !!b, schemata: { "javascript:": schema("javascript:"), "data:": schema("data:"), "file:": schema("file:"), "obsidian:": schema("obsidian:"), "app:": schema("app:") } };`);
+          // Ein gekappter Link (ohne href) soll wie Text aussehen (obsidian-kit 0.72.0, STREAM_AREA_CSS): keine Unterstreichung, kein Zeiger, die Farbe des Umfelds.
+          const gekappt = a.filter(x => !x.hasAttribute("href"));
+          const wieLink = gekappt.filter(x => { const c = getComputedStyle(x); return c.textDecorationLine !== "none" || c.cursor === "pointer" || c.color !== getComputedStyle(x.parentElement).color; }).length;
+          return { gesamt: a.length, sichtbar: !!b, gekappt: gekappt.length, wieLink, schemata: { "javascript:": schema("javascript:"), "data:": schema("data:"), "file:": schema("file:"), "obsidian:": schema("obsidian:"), "app:": schema("app:") } };`);
         const lebend = Object.entries(links.schemata).filter(([, n]) => n > 0).map(([k]) => k);
-        record(N26.links, links.sichtbar && lebend.length === 0,
-          links.sichtbar ? `${links.gesamt} Links gesamt · klickbar mit Schema: ${lebend.length ? lebend.join(", ") : "keins"} (Standard: beide Schalter „Links und Bilder in Antworten“ aus)` : "keine fertige Antwort im Chat gefunden");
+        record(N26.links, links.sichtbar && lebend.length === 0 && links.gekappt > 0 && links.wieLink === 0,
+          links.sichtbar ? `${links.gesamt} Links gesamt · klickbar mit Schema: ${lebend.length ? lebend.join(", ") : "keins"} · gekappt ${links.gekappt}, davon wie ein Link gezeichnet (Unterstreichung, Zeiger oder Linkfarbe): ${links.wieLink} (Standard: beide Schalter „Links und Bilder in Antworten“ aus)` : "keine fertige Antwort im Chat gefunden");
         // Quellen-Chip: öffnet die Notiz.
         const quelle = await main.evaluate<{ chips: number; label: string; opened: string | null }>(`
           const c = [...document.querySelectorAll(".vault-rag-chat-source")];

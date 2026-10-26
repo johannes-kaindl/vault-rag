@@ -253,6 +253,14 @@ const W27_PUNKTE = {
   stempelLive: "Index-Zustand: nach einer Live-Änderung einer dieser Notizen sinkt die Zahl auf 2, ohne dass der Index neu geladen wird",
 } as const;
 
+/** Welle 28 (code-kit 0.37.6): der Abbruch eines Voll-Reindex. Die Gruppengrenze (`EMBED_BATCH` = 32 Chunks) erreicht das Fixture mit 29 Chunks
+ *  nicht; der Treiber ergänzt deshalb im Renderer Pfade (`vaultMarkdownPaths` und `adapter.read` umhüllt), legt aber keine Datei im Vault an
+ *  außer der einen Notiz, die „während des Laufs“ entsteht. */
+const W28_PUNKTE = {
+  abbruchLive: "Abbruch des Voll-Reindex: eine währenddessen angelegte Notiz steht danach im Index und in index.bin",
+  abbruchModell: "Abbruch des Voll-Reindex unter fremdem Modell auf der Platte: index.bin bleibt Byte für Byte gleich",
+} as const;
+
 const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch wenn beim Laden ein Pop-out aktiv ist";
 
   const PUNKT_TREU = "Umformulieren: zum Modell gehen nur Platzhalter, ein Ergebnis mit allen Links bleibt anwendbar";
@@ -334,6 +342,7 @@ const PUNKTE = [
   ...Object.values(W7I),
   ...Object.values(STREAM_PUNKTE),
   ...Object.values(W27_PUNKTE),
+  ...Object.values(W28_PUNKTE),
 ] as const;
 
 // --- Prüfpunkte -------------------------------------------------------------
@@ -3775,6 +3784,134 @@ async function main(): Promise<void> {
         }
       } catch (e) {
         if (!bilanz.eintraege().some((x) => x.name === N27.linkEinstellung)) unmeasured(N27.linkEinstellung, `Messung abgebrochen: ${String(e)}`);
+      }
+    }
+
+    // --- 7n. Abbruch des Voll-Reindex (Welle 28, code-kit 0.37.6) ----------------------------------------------------------
+    // Ein Abbruch wirkt erst an der Gruppengrenze (`EMBED_BATCH` = 32 Chunks); das Fixture hat 29 Chunks (gemessen 2026-10-26), also eine einzige
+    // Gruppe. Der Treiber ergänzt darum im Renderer 70 Pfade zur Liste des Laufs (`vaultMarkdownPaths` und `adapter.read` umhüllt, keine Datei im
+    // Vault) und bremst `embed` des LiveIndexer um 400 ms, damit der Lauf nicht schon vorbei ist. In der zweiten Gruppe legt er eine echte Notiz an
+    // (der echte Weg: `vault.create` → Ereignis → Debounce → `update`), wartet, bis sie im Indexer steht, und löst den Befehl „Cancel reindex“ aus.
+    // Punkt 1: die Notiz steht danach im Index UND in `index.bin`. Punkt 2: unter fremdem Modell auf der Platte (hier ein umgeschriebenes Manifest)
+    // bleibt `index.bin` Byte für Byte gleich. Beide Läufe schreiben im STAGING-Vault; die Original-Bytes stehen danach wieder da.
+    if (nur === null) {
+      const N28 = W28_PUNKTE;
+      let originalBytes: Buffer | null = null;
+      let indexDatei = "";
+      const NEU = "W28-Abbruch-Notiz.md";
+      try {
+        const idle = `
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          return p.pendingQueue.size === 0 && !p.embeddingProgress.isEmbedding && p.indexOpsRunning === 0 ? true : null;`;
+        const bereit = await pollUntil<boolean>(main, idle, 150000, 1000);
+        const stagingRoot = process.env.STAGING_VAULTS_DIR;
+        const indexDir = await main.evaluate<string>(`return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.indexDir;`);
+        indexDatei = stagingRoot ? join(stagingRoot, vault, indexDir, "index.bin") : "";
+        if (!bereit) for (const n of Object.values(N28)) unmeasured(n, "die Warteschlange wurde nicht leer (Start-Drain), kein sauberer Ausgangspunkt");
+        else if (!stagingRoot || !existsSync(indexDatei) || indexDatei.includes("_snapshots")) for (const n of Object.values(N28)) unmeasured(n, "kein Index im Staging-Vault zum Präparieren");
+        else {
+          originalBytes = readFileSync(indexDatei);
+          const alsAb = (b: Buffer): ArrayBuffer => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
+          const dec = decodeContainer(alsAb(originalBytes));
+
+          /** Ein abgebrochener Voll-Reindex: `mitNotiz` legt in der zweiten Gruppe `NEU` an und wartet, bis der Indexer sie führt. */
+          const abbruchLauf = async (mitNotiz: boolean, weg: "plugin" | "indexer"): Promise<{ gruppen: number; imIndexer: boolean; imIndex: boolean; fehler: string | null }> => {
+            await main.evaluate(`
+              const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+              const li = p.liveIndexer; const emb = li.embedder;
+              const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+              const extra = Array.from({ length: 70 }, (_, i) => "W28-Abbruch/n" + String(i).padStart(2, "0") + ".md");
+              const adapter = app.vault.adapter;
+              // Die Originale werden zurückgesetzt, nicht per delete entfernt: ob sie Eigenschaft der Instanz oder des Prototyps sind, ist hier nicht bekannt.
+              const listeOrig = p.vaultMarkdownPaths, leseOrig = adapter.read, embedOrig = emb.embed;
+              p.vaultMarkdownPaths = () => [...listeOrig.call(p), ...extra];
+              adapter.read = (pfad) => extra.includes(pfad) ? Promise.resolve("# Wegwerf " + pfad + "\\nInhalt einer Wegwerf-Notiz für die Gruppenbildung des Voll-Reindex.") : leseOrig.call(adapter, pfad);
+              const orig = (texts) => embedOrig.call(emb, texts);
+              const w = window.__w28 = { gruppen: 0, fertig: false, fehler: null, live: false, restore: () => { p.vaultMarkdownPaths = listeOrig; adapter.read = leseOrig; emb.embed = embedOrig; } };
+              emb.embed = async function (texts) {
+                if (w.live) return orig(texts);
+                w.gruppen++;
+                await warte(400);
+                if (w.gruppen === 2) {
+                  w.live = true;
+                  try {
+                    ${mitNotiz ? `// Wie am Schreibtisch: erst die leere Datei, dann der Text (das Plugin hört auf "modify", nicht auf "create").
+                    const datei = await app.vault.create(${JSON.stringify(NEU)}, "");
+                    await app.vault.modify(datei, "# Neu\\nwährend des Laufs angelegt");
+                    for (let i = 0; i < 150 && !li.noteVectors.has(${JSON.stringify(NEU)}); i++) await warte(100);` : ""}
+                    ${weg === "plugin" ? `app.commands.executeCommandById(${JSON.stringify(PLUGIN_ID + ":cancel-reindex")});` : "li.cancelReindex();"}
+                  } catch (e) { w.fehler = String(e); }
+                  finally { w.live = false; }
+                }
+                return orig(texts);
+              };
+              ${weg === "plugin"
+                ? "p.reindexVault()"
+                : "li.reindexAll(p.vaultMarkdownPaths(), (pfad) => adapter.read(pfad)).then((r) => { if (!r.cancelled) w.fehler = 'der Lauf wurde nicht abgebrochen'; })"
+              }.then(() => { w.fertig = true; }, (e) => { w.fertig = true; w.fehler = String(e); });
+              return true;`);
+            const fertig = await pollUntil<boolean>(main, `return window.__w28 && window.__w28.fertig ? true : null;`, 90000, 500);
+            const r = await main.evaluate<{ gruppen: number; imIndexer: boolean; imIndex: boolean; fehler: string | null }>(`
+              const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+              const w = window.__w28;
+              const out = { gruppen: w.gruppen, imIndexer: p.liveIndexer.noteVectors.has(${JSON.stringify(NEU)}), imIndex: !!p.index && p.index.rowFor(${JSON.stringify(NEU)}) !== -1, fehler: w.fehler };
+              w.restore(); delete window.__w28;
+              return out;`);
+            return fertig ? r : { ...r, fehler: r.fehler ?? "der Lauf endete nicht binnen 90 s" };
+          };
+
+          // Punkt 1: Notiz während des Laufs, Abbruch, danach im Index und auf der Platte
+          const l1 = await abbruchLauf(true, "plugin");
+          const platte1 = decodeContainer(alsAb(readFileSync(indexDatei)));
+          const aufPlatte = platte1.paths.includes(NEU);
+          if (l1.fehler !== null) unmeasured(N28.abbruchLive, `der Lauf meldete einen Fehler: ${l1.fehler}`);
+          else if (l1.gruppen !== 2) unmeasured(N28.abbruchLive, `der Abbruch fiel nicht in die zweite Gruppe (${l1.gruppen} Gruppen embeddet): die Messung traf das Fenster nicht`);
+          else record(N28.abbruchLive, l1.imIndexer && l1.imIndex && aufPlatte,
+            `Abbruch nach Gruppe ${l1.gruppen} · Notiz im Indexer: ${l1.imIndexer} · im geladenen Index: ${l1.imIndex} · in index.bin: ${aufPlatte} (${platte1.paths.length} Pfade auf der Platte)`);
+
+          // Aufräumen der Notiz und der Platte, bevor Punkt 2 ein fremdes Manifest schreibt
+          await main.evaluate(`
+            const f = app.vault.getAbstractFileByPath(${JSON.stringify(NEU)});
+            if (f) await app.vault.delete(f);
+            return true;`);
+          await pollUntil<boolean>(main, idle, 60000, 500);
+          writeFileSync(indexDatei, originalBytes);
+          await main.evaluate(`await app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].loadIndex(); return true;`);
+
+          // Punkt 2: dieselbe Platte, aber mit dem Manifest eines fremden Modells; Abbruch ohne Notiz
+          const fremd = Buffer.from(encodeContainer({ ...(dec.manifest as object), embedding_model: "w28-fremdes-modell" } as never, dec.paths, new Uint8Array(dec.matrix), dec.stamps));
+          writeFileSync(indexDatei, fremd);
+          const l2 = await abbruchLauf(false, "indexer");
+          const nach2 = readFileSync(indexDatei);
+          const gleich = nach2.equals(fremd);
+          // Zur Auskunft, nicht als Bedingung: derselbe Abbruch über den Plugin-Weg. `reindexVault` schreibt nach dem Lauf selbst (`persist("reindex")`, der
+          // Voll-Ersatz darf jedes Modell stempeln), die Platte ändert sich dort also auch dann, wenn der Abbruch im Indexer nichts schreibt.
+          writeFileSync(indexDatei, fremd);
+          const l3 = await abbruchLauf(false, "plugin");
+          const nach3 = readFileSync(indexDatei);
+          const modell3 = (decodeContainer(alsAb(nach3)).manifest as { embedding_model?: string }).embedding_model ?? "?";
+          if (l2.fehler !== null) unmeasured(N28.abbruchModell, `der Lauf meldete einen Fehler: ${l2.fehler}`);
+          else if (l2.gruppen !== 2) unmeasured(N28.abbruchModell, `der Abbruch fiel nicht in die zweite Gruppe (${l2.gruppen} Gruppen embeddet): die Messung traf das Fenster nicht`);
+          else record(N28.abbruchModell, gleich,
+            `Abbruch im Indexer nach Gruppe ${l2.gruppen} · index.bin gleich geblieben: ${gleich} · zur Auskunft, Plugin-Weg (reindexVault, ${l3.gruppen} Gruppen): index.bin gleich geblieben: ${nach3.equals(fremd)}, Modell im Manifest danach ${modell3} (davor w28-fremdes-modell)`);        }
+      } catch (e) {
+        for (const n of Object.values(N28)) if (!bilanz.eintraege().some((x) => x.name === n)) unmeasured(n, `Messung abgebrochen: ${String(e)}`);
+      } finally {
+        // Umhüllungen weg (falls ein Abbruch sie stehen ließ), Notiz weg, Original-Bytes zurück, neu laden: die folgenden Abschnitte sehen den Aufbau-Zustand.
+        try {
+          await main.evaluate(`
+            if (window.__w28) { window.__w28.restore(); delete window.__w28; }
+            const f = app.vault.getAbstractFileByPath(${JSON.stringify(NEU)});
+            if (f) await app.vault.delete(f);
+            return true;`);
+          await pollUntil<boolean>(main, `
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            return p.pendingQueue.size === 0 && !p.embeddingProgress.isEmbedding && p.indexOpsRunning === 0 ? true : null;`, 60000, 500);
+          if (originalBytes && indexDatei) {
+            writeFileSync(indexDatei, originalBytes);
+            await main.evaluate(`await app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].loadIndex(); return true;`);
+          }
+        } catch (e) { console.log(`  ! Aufräumen nach dem Abbruch-Punkt: ${String(e)}`); }
       }
     }
 

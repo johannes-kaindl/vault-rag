@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.47.1] — 2026-10-26
+
 ### Fixed
 
 - **Cancelling a full re-index no longer loses notes.** A note created or renamed while the run was going was missing from the index after the cancel (in memory and in the file the cancel writes; after a rename the note stood under neither path). The cancel now merges what changed during the run with the stock. If the index file on disk belongs to another embedding model than the connected one, a cancel writes nothing and keeps the old stock, instead of a file that mixes the vectors of two models. Renaming a note onto its own path no longer removes it from the index (code-kit 0.37.6).

@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.70.0, src/obsidian/chat-window-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.72.0, src/obsidian/chat-window-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Default-Texte (EN/DE) für `buildChatWindow` — nach dem Muster von `llm-connection-strings.ts`. Ohne sie formulierte jedes Plugin rund
  *  zwanzig Texte selbst, obwohl „Senden“ oder „Zugriff verweigert (HTTP 401)“ je Plugin nichts anderes heißen soll.
  *

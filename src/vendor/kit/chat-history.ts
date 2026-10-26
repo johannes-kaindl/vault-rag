@@ -1,4 +1,4 @@
-// vendored from code-kit@0.37.5, src/ts/pure/chat-history.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.38.0, src/ts/pure/chat-history.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** The history of a chat window as pure data: rounds of one question and one answer, with the rule
  *  "only completed rounds go back to the model".
  *

@@ -1,4 +1,4 @@
-// vendored from code-kit@0.37.5, src/ts/pure/probe-core.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.38.0, src/ts/pure/probe-core.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/scripts/probe_core.ts (rang, auswahlReihenfolge, vergleicheLaeufe) und index-probe.ts (Kandidatenregel), 2026-10-17; Gleichstand nach UTF-16 statt localeCompare
 import { stripFrontmatter } from "./chunker";
 

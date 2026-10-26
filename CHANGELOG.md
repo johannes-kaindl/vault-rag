@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cancelling a full re-index no longer loses notes.** A note created or renamed while the run was going was missing from the index after the cancel (in memory and in the file the cancel writes; after a rename the note stood under neither path). The cancel now merges what changed during the run with the stock. If the index file on disk belongs to another embedding model than the connected one, a cancel writes nothing and keeps the old stock, instead of a file that mixes the vectors of two models. Renaming a note onto its own path no longer removes it from the index (code-kit 0.37.6).
+
+### Changed
+
+- Kit: obsidian-kit 0.70.0 → 0.72.0 (through 0.70.1 and 0.71.0) and code-kit 0.37.5 → 0.38.0 (through 0.37.6). What reaches you:
+  - **The question in the chat has a clearer border:** the contrast to the sidebar is 2.12:1 (light) and 2.57:1 (dark) instead of 1.18:1 and 1.17:1.
+  - **A cut link in a chat answer now looks like text:** a link whose target is removed (`javascript:`, `data:`, `file:`, `app:`, and `obsidian://` while the switch is off) still had the colour, the underline, the pointer and the arrow of a link and did nothing (0.47.0); now it shows as plain text. Links with a target stay as they were.
+  - Not used by vault-rag and without effect: the hint "probably always thinks" of the thinking button (it needs an Anthropic endpoint, which the model row of vault-rag does not list), the locked state of that button, `onRefreshed` of the model row, `patchFrontmatter` with block lists, `anthropic-wire` moving to code-kit (the file stays vendored from obsidian-kit), the new texts in the `claude` sampling profile, `detectEol` reading any CRLF (the link writer keeps its own rule), the steadier time-limit tests of the kit.
+
 ## [0.47.0] — 2026-10-25
 
 ### Fixed

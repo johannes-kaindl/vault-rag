@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.70.0, src/pure/frontmatter.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.72.0, src/pure/frontmatter.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // frontmatter.ts — yaml_lite: flache Skalare + einfache Listen. Kein obsidian-Import.
 //
 // Gehoben aus vault-rag/src/frontmatter.ts (Serialisier-/Parse-Pfad); die smart-apply-
@@ -171,7 +171,8 @@ function needsQuoting(v: string): boolean {
   return false;
 }
 
-function quoteScalar(v: string): string {
+/** Ein Skalar so, wie `serializeFrontmatter` ihn schreibt: bei Bedarf in Anführungszeichen (auch für die Einträge einer Blockliste in `frontmatter-patch`). */
+export function quoteScalar(v: string): string {
   if (!needsQuoting(v)) return v;
   return '"' + v.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
 }

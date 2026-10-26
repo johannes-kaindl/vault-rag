@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.70.0, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.72.0, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /**
  * Chat-Fenster (UI-STANDARD §8, Baustein 12): Verlauf, Eingabe, Ablauf, Abbruch, Fehlerzeile und Leerzustand eines Fach-Chats.
  *
@@ -930,8 +930,10 @@ export const CHAT_WINDOW_CSS = `
   flex-direction: row; align-items: flex-start; justify-content: space-between; gap: var(--size-4-2);
   padding: var(--size-4-2) var(--size-4-3); border-radius: var(--radius-m);
   background: var(--background-secondary);
-  /* Zweiter Kanal neben der Fläche: in einer Seitenleiste hat sie dieselbe Farbe wie der Grund (gemessen: Kontrast 1,000:1, hell wie dunkel). */
-  border: 1px solid var(--background-modifier-border);
+  /* Zweiter Kanal neben der Fläche: in einer Seitenleiste hat sie dieselbe Farbe wie der Grund (gemessen: Kontrast 1,000:1, hell wie dunkel). Der Rand trägt die Abgrenzung allein, und
+     background-modifier-border liegt im Standardtheme bei 1,18:1 (hell) und 1,17:1 (dunkel) zum Grund. Gemessen in Welle 28 (Pilot chat-rand, vier Themes, hell und dunkel, 260/300/520 px):
+     text-faint gibt 2,12:1 und 2,57:1, ruhig im Bild; background-modifier-border-hover nur 1,29:1 und 1,40:1 (in Outpost hell sogar weniger als der alte Rand). */
+  border: 1px solid var(--text-faint);
 }
 /* Dieselbe Größe wie der Antwortkörper (okit-stream-body in STREAM_AREA_CSS): vorher erbte die Frage 15 px, die Antwort setzte 13 px. */
 .okit-chat-user-col { display: flex; flex-direction: column; gap: var(--size-2-1); min-width: 0; flex: 1 1 auto; }

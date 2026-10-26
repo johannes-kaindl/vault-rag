@@ -259,6 +259,76 @@ describe("LiveIndexer", () => {
       });
     });
 
+    // Welle 28 (code-kit 0.37.6/0.38.0): der Abbruch wendet die Live-Änderungen NACH der Mischung mit dem Bestand an und
+    // schreibt unter fremdem Modell nichts. Die Tests stehen vor dem Pin und sind mit dem Pin 0.37.5 rot.
+    describe("Abbruch und Live-Änderungen", () => {
+      const PFADE = Array.from({ length: 100 }, (_, i) => `n${i}.md`);
+      const text = (p: string) => `# ${p}\nInhalt lang genug fuer einen Chunk`;
+      const containerPfade = (a: ReturnType<typeof makeAdapter>) =>
+        decodeContainer(a.written.get(`_vaultrag/${CONTAINER_FILE}`) as ArrayBuffer).paths;
+
+      /** Voller Bestand im Speicher und auf der Platte; im dritten Lesezugriff des zweiten Laufs passiert `imLauf`, dann der Abbruch. */
+      async function abgebrochenerLauf(imLauf: (ix: LiveIndexer) => Promise<void> | void) {
+        const adapter = makeAdapter();
+        const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+        indexer.markFresh();
+        await indexer.reindexAll(PFADE, async (p) => text(p));
+        await indexer.persist("reindex");
+        let n = 0;
+        const report = await indexer.reindexAll(PFADE, async (p) => {
+          if (++n === 3) { await imLauf(indexer); indexer.cancelReindex(); }
+          return text(p);
+        });
+        return { adapter, indexer, report };
+      }
+
+      it("eine während des Laufs angelegte Notiz steht nach dem Abbruch im Speicher und im geschriebenen Container", async () => {
+        const { adapter, indexer, report } = await abgebrochenerLauf(async (ix) => { await ix.update("NEU.md", text("NEU.md")); });
+        expect(report.cancelled).toBe(true);
+        expect(indexer.noteCount).toBe(101);
+        expect(indexer.buildIndex().rowFor("NEU.md")).not.toBe(-1);
+        expect(containerPfade(adapter)).toContain("NEU.md");
+      });
+
+      it("eine während des Laufs umbenannte Notiz steht unter dem neuen Pfad, der alte ist weg", async () => {
+        // n5.md wird nach dem Umbenennen noch gelesen und landet im neuen Stand: der alte Pfad muss trotzdem verschwinden.
+        const { adapter, indexer } = await abgebrochenerLauf((ix) => ix.rename("n5.md", "verschoben.md"));
+        const idx = indexer.buildIndex();
+        expect(idx.rowFor("verschoben.md")).not.toBe(-1);
+        expect(idx.rowFor("n5.md")).toBe(-1);
+        expect(indexer.noteCount).toBe(100);
+        expect(containerPfade(adapter)).toContain("verschoben.md");
+        expect(containerPfade(adapter)).not.toContain("n5.md");
+      });
+
+      it("unter fremdem Modell auf der Platte schreibt der Abbruch nichts und der Bestand im Speicher bleibt der alte", async () => {
+        const adapter = makeAdapter();
+        const alt = makeContainerBytes(3, "qwen3-embedding:8b");
+        adapter.written.set(`_vaultrag/${CONTAINER_FILE}`, alt);
+        const indexer = new LiveIndexer(adapter, "_vaultrag", makeEmbedder(), "text-embedding-3-small");
+        indexer.init(parseIndex(
+          { schema_version: 1, embedding_model: "qwen3-embedding:8b", index_dim: DIM, scale: SCALE, count: 3, granularity: "note", quant: "int8" },
+          ["disk-note-0.md", "disk-note-1.md", "disk-note-2.md"], new Int8Array(3 * DIM).buffer,
+        ));
+        let n = 0;
+        const report = await indexer.reindexAll(PFADE, async (p) => {
+          if (++n === 3) indexer.cancelReindex();
+          return text(p);
+        });
+        expect(report.cancelled).toBe(true);
+        expect(adapter.written.get(`_vaultrag/${CONTAINER_FILE}`)).toBe(alt);   // dieselben Bytes, nichts geschrieben
+        expect(indexer.noteCount).toBe(3);                                       // keine Mischung zweier Vektorräume
+      });
+
+      it("rename(a, a) lässt die Notiz stehen", () => {
+        const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
+        indexer.init(oneNoteIndex("a.md"));
+        indexer.rename("a.md", "a.md");
+        expect(indexer.buildIndex().rowFor("a.md")).toBe(0);
+        expect(indexer.noteCount).toBe(1);
+      });
+    });
+
     it("indiziert alle übergebenen Pfade und buildIndex enthält genau diese Pfade", async () => {
       const indexer = new LiveIndexer(makeAdapter(), "_vaultrag", makeEmbedder(), "qwen3-embedding:8b");
       const read = vi.fn(async (p: string) => `# ${p}\nInhalt`);

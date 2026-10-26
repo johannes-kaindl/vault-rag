@@ -1,4 +1,4 @@
-// vendored from code-kit@0.37.5, src/ts/pure/live-indexer.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.38.0, src/ts/pure/live-indexer.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/live_indexer.ts, 2026-10-11 (Änderungen: Dimension als Option statt Konstante INDEX_DIM, Embedder-Interface statt der Klasse EmbeddingClient, IndexStorage statt VaultAdapter, `now` injizierbar, source_dim aus dem beobachteten Vektor, Dimensions-Guard, `noUncheckedIndexedAccess`-clean; Ablauf und Guards sonst unverändert; die Warnungen in der Konsole tragen nicht mehr den Namen des ersten Nutzers)
 /** The indexer: holds one vector per note in memory, keeps them current note by note (`update`, `remove`, `rename`),
  *  rebuilds all (`reindexAll`) or only the missing ones (`healMissing`), and writes the container with the guards of
@@ -232,6 +232,9 @@ export class LiveIndexer {
   }
 
   rename(oldPath: string, newPath: string): void {
+    // Derselbe Pfad: nichts umzuhaengen. Ohne diese Zeile setzte der Zweig unten den Eintrag und
+    // loeschte ihn im naechsten Schritt wieder — die Notiz waere weg.
+    if (oldPath === newPath) return;
     this.merkeLiveAenderung(oldPath);
     this.merkeLiveAenderung(newPath);
     const v = this.noteVectors.get(oldPath);
@@ -399,21 +402,36 @@ export class LiveIndexer {
           await this.persistCheckpoint(fresh, freshStamps, paths);
         }
       }
-      // Vault-Stand vom ENDE: was waehrend des Laufs hereinkam, gewinnt gegen den Snapshot.
-      this.wendeLiveAenderungenAn(fresh, freshStamps);
       if (report.cancelled) {
         // Ein Abbruch darf NICHTS kosten: `fresh` traegt nur die bereits erreichten Notizen, und
         // `this.noteVectors = fresh` liesse den Index von Tausenden auf eine Handvoll schrumpfen.
         // Uebernommen wird deshalb dieselbe Mischung, die auch ein Zwischenstand schreibt —
         // neu berechnete Zeilen plus die noch nicht erreichten aus dem bisherigen Bestand.
-        const [gemischt, gemischteStempel] = this.mischeMitBestand(fresh, freshStamps, paths);
-        try {
-          await this.persistVectors(gemischt, "reindex", undefined, gemischteStempel);
-        } catch (e) {
-          console.warn("live-indexer: Stand nach Abbruch konnte nicht geschrieben werden", e);
+        if (etappenErlaubt) {
+          const [gemischt, gemischteStempel] = this.mischeMitBestand(fresh, freshStamps, paths);
+          // Die Live-Aenderungen kommen NACH der Mischung: sie laeuft nur ueber `paths`, eine
+          // waehrend des Laufs angelegte oder umbenannte Notiz steht dort nicht und ginge sonst
+          // verloren (im Speicher wie auf der Platte). Der Zwischenstand macht es genauso.
+          this.wendeLiveAenderungenAn(gemischt, gemischteStempel);
+          try {
+            await this.persistVectors(gemischt, "reindex", undefined, gemischteStempel);
+          } catch (e) {
+            console.warn("live-indexer: Stand nach Abbruch konnte nicht geschrieben werden", e);
+          }
+          fresh = gemischt;
+          freshStamps = gemischteStempel;
+        } else {
+          // Das Modell auf der Platte passt nicht zum aktuellen (oder die Platte war nicht
+          // lesbar): die Mischung waere ein Container aus zwei Vektorraeumen, und `reason="reindex"`
+          // laesst jedes Modell durch. Also nichts schreiben und den bisherigen Bestand behalten —
+          // die neu berechneten Zeilen gehen verloren, das ist der Preis; ein Zwischenstand haette
+          // aus demselben Grund nie geschrieben.
+          fresh = this.noteVectors;
+          freshStamps = this.noteStamps;
         }
-        fresh = gemischt;
-        freshStamps = gemischteStempel;
+      } else {
+        // Vault-Stand vom ENDE: was waehrend des Laufs hereinkam, gewinnt gegen den Snapshot.
+        this.wendeLiveAenderungenAn(fresh, freshStamps);
       }
     } finally {
       this.liveWaehrendReindex = null;

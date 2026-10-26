@@ -1,4 +1,4 @@
-// vendored from code-kit@0.37.5, src/ts/pure/retrieval-facade.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.38.0, src/ts/pure/retrieval-facade.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/retrieval_facade.ts (ohne resolveNotePath, readNote und RetrievalDeps.readVault), 2026-10-11 (Änderungen: VectorIndex/Retriever/toIndexVector aus den Kit-Modulen; Verhalten unverändert)
 /** The search side in one place: query text → vector in the index space → cosine over the loaded index, `related` for a
  *  note that is in the index, and the expected states as VALUES (`no-index`, `offline`, `not-indexed`), never a throw.

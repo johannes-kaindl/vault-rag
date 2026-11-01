@@ -847,7 +847,10 @@ async function frageStellen(cdp: Cdp, frage: string): Promise<boolean> {
   await cdp.evaluate(`
     const neu = [...document.querySelectorAll(".okit-chat-new")]
       .find((e) => e.getBoundingClientRect().width > 1);
-    if (neu) neu.click();
+    // Neu ist bei leerem Gespräch gesperrt und fragt bei Aufbewahrung 0 zurück (Kit 0.73.0): klicken, wenn frei, und den Dialog bestätigen.
+    if (neu && !neu.disabled) neu.click();
+    await new Promise((r) => setTimeout(r, 300));
+    { const k = [...document.querySelectorAll(".modal-container .modal-button-container button")]; if (k.length > 0) (k.find((x) => x.classList.contains("mod-warning")) ?? k[k.length - 1]).click(); }
     await new Promise((r) => setTimeout(r, 400));
     return true;
   `);

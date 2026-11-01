@@ -122,7 +122,9 @@ try {
   const z3 = await main.evaluate<number>(summe);
   await main.evaluate(`${P}
     await p.openHub("chat"); await new Promise(r => setTimeout(r, 500));
-    document.querySelector(".okit-chat-new")?.click();
+    { const neu = document.querySelector(".okit-chat-new"); if (neu && !neu.disabled) neu.click(); }
+    await new Promise((r) => setTimeout(r, 300));
+    { const k = [...document.querySelectorAll(".modal-container .modal-button-container button")]; if (k.length > 0) (k.find((x) => x.classList.contains("mod-warning")) ?? k[k.length - 1]).click(); }
     for (let i = 0; i < 12; i++) document.querySelector(".vault-rag-ctx-kdec")?.click();
     await new Promise(r => setTimeout(r, 300));
     const ta = document.querySelector(".okit-chat-input"); ta.value = "Antworte in einem Satz: Worauf stuetzt du dich bei deinen Antworten?";
@@ -149,7 +151,7 @@ try {
   console.log(`Embedding-Anfragen während des Chats (Plugin-Zähler): ${z3} → ${z4}`);
   console.log(`Antwort (${antwort?.text.length ?? 0} Zeichen): ${antwort?.text.slice(0, 900) ?? "KEINE"}`);
 } finally {
-  await main.evaluate(`XMLHttpRequest.prototype.send = window.__send; document.querySelector(".okit-chat-new")?.click(); return true;`).catch(() => undefined);
+  await main.evaluate(`XMLHttpRequest.prototype.send = window.__send; { const neu = document.querySelector(".okit-chat-new"); if (neu && !neu.disabled) neu.click(); } await new Promise((r) => setTimeout(r, 300)); { const k = [...document.querySelectorAll(".modal-container .modal-button-container button")]; if (k.length > 0) (k.find((x) => x.classList.contains("mod-warning")) ?? k[k.length - 1]).click(); } return true;`).catch(() => undefined);
   await main.evaluate(`${P} p.setEmbeddingPaused(true); await p.pendingQueue.clear(); return true;`).catch(() => undefined);
 }
 console.log("\nfertig. ollama ps:\n" + ollamaPs());

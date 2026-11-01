@@ -8,6 +8,7 @@ data.json
 .superpowers/
 index-backups/
 .gui-smoke.mjs
+.chat-layout.mjs
 .shots.mjs
 
 # Wegwerf-Skripte einer Session (Watcher, Messsonden). Nie committen — und weil sie

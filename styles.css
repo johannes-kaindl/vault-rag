@@ -140,7 +140,7 @@
 }
 .vault-rag-sa-conn-refresh { margin-left: 6px; display: inline-flex; align-items: center; }
 .vault-rag-sa-conn-refresh svg { width: 14px; height: 14px; }
-.vault-rag-chat-context { border-top: 1px solid var(--background-modifier-border); padding-top: 6px; margin-top: 6px; flex: 0 0 auto; max-height: 30vh; overflow-y: auto; }
+.vault-rag-chat-context { border-top: 1px solid var(--background-modifier-border); padding-top: 6px; flex: 0 0 auto; max-height: 30vh; overflow-y: auto; }
 .vault-rag-ctx-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; flex-wrap: wrap; }
 .vault-rag-ctx-k { display: flex; align-items: center; gap: 2px; }
 .vault-rag-ctx-list { display: flex; flex-wrap: wrap; gap: 4px; }

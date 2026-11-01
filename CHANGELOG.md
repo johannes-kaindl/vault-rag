@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.48.0] — 2026-11-01
+
 ### Added
 
 - **Past chats.** A new group *Past chats* in the settings (folder, default `Vault Retrieval/Chats`, and *Keep past chats*, `0` to `500`). It is **off by default** (`0`). When you turn it on, every conversation is saved as a `.json` file in the vault after each answer, **New** saves and clears without asking, and a history button next to it opens the list of saved chats to continue or delete one. Saving deletes the oldest chats beyond the number you keep. With `0`, **New** asks before it clears a conversation.

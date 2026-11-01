@@ -95,6 +95,23 @@ import { EN, DE } from "../src/i18n/strings";
 import { LLM_CONNECTION_STRINGS_EN, LLM_CONNECTION_STRINGS_DE } from "../src/vendor/kit-obsidian/llm-connection-strings";
 import { CHAT_WINDOW_STRINGS_EN, CHAT_WINDOW_STRINGS_DE } from "../src/vendor/kit-obsidian/chat-window-strings";
 
+/** Neu im Chat-Fenster (Kit 0.73.0/0.74.0), als Funktionsausdruck für `evaluate`: Neu ist bei leerem Gespräch und im Lauf gesperrt (ein blinder Klick liefe ins Leere), und
+ *  bei Aufbewahrung 0 — die Vorgabe dieses Plugins — fragt es zurück. Darum: läuft eine Antwort (Senden-Knopf trägt `mod-warning`), erst anhalten; dann Neu klicken, wenn es
+ *  frei ist; dann die Rückfrage bestätigen (Dialog über `.modal-button-container`, der Knopf mit `mod-warning`, sonst der letzte: die Knopfklasse ist je Obsidian-Version eine
+ *  andere). Gibt zurück, ob ein Klick stattfand. */
+const NEU_JS = `(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const send = document.querySelector(".okit-chat-send");
+  if (send && send.classList.contains("mod-warning")) { send.click(); await wait(300); }
+  const b = document.querySelector(".okit-chat-new");
+  if (!b || b.disabled) return false;
+  b.click();
+  await wait(250);
+  const knoepfe = [...document.querySelectorAll(".modal-container .modal-button-container button")];
+  if (knoepfe.length > 0) { (knoepfe.find((k) => k.classList.contains("mod-warning")) ?? knoepfe[knoepfe.length - 1]).click(); await wait(250); }
+  return true;
+})`;
+
 const PLUGIN_ID = "vault-retrieval";
 /** Name des Staging-Vaults (= Repo-Verzeichnis, verglichen mit `app.vault.getName()`); `manifest.id` weicht ab. */
 const STAGING_VAULT = "vault-rag";
@@ -190,6 +207,14 @@ const W26_PUNKTE = {
   escape: "Chat: Escape bricht den laufenden Strom ab (Zustandszeile, Hinweis, Verbindung geschlossen)",
   eingabe: "Chat: die Eingabe steht auf Wunsch oben und unten (Einstellung, neuer Hub)",
 } as const;
+/** Welle 29 (Kit 0.74.0): Aufbau der Chat-Zeile und der Verlauf vergangener Chats. */
+const W29_PUNKTE = {
+  ort: "Chat: die Modellzeile steht als direktes Kind im Composer (nicht im Kopf, nicht im Einschub), der Wrapper okit-chat-buttons ist weg",
+  knopf: "Chat: der Verlauf-Knopf ist bei Aufbewahrung 0 ausgeblendet, sichtbar darüber und folgt einer Änderung ohne Neuaufbau",
+  neuFragt: "Chat: Neu fragt bei Aufbewahrung 0 zurück; Abbrechen lässt das Gespräch stehen, Bestätigen leert es",
+  neuLegtAb: "Chat: mit Aufbewahrung über 0 legt Neu das Gespräch als .json im Ordner ab und leert ohne Rückfrage",
+  befehle: "Chat: die Befehle „Start new chat“ und „Open past chats…“ gibt es nur bei offener Ansicht",
+} as const;
 const MCP_TOKEN_PUNKT = "MCP-Token liegt im Schlüsselbund, nie in data.json (Erzeugen, Neu erzeugen, Speichern)";
 const MGR_INDEX_PUNKT = "Manager da: passt das Standardmodell nicht zum Index, nimmt die Anbindung den Endpunkt mit Index-Modell; eine ausdrückliche Wahl bleibt unberührt";
 const MGR_PUNKTE = [
@@ -272,8 +297,8 @@ const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch w
   const W7I = {
     n1: "Anfrage-Abschnitt: klappt auf und zeigt Familie, Backend und die drei Modi",
     n2: "Anfrage-Abschnitt: eine Überschreibung setzen und zurücksetzen — der Abschnitt bleibt dabei offen",
-    n3: "Chat: der Denk-Knopf schaltet die Stufe um (Text, aria-pressed und gespeicherte Stufe stimmen überein)",
-    n4: "Chat: die Stufenwahl zeigt ein Dropdown und speichert die gewählte Stufe",
+    n3: "Chat: die Denk-Steuerung der Modellzeile schaltet mit dem Dropdown zwischen aus und an um (Symbol, Wert und gespeicherte Stufe stimmen überein)",
+    n4: "Chat: die Stufenwahl ist ein Dropdown (kein Knopf) und speichert die gewählte Stufe",
     chat: "Gesendeter Body: der Chat (grounded) trägt die Modus-Temperatur 0,4",
     reformat: "Gesendeter Body: Umformatieren (transform) trägt die Modus-Temperatur 0,2 und ein Budget",
     smart: "Gesendeter Body: Smart Apply (structured) trägt die Modus-Temperatur 0,1 und das Plugin-Budget",
@@ -331,6 +356,7 @@ const PUNKTE = [
   CHAT_MD_PUNKT,
   CHAT_GEMMA_PUNKT,
   ...Object.values(W26_PUNKTE),
+  ...Object.values(W29_PUNKTE),
   ...Object.values(PFLICHT_PUNKTE),
   EMBED_ZAEHLER_PUNKT,
   REFORMAT_PRESET_PUNKT,
@@ -1692,7 +1718,7 @@ async function main(): Promise<void> {
         window.__vaultRagLabBaseline = window.__vaultRagLabSeen.length;
         await app.commands.executeCommandById("vault-retrieval:open-vault-chat");
         await new Promise(r => setTimeout(r, 800));
-        document.querySelector(".okit-chat-new").click();
+        await ${NEU_JS}();
         await new Promise(r => setTimeout(r, 400));
         const ta = document.querySelector(".okit-chat-input");
         ta.value = "Antworte mit genau einem Wort: Tschuess.";
@@ -2153,7 +2179,7 @@ async function main(): Promise<void> {
           p.settings.chatEndpoints = [{ url: ${JSON.stringify(mdStub.url)}, model: "fake-model" }];
           p.llm.invalidate(); await p.resolveAndReconnectChat();
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           const ta = document.querySelector(".okit-chat-input");
           ta.value = "Frage als Text"; ta.dispatchEvent(new Event("input", { bubbles: true }));
           document.querySelector(".okit-chat-send").click();
@@ -2170,7 +2196,7 @@ async function main(): Promise<void> {
       } finally {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           p.settings.chatEndpoints = ${JSON.stringify(gesichert)};
           await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
           return true;`);
@@ -2192,7 +2218,7 @@ async function main(): Promise<void> {
           p.settings.chatEndpoints = [{ url: ${JSON.stringify(gemmaStub.url)}, model: "google/gemma-4-e4b" }];
           p.llm.invalidate(); await p.resolveAndReconnectChat();
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           const ta = document.querySelector(".okit-chat-input");
           ta.value = "Gemma-Frage"; ta.dispatchEvent(new Event("input", { bubbles: true }));
           document.querySelector(".okit-chat-send").click();
@@ -2217,7 +2243,7 @@ async function main(): Promise<void> {
       } finally {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           p.settings.chatEndpoints = ${JSON.stringify(gesichert)};
           await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
           return true;`);
@@ -2238,7 +2264,7 @@ async function main(): Promise<void> {
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           const rs = app.workspace.rightSplit, vor = window.__pflichtSide;
           if (vor) { rs.setSize(vor.breite); if (vor.eingeklappt) rs.collapse(); delete window.__pflichtSide; }
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           p.settings.chatEndpoints = ${JSON.stringify(gesichertPf)};
           await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
           return true;`).catch(() => undefined);
@@ -2259,7 +2285,7 @@ async function main(): Promise<void> {
           p.settings.chatEndpoints = [{ url: ${JSON.stringify(pfStub.url)}, model: "fake-model" }];
           p.llm.invalidate(); await p.resolveAndReconnectChat();
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           const ta = document.querySelector(".okit-chat-input");
           ta.value = "Pflicht-Frage"; ta.dispatchEvent(new Event("input", { bubbles: true }));
           document.querySelector(".okit-chat-send").click();
@@ -2273,7 +2299,7 @@ async function main(): Promise<void> {
           zeichnePflicht(pflichtBilanz, PF.fokusGegen, await gegenprobeFokus(main, { selector: ".okit-chat-input", text: "abc" }));
         }
         // Strom beenden, bevor die Geometrie gemessen wird.
-        await main.evaluate(`document.querySelector(".okit-chat-new")?.click(); return true;`);
+        await main.evaluate(`await ${NEU_JS}(); return true;`);
         await pfStub.trenneAlle();
         await new Promise((r) => setTimeout(r, 500));
         const opts = {
@@ -2315,7 +2341,7 @@ async function main(): Promise<void> {
       const w26Zurueck = async (): Promise<void> => {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           p.settings.chatEndpoints = ${JSON.stringify(w26Gesichert.endpoints)};
           p.settings.smartApplyModel = ${JSON.stringify(w26Gesichert.sa)};
           p.settings.chatInputPosition = ${JSON.stringify(w26Gesichert.position)};
@@ -2331,7 +2357,7 @@ async function main(): Promise<void> {
           p.settings.chatEndpoints = [{ url: ${JSON.stringify(w26Stub.url)}, model: "fake-model" }];
           p.llm.invalidate(); await p.resolveAndReconnectChat();
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 900));
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           await new Promise(r => setTimeout(r, 300));
           const ta = document.querySelector(".okit-chat-input");
           ta.value = "Answer briefly: which note covers vector embeddings and cosine similarity?";
@@ -2389,7 +2415,7 @@ async function main(): Promise<void> {
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 400));
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           await new Promise(r => setTimeout(r, 300));
           const sel = document.querySelector(".vault-rag-chat .okit-model-bar-select");
           sel.value = "fake-model-2"; sel.dispatchEvent(new Event("change", { bubbles: true }));
@@ -2407,7 +2433,7 @@ async function main(): Promise<void> {
           `Verbindung ${model.inUse} · Dropdown ${model.shown} · Anfrage trägt ${String(gesendet)} (${chatZaehler()} Chat-Anfragen)`);
         // Escape: ein neuer, langer Lauf.
         await main.evaluate(`
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           await new Promise(r => setTimeout(r, 300));
           const ta = document.querySelector(".okit-chat-input"); ta.value = "Lange Antwort bitte"; ta.dispatchEvent(new Event("input", { bubbles: true }));
           document.querySelector(".okit-chat-send").click();
@@ -2428,7 +2454,7 @@ async function main(): Promise<void> {
           const zu = w26Stub.zaehler().clientGeschlossen - vorher;
           record(N26.escape, abgebrochen === true && zu >= 1, `Zustand „${CW.statusAborted}“ ${abgebrochen ? "gesetzt" : "NICHT gesetzt"} · Verbindung vom Client geschlossen: ${zu}× · Hinweis „${CW.abortedLine}“`);
         }
-        await main.evaluate(`document.querySelector(".okit-chat-new")?.click(); return true;`);
+        await main.evaluate(`await ${NEU_JS}(); return true;`);
         // Eingabe oben/unten: die Position liest das Fenster beim Bauen, ein neuer Hub zeigt die Einstellung.
         const lage = async (pos: "top" | "bottom"): Promise<{ composerVorLog: boolean; klasse: boolean }> => main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
@@ -2444,6 +2470,94 @@ async function main(): Promise<void> {
         const unten = await lage("bottom");
         record(N26.eingabe, oben.composerVorLog && oben.klasse && !unten.composerVorLog && !unten.klasse,
           `oben: Eingabe vor Verlauf ${oben.composerVorLog ? "ja" : "NEIN"}, Klasse ${oben.klasse ? "ja" : "NEIN"} · unten: Eingabe vor Verlauf ${unten.composerVorLog ? "JA" : "nein"}`);
+        // Welle 29: Aufbau der Chat-Zeile und Verlauf. Der Hub ist nach `lage("bottom")` frisch gebaut; eine Frage läuft gegen den Stub und wird abgewartet.
+        const W29 = W29_PUNKTE;
+        const ort = await main.evaluate<{ direkt: number; kopf: number; einschub: number; wrapper: number; alle: number }>(`
+          const root = document.querySelector(".okit-chat.vault-rag-chat");
+          const composer = root?.querySelector(".okit-chat-composer");
+          return {
+            direkt: composer ? [...composer.children].filter((c) => c.classList.contains("okit-model-bar")).length : -1,
+            kopf: root?.querySelector(".okit-chat-header .okit-model-bar") ? 1 : 0,
+            einschub: root?.querySelector(".okit-chat-composer-extra .okit-model-bar") ? 1 : 0,
+            wrapper: root?.querySelector(".okit-chat-buttons") ? 1 : 0,
+            alle: root ? root.querySelectorAll(".okit-model-bar").length : -1 };`);
+        record(W29.ort, ort.direkt === 1 && ort.kopf === 0 && ort.einschub === 0 && ort.wrapper === 0 && ort.alle === 1,
+          `im Composer: ${ort.direkt} · im Kopf: ${ort.kopf} · im Einschub: ${ort.einschub} · Wrapper okit-chat-buttons: ${ort.wrapper} · Modellzeilen im Fenster: ${ort.alle}`);
+        const archivKnopf = (): Promise<{ da: boolean; versteckt: boolean }> => main.evaluate(`
+          const b = document.querySelector(".vault-rag-chat .okit-chat-archive");
+          return { da: !!b, versteckt: !!b && b.classList.contains("okit-chat-hidden") };`);
+        const setzeKeep = (n: number): Promise<unknown> => main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.chatKeep = ${n}; await p.saveSettings(); p.refreshChatArchive(); await new Promise(r => setTimeout(r, 400)); return true;`);
+        await setzeKeep(0);
+        const k0 = await archivKnopf();
+        await setzeKeep(30);
+        const k30 = await archivKnopf();
+        await setzeKeep(0);
+        const k0b = await archivKnopf();
+        record(W29.knopf, k0.da && k0.versteckt && k30.da && !k30.versteckt && k0b.versteckt,
+          `Aufbewahrung 0: ${k0.versteckt ? "ausgeblendet" : "SICHTBAR"} · 30: ${k30.versteckt ? "AUSGEBLENDET" : "sichtbar"} · wieder 0: ${k0b.versteckt ? "ausgeblendet" : "SICHTBAR"}`);
+        // Neu: eine Frage stellen und die Antwort abwarten (der Stub antwortet lang; die Zeitgrenze deckt das ab), dann Neu bei Aufbewahrung 0.
+        await main.evaluate(`await ${NEU_JS}(); const ta = document.querySelector(".okit-chat-input"); ta.value = "Frage fuer Neu"; ta.dispatchEvent(new Event("input", { bubbles: true })); document.querySelector(".okit-chat-send").click(); return true;`);
+        const fertig = await pollUntil<boolean>(main, `
+          const st = document.querySelector(".okit-chat-status");
+          return document.querySelectorAll(".vault-rag-chat .okit-chat-turn.is-assistant").length > 0 && st && st.textContent === ${JSON.stringify(CW.statusDone)} ? true : null;`, 60_000, 300).catch(() => null);
+        if (fertig !== true) { unmeasured(W29.neuFragt, "die Antwort wurde nicht fertig — nichts gemessen"); unmeasured(W29.neuLegtAb, "die Antwort wurde nicht fertig — nichts gemessen"); }
+        else {
+          const dialog = `[...document.querySelectorAll(".modal-container .modal-button-container button")]`;
+          const turns = `document.querySelectorAll(".vault-rag-chat .okit-chat-turn").length`;
+          const frage = await main.evaluate<{ knoepfe: number; vorher: number; nachAbbruch: number; offenNachAbbruch: number }>(`
+            const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+            const vorher = ${turns};
+            document.querySelector(".vault-rag-chat .okit-chat-new").click(); await wait(400);
+            const knoepfe = ${dialog};
+            const abbrechen = knoepfe.find((k) => !k.classList.contains("mod-warning")) ?? knoepfe[0];
+            if (abbrechen) abbrechen.click(); await wait(400);
+            return { knoepfe: knoepfe.length, vorher, nachAbbruch: ${turns}, offenNachAbbruch: ${dialog}.length };`);
+          const geleert = await main.evaluate<{ knoepfe: number; nachher: number }>(`
+            const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+            document.querySelector(".vault-rag-chat .okit-chat-new").click(); await wait(400);
+            const knoepfe = ${dialog};
+            (knoepfe.find((k) => k.classList.contains("mod-warning")) ?? knoepfe[knoepfe.length - 1])?.click(); await wait(500);
+            return { knoepfe: knoepfe.length, nachher: ${turns} };`);
+          record(W29.neuFragt, frage.knoepfe >= 2 && frage.nachAbbruch === frage.vorher && frage.vorher > 0 && frage.offenNachAbbruch === 0 && geleert.nachher === 0,
+            `Dialog mit ${frage.knoepfe} Knöpfen · Gespräch vor/nach Abbrechen: ${frage.vorher}/${frage.nachAbbruch} · nach Bestätigen: ${geleert.nachher} Beiträge`);
+          // Mit Aufbewahrung über 0: dieselbe Abfolge, nur legt Neu ab und fragt nicht.
+          await setzeKeep(30);
+          await main.evaluate(`const ta = document.querySelector(".okit-chat-input"); ta.value = "Frage fuer Ablage"; ta.dispatchEvent(new Event("input", { bubbles: true })); document.querySelector(".okit-chat-send").click(); return true;`);
+          const fertig2 = await pollUntil<boolean>(main, `
+            const st = document.querySelector(".okit-chat-status");
+            return document.querySelectorAll(".vault-rag-chat .okit-chat-turn.is-assistant").length > 0 && st && st.textContent === ${JSON.stringify(CW.statusDone)} ? true : null;`, 60_000, 300).catch(() => null);
+          if (fertig2 !== true) unmeasured(W29.neuLegtAb, "die zweite Antwort wurde nicht fertig — nichts gemessen");
+          else {
+            const ablage = await main.evaluate<{ rueckfrage: number; nachher: number; dateien: string[] }>(`
+              const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+              document.querySelector(".vault-rag-chat .okit-chat-new").click(); await wait(1200);
+              const rueckfrage = ${dialog}.length;
+              const liste = await app.vault.adapter.list("Vault Retrieval/Chats").catch(() => ({ files: [] }));
+              return { rueckfrage, nachher: ${turns}, dateien: liste.files };`);
+            record(W29.neuLegtAb, ablage.rueckfrage === 0 && ablage.nachher === 0 && ablage.dateien.some((f) => f.endsWith(".json")),
+              `Rückfrage-Knöpfe: ${ablage.rueckfrage} · Beiträge danach: ${ablage.nachher} · Dateien in „Vault Retrieval/Chats“: ${ablage.dateien.map((f) => f.split("/").pop()).join(", ") || "keine"}`);
+          }
+          await main.evaluate(`
+            const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+            await app.vault.adapter.rmdir("Vault Retrieval/Chats", true).catch(() => undefined);
+            p.settings.chatKeep = 0; await p.saveSettings(); p.refreshChatArchive(); return true;`);
+        }
+        // Befehle: nur bei offener Ansicht (checkCallback).
+        const befehle = await main.evaluate<{ offen: boolean[]; zu: boolean[] }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const ids = ["${PLUGIN_ID}:new-chat", "${PLUGIN_ID}:open-past-chats"];
+          const lies = () => ids.map((id) => { const c = app.commands.commands[id]; return !!c && c.checkCallback(true) === true; });
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
+          const offen = lies();
+          for (const l of app.workspace.getLeavesOfType("vault-retrieval-hub")) l.detach();
+          await new Promise(r => setTimeout(r, 500));
+          const zu = lies();
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
+          return { offen, zu };`);
+        record(W29.befehle, befehle.offen.every((b) => b) && befehle.zu.every((b) => !b),
+          `offen: ${befehle.offen.join("/")} · Ansicht zu: ${befehle.zu.join("/")} (neu / vergangene)`);
         // Smart Apply: Modellzeile (Wechsel und „Automatisch“).
         const sa = await main.evaluate<{ da: boolean; gewaehlt: string | null; zurueck: string | null }>(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
@@ -3237,24 +3351,29 @@ async function main(): Promise<void> {
         await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));`;
       try {
         const saved = await main.evaluate<unknown>(`return structuredClone(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.request);`);
-        const readKnopf = `
-          const k = document.querySelector(".vault-rag-chat .okit-thinking-toggle");
+        // Seit Kit 0.73.0 ist die Denk-Steuerung in der Modellzeile immer ein Dropdown mit dem Symbol davor (brain bei aus, brain-cog sonst); der Zustands-Knopf gibt es dort nicht mehr.
+        const readWahl = `
+          const sel = document.querySelector(".vault-rag-chat .okit-thinking-control select");
+          const ico = document.querySelector(".vault-rag-chat .okit-thinking-icon svg");
           const pl = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          return k ? { pressed: k.getAttribute("aria-pressed"), text: k.textContent, stored: pl.settings.request.thinking.grounded ?? null } : null;`;
-        const v0 = await main.evaluate<{ pressed: string; text: string; stored: string | null } | null>(`${chatDom} ${readKnopf}`);
-        await main.evaluate(`document.querySelector(".vault-rag-chat .okit-thinking-toggle")?.click(); await new Promise(r => setTimeout(r, 500)); return true;`);
-        const v1 = await main.evaluate<{ pressed: string; text: string; stored: string | null } | null>(readKnopf);
-        await main.evaluate(`document.querySelector(".vault-rag-chat .okit-thinking-toggle")?.click(); await new Promise(r => setTimeout(r, 500)); return true;`);
-        const v2 = await main.evaluate<{ pressed: string; text: string; stored: string | null } | null>(readKnopf);
-        const umgeschaltet = !!v0 && !!v1 && !!v2 && v0.pressed !== v1.pressed && v2.pressed === v0.pressed
-          && v0.text !== v1.text && v1.stored !== v0.stored;
+          return sel ? { value: sel.value, cog: !!ico && String(ico.getAttribute("class")).includes("brain-cog"), stored: pl.settings.request.thinking.grounded ?? null } : null;`;
+        const waehle = (v: string): string => `
+          const sel = document.querySelector(".vault-rag-chat .okit-thinking-control select");
+          if (sel) { sel.value = ${JSON.stringify(v)}; sel.dispatchEvent(new Event("change")); }
+          await new Promise(r => setTimeout(r, 600)); return true;`;
+        type Wahl = { value: string; cog: boolean; stored: string | null } | null;
+        await main.evaluate<unknown>(`${chatDom} return true;`);
+        await main.evaluate(waehle("off"));
+        const v0 = await main.evaluate<Wahl>(readWahl);
+        await main.evaluate(waehle("low"));
+        const v1 = await main.evaluate<Wahl>(readWahl);
+        const umgeschaltet = !!v0 && !!v1 && v0.value === "off" && v0.stored === "off" && !v0.cog && v1.value === "low" && v1.stored === "low" && v1.cog;
         record(W7I.n3, umgeschaltet,
-          `Start ${v0?.pressed}/„${v0?.text}“/${String(v0?.stored)} → ${v1?.pressed}/„${v1?.text}“/${String(v1?.stored)} → zurück ${v2?.pressed}`);
+          `aus: Wert ${v0?.value} · gespeichert ${String(v0?.stored)} · Symbol brain-cog ${v0?.cog} → an: Wert ${v1?.value} · gespeichert ${String(v1?.stored)} · Symbol brain-cog ${v1?.cog}`);
 
-        // N4: Stufenwahl einschalten (die Einstellung, nicht der Knopf), Tab neu zeigen, Dropdown waehlen.
+        // N4: Dropdown wählen, der Zustands-Knopf ist nicht mehr da.
         await main.evaluate(`
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-          await p.saveRequestSettings({ ...structuredClone(p.settings.request), levelPickerInChat: true });
           await p.openHub("related"); await new Promise(r => setTimeout(r, 300));
           await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
           return true;`);
@@ -3292,7 +3411,7 @@ async function main(): Promise<void> {
         await main.evaluate(`
           ${chatDom}
           const ta = document.querySelector(".okit-chat-input");
-          document.querySelector(".okit-chat-new")?.click();
+          await ${NEU_JS}();
           ta.value = "Antworte mit einem Wort.";
           ta.dispatchEvent(new Event("input", { bubbles: true }));
           document.querySelector(".okit-chat-send").click();
@@ -3301,7 +3420,7 @@ async function main(): Promise<void> {
         const chatBody = await main.evaluate<Record<string, unknown> | null>(`return window.__w14Bodies[0] ?? null;`);
         record(W7I.chat, chatBody !== null && chatBody.temperature === 0.4,
           chatBody ? `temperature=${String(chatBody.temperature)} · Felder: ${Object.keys(chatBody).filter((k) => k !== "messages" && k !== "stream").join(", ")}` : "kein Body abgegriffen");
-        await main.evaluate(`document.querySelector(".okit-chat-new")?.click(); return true;`);
+        await main.evaluate(`await ${NEU_JS}(); return true;`);
 
         // Umformatieren ueber den Panel-Knopf (wie 7g), Probe-Notiz im eigenen Tab.
         const before = await main.evaluate<number>(`return window.__w14Bodies.length;`);

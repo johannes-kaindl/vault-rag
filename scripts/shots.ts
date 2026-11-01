@@ -58,6 +58,7 @@ import { argv, cwd, exit } from "node:process";
 
 import {
   attachTo,
+  bereiteInstanzVor,
   Cdp,
   closeExtraLeaves,
   openExisting,
@@ -480,6 +481,17 @@ const SHOTS: Shot[] = [
       if (!(await hubTab(cdp, "chat"))) return null;
       await sidebarBreit(cdp);
       await statusleisteAus(cdp);
+      // Die Denkstufe steht im Auslieferungszustand auf „aus“, und dann sendet das Plugin `reasoning_effort: none`: ein Modell denkt nicht, es gibt keinen Denkblock
+      // (gemessen 2026-11-01, Welle 29: „kein Reasoning-Block“ mit qwen/qwen3.6-27b). Das Bild zeigt das Denken, also stellt dieses Bild die Stufe selbst her (Dropdown der
+      // Modellzeile, Modus `grounded`); die Stufe gehört zum Motiv, nicht zum Auslieferungszustand. Der nächste `fresh-vault` setzt sie zurück.
+      await cdp.evaluate(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        const r = structuredClone(p.settings.request);
+        r.thinking.grounded = "medium"; r.lastOnLevel.grounded = "medium";
+        await p.saveRequestSettings(r);
+        await new Promise((x) => setTimeout(x, 800));
+        return true;
+      `);
       // Eigene Frage statt Nachnutzung der Chat-Session: `--only thinking.png` nach
       // frischem Obsidian-Start faende sonst ein leeres Panel und klappte nichts auf.
       // Jeder Shot stellt seine Voraussetzungen selbst her.
@@ -1152,6 +1164,10 @@ async function main(): Promise<void> {
   }
 
   try {
+    // Eine frische Zweitinstanz startet im Restricted Mode und mit dem Vertrauensdialog: `bereiteInstanzVor` bestaetigt ihn, hebt den Modus auf, laedt das Plugin und
+    // holt das Hauptfenster als `activeDocument` zurueck (ohne sie lud das Plugin nicht, `--prepare` scheiterte mit „Cannot read properties of undefined (reading 'settings')“).
+    const vor = await bereiteInstanzVor(cdp, { pluginIds: [PLUGIN_ID], nurVault: vaultName, sprache: "en" });
+    console.log(`   Instanz: ${vor.hinweis}`);
     // Sprache pruefen, was GERENDERT ist — nicht, was gespeichert wurde. Beides weicht ab,
     // sobald jemand nach einer Aufnahme zurueckstellt und ohne Neustart weiterarbeitet
     // (Befund aus apple-health).

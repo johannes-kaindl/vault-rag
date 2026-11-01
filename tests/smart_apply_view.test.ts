@@ -95,6 +95,7 @@ function mkThinking(over: Partial<{ level: string; family: string | null; onLeve
       onLevel: () => over.onLevel ?? "low",
       setLevel: vi.fn(async (l: string) => { state.level = l; }),
       levelPicker: () => over.picker ?? false,
+      backend: () => "lmstudio" as const,
       strings: {
         button: (level: string, offNotPossible: boolean) => level === "off"
           ? (offNotPossible ? `Thinking: ${level} (cannot fully turn off)` : "Thinking off")
@@ -201,7 +202,8 @@ describe("SmartApplyPanel — Cockpit", () => {
   it("die Modellzeile trägt den Namen „Smart Apply“, hat die Denk-Steuerung in sich und keinen zweiten Knopf", () => {
     const { container } = mkPanel();
     const bar = first(container, "okit-model-bar");
-    expect(first(bar, "okit-model-bar-label").textContent).toBe("Smart Apply");
+    expect(bar.querySelector(".okit-model-bar-label")).toBeNull();   // seit Kit 0.73.0 ohne sichtbare Beschriftung, der Name steht im aria-label
+    expect(first(bar, "okit-model-bar-select").getAttribute("aria-label")).toBe("Model for Smart Apply");
     expect(all(container, "okit-thinking-control").length).toBe(1);
     expect(all(bar, "okit-thinking-control").length).toBe(1);
     expect(all(container, "vault-rag-sa-model").length).toBe(0);
@@ -257,42 +259,42 @@ describe("SmartApplyPanel — Cockpit", () => {
     expect(all(container, "okit-model-bar").length).toBe(0);
   });
 
-  it("💭-Toggle: Klick bei „an“ ruft setLevel(off), bei „aus“ setLevel(onLevel)", () => {
-    const on = mkThinking({ level: "low" });
-    const a = mkPanel({ thinking: on.deps as SmartApplyViewDeps["thinking"] });
-    first(a.container, "okit-thinking-toggle").click();
-    expect(on.deps.setLevel).toHaveBeenCalledWith("off");
-    const off = mkThinking({ level: "off", onLevel: "medium" });
-    const b = mkPanel({ thinking: off.deps as SmartApplyViewDeps["thinking"] });
-    first(b.container, "okit-thinking-toggle").click();
-    expect(off.deps.setLevel).toHaveBeenCalledWith("medium");
+  // Seit Kit 0.73.0 ist die Denk-Steuerung in der Modellzeile ein Dropdown mit den Stufen des Modells (Symbol davor, Dropdown als zweites Kind: das Fake-DOM kennt
+  // keine Tag-Selektoren). Ohne `backend` gäbe es keine Stufenliste und damit kein Element.
+  const stufenwahl = (container: unknown): { icon: string | null; component: { getValue(): string; options: Record<string, string>; onChangeCB: ((v: string) => unknown) | null }; selectEl: { getAttribute(n: string): string | null } } => {
+    const ctl = first(container as never, "okit-thinking-control") as unknown as { children: Array<{ getAttribute(n: string): string | null; __component?: never }> };
+    const dd = ctl.children[1] as unknown as { __component: never; getAttribute(n: string): string | null };
+    return { icon: ctl.children[0].getAttribute("data-icon"), component: dd.__component, selectEl: dd };
+  };
+  it("Denk-Dropdown: eine Wahl ruft setLevel mit der gewählten Stufe", () => {
+    const t = mkThinking({ level: "low" });
+    const { container } = mkPanel({ thinking: t.deps as SmartApplyViewDeps["thinking"] });
+    const dd = stufenwahl(container);
+    expect(Object.keys(dd.component.options)).toEqual(["off", "low", "medium", "high"]);
+    dd.component.onChangeCB?.("high");
+    expect(t.deps.setLevel).toHaveBeenCalledWith("high");
   });
-  it("💭-Toggle zeigt den Zustand über Icon, Text UND aria-pressed (UI-STANDARD §8)", () => {
-    const { container } = mkPanel({ thinking: mkThinking({ level: "low" }).deps as SmartApplyViewDeps["thinking"] });
-    const toggle = first(container, "okit-thinking-toggle");
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
-    expect(toggle.children[0].getAttribute("data-icon")).toBe("brain-cog");
-    expect(toggle.textContent).toContain("Thinking: low");
+  it("Denk-Dropdown zeigt die Stufe im Wert und im Symbol (brain-cog an, brain aus) und trägt den Namen am Dropdown", () => {
+    const an = stufenwahl(mkPanel({ thinking: mkThinking({ level: "low" }).deps as SmartApplyViewDeps["thinking"] }).container);
+    expect(an.component.getValue()).toBe("low");
+    expect(an.icon).toBe("brain-cog");
+    expect(an.selectEl.getAttribute("aria-label")).toContain("Thinking level");
+    const aus = stufenwahl(mkPanel({ thinking: mkThinking({ level: "off" }).deps as SmartApplyViewDeps["thinking"] }).container);
+    expect(aus.component.getValue()).toBe("off");
+    expect(aus.icon).toBe("brain");
   });
-  it("💭-Toggle: ausgeschaltet zeigt brain UND aria-pressed=false", () => {
-    const { container } = mkPanel({ thinking: mkThinking({ level: "off" }).deps as SmartApplyViewDeps["thinking"] });
-    const toggle = first(container, "okit-thinking-toggle");
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
-    expect(toggle.children[0].getAttribute("data-icon")).toBe("brain");
-    expect(toggle.textContent).toContain("Thinking off");
+  it("Denk-Dropdown: Familie ohne Abschaltmöglichkeit (gpt-oss) bietet „aus“ nicht an und zeigt die niedrigste Stufe", () => {
+    const dd = stufenwahl(mkPanel({ thinking: mkThinking({ level: "off", family: "gpt-oss" }).deps as SmartApplyViewDeps["thinking"] }).container);
+    expect(Object.keys(dd.component.options)).toEqual(["low", "medium", "high"]);
+    expect(dd.component.getValue()).toBe("low");
   });
-  it("💭-Toggle: Familie ohne Abschaltmöglichkeit (gpt-oss) sagt es im Text", () => {
-    const { container } = mkPanel({ thinking: mkThinking({ level: "off", family: "gpt-oss" }).deps as SmartApplyViewDeps["thinking"] });
-    expect(first(container, "okit-thinking-toggle").textContent).toContain("cannot fully turn off");
-  });
-
-  it("💭-Toggle: onShow zeichnet neu (die Stufe kann in den Einstellungen geändert worden sein)", () => {
+  it("Denk-Dropdown: onShow zeichnet neu (die Stufe kann in den Einstellungen geändert worden sein)", () => {
     const t = mkThinking({ level: "off" });
     const { container, panel } = mkPanel({ thinking: t.deps as SmartApplyViewDeps["thinking"] });
-    expect(first(container, "okit-thinking-toggle").textContent).toContain("Thinking off");
+    expect(stufenwahl(container).component.getValue()).toBe("off");
     t.state.level = "high";
     panel.onShow();
-    expect(first(container, "okit-thinking-toggle").textContent).toContain("Thinking: high");
+    expect(stufenwahl(container).component.getValue()).toBe("high");
   });
 
   it("Klick auf ein Modus-Segment setzt nur den Modus, startet KEINEN Run", async () => {

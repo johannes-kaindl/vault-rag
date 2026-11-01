@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.72.0"
+      "ref": "0.74.0"
     },
     "code-kit": {
-      "ref": "0.38.0"
+      "ref": "0.40.0"
     }
   },
   "targets": [
@@ -52,7 +52,11 @@
         "markdown-table",
         "list-summary",
         "chat-history",
-        "stream-blocks"
+        "stream-blocks",
+        "anthropic-wire",
+        "chat-archive",
+        "filename-template",
+        "local-stamp"
       ]
     },
     {
@@ -82,7 +86,6 @@
         "folder-hide",
         "frontmatter",
         "tool-provider",
-        "anthropic-wire",
         "override-guard"
       ],
       "rewrite": [
@@ -138,7 +141,13 @@
         "chat-window-strings",
         "model-bar",
         "model-bar-strings",
-        "stable-writer"
+        "stable-writer",
+        "chat-archive-dialog",
+        "chat-archive",
+        "chat-archive-strings",
+        "chat-archive-css",
+        "run-exclusive",
+        "chat-archive-settings"
       ],
       "rewrite": [
         [

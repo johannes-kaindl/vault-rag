@@ -13,7 +13,9 @@ import type { BackendId, FamilyId } from "../src/vendor/kit/sampling-profiles";
 //   · Temperatur je Modus: grounded 0.4 · structured 0.1 · transform 0.2
 //   · LM Studio ignoriert presence_penalty (nicht gesendet), Open WebUI nimmt top_k/min_p/
 //     presence_penalty an, ein unbekanntes Backend bekommt nur die Standardfelder
-//   · gpt-oss kann das Denken nicht abschalten: reasoning_effort ist minimal, nie none (7b10d84)
+//   · gpt-oss kann das Denken nicht abschalten: reasoning_effort ist nie none. Bis code-kit 0.38.0 war es `minimal` (7b10d84); seit 0.39.0
+//     klemmt `resolveRequestParams` mit `model` ein gespeichertes `off` auf die niedrigste Stufe der Liste des Modells, und das ist `low`
+//     (Entscheidung Johannes 2026-10-27, Kit-Kommentar an `resolveThinkingLevel`; Nebenfolge für gpt-oss ungenannt, Task im code-kit-Cockpit)
 //   · unbekannte Familie auf unbekanntem Backend: nur die Temperatur
 // Aendert ein Kit-Update einen Wert, faellt genau diese Tabelle auf und zeigt, was sich fuer
 // die drei Aufrufstellen aendert. Budget je Aufrufstelle wie im Plugin: Chat keins, Smart
@@ -51,9 +53,9 @@ const EXPECTED: Row[] = [
   ["chat", "gemma4", "lmstudio", {"temperature":0.4,"top_p":0.95,"top_k":64,"reasoning_effort":"low"}],
   ["chat", "gemma4", "openwebui", {"temperature":0.4,"top_p":0.95,"top_k":64,"reasoning_effort":"none"}],
   ["chat", "gemma4", "unknown", {"temperature":0.4,"top_p":0.95,"reasoning_effort":"none"}],
-  ["chat", "gpt-oss", "lmstudio", {"temperature":0.4,"top_p":1,"reasoning_effort":"minimal"}],
-  ["chat", "gpt-oss", "openwebui", {"temperature":0.4,"top_p":1,"reasoning_effort":"minimal"}],
-  ["chat", "gpt-oss", "unknown", {"temperature":0.4,"top_p":1,"reasoning_effort":"minimal"}],
+  ["chat", "gpt-oss", "lmstudio", {"temperature":0.4,"top_p":1,"reasoning_effort":"low"}],
+  ["chat", "gpt-oss", "openwebui", {"temperature":0.4,"top_p":1,"reasoning_effort":"low"}],
+  ["chat", "gpt-oss", "unknown", {"temperature":0.4,"top_p":1,"reasoning_effort":"low"}],
   ["chat", null, "lmstudio", {"temperature":0.4,"reasoning_effort":"none"}],
   ["chat", null, "openwebui", {"temperature":0.4,"reasoning_effort":"none"}],
   ["chat", null, "unknown", {"temperature":0.4}],
@@ -66,9 +68,9 @@ const EXPECTED: Row[] = [
   ["smartApply", "gemma4", "lmstudio", {"temperature":0.1,"top_p":0.95,"top_k":64,"reasoning_effort":"low","max_tokens":4096}],
   ["smartApply", "gemma4", "openwebui", {"temperature":0.1,"top_p":0.95,"top_k":64,"reasoning_effort":"none","max_tokens":4096}],
   ["smartApply", "gemma4", "unknown", {"temperature":0.1,"top_p":0.95,"reasoning_effort":"none","max_tokens":4096}],
-  ["smartApply", "gpt-oss", "lmstudio", {"temperature":0.1,"top_p":1,"reasoning_effort":"minimal","max_tokens":4096}],
-  ["smartApply", "gpt-oss", "openwebui", {"temperature":0.1,"top_p":1,"reasoning_effort":"minimal","max_tokens":4096}],
-  ["smartApply", "gpt-oss", "unknown", {"temperature":0.1,"top_p":1,"reasoning_effort":"minimal","max_tokens":4096}],
+  ["smartApply", "gpt-oss", "lmstudio", {"temperature":0.1,"top_p":1,"reasoning_effort":"low","max_tokens":4096}],
+  ["smartApply", "gpt-oss", "openwebui", {"temperature":0.1,"top_p":1,"reasoning_effort":"low","max_tokens":4096}],
+  ["smartApply", "gpt-oss", "unknown", {"temperature":0.1,"top_p":1,"reasoning_effort":"low","max_tokens":4096}],
   ["smartApply", null, "lmstudio", {"temperature":0.1,"reasoning_effort":"none","max_tokens":4096}],
   ["smartApply", null, "openwebui", {"temperature":0.1,"reasoning_effort":"none","max_tokens":4096}],
   ["smartApply", null, "unknown", {"temperature":0.1,"max_tokens":4096}],
@@ -81,9 +83,9 @@ const EXPECTED: Row[] = [
   ["reformat", "gemma4", "lmstudio", {"temperature":0.2,"top_p":0.95,"top_k":64,"reasoning_effort":"low","max_tokens":4096}],
   ["reformat", "gemma4", "openwebui", {"temperature":0.2,"top_p":0.95,"top_k":64,"reasoning_effort":"none","max_tokens":4096}],
   ["reformat", "gemma4", "unknown", {"temperature":0.2,"top_p":0.95,"reasoning_effort":"none","max_tokens":4096}],
-  ["reformat", "gpt-oss", "lmstudio", {"temperature":0.2,"top_p":1,"reasoning_effort":"minimal","max_tokens":4096}],
-  ["reformat", "gpt-oss", "openwebui", {"temperature":0.2,"top_p":1,"reasoning_effort":"minimal","max_tokens":4096}],
-  ["reformat", "gpt-oss", "unknown", {"temperature":0.2,"top_p":1,"reasoning_effort":"minimal","max_tokens":4096}],
+  ["reformat", "gpt-oss", "lmstudio", {"temperature":0.2,"top_p":1,"reasoning_effort":"low","max_tokens":4096}],
+  ["reformat", "gpt-oss", "openwebui", {"temperature":0.2,"top_p":1,"reasoning_effort":"low","max_tokens":4096}],
+  ["reformat", "gpt-oss", "unknown", {"temperature":0.2,"top_p":1,"reasoning_effort":"low","max_tokens":4096}],
   ["reformat", null, "lmstudio", {"temperature":0.2,"reasoning_effort":"none","max_tokens":4096}],
   ["reformat", null, "openwebui", {"temperature":0.2,"reasoning_effort":"none","max_tokens":4096}],
   ["reformat", null, "unknown", {"temperature":0.2,"max_tokens":4096}],

@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.72.0, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.74.0, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /**
  * Chat-Fenster (UI-STANDARD §8, Baustein 12): Verlauf, Eingabe, Ablauf, Abbruch, Fehlerzeile und Leerzustand eines Fach-Chats.
  *
@@ -41,9 +41,16 @@
  * 6. **Namen (`labels`, seit 0.70.0).** Der Name gehört zur Figur und damit dem Wirt: er reicht seine übersetzten Namen herein, das Kit bringt keine Texte dafür mit.
  *    Mit Namen steht die Frage in einer inneren Spalte (Name über Text), damit die Zeile mit dem Kopier-Knopf nicht zerreißt; `.okit-chat-turn.is-user .okit-chat-text`
  *    trifft weiter, ein Selektor mit Kindkombinator (`>`) träfe nicht mehr. `textContent` eines Turns enthält den Namen, Kopieren und Modellnachrichten nie.
+ * 7. **Verlauf (`archive`, seit 0.73.0).** Mit der Option legt das Fenster jedes Gespräch nach jeder abgeschlossenen Runde (auch bei Abbruch und Fehler) in den Speicher
+ *    (`chat-archive`), ein Verlauf-Knopf öffnet den Dialog, und **Neu fragt nicht mehr nach, solange der Verlauf an ist** (es legt ab, leert und sagt es). Ohne `archive` ist das
+ *    DOM unverändert und Neu leert ohne Rückfrage wie bisher. Vier Regeln, jede mit Test und Gegenprobe: gespeichert wird am Ende von `endRun`, nicht in `onChange` (das feuert
+ *    schon beim Absenden, die Antwort gibt es dann noch nicht); `clear()` sichert **vor** dem Überschreiben und **setzt den Bezug auf die Datei zurück** (sonst schriebe das nächste
+ *    Gespräch in die Datei des alten); „im Verlauf abgelegt“ steht nur da, wenn die Datei den Stand hat (sonst fragt Neu „trotzdem neu?“); `win.clear()` selbst bleibt unbedingt
+ *    (Wirte und Treiber rufen es). Aufbewahrung 0 heißt kein Verlauf: dann fragt Neu mit `confirmAction`. Ändert der Wirt die Aufbewahrung, ruft er `refresh()` (der Knopf folgt dort).
+ *    `destroy()` speichert nicht: der Stand der letzten Runde ist schon da.
  */
 
-import { setIcon } from "obsidian";
+import { Notice, setIcon, type App } from "obsidian";
 import { buildReasoningBlock, buildStreamArea, type StreamArea } from "./stream-area";
 import { createStableWriter, type StableMarkdownWriter } from "./stable-writer";
 import type { DomGuardOptions } from "./dom-guard";
@@ -59,6 +66,12 @@ import {
   resetAnswerText, retryLast, setAnswerMeta, startAnswer, updateExt,
   type ChatAnswerEntry, type ChatError, type ChatExtEntry, type ChatHistory, type ChatModelMessage, type JsonValue,
 } from "../kit/chat-history";
+import { restoreChatHistory, type ChatRecord } from "../kit/chat-archive";
+import type { ThinkingLevel } from "../kit/sampling-profiles";
+import type { ChatArchive } from "./chat-archive";
+import type { ChatArchiveStringsOverride } from "./chat-archive-strings";
+import { openChatArchive } from "./chat-archive-dialog";
+import { confirmAction } from "./confirm";
 
 export type { ChatAnswerEntry, ChatExtEntry, ChatHistory, ChatModelMessage, JsonValue } from "../kit/chat-history";
 
@@ -110,6 +123,21 @@ export interface ChatExtension {
   render?: Record<string, (el: HTMLElement, entry: ChatExtEntry) => void>;
 }
 
+/** Der Verlauf des Fensters (Option `archive`). Ohne sie gibt es keinen Verlauf-Knopf, und Neu leert ohne Rückfrage. */
+export interface ChatWindowArchive {
+  /** Der Speicher (`createChatArchive`). Das Fenster fragt `enabled()` bei jeder Gelegenheit neu: der Wirt ändert die Aufbewahrung ohne Neuaufbau und ruft danach `refresh()`. */
+  store: ChatArchive;
+  /** Für den Dialog und die Rückfragen (`SuggestModal`, `confirmAction`). */
+  app: App;
+  /** Modell und Denkstufe, die der Kopf des Chats trägt (sie werden beim Öffnen **nicht** übernommen; es gilt die Wahl der Modellzeile). */
+  model?: () => string | null;
+  thinking?: () => ThinkingLevel | null;
+  /** Texte des Dialogs; Vorgabe: die Sprache der Fenstertexte. */
+  strings?: ChatArchiveStringsOverride;
+  /** Export für einen anderen Payload als `okit-chat-history/1` (das Fenster öffnet nur den eigenen). */
+  render?: (record: ChatRecord) => string | null;
+}
+
 export interface ChatWindowOptions {
   send: ChatSend;
   /** Rendert Markdown in ein Element (Obsidian-Renderer, vom Plugin gestellt). */
@@ -120,11 +148,12 @@ export interface ChatWindowOptions {
   /** Enter sendet (Default `true`); `false` kehrt um: Umschalt+Enter sendet, Enter macht eine neue Zeile. Cmd/Strg+Enter sendet immer. */
   enterSends?: () => boolean;
   inputPosition?: () => "top" | "bottom";
-  /** Kopfzeile des Fensters (Status, Modellzeile, Denk-Knopf). Darf eine Abmeldung zurückgeben (seit 0.70.0): das Fenster ruft sie vor der nächsten Zeichnung
+  /** Kopfzeile des Fensters (Status, Tab-Leiste). Darf eine Abmeldung zurückgeben (seit 0.70.0): das Fenster ruft sie vor der nächsten Zeichnung
    *  des Kopfs (`refresh()`, `refreshHeader()`) und bei `destroy()`, genau einmal je Zeichnung; ein Einschub ohne Rückgabe verhält sich wie bisher. Dort gehört
-   *  hin, was der Kopf angelegt hat und `empty()` nicht abräumt (die Modellzeile: `return () => { bar.destroy(); }`). */
+   *  hin, was der Kopf angelegt hat und `empty()` nicht abräumt. Die Modellzeile steht seit 0.73.0 nicht mehr hier, sondern im `composer`. */
   header?: (el: HTMLElement) => void | (() => void);
-  /** Bereich über dem Textfeld (Kontext-Panel, Chips). Wie `header` mit Abmelde-Rückgabe; neu zeichnen: `refresh()` oder `refreshComposer()`. */
+  /** Bereich über dem Textfeld (Modellzeile seit 0.73.0, Kontext-Panel, Chips). Wie `header` mit Abmelde-Rückgabe (die Modellzeile: `return () => { bar.destroy(); }`); neu zeichnen: `refresh()` oder `refreshComposer()`. Seit 0.74.0 hebt das Fenster ein direktes Kind mit der Klasse `okit-model-bar` aus dem Einschub in den Composer (Layout, siehe `CHAT_WINDOW_CSS`).
+   *  Im Leerzustand (`empty.when()`) ist der ganze `composer` samt Einschub ausgeblendet. */
   composer?: (el: HTMLElement) => void | (() => void);
   /** Bereich unter jeder Antwort (Quellen, Profil-Blöcke); wird nach dem Ende der Antwort und nach jedem `setMeta` neu gezeichnet. */
   afterAnswer?: (el: HTMLElement, entry: ChatAnswerEntry) => void;
@@ -137,6 +166,8 @@ export interface ChatWindowOptions {
   extensions?: ChatExtension[];
   /** Ein vorhandener Verlauf (aus dem Speicher des Plugins). Eine Antwort, die laufen sollte, gilt als abgebrochen. */
   initial?: ChatHistory;
+  /** Der Verlauf vergangener Chats (seit 0.73.0): Speichern nach jeder Runde, Verlauf-Knopf, Neu nach E9. */
+  archive?: ChatWindowArchive;
   onChange?: (history: ChatHistory) => void;
   /** Kopieren; Default `copyToClipboard`. `true` heißt kopiert. */
   copy?: (text: string) => Promise<boolean>;
@@ -177,6 +208,12 @@ export interface ChatWindow {
   refreshHeader(): void;
   /** Nur den Bereich über dem Textfeld neu (seit 0.70.0); sonst wie `refreshHeader()`. */
   refreshComposer(): void;
+  /** Ersetzt das Gespräch durch einen Verlauf (seit 0.73.0): das laufende wird vorher gesichert (mit `archive`), eine Antwort im Zustand `streaming` gilt als abgebrochen. `source`
+   *  nennt die Datei, in die der Chat zurückgeschrieben wird (der Dialog setzt sie; ohne sie gilt er als neues Gespräch). Wirft der Verlauf beim Wiederherstellen oder Zeichnen (kaputter
+   *  Payload), bleibt das bisherige Gespräch samt Protokoll stehen, eine Notice sagt es, `false`. Im Lauf geschieht nichts (`false`): wer läuft, drückt erst Stopp. */
+  load(history: ChatHistory, source?: { name: string; created: string }): boolean;
+  /** Öffnet den Dialog „Vergangene Chats“ (für den Befehl des Wirts, UI-STANDARD § 4); ohne `archive`, bei Aufbewahrung 0 und im Lauf tut es nichts. */
+  openArchive(): void;
   destroy(): void;
 }
 
@@ -230,6 +267,9 @@ function isAbortError(e: unknown): boolean {
   return typeof e === "object" && e !== null && (e as { name?: unknown }).name === "AbortError";
 }
 
+/** Ein Gespräch im Verlauf: die Datei, in die es schreibt (`null` bis zur ersten Speicherung) und der Stand, den die Datei zuletzt bekam. Neu und `load` tauschen das Objekt aus. */
+interface Convo { ref: { name: string; created: string } | null; saved: ChatHistory | null }
+
 export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): ChatWindow {
   const strings: ChatWindowStrings = resolveChatWindowStrings(opts.strings);
   const connectionStrings = resolveLlmConnectionStrings(opts.strings?.lang === undefined ? undefined : { lang: opts.strings.lang });
@@ -244,9 +284,8 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   // ── Zustand ─────────────────────────────────────────────────────────────────────────────────────
   let history: ChatHistory = EMPTY_CHAT;
   if (opts.initial !== undefined) {
-    history = opts.initial;
-    // Ein Verlauf aus dem Speicher kann keine laufende Antwort fortsetzen.
-    for (const e of history.entries) if (e.kind === "assistant" && e.state === "streaming") history = abortAnswer(history, e.id);
+    // Ein Verlauf aus dem Speicher kann keine laufende Antwort fortsetzen (code-kit `chat-archive`, eine Wahrheit mit dem Verlauf-Dialog).
+    history = restoreChatHistory(opts.initial);
   }
   let runNo = 0;
   let running = false;
@@ -281,9 +320,17 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     attr: { rows: "1", "aria-label": strings.inputLabel, placeholder: strings.placeholder },
   });
   inputEl.value = "";
-  const buttonsEl = composerEl.createDiv({ cls: "okit-chat-buttons" });
-  const sendBtn = buttonsEl.createEl("button", { cls: "okit-chat-send mod-cta", attr: { type: "button" } });
-  const newBtn = buttonsEl.createEl("button", { cls: "okit-chat-new", attr: { type: "button" }, text: strings.newChat });
+  // Neu und Verlauf links, Senden rechts: seit 0.74.0 direkte Kinder des Composers (ohne Wrapper `okit-chat-buttons`), damit ein Grid sie ohne `display: contents` (Store-Warnung) umordnen kann.
+  // Neu steht bewusst am anderen Ende als Senden (Fehlklick), auch in der kompakten Anordnung.
+  const buttonsStartEl = composerEl.createDiv({ cls: "okit-chat-buttons-start" });
+  const newBtn = buttonsStartEl.createEl("button", { cls: "clickable-icon okit-chat-new", attr: { type: "button", "aria-label": strings.newChat } });
+  setIcon(newBtn, "square-pen");
+  // Der Verlauf-Knopf nur mit `archive` (ohne sie bleibt das DOM wie in 2a), hinter Neu; sichtbar nur, solange der Verlauf an ist.
+  const archiveBtn = opts.archive === undefined
+    ? null
+    : buttonsStartEl.createEl("button", { cls: "clickable-icon okit-chat-archive", attr: { type: "button", "aria-label": strings.archive } });
+  if (archiveBtn !== null) setIcon(archiveBtn, "history");
+  const sendBtn = composerEl.createEl("button", { cls: "okit-chat-send mod-cta", attr: { type: "button" } });
   const statusbarEl = rootEl.createDiv({ cls: "okit-chat-statusbar" });
   const statusEl = statusbarEl.createDiv({ cls: "okit-chat-status", attr: { "aria-live": "polite" } });
   const timerEl = statusbarEl.createDiv({ cls: "okit-chat-timer", attr: { "aria-hidden": "true" } });
@@ -294,6 +341,10 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     if (text === statusText) return;
     statusText = text;
     statusEl.setText(text);
+    // Nur für den kompakten Composer (CHAT_WINDOW_CSS, Mobil, geringe Höhe): die Zustandszeile erscheint dort nur, solange die Antwort läuft (denkt, schreibt); fertig, gestoppt und Fehler stehen im Gespräch selbst.
+    const live = text === strings.statusThinking || text === strings.statusWriting;
+    statusbarEl.toggleClass("is-live", live);
+    composerEl.toggleClass("is-live", live); // die Modellzeile weicht der Zustandszeile (ohne :has(), das der Store-Lint verbietet)
   };
 
   /** `inputPosition()` kann sich mit einer Einstellung ändern: `refresh()` setzt die Eingabe dann um (im echten DOM verschiebt `insertBefore`). */
@@ -305,11 +356,24 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     if (top) rootEl.insertBefore(composerEl, logEl); else rootEl.insertBefore(logEl, composerEl);
   };
 
+  /** Neu ist gesperrt, solange das Gespräch leer ist (nichts zu verwerfen) und solange ein Lauf läuft (wer läuft, drückt erst Stopp). */
+  const newBlocked = (): boolean => running || history.entries.length === 0;
+  /** Der Verlauf ist an, wenn der Wirt `archive` gesetzt hat und der Speicher es sagt (Aufbewahrung über 0). */
+  const archiveOn = (): boolean => opts.archive?.store.enabled() === true;
+  /** Der Knopf folgt dem Verlauf (nach einer Änderung der Aufbewahrung ruft der Wirt `refresh()`) und ist im Lauf gesperrt wie Neu (F-B5). */
+  const syncArchiveButton = (): void => {
+    if (archiveBtn === null) return;
+    archiveBtn.toggleClass("okit-chat-hidden", !archiveOn());
+    archiveBtn.disabled = running;
+  };
+  const syncNewButton = (): void => { newBtn.disabled = newBlocked(); syncArchiveButton(); };
+
   const syncSendButton = (): void => {
     const label = running ? strings.stop : strings.send;
     sendBtn.setText(label);
     sendBtn.setAttribute("aria-label", label);
     sendBtn.toggleClass("mod-warning", running);
+    syncNewButton();
   };
 
   const growInput = (): void => {
@@ -551,12 +615,27 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     headerEl.empty();
     if (opts.header !== undefined) guarded(() => { const r = opts.header?.(headerEl); if (typeof r === "function") headerOff = r; });
   };
+  // Die Modellzeile (direktes Kind des Einschubs mit der Klasse `okit-model-bar`) wandert seit 0.74.0 in den Composer, damit das Grid sie neben Neu und Verlauf legen kann (CSS allein kann sie nicht
+  // aus dem Einschub lösen, `display: contents` ist eine Store-Warnung). Darüber bleibt sie die erste Zeile über dem Einschub; ein Einschub ohne Modellzeile ändert sich nicht.
+  let liftedBars: HTMLElement[] = [];
+  const liftModelBar = (): void => {
+    for (const c of Array.from(composerExtraEl.children) as HTMLElement[]) {
+      if (!c.classList.contains("okit-model-bar")) continue;
+      c.remove();
+      composerEl.appendChild(c);
+      liftedBars.push(c);
+    }
+  };
   const drawComposer = (): void => {
     const off = composerOff;
     composerOff = null;
     callOff(off);
+    // Was die Abmeldung nicht entfernt hat, räumt das Fenster ab: früher leerte `empty()` des Einschubs auch die Modellzeile.
+    for (const b of liftedBars) b.remove();
+    liftedBars = [];
     composerExtraEl.empty();
     if (opts.composer !== undefined) guarded(() => { const r = opts.composer?.(composerExtraEl); if (typeof r === "function") composerOff = r; });
+    liftModelBar();
   };
 
   const drawSlots = (): void => {
@@ -587,6 +666,40 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     if (destroyed || runAnnounced === value) return;
     runAnnounced = value;
     guarded(() => { opts.onRunChange?.(value); });
+  };
+
+  // ── Verlauf (archive) ───────────────────────────────────────────────────────────────────────────
+  let convo: Convo = { ref: null, saved: null };
+  // Alle Schreibvorgänge des Fensters laufen hintereinander: das Ende einer Runde und dann sofort Neu dürfen keine zweite Datei anlegen.
+  let persistChain: Promise<unknown> = Promise.resolve();
+  let newPending = false;
+  const needsSave = (): boolean => history.entries.length > 0 && history !== convo.saved;
+
+  /** Schreibt `snapshot` für das Gespräch `c` (Name und `created` aus dem ersten Speichern); `true`, wenn die Datei den Stand hat (auch wenn nichts zu schreiben war). Der Bezug wird
+   *  zur Laufzeit in der Kette gelesen, nicht beim Aufruf: zwei Aufrufe dicht hintereinander sehen beide die Datei des ersten. */
+  const persistConvo = (c: Convo, snapshot: ChatHistory): Promise<boolean> => {
+    const job = persistChain.then(async (): Promise<boolean> => {
+      const a = opts.archive;
+      if (a === undefined || !a.store.enabled()) return false;
+      if (snapshot.entries.length === 0 || c.saved === snapshot) return true;
+      const first = snapshot.entries.find((e) => e.kind === "user");
+      const created = c.ref?.created ?? new Date(clock.now()).toISOString();
+      const saved = await a.store.save({
+        ...(c.ref === null ? {} : { name: c.ref.name }),
+        title: first?.kind === "user" ? first.text : "",
+        created,
+        model: a.model?.() ?? null,
+        thinking: a.thinking?.() ?? null,
+        payloadType: "okit-chat-history/1",
+        payload: snapshot as unknown as JsonValue,
+      });
+      if (saved === null) return false;
+      c.ref = { name: saved.name, created };
+      c.saved = snapshot;
+      return true;
+    }).catch((e: unknown): boolean => { reportError(e); return false; });
+    persistChain = job;
+    return job;
   };
 
   // ── Ablauf ──────────────────────────────────────────────────────────────────────────────────────
@@ -654,6 +767,8 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     syncEmpty();
     announceRun(false);
     notifyChange();
+    // Am Ende der Runde, nicht in `onChange`: das feuert schon beim Absenden, die Antwort gibt es dann noch nicht (Abbruch und Fehler gehören dazu).
+    if (archiveOn() && needsSave()) void persistConvo(convo, history);
     focusInput();
   };
 
@@ -836,8 +951,12 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     if (view !== undefined) void endRun(myRun, view, { kind: "aborted" });
   };
 
-  const clear = (): void => {
+  /** Leert das Gespräch. Der Stand wird vorher gesichert, **bevor** `history` überschrieben wird (danach ist er weg), und der Bezug auf die Datei gehört dem alten Gespräch:
+   *  das neue legt eine neue an. `persistFirst: false` nur für Neu nach einer Rückfrage (das Speichern ist dort schon gescheitert oder der Verlauf aus). */
+  const reset = (persistFirst: boolean): void => {
     if (destroyed) return;
+    if (persistFirst && archiveOn() && needsSave()) void persistConvo(convo, history);
+    convo = { ref: null, saved: null };
     if (running) { controller?.abort(); running = false; controller = null; stopTimer(); }
     runNo += 1;
     history = clearChat(history);
@@ -849,6 +968,91 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     announceRun(false);
     notifyChange();
     focusInput();
+  };
+  /** Für Wirte und Treiber unbedingt: keine Rückfrage, keine Notice. */
+  const clear = (): void => { reset(true); };
+
+  /** Neu nach E9. Ohne `archive` leert es sofort. Mit Verlauf: ablegen, leeren, sagen, dass es abgelegt ist; nur wenn die Datei den Stand hat. Sonst (Speichern gescheitert, Aufbewahrung 0)
+   *  fragt es, bevor etwas verloren geht. Ändert sich das Gespräch währenddessen (eine neue Frage, ein anderer Chat), leert es nichts. */
+  const startNew = (): void => {
+    const a = opts.archive;
+    if (a === undefined) { clear(); return; }
+    if (newPending) return;
+    newPending = true;
+    const c = convo;
+    const snap = history;
+    const stale = (): boolean => destroyed || convo !== c || history !== snap;
+    const confirmed = (message: string, confirmLabel: string, title?: string): Promise<boolean> => confirmAction(a.app, {
+      ...(title === undefined ? {} : { title }), message, confirmLabel, cancelLabel: strings.cancel, warning: true,
+    });
+    void (async (): Promise<void> => {
+      try {
+        if (!a.store.enabled()) {
+          if (!(await confirmed(strings.newDiscardMessage, strings.newDiscardConfirm, strings.newDiscardTitle)) || stale()) return;
+          reset(false);
+          return;
+        }
+        const saved = await persistConvo(c, snap);
+        if (stale()) return;
+        if (!saved) {
+          if (!(await confirmed(strings.newUnsavedMessage, strings.newUnsavedConfirm)) || stale()) return;
+          reset(false);
+          return;
+        }
+        reset(false);
+        new Notice(strings.archiveSaved);
+      } catch (e) {
+        reportError(e);
+      } finally {
+        newPending = false;
+      }
+    })();
+  };
+
+  const load = (h: ChatHistory, source?: { name: string; created: string }): boolean => {
+    if (destroyed || running) return false;
+    const failed = (e: unknown): false => { reportError(e); new Notice(strings.archiveOpenFailed); return false; };
+    let restored: ChatHistory;
+    try { restored = restoreChatHistory(h); } catch (e) { return failed(e); }
+    const prevHistory = history;
+    const prevConvo = convo;
+    const saveFirst = archiveOn() && needsSave();
+    history = restored;
+    try {
+      rebuildLog();
+    } catch (e) {
+      // `rebuildLog` hat das Protokoll schon geleert: der alte Verlauf kommt zurück und wird neu gezeichnet.
+      history = prevHistory;
+      try { rebuildLog(); } catch (e2) { reportError(e2); }
+      return failed(e);
+    }
+    // Das laufende Gespräch zuerst sichern (es ist jetzt ersetzt); gelingt das Öffnen nicht, bleibt alles beim Alten und nichts wird geschrieben.
+    if (saveFirst) void persistConvo(prevConvo, prevHistory);
+    convo = { ref: source === undefined ? null : { ...source }, saved: source === undefined ? null : restored };
+    runNo += 1;
+    setStatus("");
+    timerEl.setText("");
+    syncSendButton();
+    syncEmpty();
+    announceRun(false);
+    notifyChange();
+    focusInput();
+    return true;
+  };
+
+  const openArchive = (): void => {
+    const a = opts.archive;
+    if (a === undefined || destroyed || running || !a.store.enabled()) return;
+    const archiveStrings = a.strings ?? (opts.strings?.lang === undefined ? undefined : { lang: opts.strings.lang });
+    openChatArchive(a.app, a.store, {
+      clock,
+      ...(archiveStrings === undefined ? {} : { strings: archiveStrings }),
+      ...(a.render === undefined ? {} : { render: a.render }),
+      onPick: (record, entry) => {
+        if (record.payloadType !== "okit-chat-history/1") { new Notice(strings.archiveOpenFailed); return; }
+        load(record.payload as unknown as ChatHistory, { name: entry.name, created: record.created });
+      },
+    });
   };
 
   const destroy = (): void => {
@@ -875,6 +1079,7 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     drawSlots();
     syncAllRetry();
     syncEmpty();
+    syncArchiveButton();
   };
 
   // ── Tasten und Knöpfe ───────────────────────────────────────────────────────────────────────────
@@ -892,8 +1097,9 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     if (enterSends() ? !e.shiftKey : e.shiftKey) { e.preventDefault(); void submit(); }
   });
   sendBtn.addEventListener("click", () => { if (running) abort(); else void submit(); });
-  newBtn.setAttribute("aria-label", strings.newChat);
-  newBtn.addEventListener("click", () => { clear(); });
+  // Ein gesperrter Knopf nimmt im echten Renderer keinen Klick an; die Prüfung hier hält dasselbe für ein Ereignis ohne Renderer fest. `clear()` selbst bleibt für Wirte unbedingt.
+  newBtn.addEventListener("click", () => { if (!newBlocked()) startNew(); });
+  archiveBtn?.addEventListener("click", () => { openArchive(); });
 
   // ── Aufbau ──────────────────────────────────────────────────────────────────────────────────────
   rootEl.toggleClass("okit-chat--input-top", composerTop);
@@ -914,12 +1120,17 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     refresh,
     refreshHeader: () => { if (!destroyed) drawHeader(); },
     refreshComposer: () => { if (!destroyed) drawComposer(); },
+    load,
+    openArchive,
     destroy,
   };
 }
 
 /** Gehört in die `styles.css` des Consumers (zusammen mit `STREAM_AREA_CSS`) — das Kit injiziert kein CSS.
- *  Nur Theme-Variablen, keine harten Farben oder Größen (UI-STANDARD). */
+ *  Nur Theme-Variablen, keine harten Farben oder Größen (UI-STANDARD).
+ *
+ *  Der kompakte Composer (0.74.0) ist ein Höhen-`@media` am Ende: bei geringer Fensterhöhe, etwa mit offener Handy-Tastatur, liegt die Modellzeile in der unteren Zeile neben Neu und Verlauf
+ *  (Senden neben der Eingabe) und die Zustandszeile ersetzt auf Mobil, solange die Antwort läuft, die Modellzeile (kein Platz reserviert). Darüber bleibt alles pixelgleich außer den Tippflächen auf Mobil. */
 export const CHAT_WINDOW_CSS = `
 .okit-chat { display: flex; flex-direction: column; min-height: 0; height: 100%; gap: var(--size-4-2); }
 .okit-chat-header:empty { display: none; }
@@ -950,10 +1161,20 @@ export const CHAT_WINDOW_CSS = `
 .okit-chat-error { color: var(--text-error); }
 .okit-chat-aborted, .okit-chat-hint { color: var(--text-muted); }
 .okit-chat-after:empty { display: none; }
-.okit-chat-composer { flex: 0 0 auto; display: flex; flex-direction: column; gap: var(--size-4-2); }
+.okit-chat-composer { flex: 0 0 auto; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--size-4-2); }
+/* Standardanordnung (0.74.0, ein Grid statt der Spalte): jede Zeile des Composers ist eine Gitterzeile über die ganze Breite, Neu/Verlauf links und Senden rechts teilen sich die letzte. Die Reihenfolge steht in order, nicht im DOM. */
+.okit-chat-composer > * { grid-column: 1 / -1; min-width: 0; order: 1; }
+.okit-chat-composer > .okit-model-bar { order: -1; }
+.okit-chat-composer-extra { order: 0; }
+.okit-chat-buttons-start { grid-column: 1; order: 2; }
+.okit-chat-send { grid-column: 3; order: 3; }
 .okit-chat-composer-extra:empty { display: none; }
 .okit-chat-input { width: 100%; resize: none; max-height: 12em; overflow-y: auto; }
-.okit-chat-buttons { display: flex; gap: var(--size-4-2); justify-content: flex-end; }
+.okit-chat-buttons-start { display: flex; align-items: center; gap: var(--size-2-2); }
+.okit-chat-new svg { width: var(--icon-s); height: var(--icon-s); }
+.okit-chat-new:disabled { opacity: 0.4; cursor: not-allowed; }
+.okit-chat-archive svg { width: var(--icon-s); height: var(--icon-s); }
+.okit-chat-archive:disabled { opacity: 0.4; cursor: not-allowed; }
 .okit-chat-statusbar {
   flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: var(--size-4-2);
   font-size: var(--font-ui-small); color: var(--text-muted);
@@ -964,6 +1185,32 @@ export const CHAT_WINDOW_CSS = `
 .okit-chat-empty-text { margin: 0; color: var(--text-muted); }
 .okit-chat-hint { color: var(--text-faint); font-size: var(--font-ui-small); }
 .okit-chat--input-top { flex-direction: column; }
+/* Tippfläche auf Mobil: Neu und Verlauf sind 44 px groß (Obsidian setzt ein Symbolknopf dort sonst nur auf Symbolgröße plus Rand, gemessen 30 × 26). Das Symbol bleibt klein und mittig, nur der Knopf wächst. */
+.is-mobile button.clickable-icon.okit-chat-new, .is-mobile button.clickable-icon.okit-chat-archive { min-width: calc(var(--size-4-10) + var(--size-4-1)); min-height: calc(var(--size-4-10) + var(--size-4-1)); display: flex; align-items: center; justify-content: center; }
+/* Kompakter Composer bei geringer Höhe. Die Höhe fragt ein @media ab (die Wurzel hat keine feste Höhe, ein Container mit Höhenabfrage bräuchte eine), die Breite ein Container auf der Wurzel; alles in einem Block, damit Neukopieren genügt. */
+@media (max-height: 640px) {
+  .okit-chat { container-type: inline-size; container-name: okit-chat; }
+  .is-mobile .okit-chat:not(.okit-chat--input-top) { position: relative; }
+  /* Die Modellzeile in die untere Zeile falten, aber nur, wo sie dort Platz hat (ab 20 em Breite, auch auf einem schmalen Handy mit Denkstufe; darunter, etwa in einer schmalen Seitenleiste, bleibt die Standardanordnung).
+     Zeile eins: Eingabe und Senden. Zeile zwei: Neu, Verlauf und die Modellzeile. Senden steht neben der Eingabe, damit es nie neben Neu liegt (Fehlklick) und die Modellzeile mit Denkstufe neben Neu und Verlauf (je 44 px auf Mobil) Platz hat. */
+  @container okit-chat (min-width: 20em) {
+    .okit-chat-composer > .okit-chat-input { grid-column: 1 / 3; order: 1; }
+    .okit-chat-composer > .okit-chat-send { grid-column: 3; order: 2; align-self: end; }
+    .okit-chat-composer > .okit-chat-buttons-start { grid-column: 1; order: 3; }
+    .okit-chat-composer > .okit-model-bar { grid-column: 2 / -1; order: 4; width: auto; }
+    .okit-chat-composer > .okit-model-bar .okit-model-bar-row { flex-wrap: nowrap; }
+    .okit-chat-composer > .okit-model-bar .okit-model-bar-select { min-width: 4em; }
+    /* Das Symbol vor der Denkstufe fällt in der gefalteten Zeile weg (es zeigt den Zustand nur ein zweites Mal), damit der Modellname lesbar bleibt. */
+    .okit-chat-composer > .okit-model-bar .okit-thinking-icon { display: none; }
+    /* Auf Mobil reserviert die Zustandszeile hier keinen Platz mehr: sie ersetzt, solange die Antwort läuft, die Modellzeile (die Zeile ist dann gesperrt) an derselben Stelle der unteren Zeile, ohne Höhensprung
+       und ohne ein anderes Element zu überdecken. Fertig, gestoppt und Fehler stehen im Gespräch selbst (Zeile, Hinweis), die Zustandszeile fehlt dann. Die Höhe der unteren Zeile ist die Tippfläche (44 px). */
+    .is-mobile .okit-chat:not(.okit-chat--input-top) .okit-chat-statusbar {
+      position: absolute; inset-inline-end: 0; bottom: 0; height: calc(var(--size-4-10) + var(--size-4-1)); gap: var(--size-4-2); align-items: center; pointer-events: none;
+    }
+    .is-mobile .okit-chat:not(.okit-chat--input-top) .okit-chat-statusbar:not(.is-live) { display: none; }
+    .is-mobile .okit-chat:not(.okit-chat--input-top) .okit-chat-composer.is-live > .okit-model-bar { visibility: hidden; }
+  }
+}
 /* Ans Ende UND mit der Wurzelklasse davor: die Regeln oben setzen display auf flex, und bei gleicher Spezifität gewönne die spätere. Im Fake-DOM der Tests
    unsichtbar, im echten Renderer blieb der Verlauf unter dem Leerzustand stehen (Pilot, 2026-10-23). */
 .okit-chat .okit-chat-hidden { display: none; }

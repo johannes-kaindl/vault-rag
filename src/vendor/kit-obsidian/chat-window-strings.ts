@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.72.0, src/obsidian/chat-window-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.74.0, src/obsidian/chat-window-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Default-Texte (EN/DE) für `buildChatWindow` — nach dem Muster von `llm-connection-strings.ts`. Ohne sie formulierte jedes Plugin rund
  *  zwanzig Texte selbst, obwohl „Senden“ oder „Zugriff verweigert (HTTP 401)“ je Plugin nichts anderes heißen soll.
  *
@@ -63,6 +63,21 @@ export interface ChatWindowStrings {
   errThrown: (message: string) => string;
   /** Hinweis im leeren Verlauf (optional). */
   emptyHistory?: string;
+  /** Verlauf (seit 0.73.0, nur mit der Option `archive`): `aria-label` und Tooltip des Knopfs „Vergangene Chats“. */
+  archive: string;
+  /** Notice nach Neu, wenn die Datei den Stand hat. */
+  archiveSaved: string;
+  /** Notice, wenn ein gewählter Chat sich nicht öffnen ließ (kaputter oder fremder Payload); das bisherige Gespräch bleibt. */
+  archiveOpenFailed: string;
+  /** Rückfrage bei Neu mit Aufbewahrung 0 (der Verlauf ist aus, das Gespräch wäre danach weg). */
+  newDiscardTitle: string;
+  newDiscardMessage: string;
+  newDiscardConfirm: string;
+  /** Rückfrage bei Neu, wenn das Speichern scheiterte (ungültiger Ordner, Schreibfehler): ohne sie ginge das Gespräch still verloren. */
+  newUnsavedMessage: string;
+  newUnsavedConfirm: string;
+  /** Abbrechen in beiden Rückfragen. */
+  cancel: string;
 }
 
 export interface ChatWindowStringsOverride extends Partial<ChatWindowStrings> {
@@ -72,7 +87,7 @@ export interface ChatWindowStringsOverride extends Partial<ChatWindowStrings> {
 export const CHAT_WINDOW_STRINGS_EN: ChatWindowStrings = {
   send: "Send",
   stop: "Stop",
-  newChat: "New",
+  newChat: "New chat",
   inputLabel: "Message",
   placeholder: "Write a message…",
   copyQuestion: "Copy question",
@@ -111,12 +126,21 @@ export const CHAT_WINDOW_STRINGS_EN: ChatWindowStrings = {
   errTruncated: "The answer was cut off before the first word — thinking used up the token limit.",
   errGeneric: "The request failed.",
   errThrown: (m) => `The request failed: ${m}`,
+  archive: "Past chats",
+  archiveSaved: "Chat saved to past chats",
+  archiveOpenFailed: "This chat could not be opened.",
+  newDiscardTitle: "Discard this chat?",
+  newDiscardMessage: "Past chats are turned off, so this chat will be gone for good.",
+  newDiscardConfirm: "Discard",
+  newUnsavedMessage: "This chat could not be saved to past chats. Start a new chat anyway?",
+  newUnsavedConfirm: "Start anyway",
+  cancel: "Cancel",
 };
 
 export const CHAT_WINDOW_STRINGS_DE: ChatWindowStrings = {
   send: "Senden",
   stop: "Stopp",
-  newChat: "Neu",
+  newChat: "Neues Gespräch",
   inputLabel: "Nachricht",
   placeholder: "Nachricht schreiben…",
   copyQuestion: "Frage kopieren",
@@ -155,6 +179,15 @@ export const CHAT_WINDOW_STRINGS_DE: ChatWindowStrings = {
   errTruncated: "Die Antwort wurde vor dem ersten Wort abgeschnitten — das Denken hat das Token-Limit verbraucht.",
   errGeneric: "Die Anfrage ist fehlgeschlagen.",
   errThrown: (m) => `Die Anfrage ist fehlgeschlagen: ${m}`,
+  archive: "Vergangene Chats",
+  archiveSaved: "Gespräch im Verlauf abgelegt",
+  archiveOpenFailed: "Dieser Chat ließ sich nicht öffnen.",
+  newDiscardTitle: "Gespräch verwerfen?",
+  newDiscardMessage: "Der Verlauf ist aus: Das Gespräch ist danach weg und lässt sich nicht zurückholen.",
+  newDiscardConfirm: "Verwerfen",
+  newUnsavedMessage: "Das Gespräch ließ sich nicht im Verlauf ablegen. Trotzdem ein neues beginnen?",
+  newUnsavedConfirm: "Trotzdem neu",
+  cancel: "Abbrechen",
 };
 
 /** Nur die gesetzten Felder: ein ausdrückliches `undefined` im Override überschriebe sonst den Default. */

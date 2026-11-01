@@ -28,6 +28,7 @@ function mkThinking() {
       onLevel: (): Level => "low",
       setLevel: vi.fn(async (l: Level) => { state.level = l; }),
       levelPicker: () => false,
+      backend: () => "lmstudio" as const,
       strings: {
         button: (level: Level) => (level === "off" ? "Thinking off" : `Thinking: ${level}`),
         level: (l: Level) => l,
@@ -380,7 +381,8 @@ describe("ChatPanel", () => {
       const { container } = mkPanel();
       const header = all(container, ".okit-chat-header")[0];
       expect(header.querySelectorAll(".okit-model-bar").length).toBe(1);
-      expect(header.querySelector(".okit-model-bar-label").textContent).toBe("Chat");
+      expect(header.querySelector(".okit-model-bar-label")).toBeNull();   // seit Kit 0.73.0 ohne sichtbare Beschriftung
+      expect(header.querySelector(".okit-model-bar-select").getAttribute("aria-label")).toBe("Model for Chat");
       expect(all(container, ".okit-thinking-control").length).toBe(1);
       expect(all(container, ".okit-model-bar")[0].querySelectorAll(".okit-thinking-control").length).toBe(1);
       expect(all(container, ".vault-rag-chat-model").length).toBe(0);
@@ -424,13 +426,15 @@ describe("ChatPanel", () => {
 
     it("onShow und refreshModelBar zeichnen die Zeile neu (Stufe und Modell können sich in den Einstellungen geändert haben); `models` lädt die Liste neu", async () => {
       const x = mkPanel();
-      expect(text(x.container)).toContain("Thinking: low");
+      // Seit Kit 0.73.0 ein Dropdown (Symbol davor, Dropdown als zweites Kind: das Fake-DOM kennt keine Tag-Selektoren), sein Wert steht in der Komponente.
+      const wahl = (): string => all(x.container, ".okit-thinking-control")[0].children[1].__component.getValue();
+      expect(wahl()).toBe("low");
       x.thinking.state.level = "high";
       x.panel.onShow();
-      expect(text(x.container)).toContain("Thinking: high");
+      expect(wahl()).toBe("high");
       x.thinking.state.level = "off";
       x.panel.refreshModelBar();
-      expect(text(x.container)).toContain("Thinking off");
+      expect(wahl()).toBe("off");
       await new Promise((r) => setTimeout(r, 0));
       const before = x.llm.models.mock.calls.length;
       x.panel.refreshModelBar({ models: true });

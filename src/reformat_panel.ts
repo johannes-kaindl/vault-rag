@@ -55,6 +55,8 @@ export class ReformatPanel implements HubPanel {
       containerEl: container,
       llm: this.deps.llm,
       label: t("panel.reformat.modelLabel"),
+      // Sichtbar, weil die Zeile etwas sagt, das das Dropdown nicht zeigt: sie ist die Chat-Wahl, nicht ein eigenes Modell (Kit 0.73.0: sonst nur im aria-label).
+      showLabel: true,
       strings: { lang: getLang() },
       thinking: this.deps.thinking,
     });

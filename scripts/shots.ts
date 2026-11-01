@@ -459,7 +459,8 @@ const SHOTS: Shot[] = [
   {
     name: "chat.png",
     klasse: "feature",
-    fensterHoehe: 720,
+    // Weniger Weissraum zwischen Quellen und Modellzeile (readme_lint: 32 % identische Zeilen bei 720, Grenze 25 %; gemessen Welle 29).
+    fensterHoehe: 600,
     async run(cdp) {
       if (!(await openExisting(cdp, HERO_NOTIZ, "preview"))) return null;
       await closeExtraLeaves(cdp);

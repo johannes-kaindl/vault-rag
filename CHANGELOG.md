@@ -22,7 +22,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Documentation
 
-- **README images:** `chat.png` and `smart-apply.png` show the new chat line (model row below the answer, thinking dropdown, New as an icon). **`thinking.png` still shows the old two-line head and is re-recorded before the release** (it needs a short second model run; remove this line when it is done).
+- **README images:** `chat.png`, `thinking.png` and `smart-apply.png` show the new chat line (model row, thinking dropdown, New as an icon).
 
 ### Removed
 

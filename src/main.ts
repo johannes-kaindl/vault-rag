@@ -946,7 +946,8 @@ export default class VaultRagPlugin extends Plugin {
         if (level !== "off") next.lastOnLevel[mode] = level;
         await this.saveRequestSettings(next);
       },
-      levelPicker: () => this.settings.request.levelPickerInChat,
+      // Wirkungslos in der Modellzeile (Kit 0.73.0: sie zeigt die Stufen immer als Dropdown); der gespeicherte Schlüssel `request.levelPickerInChat` bleibt in den Daten.
+      levelPicker: () => false,
       strings: {
         button: (level) => level === "off"
           ? t("think.button.off")

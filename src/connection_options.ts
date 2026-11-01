@@ -29,8 +29,7 @@ export function chatConnectionOptions(h: ChatConnectionHost): LlmConnectionOptio
     mode: MODE_CHAT,
     // Der Abschnitt „Anfrage“ zeigt alle drei Modi dieses Plugins (Chat, Smart Apply, Umformen).
     modes: PLUGIN_MODES,
-    // Der Chat zeigt dem Nutzer die Stufenwahl (Denk-Knopf mit Dropdown, `thinkingDeps` in main.ts).
-    levelPicker: true,
+    // Kein `levelPicker`: die Modellzeile zeigt die Stufen seit Kit 0.73.0 immer als Dropdown, der Schalter „Stufenwahl im Chat“ im Abschnitt „Anfrage“ wäre wirkungslos.
     lang: () => h.lang(),
     ...(h.onResolved ? { onResolved: (r: EndpointSourceResult) => h.onResolved?.(r) } : {}),
     // Das Budget des Plugins je Modus: nur Smart Apply (Einstellung) und Umformen (Konstante) haben

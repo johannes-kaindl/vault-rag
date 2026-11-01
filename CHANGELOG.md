@@ -14,15 +14,15 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - **The model row of the chat sits below the answer, next to the input, in one line.** It had two lines above the conversation (the label "Chat" and the thinking button). The model dropdown, the thinking level and the reload button now share one line without a visible label (the name is in the tooltip); the tooltip of the model dropdown shows the full model name. The Reformat tab keeps its label *Reformat (chat model)* because that row is the chat's model.
-- **The thinking control is a dropdown with the levels of the model**, with the brain icon before it: *off*, *low*, *medium*, *high*, and *very high* and *max* for models that offer them. The on/off button is gone (the hidden setting for a level picker has no effect any more; it was never a row in the settings).
+- **The thinking control is a dropdown with the levels of the model**, with the brain icon before it: *off*, *low*, *medium*, *high*, and *very high* and *max* for models that offer them. The on/off button is gone.
 - **New is an icon** instead of the text button "New". It is disabled while the conversation is empty and while an answer is written. On a phone, New, history and reload are 44 × 44 px (30 × 26 and wider text before).
 - **A low window gets a compact input.** Under 640 px of window height (a phone with the keyboard open) the input and **Send** share one line, and **New**, history and the model row sit below it; on a phone the status line shows only while an answer is written. In the sidebar of a 390 × 844 phone the answer area grew from 4.1 to 5.9 lines; at 390 × 508 the context panel still leaves no room for it (before and after).
 - **gpt-oss: the saved level "off" now sends `low` instead of `minimal`** (code-kit 0.39.0 maps a saved level onto the levels of the model; gpt-oss cannot switch thinking off, so its list starts with *low*). On verdigado-pro `low` gave 55 and `minimal` 41 characters of reasoning, so these models think slightly more at "off" until you pick a level. Other families are unchanged (Gemma 4 on LM Studio already sent `low`).
 - Kit: obsidian-kit 0.72.0 → 0.74.0 (through 0.73.0) and code-kit 0.38.0 → 0.40.0 (through 0.39.0). Besides the points above: six thinking levels (`off` to `max`) with the levels per model, and the texts "very high" and "max" (English and German). Not used by vault-rag and without effect: the Claude-specific changes of code-kit 0.39.0 (levels per Claude model, no `temperature`, `top_p`, `top_k` on Opus 4.6, Sonnet 4.6 and Opus 4.5; the model row of vault-rag lists no Anthropic endpoint) and `transports.anthropic: "explicit"`.
 
-### Fixed
+### Removed
 
-- **The reference no longer lists a setting that does not exist:** the row "Level picker in chat" is removed from the reference; the thinking-level rows describe the dropdown.
+- **The setting "Level picker in chat" (in **Request**) is gone.** The model row always shows the thinking level as a dropdown now, so the switch had nothing left to do. A value you saved stays in your data and is simply unused.
 
 ## [0.47.1] — 2026-10-26
 

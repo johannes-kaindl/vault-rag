@@ -13,6 +13,8 @@
 | Open sidebar — related notes | `Open related notes` | Opens the hub on the related tab |
 | Open sidebar — search | `Open semantic search` | |
 | Open sidebar — chat | `Open vault chat` | |
+| Start a new conversation | `Start new chat` | Only while the sidebar is open; same as the **New** icon in the chat (it asks first when *Keep past chats* is `0`) |
+| Open a past chat | `Open past chats…` | Only while the sidebar is open and *Keep past chats* is above `0`; opens the list of saved chats |
 | Open sidebar — reformat | `Open reformat panel` | |
 | Reformat selection | `Reformat section` | Also in the editor context menu |
 | Smart Apply on active note | `Smart Apply on active note` | Only when Smart Apply is enabled |
@@ -75,6 +77,13 @@ Dot-folders (`.obsidian/`, `.trash/`, …) are always skipped and need no exclud
 | Input position | Composer above or below the transcript | bottom |
 | Enter sends | On: Enter sends, Shift+Enter newline · Off: reversed | on |
 
+### Past chats
+
+| Setting | Effect | Default |
+|---|---|---|
+| Folder | Vault folder for saved chats, one `.json` file per chat. Empty means `Vault Retrieval/Chats`. Changing it does not move chats that are already saved. Whether your sync service picks the files up depends on its settings | empty |
+| Keep past chats | How many saved chats are kept, `0` to `500`. `0` turns past chats off: **New** then asks before it clears a conversation, and the history button is hidden. Above `0` the chat is saved after every answer, **New** saves and clears without asking, and saving deletes the oldest chats beyond the number | `0` |
+
 ### Links and images in answers
 
 The chat cuts dangerous link targets out of an answer (`javascript:`, `data:`, `file:`, `app:`) whatever you set here. Two kinds of target are off by default and can be allowed:
@@ -93,8 +102,7 @@ One collapsible section **Request** covers all three call sites: chat (*grounded
 | Setting | Effect | Default |
 |---|---|---|
 | Overrides | Own value for one field (temperature, top_p, top_k, min_p, presence_penalty, reasoning_effort, max_tokens) in one mode and for one family | none — the table decides |
-| Thinking level | Off · low · medium · high per mode; the chat and Smart Apply tabs carry a button for it | off |
-| Level picker in chat | Shows a dropdown with all four levels in the chat and Smart Apply tabs instead of the on/off button | off |
+| Thinking level | One level per mode, chosen in the dropdown next to the brain icon in the model row of the chat, Smart Apply and Reformat tabs. The dropdown lists the levels of the model: off, low, medium and high, plus very high and max for models that offer them. A model that cannot switch thinking off (gpt-oss) has no *off*: the lowest level is sent | off |
 
 ### Secret masking
 

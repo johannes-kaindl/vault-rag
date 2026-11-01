@@ -21,7 +21,7 @@ questions). [LM Studio](https://lmstudio.ai) is a common choice.
 
 1. Start your LLM server and note its address (LM Studio defaults to `http://localhost:1234`).
 2. In **Settings → Vault Retrieval**, set the chat endpoint and pick a model — the dropdown
-   populates from the server. The same model row sits above the conversation in the chat tab and in the Smart Apply tab, and at the top of the Reformat tab: it switches the model, offers *Automatic*, reloads the list and carries the thinking button; it is locked while an answer is being written. In the Reformat tab the row is labelled *Reformat (chat model)* because the rewrites go through the chat connection: a model chosen there is the chat's model too.
+   populates from the server. The same model row sits below the conversation, next to the input, in the chat tab (in the Smart Apply tab and at the top of the Reformat tab as well): it switches the model, offers *Automatic*, reloads the list and carries the thinking level; it is locked while an answer is being written. Hover the model name to see it in full. When the window is low (under 640 px, for example with the keyboard open on a phone), the row moves next to **New** below the input to leave room for the answer. In the Reformat tab the row is labelled *Reformat (chat model)* because the rewrites go through the chat connection: a model chosen there is the chat's model too.
 3. Open the sidebar (**layers** ribbon icon) and switch to the chat tab.
 
 Ask a question. The plugin retrieves the most relevant notes, feeds them as context, and streams
@@ -30,7 +30,17 @@ can remove one and re-ask to see the difference.
 
 **Enter behaviour** is configurable: by default Enter sends and Shift+Enter inserts a newline.
 
-**Thinking models:** if the model emits reasoning, it appears in a collapsible block above the answer and is never fed back into the conversation. The brain button in the model row switches thinking off or on for that tab (Settings → Model requests → Request lets you pick a level instead); if the model thinks although it was switched off, the **Request** section lists it under "deviations" and a notice tells you once per session.
+**Thinking models:** if the model emits reasoning, it appears in a collapsible block above the answer and is never fed back into the conversation. The dropdown next to the brain icon in the model row sets the thinking level for that tab (*off* up to the highest level of the model); if the model thinks although it was switched off, the **Request** section lists it under "deviations" and a notice tells you once per session.
+
+## Keep and reopen past chats
+
+Past chats are off by default. To turn them on, set **Settings → Vault Retrieval → Past chats → Keep past chats** above `0`.
+
+1. Ask your questions as usual. After every answer the conversation is saved as a `.json` file in the folder you chose (default `Vault Retrieval/Chats`).
+2. **New** (the pencil icon below the input, or the command `Start new chat`) now saves the conversation and clears the window without asking.
+3. The history button next to **New** (or the command `Open past chats…`) lists your saved chats. Open one to continue it; the one you were in is saved first. The dialog also deletes a chat for good.
+
+With *Keep past chats* at `0`, **New** asks before it clears a conversation, because nothing was saved. Saving a chat deletes the oldest ones beyond the number you keep.
 
 ## Reformat a selection
 

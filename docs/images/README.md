@@ -20,6 +20,8 @@ Bestand: was hier in Prosa steht, kann veralten, die Prüfung nicht.
 
 **2026-10-25 (Welle 27):** `integrator.png` neu aufgenommen (Fensterhöhe 620 statt 900: das alte Bild trug 38 % Weissraum, `readme_lint` meldete es als Warnung; das Rezept räumt vor der Aufnahme auch Meldungen weg). Offen und bewusst nicht neu aufgenommen: `chat.png` und `thinking.png` stammen aus Welle 26 (Kit 0.67.1) und zeigen die Frage noch in der alten Schrift und ohne Rand (Kit 0.70.0 ändert sie); der Inhalt stimmt, eine Neuaufnahme braucht die echten Modelle (RAM-Slot). Die Modellzeile im Umformatier-Tab hat kein README-Bild.
 
+**2026-11-01 (Welle 29, Kit 0.74.0): Neuaufnahme fällig, noch nicht gemacht.** `chat.png`, `thinking.png` und `smart-apply.png` zeigen die Modellzeile als zwei Zeilen im Kopf („Chat“ und „Thinking off“ als Knopf). Seit dem Umbau steht sie einzeilig ohne Beschriftung unter der Antwort neben dem Eingabefeld, die Denk-Steuerung ist ein Dropdown mit Symbol, Neu ein Symbol und daneben der Verlauf-Knopf (nur bei Aufbewahrung über 0). `thinking.png` muss das Dropdown statt des Schalters zeigen (die Aussage „abschaltbar“ bleibt: die Stufe *off*). Die Aufnahme braucht die echten Modelle (RAM-Slot, Regel „Strom vor Modell-Last“) und den Lock `--exclusive focus`; Rezept unten und Skill `readme-shots`.
+
 ## Die Bilder
 
 | Datei | Klasse | referenziert von | muss zeigen |

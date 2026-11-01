@@ -174,8 +174,16 @@ search_view.ts    SearchPanel (HubPanel) — Wortsuche über den Index (Debounce
 chat_view.ts      ChatPanel (HubPanel) — dünne Hülle um das Kit-Chat-Fenster (`buildChatWindow`, UI-STANDARD § 8
                   Baustein 12): `send` (Kontext und Prompt über `prepareChatAsk`, Tracing, Fehlerabbildung über
                   `chatSendFailure`), Auto-Kontext (`ContextPanel`, Suche über das `input`-Ereignis an der Fenster-
-                  Wurzel), Quellen-Chips unter fertigen Antworten, Modellzeile (`buildModelBar`, Denk-Steuerung in
-                  der Zeile). Verlauf (`ChatHistory`), Eingabe, Abbruch, Fehlerzeile und Markdown trägt das Kit.
+                  Wurzel), Quellen-Chips unter fertigen Antworten, Modellzeile (`buildModelBar`, Denk-Steuerung als
+                  Dropdown in der Zeile; sie steht als DIREKTES Kind im Einschub `composer` über der Kontextzeile, das Kit
+                  hebt sie in den Composer, sonst greift der kompakte Composer nicht). Verlauf (`ChatHistory`), Eingabe,
+                  Abbruch, Fehlerzeile und Markdown trägt das Kit. Zwei Verläufe, nicht überlappend: der Arbeitsstand der
+                  Ansicht (`this.history`, nur im Speicher, überlebt `destroy()`/`mount()`) und der Verlauf vergangener Chats
+                  (`deps.archive`, Kit `createChatArchive`, eine `.json` je Gespräch im Vault, Aufbewahrung `chatKeep`, Vorgabe 0).
+                  Das Panel merkt die Datei des laufenden Gesprächs (`convo`) und gibt sie dem neuen Fenster nach dem
+                  Wiederöffnen über `load(history, source)` zurück, sonst entstünde eine zweite Datei mit dem Anfang des ersten.
+                  `newChat()` klickt den Neu-Knopf (seine Rückfrage bei Aufbewahrung 0 und seine Sperre bleiben), `openArchive()`,
+                  `refreshArchive()`, `isMounted()` bedienen die Befehle „Start new chat“ und „Open past chats…“ aus `main.ts`.
 chat_ask.ts       `prepareChatAsk` (Anfrage einer Runde: System-Prompt + Kontext, frühere Runden, Frage), `sentFromMeta`.
 chat_error.ts     Fehlerklassen des Chat-Transports (`ChatHttpError`, `ChatTimeoutError`, `ChatNoEndpointError`,
                   `ChatNetworkError`) und `chatSendFailure`: bildet einen geworfenen Fehler auf das Ergebnis ab, das das

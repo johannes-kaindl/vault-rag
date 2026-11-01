@@ -22,6 +22,8 @@ import { describeStartError, type SelfCheckResult, type StartErrorReason } from 
 import { getLang, t } from "./vendor/kit/i18n";
 import type { StampGapView } from "./stamp_gap";
 import { linkSettingDefinitions, resolveLinkSettingsStrings, type LinkSettingKey } from "./vendor/kit-obsidian/link-settings";
+import { chatArchiveSettingDefinitions } from "./vendor/kit-obsidian/chat-archive-settings";
+import { resolveChatArchiveStrings } from "./vendor/kit-obsidian/chat-archive-strings";
 
 export { DEFAULT_SETTINGS };
 export type { VaultRagSettings };
@@ -64,6 +66,8 @@ export interface VaultRagPluginHost extends Plugin {
   saveSettings(): Promise<void>;
   refresh(): void;
   refreshSmartApplyRanking(): void;
+  /** Die Aufbewahrung der vergangenen Chats hat sich geändert: offene Chat-Fenster zeichnen den Verlauf-Knopf nach. */
+  refreshChatArchive(): void;
   refreshReformatTransforms(): void;
   resolveAndReconnectEmbedder(): Promise<void>;
   resolveAndReconnectChat(): Promise<void>;
@@ -211,7 +215,7 @@ export class VaultRagSettingTab extends PluginSettingTab {
         reportIssue: t("settings.help.reportIssue"),
       },
     });
-    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.linksGroup(), this.reformatGroup(), this.smartApplyGroup(), this.integratorGroup()];
+    return [help, this.searchGroup(), this.embeddingGroup(), this.indexGroup(), this.robustnessGroup(), this.mcpGroup(), this.chatGroup(), this.chatArchiveGroup(), this.linksGroup(), this.reformatGroup(), this.smartApplyGroup(), this.integratorGroup()];
   }
 
   /** Einmal-pro-Öffnen die aktiven Endpunkte auflösen. An ein echtes Render-Signal (erster
@@ -358,6 +362,25 @@ export class VaultRagSettingTab extends PluginSettingTab {
       { name: t("settings.chat.enterSends.name"), desc: t("settings.chat.enterSends.desc"),
         control: { type: "toggle", key: "enterSends" } },
     ] };
+  }
+
+  /** „Vergangene Chats“ (Kit `chat-archive-settings`): Ordner im Vault und Aufbewahrung. Texte und die Prüfung des Ordners kommen aus dem Kit; ein ungültiger Ordner wird nicht
+   *  gespeichert. Die Aufbewahrung bestimmt, ob der Verlauf-Knopf des Chat-Fensters da ist (0 = aus, die Vorgabe): die offenen Fenster zeichnen nach. */
+  private chatArchiveGroup(): SettingDefinitionGroup {
+    return { type: "group", heading: resolveChatArchiveStrings({ lang: getLang() }).settingsHeading, items: chatArchiveSettingDefinitions({
+      app: this.app,
+      folder: this.plugin.settings.chatFolder,
+      keep: this.plugin.settings.chatKeep,
+      defaultFolder: `${this.plugin.manifest.name}/Chats`,
+      configDir: this.app.vault.configDir,
+      strings: { lang: getLang() },
+      onChange: async (key, value) => {
+        if (key === "folder") this.plugin.settings.chatFolder = String(value);
+        else this.plugin.settings.chatKeep = Number(value);
+        await this.plugin.saveSettings();
+        if (key === "keep") this.plugin.refreshChatArchive();
+      },
+    }) };
   }
 
   /** „Links und Bilder in Antworten“ (Kit `link-settings`, UI-STANDARD §8): zwei Schalter, beide aus. Das Chat-Fenster liest sie je Antwort über einen Getter

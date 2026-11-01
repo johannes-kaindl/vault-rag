@@ -40,7 +40,26 @@ function mkThinking() {
 
 type Stream = (msgs: any[], onC: (t: string) => void, onR: (t: string) => void, signal: AbortSignal, opts: any) => Promise<any>;
 
-function mkPanel(opts: { stream?: Stream; assemble?: any; inputPosition?: () => "top" | "bottom"; enterSends?: () => boolean; embed?: any; search?: any } = {}) {
+/** Fake-Speicher des Verlaufs (Kit `ChatArchive`): schreibt in eine Liste, `keep` bestimmt `enabled()`, Namen zählen hoch (`chat-1.json`), `name` im Aufruf schreibt weiter. */
+function mkArchive(keep = 0) {
+  const state = { keep, saves: [] as Array<{ name: string | undefined; entries: number }>, n: 0 };
+  const store = {
+    enabled: () => state.keep > 0,
+    save: vi.fn(async (input: any) => {
+      const name = input.name ?? `chat-${++state.n}.json`;
+      state.saves.push({ name: input.name, entries: input.payload.entries.length });
+      return { name };
+    }),
+    list: vi.fn(async () => ({ entries: [], unreadable: 0 })),
+    load: vi.fn(async () => null),
+    remove: vi.fn(async () => false),
+    exportNote: vi.fn(async () => null),
+  };
+  return { state, store };
+}
+
+function mkPanel(opts: { stream?: Stream; assemble?: any; inputPosition?: () => "top" | "bottom"; enterSends?: () => boolean; embed?: any; search?: any; archive?: ReturnType<typeof mkArchive> } = {}) {
+  const archive = opts.archive ?? mkArchive();
   const stream = vi.fn<Parameters<Stream>, ReturnType<Stream>>(opts.stream ?? (async (_m, onC) => { onC("Ant"); onC("wort"); return { content: "Antwort", reasoning: "" }; }));
   const opened: string[] = [];
   const thinking = mkThinking();
@@ -70,10 +89,11 @@ function mkPanel(opts: { stream?: Stream; assemble?: any; inputPosition?: () => 
     pickNote: async () => null,
     autoK: 3,
     domGuard: false,
+    archive: archive.store as never,
   });
   const container = makeFakeEl() as any;
   panel.mount(container);
-  return { panel, container, stream, llm, assemble, embed, search, opened, thinking };
+  return { panel, container, stream, llm, assemble, embed, search, opened, thinking, archive };
 }
 type Ctx = ReturnType<typeof mkPanel>;
 
@@ -376,13 +396,80 @@ describe("ChatPanel", () => {
     });
   });
 
-  describe("Modellzeile", () => {
-    it("steht im Kopf des Fensters mit dem Namen „Chat“, die Denk-Steuerung ist in ihr, es gibt keinen zweiten Knopf", () => {
+  describe("Chat-Zeile (Kit 0.74.0)", () => {
+    // Das Fake-DOM kennt keine Nachkommen-Selektoren: die Orte werden über die Elemente selbst gelesen.
+    const barsIn = (el: any): any[] => (el.children as any[]).filter((c) => c.hasClass("okit-model-bar"));
+    const place = (container: any) => {
+      const composer = all(container, ".okit-chat-composer")[0];
+      const extra = all(container, ".okit-chat-composer-extra")[0];
+      return { composer, extra, header: all(container, ".okit-chat-header")[0] };
+    };
+
+    it("die Modellzeile steht als direktes Kind im Composer, der Kopf und der Einschub tragen keine, es gibt keinen Wrapper okit-chat-buttons mehr", () => {
       const { container } = mkPanel();
-      const header = all(container, ".okit-chat-header")[0];
-      expect(header.querySelectorAll(".okit-model-bar").length).toBe(1);
-      expect(header.querySelector(".okit-model-bar-label")).toBeNull();   // seit Kit 0.73.0 ohne sichtbare Beschriftung
-      expect(header.querySelector(".okit-model-bar-select").getAttribute("aria-label")).toBe("Model for Chat");
+      const { composer, extra, header } = place(container);
+      expect(barsIn(composer).length).toBe(1);
+      expect(header.querySelectorAll(".okit-model-bar").length).toBe(0);
+      expect(extra.querySelectorAll(".okit-model-bar").length).toBe(0);
+      expect(all(container, ".okit-chat-buttons").length).toBe(0);
+    });
+
+    it("die Kontextzeile (Chips) bleibt im Einschub über dem Textfeld", () => {
+      const { container } = mkPanel();
+      expect(place(container).extra.querySelectorAll(".vault-rag-chat-context").length).toBe(1);
+    });
+
+    it("nach mehrmaligem refresh steht die Modellzeile genau einmal im Composer und die Kontextzeile genau einmal im Einschub", () => {
+      const x = mkPanel();
+      const win = (x.panel as unknown as { win: { refresh(): void; refreshComposer(): void } }).win;
+      win.refreshComposer(); win.refreshComposer(); win.refresh();
+      const { composer, extra } = place(x.container);
+      expect(all(x.container, ".okit-model-bar").length).toBe(1);
+      expect(barsIn(composer).length).toBe(1);
+      expect(extra.querySelectorAll(".vault-rag-chat-context").length).toBe(1);
+    });
+
+    it("der Verlauf-Knopf ist nur bei Aufbewahrung über 0 sichtbar und folgt nach refreshArchive()", () => {
+      const archive = mkArchive(0);
+      const x = mkPanel({ archive });
+      const hidden = (): boolean => all(x.container, ".okit-chat-archive")[0].hasClass("okit-chat-hidden");
+      expect(all(x.container, ".okit-chat-archive").length).toBe(1);
+      expect(hidden()).toBe(true);
+      archive.state.keep = 30;
+      x.panel.refreshArchive();
+      expect(hidden()).toBe(false);
+      archive.state.keep = 0;
+      x.panel.refreshArchive();
+      expect(hidden()).toBe(true);
+    });
+
+    it("newChat() wirkt wie der Knopf: mit Verlauf an legt es ab und leert, im leeren Gespräch tut es nichts", async () => {
+      const archive = mkArchive(5);
+      const x = mkPanel({ archive });
+      x.panel.newChat();
+      expect(archive.state.saves.length).toBe(0);
+      await ask(x, "eins");
+      await vi.waitFor(() => { expect(archive.state.saves.length).toBe(1); });
+      x.panel.newChat();
+      await vi.waitFor(() => { expect(all(x.container, ".is-assistant").length).toBe(0); });
+      expect(archive.state.saves.length).toBe(1);
+    });
+
+    it("newChat() und openArchive() sind ohne Fenster (Ansicht zu) ein Nichts und melden es", () => {
+      const x = mkPanel();
+      x.panel.destroy();
+      expect(x.panel.isMounted()).toBe(false);
+      expect(() => { x.panel.newChat(); x.panel.openArchive(); x.panel.refreshArchive(); }).not.toThrow();
+    });
+  });
+
+  describe("Modellzeile", () => {
+    it("steht im Composer des Fensters mit dem Namen „Chat“, die Denk-Steuerung ist in ihr, es gibt keinen zweiten Knopf", () => {
+      const { container } = mkPanel();
+      const composer = all(container, ".okit-chat-composer")[0];
+      expect(composer.querySelectorAll(".okit-model-bar").length).toBe(1);
+      expect(composer.querySelector(".okit-model-bar-label")).toBeNull();   // seit Kit 0.73.0 ohne sichtbare Beschriftung
+      expect(composer.querySelector(".okit-model-bar-select").getAttribute("aria-label")).toBe("Model for Chat");
       expect(all(container, ".okit-thinking-control").length).toBe(1);
       expect(all(container, ".okit-model-bar")[0].querySelectorAll(".okit-thinking-control").length).toBe(1);
       expect(all(container, ".vault-rag-chat-model").length).toBe(0);
@@ -456,6 +543,60 @@ describe("ChatPanel", () => {
       expect(text(x.container)).toContain("Antwort");
       await ask(x, "zwei");
       expect(x.stream.mock.calls[1]![0].map((m: any) => m.content)).toContain("eins");
+    });
+
+    it("mit Verlauf an schreibt ein Gespräch nach dem Wiederöffnen in dieselbe Datei weiter (kein zweiter Eintrag mit dem Anfang des ersten)", async () => {
+      const archive = mkArchive(5);
+      const x = mkPanel({ archive });
+      await ask(x, "eins");
+      await vi.waitFor(() => { expect(archive.state.saves.length).toBe(1); });
+      expect(archive.state.saves[0]).toEqual({ name: undefined, entries: 2 });
+      x.panel.destroy();
+      x.panel.mount(x.container);
+      await ask(x, "zwei");
+      await vi.waitFor(() => { expect(archive.state.saves.length).toBe(2); });
+      // Der zweite Schreibvorgang trägt den Namen aus dem ersten und beide Runden: dieselbe Datei, nicht eine zweite.
+      expect(archive.state.saves[1]).toEqual({ name: "chat-1.json", entries: 4 });
+      expect(archive.state.n).toBe(1);
+    });
+
+    it("nach Neu beginnt das nächste Gespräch eine neue Datei, auch über destroy und mount hinweg", async () => {
+      const archive = mkArchive(5);
+      const x = mkPanel({ archive });
+      await ask(x, "eins");
+      await vi.waitFor(() => { expect(archive.state.saves.length).toBe(1); });
+      all(x.container, ".okit-chat-new")[0].click();
+      await vi.waitFor(() => { expect(all(x.container, ".is-assistant").length).toBe(0); });
+      x.panel.destroy();
+      x.panel.mount(x.container);
+      await ask(x, "zwei");
+      await vi.waitFor(() => { expect(archive.state.saves.length).toBe(2); });
+      expect(archive.state.saves[1]).toEqual({ name: undefined, entries: 2 });
+      expect(archive.state.n).toBe(2);
+    });
+
+    it("nach Neu überschreibt ein Wiederöffnen mitten in der ersten Runde des neuen Gesprächs nicht die Datei des alten", async () => {
+      const archive = mkArchive(5);
+      let calls = 0;
+      const x = mkPanel({
+        archive,
+        stream: async (_m, onC) => { calls += 1; if (calls === 2) return new Promise(() => {}); onC("Antwort"); return { content: "Antwort", reasoning: "" }; },
+      });
+      await ask(x, "alt");
+      await vi.waitFor(() => { expect(archive.state.saves.length).toBe(1); });
+      all(x.container, ".okit-chat-new")[0].click();
+      await vi.waitFor(() => { expect(all(x.container, ".is-assistant").length).toBe(0); });
+      // Die erste Runde des neuen Gesprächs läuft noch (nichts gespeichert), die Ansicht geht zu und wieder auf.
+      input(x.container).value = "neu";
+      all(x.container, ".okit-chat-send")[0].click();
+      await vi.waitFor(() => { expect(calls).toBe(2); });
+      x.panel.destroy();
+      x.panel.mount(x.container);
+      await ask(x, "weiter");
+      await vi.waitFor(() => { expect(archive.state.saves.length).toBe(2); });
+      // Die zweite Datei ist eine neue (kein Name), die erste, chat-1.json, wurde nicht noch einmal geschrieben.
+      expect(archive.state.saves[1]!.name).toBeUndefined();
+      expect(archive.state.n).toBe(2);
     });
 
     it("destroy löscht die Entprellung: danach läuft keine Suche mehr", async () => {

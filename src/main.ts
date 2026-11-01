@@ -15,7 +15,9 @@ import { describeModel, type EndpointSourceResult } from "./vendor/kit/endpoint-
 import { createLlmConnection, type LlmConnection } from "./vendor/kit-obsidian/llm-connection";
 import type { ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
 import type { EmbeddingConnection, EmbeddingResolution } from "./vendor/kit-obsidian/embedding-connection";
-import { thinkingOffTexts, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
+import { thinkingLevelTexts, thinkingOffTexts, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
+import { createChatArchive, type ChatArchive } from "./vendor/kit-obsidian/chat-archive";
+import { clampChatKeep } from "./vendor/kit-obsidian/chat-archive-settings";
 import { sanitizeRequestSettings, thinkingFor, onLevelFor, type FamilyId, type ModeId, type RequestSettings } from "./vendor/kit/sampling-profiles";
 import { migrateLegacySampling, MODE_CHAT, MODE_SMART_APPLY, MODE_REFORMAT } from "./request_profile";
 import { chatConnectionOptions } from "./connection_options";
@@ -25,7 +27,7 @@ import { fillMissingRowModels } from "./vendor/kit/endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { hydrateLocalEndpoints, migrateLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
-import { effectiveSystemPrompt, migrateSystemPrompt, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
+import { effectiveSystemPrompt, migrateSystemPrompt, normalizeChatArchiveSettings, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
 import { loadSecretValue, persistSecretValue } from "./vendor/kit/secret-value";
 import { secretIdFor } from "./vendor/kit/secrets";
@@ -133,6 +135,8 @@ export default class VaultRagPlugin extends Plugin {
    *  „Endpunkte“ und „Anfrage“ (Kit `createLlmConnection`, Welle 15). Das Embedding hat seine eigene
    *  Verbindung (`emb`) mit dem Index-Guard als `accept`. */
   llm!: LlmConnection;
+  /** Der Verlauf vergangener Chats: eine `.json` je Chat im Vault-Ordner der Einstellung `chatFolder` (Getter, damit eine Änderung ohne Neuaufbau wirkt). */
+  private archive!: ChatArchive;
   /** Zähler der Chat-Auflösungen: nur der jüngste Lauf schreibt `activeChatEndpoint`. */
   private chatReconnectGen = 0;
   /** Vom Einstellungs-Tab gesetzt, solange er offen ist: zeichnet die Zeilen neu, die dem aufgelösten Endpunkt folgen. */
@@ -308,6 +312,8 @@ export default class VaultRagPlugin extends Plugin {
     // Speichern in jede data.json kopiert. Wer ihn nie angefasst hat, bekommt jetzt den
     // sprachabhängigen Default (leeres Feld) statt eines deutschen Satzes in englischer UI.
     this.settings.chatSystemPrompt = migrateSystemPrompt(this.settings.chatSystemPrompt);
+    // Verlauf vergangener Chats: ein Wert, der keine Zahl ist, bleibt aus (0), nie die 50 des Kits; eine Zahl wird auf 0 bis 500 begrenzt.
+    normalizeChatArchiveSettings(this.settings, clampChatKeep);
     // Migration: alte Einzel-Endpoint-Settings und Prä-0.19-String-Listen → EndpointConfig-Listen.
     this.settings.embeddingEndpoints = migrateEndpointList(loaded?.embeddingEndpoint, loaded?.embeddingEndpoints);
     this.settings.chatEndpoints = migrateEndpointList(loaded?.chatEndpoint, loaded?.chatEndpoints);
@@ -393,6 +399,16 @@ export default class VaultRagPlugin extends Plugin {
       onResolved: (r) => { void this.applyChatResolution(r); },
     }));
     this.chatClient = new ChatClient(this.llm);
+    this.archive = createChatArchive({
+      adapter: this.app.vault.adapter,
+      folder: () => this.settings.chatFolder,
+      defaultFolder: `${this.manifest.name}/Chats`,
+      keep: () => this.settings.chatKeep,
+      plugin: this.manifest.id,
+      configDir: this.app.vault.configDir,
+      normalizePath,
+      onError: (message) => { new Notice(message); },
+    });
     // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
     // fire-and-forget am Ende von onload, der modify-Listener kann davor feuern.
     this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait"), this.embeddingModelInUse, { dim: 256 });
@@ -568,6 +584,26 @@ export default class VaultRagPlugin extends Plugin {
     this.addCommand({ id: "open-related", name: t("command.openRelated"), callback: () => void this.openHub("related") });
     this.addCommand({ id: "open-semantic-search", name: t("command.openSemanticSearch"), callback: () => void this.openHub("search") });
     this.addCommand({ id: "open-vault-chat", name: t("command.openVaultChat"), callback: () => void this.openHub("chat") });
+    this.addCommand({
+      id: "new-chat",
+      name: t("command.newChat"),
+      checkCallback: (checking) => {
+        const chat = this.chatPanel();
+        if (chat === null) return false;
+        if (!checking) chat.newChat();
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "open-past-chats",
+      name: t("command.openPastChats"),
+      checkCallback: (checking) => {
+        const chat = this.chatPanel();
+        if (chat === null) return false;
+        if (!checking) chat.openArchive();
+        return true;
+      },
+    });
     this.addCommand({ id: "open-reformat", name: t("command.openReformat"), callback: () => void this.openHub("reformat") });
     if (this.settings.integratorEnabled) {
       this.addCommand({ id: "open-integrator", name: t("command.openIntegrator"), callback: () => void this.openHub("integrator") });
@@ -675,6 +711,7 @@ export default class VaultRagPlugin extends Plugin {
         autoK: this.settings.chatK,
         isPaused: () => this.pause.isPaused(),
         thinking: this.thinkingDeps(MODE_CHAT, () => this.chatModelInUse),
+        archive: this.archive,
         // Linkschutz der Antworten (Kit `domGuard`): ein Getter, den das Fenster je Antwort ruft, damit ein Umlegen in den Einstellungen ohne Neuaufbau wirkt.
         domGuard: () => ({ allowObsidianLinks: this.settings.allowObsidianLinks, allowLocalImages: this.settings.allowLocalImages }),
         // Das Fenster neutralisiert die Antwort und schützt den DOM selbst (`createStableWriter`): hier nur der Renderer.
@@ -729,6 +766,25 @@ export default class VaultRagPlugin extends Plugin {
     this.reformatPanel = reformat;
     panels.push(reformat);
     return panels;
+  }
+
+  /** Das Chat-Panel eines offenen Hubs, sonst `null`: die Befehle „Start new chat“ und „Open past chats…“ gibt es nur, solange die Ansicht offen ist. */
+  private chatPanel(): ChatPanel | null {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_HUB)) {
+      const view = leaf.view;
+      if (!(view instanceof VaultRetrievalView)) continue;
+      const panel = view.panelById("chat");
+      if (panel instanceof ChatPanel && panel.isMounted()) return panel;
+    }
+    return null;
+  }
+
+  /** Die Aufbewahrung der vergangenen Chats hat sich geändert: die offenen Chat-Fenster zeichnen den Verlauf-Knopf nach (0 = aus). */
+  refreshChatArchive(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_HUB)) {
+      const panel = leaf.view instanceof VaultRetrievalView ? leaf.view.panelById("chat") : undefined;
+      if (panel instanceof ChatPanel) panel.refreshArchive();
+    }
   }
 
   async openHub(tab: TabId): Promise<void> {
@@ -899,6 +955,10 @@ export default class VaultRagPlugin extends Plugin {
         get offNotPossible() { return thinkingOffTexts(getLang()); },
         level: (l) => requestText("request.level", l),
         get pickerLabel() { return t("think.pickerLabel"); },
+        // Namen des Dropdowns (Stufe, Standard des Modells, Kostenhinweis bei xhigh und max) und der gesperrte Eintrag kommen aus dem Kit, zur Zeichenzeit (Sprache!).
+        get name() { return thinkingLevelTexts(getLang()).name; },
+        get costNote() { return thinkingLevelTexts(getLang()).costNote; },
+        get lockedLevel() { return thinkingLevelTexts(getLang()).lockedLevel; },
       },
     };
   }

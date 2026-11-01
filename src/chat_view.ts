@@ -11,6 +11,7 @@ import { EMPTY_CHAT, type ChatHistory, type ChatModelMessage } from "./vendor/ki
 import { buildChatWindow, type ChatSendHandlers, type ChatSendResult, type ChatWindow, type ChatWindowOptions } from "./vendor/kit-obsidian/chat-window";
 import { buildModelBar, type ModelBar, type ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
 import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
+import type { ChatArchive } from "./vendor/kit-obsidian/chat-archive";
 
 export const VIEW_TYPE_CHAT = "vault-rag-chat";
 
@@ -30,6 +31,8 @@ export interface ChatViewDeps extends ContextPanelDeps, AskDeps {
   /** Denk-Steuerung (Kit `thinking-control`) in der Modellzeile: Stufe je Modus `grounded`, Familie des aktiven Modells, Speichern. */
   thinking: Omit<ThinkingControlOptions, "containerEl">;
   enterSends: () => boolean;
+  /** Der Verlauf vergangener Chats (Kit `createChatArchive`, Payload `okit-chat-history/1`): eine `.json` je Gespräch im Vault. Aufbewahrung 0 = aus. */
+  archive: ChatArchive;
   /** Rendert Modell-Markdown in ein Element (Obsidian-Renderer, vom Plugin gestellt). Das Fenster neutralisiert und schützt selbst (`domGuard`). */
   renderMarkdown: (el: HTMLElement, markdown: string) => Promise<void>;
   /** Nur im Test mit dem Fake-DOM `false` (Durchgriff an den Schreiber des Kits). */
@@ -48,8 +51,12 @@ export class ChatPanel implements HubPanel {
   private win: ChatWindow | null = null;
   private bar: ModelBar | null = null;
   private debTimer: number | null = null;
-  /** Der Verlauf lebt im Panel, nicht im Fenster: das Panel bleibt über `destroy()` und ein erneutes `mount()` hinweg dieselbe Instanz. */
+  /** Der Verlauf lebt im Panel, nicht im Fenster: das Panel bleibt über `destroy()` und ein erneutes `mount()` hinweg dieselbe Instanz. Das ist der Arbeitsstand der Ansicht
+   *  (Sitzung); der Verlauf vergangener Chats (`deps.archive`) ist der Speicher im Vault und eine andere Sache. */
   private history: ChatHistory = EMPTY_CHAT;
+  /** Die Datei des laufenden Gesprächs im Verlauf (Name und erstes Speichern), vom Speicher gemerkt. Nach `destroy()` und `mount()` bekommt das neue Fenster sie über `load()`
+   *  zurück, sonst hielte es das wiederhergestellte Gespräch für ungespeichert und legte beim nächsten Speichern eine zweite Datei mit dem Anfang des ersten an. */
+  private convo: { name: string; created: string } | null = null;
 
   constructor(private deps: ChatViewDeps) {
     this.panel = new ContextPanel(deps, deps.autoK);
@@ -63,6 +70,8 @@ export class ChatPanel implements HubPanel {
     // Der Wirt braucht eine begrenzte Höhe, sonst rollt der Verlauf nicht (Kit-Falle); die Regel steht in der styles.css.
     container.addClass("vault-rag-chat-host");
     const d = this.deps;
+    // Mit einer Datei im Verlauf stellt `load()` das Gespräch samt Bezug auf sie wieder her (kein `initial`: das kennt den Bezug nicht).
+    const resume = this.convo !== null && d.archive.enabled() && this.history.entries.length > 0 ? this.convo : null;
     this.win = buildChatWindow(container, {
       cls: "vault-rag-chat",
       strings: { lang: getLang(), placeholder: t("panel.chat.inputPlaceholder") },
@@ -70,21 +79,26 @@ export class ChatPanel implements HubPanel {
       render: (el, markdown) => d.renderMarkdown(el, markdown),
       enterSends: () => d.enterSends(),
       inputPosition: () => d.inputPosition(),
-      // Die Rückgabe meldet die Modellzeile vor der nächsten Zeichnung und bei `destroy()` ab (Kit 0.70.0).
-      header: (el) => this.drawHeader(el),
-      composer: (el) => { this.drawComposer(el); },
+      // Seit Kit 0.73.0 steht die Modellzeile im Einschub über dem Textfeld, und seit 0.74.0 hebt das Kit sie von dort in den Composer. Sie muss ein DIREKTES Kind des
+      // Einschubs sein, sonst greift der kompakte Composer nicht. Die Rückgabe meldet sie vor der nächsten Zeichnung und bei `destroy()` ab (Kit 0.70.0).
+      composer: (el) => this.drawComposer(el),
       afterAnswer: (el, entry) => {
         // Das Kit ruft den Einschub auch bei gescheiterten und abgebrochenen Antworten: Quellen gehören nur an eine fertige.
         if (entry.state !== "done") return;
         const sent = sentFromMeta(entry.meta);
         if (sent !== null) this.drawSources(el, sent.sources);
       },
-      initial: this.history,
-      onChange: (h) => { this.history = h; },
+      ...(resume === null ? { initial: this.history } : {}),
+      archive: { store: this.archiveStore(), app: d.app, model: () => d.model(), thinking: () => d.thinking.current() },
+      onChange: (h) => {
+        this.history = h;
+        if (h.entries.length === 0) this.convo = null;   // Neu: das nächste Gespräch ist eine neue Datei
+      },
       // Die Zeile sperrt sich während eines Laufs und gibt sich danach frei (Kit `running()`, 0.70.0).
       onRunChange: () => { this.bar?.update(); },
       ...(d.domGuard === undefined ? {} : { domGuard: d.domGuard }),
     });
+    if (resume !== null) this.win.load(this.history, resume);
     // Die Suche beim Tippen: das Fenster hat keinen Rückruf für das Textfeld, das Ereignis bubbelt aber bis zur Wurzel. Im selben Wurzelknoten liegt auch
     // der Auto-Kontext (seine Knöpfe lösen kein `input` aus), gefiltert wird deshalb am Ziel.
     this.win.rootEl.addEventListener("input", (e: Event) => {
@@ -93,7 +107,8 @@ export class ChatPanel implements HubPanel {
     });
   }
 
-  private drawHeader(el: HTMLElement): () => void {
+  /** Der Einschub über dem Textfeld: die Modellzeile (direktes Kind, das Kit hebt sie in den Composer) und die Kontextzeile mit den Chips des Auto-Kontexts. */
+  private drawComposer(el: HTMLElement): () => void {
     const d = this.deps;
     const bar = buildModelBar({
       app: d.app,
@@ -102,19 +117,49 @@ export class ChatPanel implements HubPanel {
       label: t("panel.chat.label"),
       strings: { lang: getLang() },
       thinking: d.thinking,
-      // Null-sicher: das Fenster ruft `header` und `composer` schon im Konstruktor, `win` ist dann noch nicht zugewiesen.
+      // Null-sicher: das Fenster ruft `composer` schon im Konstruktor, `win` ist dann noch nicht zugewiesen.
       disabled: () => this.win?.running() ?? false,
     });
     this.bar = bar;
+    this.panel.mount(el.createDiv({ cls: "vault-rag-chat-context" }));
     return () => {
       bar.destroy();
       if (this.bar === bar) this.bar = null;
     };
   }
 
-  private drawComposer(el: HTMLElement): void {
-    this.panel.mount(el.createDiv({ cls: "vault-rag-chat-context" }));
+  /** Der Speicher des Verlaufs, mit einem Blick auf das, was er schreibt: der Name der Datei des laufenden Gesprächs (`convo`). */
+  private archiveStore(): ChatArchive {
+    const store = this.deps.archive;
+    return {
+      enabled: () => store.enabled(),
+      save: async (input) => {
+        const saved = await store.save(input);
+        if (saved !== null) this.convo = { name: saved.name, created: input.created ?? new Date().toISOString() };
+        return saved;
+      },
+      list: () => store.list(),
+      load: (name) => store.load(name),
+      remove: (name) => store.remove(name),
+      exportNote: (name, render) => store.exportNote(name, render),
+    };
   }
+
+  /** Befehl „Start new chat“: dasselbe wie ein Klick auf Neu im Fenster, also mit seiner Rückfrage bei Aufbewahrung 0 und seiner Sperre (leeres Gespräch, laufende Antwort).
+   *  `win.clear()` wäre unbedingt und ließe den Befehl ein ungesichertes Gespräch ohne Rückfrage verwerfen, der Knopf fragt. */
+  newChat(): void {
+    const btn = this.win?.rootEl.querySelector<HTMLButtonElement>(".okit-chat-new");
+    if (btn && !btn.disabled) btn.click();
+  }
+
+  /** Befehl „Open past chats…“. Ohne Verlauf, im Lauf und ohne Fenster tut es nichts. */
+  openArchive(): void { this.win?.openArchive(); }
+
+  /** Nach einer geänderten Aufbewahrung folgt der Verlauf-Knopf des Fensters (0 = aus). */
+  refreshArchive(): void { this.win?.refresh(); }
+
+  /** Gibt es ein Fenster (die Ansicht ist offen)? Die Befehle gibt es nur dann. */
+  isMounted(): boolean { return this.win !== null; }
 
   private drawSources(el: HTMLElement, sources: string[]): void {
     if (sources.length === 0) return;

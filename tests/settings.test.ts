@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 import { DEFAULT_SETTINGS, VaultRagSettings, applyDestructive, VaultRagSettingTab } from "../src/settings";
+import { normalizeChatArchiveSettings } from "../src/settings_core";
+import { clampChatKeep, DEFAULT_CHAT_KEEP } from "../src/vendor/kit-obsidian/chat-archive-settings";
 import { makeFakeEl, Setting } from "./__mocks__/obsidian";
 import { findUntranslatedSinks } from "./i18n/sink_guard";
 import "../src/i18n/strings"; // Register i18n strings
@@ -43,6 +45,30 @@ describe("settings", () => {
 
   it("hat UX-Politur-Defaults", () => {
     expect(DEFAULT_SETTINGS.enterSends).toBe(true);
+  });
+
+  // Verlauf vergangener Chats (Welle 29, Kit 0.73.0): als Vorgabe AUS (Aufbewahrung 0), Entscheidung Johannes 2026-11-01 für alle Konsumenten dieser Welle;
+  // die Kit-Vorgabe wäre 50 (`DEFAULT_CHAT_KEEP`), und genau die schaltet ein kaputter Eintrag ein, wenn man ihn nicht abfängt.
+  it("Verlauf vergangener Chats: Ordner leer (= <Plugin-Name>/Chats), Aufbewahrung 0", () => {
+    expect(DEFAULT_SETTINGS.chatFolder).toBe("");
+    expect(DEFAULT_SETTINGS.chatKeep).toBe(0);
+    expect(DEFAULT_SETTINGS.chatKeep).not.toBe(DEFAULT_CHAT_KEEP);
+  });
+  it("normalizeChatArchiveSettings: was keine Zahl ist, wird 0 (nicht die 50 des Kits), eine Zahl geht durch die Begrenzung des Kits", () => {
+    const run = (chatKeep: unknown, chatFolder: unknown = "") => {
+      const s = { ...structuredClone(DEFAULT_SETTINGS), chatKeep, chatFolder } as unknown as VaultRagSettings;
+      normalizeChatArchiveSettings(s, clampChatKeep);
+      return s;
+    };
+    expect(run("viel").chatKeep).toBe(0);
+    expect(run(null).chatKeep).toBe(0);
+    expect(run(undefined).chatKeep).toBe(0);
+    expect(run(Number.NaN).chatKeep).toBe(0);
+    expect(run(12).chatKeep).toBe(12);
+    expect(run(9999).chatKeep).toBe(500);
+    expect(run(-3).chatKeep).toBe(0);
+    expect(run(0, 5).chatFolder).toBe("");
+    expect(run(0, "Mein/Ordner").chatFolder).toBe("Mein/Ordner");
   });
 
   // Linkschutz der Chat-Antworten (Welle 27, Kit 0.70.0): beide Schalter aus.
@@ -140,11 +166,12 @@ const DECLARATIVE_KEYS = [
 
 function makeFakeHost() {
   return {
-    manifest: { id: "vault-retrieval" },
+    manifest: { id: "vault-retrieval", name: "Vault Retrieval" },
     settings: structuredClone(DEFAULT_SETTINGS),
     saveSettings: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn(),
     refreshSmartApplyRanking: vi.fn(),
+    refreshChatArchive: vi.fn(),
     refreshReformatTransforms: vi.fn(),
     setStatusBarVisible: vi.fn(),
     embeddingPaused: vi.fn(() => false),
@@ -169,7 +196,7 @@ function makeFakeHost() {
 }
 
 function makeTab(host = makeFakeHost()) {
-  return { tab: new VaultRagSettingTab({} as any, host), host };
+  return { tab: new VaultRagSettingTab({ vault: { configDir: ".obsidian" } } as any, host), host };
 }
 
 describe("getControlValue/setControlValue", () => {
@@ -331,12 +358,13 @@ describe("getSettingDefinitions – Struktur", () => {
     expect(typeof items[0].render).toBe("function");
   });
 
-  it("Gruppe „Links and images in answers“ steht hinter dem Chat: zwei Schalter in der Wortwahl des Kits, ein Umlegen speichert in die Einstellung", async () => {
+  it("Gruppe „Links and images in answers“ steht hinter Chat und Past chats: zwei Schalter in der Wortwahl des Kits, ein Umlegen speichert in die Einstellung", async () => {
     const { tab, host } = makeTab();
     const defs = tab.getSettingDefinitions() as any[];
     const g = defs.find(d => d.heading === "Links and images in answers");
     expect(g).toBeTruthy();
-    expect(defs.indexOf(g)).toBe(defs.findIndex(d => d.heading === "Chat") + 1);
+    expect(defs.indexOf(g)).toBe(defs.findIndex(d => d.heading === "Past chats") + 1);
+    expect(defs.findIndex(d => d.heading === "Past chats")).toBe(defs.findIndex(d => d.heading === "Chat") + 1);
     const items = g.items as any[];
     expect(items.map(i => i.name)).toEqual(["Allow obsidian:// links", "Show local images from the vault"]);
     // Die Schalter über das Kit-Fake-`Setting` zeichnen und umlegen.
@@ -348,6 +376,25 @@ describe("getSettingDefinitions – Struktur", () => {
       await vi.waitFor(() => { expect(host.settings[key]).toBe(true); });
     }
     expect(host.saveSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it("Gruppe „Past chats“ steht hinter dem Chat: Ordner und Aufbewahrung in der Wortwahl des Kits, eine Änderung speichert und meldet die Aufbewahrung den offenen Fenstern", async () => {
+    const { tab, host } = makeTab();
+    const defs = tab.getSettingDefinitions() as any[];
+    const g = defs.find(d => d.heading === "Past chats");
+    expect(g).toBeTruthy();
+    const items = g.items as any[];
+    expect(items).toHaveLength(2);
+    // Die Zeilen über das Kit-Fake-`Setting` zeichnen: Ordner als Text, Aufbewahrung als Regler; die Vorgabe der Aufbewahrung ist 0.
+    let keepChange: ((v: number) => void) | null = null;
+    let seenKeep: number | null = null;
+    const keepSetting: any = { setName: () => keepSetting, setDesc: () => keepSetting, addSlider: (cb: any) => { const sl: any = { setLimits: () => sl, setValue: (v: number) => { seenKeep = v; return sl; }, onChange: (f: any) => { keepChange = f; return sl; } }; cb(sl); return keepSetting; } };
+    items[1].render(keepSetting);
+    expect(seenKeep).toBe(0);
+    keepChange!(12);
+    await vi.waitFor(() => { expect(host.settings.chatKeep).toBe(12); });
+    await vi.waitFor(() => { expect(host.refreshChatArchive).toHaveBeenCalledTimes(1); });
+    expect(host.saveSettings).toHaveBeenCalledTimes(1);
   });
 
   it("Chat-Gruppe: deklarative Keys + render-Hatches, keine Sampling-Regler mehr", () => {
@@ -451,7 +498,8 @@ describe("getSettingDefinitions i18n", () => {
     // Kontext) im Failure-Text mitgeliefert, statt nur "expected false to be true".
     const umlautMatch = flat.match(/.{0,40}[äöüßÄÖÜ].{0,40}/);
     expect(umlautMatch?.[0] ?? null, "deutsches Sonderzeichen im Array gefunden").toBeNull();
-    const guillemetMatch = flat.match(/.{0,40}[„“].{0,40}/);
+    // Nur das öffnende deutsche „: das schließende “ ist auch das öffnende Anführungszeichen des Englischen (Kit-Text „Empty means “…”“).
+    const guillemetMatch = flat.match(/.{0,40}„.{0,40}/);
     expect(guillemetMatch?.[0] ?? null, "deutsches Anführungszeichen im Array gefunden").toBeNull();
   });
 });

@@ -38,6 +38,8 @@ export class VaultRetrievalView extends ItemView {
   emitEmbeddingPause(paused: boolean): void { for (const p of this.panels) p.onEmbeddingPause?.(paused); }
   /** Modellzeilen aller Panels neu zeichnen (Modell, Endpunkt oder Denkstufe wurden außerhalb geändert). */
   refreshModelBars(opts: { models?: boolean } = {}): void { for (const p of this.panels) p.refreshModelBar?.(opts); }
+  /** Das Panel mit dieser Id (für Befehle des Plugins, die ein bestimmtes Panel ansprechen). */
+  panelById(id: TabId): HubPanel | undefined { return this.panels.find(p => p.id === id); }
   refreshRanking(): void {
     const sa = this.panels.find(p => p.id === "smart-apply") as { refreshRanking?: () => void } | undefined;
     sa?.refreshRanking?.();

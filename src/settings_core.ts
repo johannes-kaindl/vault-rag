@@ -34,6 +34,10 @@ export interface VaultRagSettings {
   chatSystemPrompt: string;
   chatInputPosition: "bottom" | "top";
   enterSends: boolean;
+  /** Ordner der vergangenen Chats im Vault; leer = `<Plugin-Name>/Chats` (der Speicher prüft ihn, Kit `chat-archive`). */
+  chatFolder: string;
+  /** Wie viele vergangene Chats bleiben (0 bis 500; 0 = kein Verlauf, Neu fragt dann zurück). Vorgabe 0 (Entscheidung Johannes 2026-11-01), nicht die 50 des Kits. */
+  chatKeep: number;
   /** Linkschutz der Chat-Antworten (Kit `domGuard`, Default aus): `obsidian://`-Links behalten ihr Ziel, Bilder aus dem Vault werden gezeigt. */
   allowObsidianLinks: boolean;
   allowLocalImages: boolean;
@@ -138,6 +142,14 @@ export function stripLegacySampling<T extends object>(settings: T): T {
   return settings;
 }
 
+/** Die zwei Einstellungen des Verlaufs nach dem Laden prüfen. `clamp` ist `clampChatKeep` des Kits (liegt in einem Modul mit `obsidian`-Import und kann deshalb nicht
+ *  hier stehen): es begrenzt eine Zahl auf 0 bis 500, macht aber aus allem anderen die 50 des Kits. Ein Eintrag, der keine Zahl ist, wird hier die Vorgabe dieses Plugins (0,
+ *  Verlauf aus), nie ein stilles „Verlauf an“. Ein Ordner, der kein Text ist, wird leer (= Vorgabeordner). */
+export function normalizeChatArchiveSettings(s: VaultRagSettings, clamp: (value: unknown) => number): void {
+  s.chatKeep = typeof s.chatKeep === "number" && Number.isFinite(s.chatKeep) ? clamp(s.chatKeep) : 0;
+  if (typeof s.chatFolder !== "string") s.chatFolder = "";
+}
+
 export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
   minSim: 0.3,
@@ -155,6 +167,8 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   chatSystemPrompt: "",
   chatInputPosition: "bottom",
   enterSends: true,
+  chatFolder: "",
+  chatKeep: 0,
   allowObsidianLinks: false,
   allowLocalImages: false,
   smartApplyEnabled: false,

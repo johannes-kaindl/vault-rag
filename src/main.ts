@@ -1991,8 +1991,12 @@ export default class VaultRagPlugin extends Plugin {
     this.embeddingProgress.reindex = { done: 0, total };
     this.updateStatusBar();
     const emptyBefore = new Set(this.emptyNotePaths);
+    // Den Indexer, der rechnet, vor dem ersten await festhalten (wie `healVault`): mit dem Endpunkt-Manager löst jedes `embed` neu auf, und
+    // `applyEmbeddingResolution` ersetzt dabei `this.liveIndexer` durch einen aus dem alten Index gesäten. Die Vektoren des Laufs stecken in `li`;
+    // `buildIndex`/`persist` auf `this.liveIndexer` schrieben den Stand von vor dem Lauf (llm-setup, 2026-11-03: 2 h 14 min Rechenzeit, `count: 0`).
+    const li = this.liveIndexer;
     try {
-      const report = await this.underEmbedOp("reindex", () => this.liveIndexer.reindexAll(
+      const report = await this.underEmbedOp("reindex", () => li.reindexAll(
         allPaths,
         (p) => this.app.vault.adapter.read(p),
         (done, _indexed, tot) => {
@@ -2017,9 +2021,9 @@ export default class VaultRagPlugin extends Plugin {
         for (const p of liveRemoved) next.delete(p);
         this.emptyNotePaths = next;
       }
-      this.index = this.liveIndexer.buildIndex();
+      this.index = li.buildIndex();
       if (!report.cancelled) this.stampGap.settle();   // ein Voll-Reindex stempelt jede Zeile (ein Abbruch mischt, dann bleibt die Zahl wie sie war)
-      await this.liveIndexer.persist("reindex");
+      await li.persist("reindex");
       this.indexHealthy = true;
       this.refresh();
       void this.snapshotIndex();

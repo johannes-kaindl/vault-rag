@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **"Reindex vault" no longer writes the old index after hours of work.** With the Endpoint Manager as the source of the endpoint, every embedding request resolves the connection again, and each resolution replaced the plugin's indexer with a fresh one seeded from the index before the run. The full reindex then built and wrote the index from that fresh indexer, not from the one that had done the work, so a run of two hours ended with the old index on disk (an empty one in the reported case, `count: 0`) and no message. The reindex now keeps the indexer it started with, as the delta reindex already did. Present since 0.47.1; reported from a 2,030-note vault (llm-setup).
+
 ### Changed
 
 - **On a phone or tablet the view opens as a tab in the main area, not in the sidebar drawer.** The drawer lost about 155 px to Obsidian's own tab picker, and the chat ended above the keyboard. At 390 × 844 the answer area of the chat grew from 5.9 to 13.6 lines (together with the smaller context row below). A view that is still saved in the drawer moves to a tab when you open it. On the desktop nothing changes: the right sidebar.

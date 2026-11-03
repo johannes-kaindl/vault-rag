@@ -55,6 +55,7 @@ interface Messung {
   tippflaechen: Record<string, [number, number] | null>;
   zeilen: { logZeilen: number; zeilenhoehe: number; logHoehe: number };
   kette: string[];
+  hubImTab: boolean;
   abstandUnten: number;
   reihenfolgeVonOben: string[];
   zustandszeile: string;
@@ -97,8 +98,10 @@ const MESS_JS = `
     const b = el.getBoundingClientRect(), cs2 = getComputedStyle(el);
     kette.push((el.tagName.toLowerCase() + "." + [...el.classList].slice(0, 3).join(".")) + " " + b.top.toFixed(0) + "–" + b.bottom.toFixed(0) + " pb " + cs2.paddingBottom + " ov " + cs2.overflowY + " " + cs2.display);
   }
+  // Hub-Ort (Welle 30): am Handy ein Tab im Hauptbereich (Vorfahr workspace-tabs), nie die Schublade (workspace-drawer).
+  const hubImTab = kette.some((k) => k.includes("workspace-tabs")) && !kette.some((k) => k.includes("workspace-drawer"));
   return {
-    kette,
+    kette, hubImTab,
     viewport: [innerWidth, innerHeight], isMobile: document.body.classList.contains("is-mobile"),
     teile, ueberdeckungen: ue,
     tippflaechen: { neu: nachRect(teile.neu), verlaufKnopf: nachRect(teile.verlaufKnopf), senden: nachRect(teile.senden), neuLaden: nachRect(teile.neuLaden) },
@@ -125,6 +128,7 @@ function kurz(m: Messung): string {
     `  Überdeckungen: ${m.ueberdeckungen.length === 0 ? "keine" : m.ueberdeckungen.join("; ")}`,
     `  Kontext ${b(t.kontext)} · Eingabe ${b(t.eingabe)} · Knopfreihe ${b(t.knopfreihe)} · Senden ${b(t.senden)} · Modellzeile ${b(t.modellzeile)} (${m.modellzeileSichtbar === null ? "—" : m.modellzeileSichtbar ? "sichtbar" : "ausgeblendet"}) · Dropdown ${b(t.dropdown)} · Zustandszeile „${m.zustandszeile}“ ${b(t.zustandszeile)}`,
     `  Rahmen: Container ${b(t.appContainer ?? null)} · Hub-Tabs ${b(t.hubTabs ?? null)} · Wirt ${b(t.wirt ?? null)} · Kontext-Kopf ${b(t.kontextKopf ?? null)}`,
+    `  Hub-Ort: ${m.hubImTab ? "Tab im Hauptbereich" : "NICHT im Hauptbereich (Schublade?)"}`,
     `  Kette: ${m.kette.join(" ← ")}`,
     `  Reihenfolge von oben: ${m.reihenfolgeVonOben.join(" > ")}`,
   ].join("\n");
@@ -222,6 +226,7 @@ async function main(): Promise<void> {
       }
     }
     writeFileSync(join(out, `${tag}-messung.json`), JSON.stringify(messungen, null, 2));
+    if (messungen.some((m) => !m.hubImTab)) { console.log("FEHLER: der Hub steht am Handy nicht als Tab im Hauptbereich"); process.exitCode = 1; }
   } finally {
     if (cdp) {
       await cdp.send("Emulation.clearDeviceMetricsOverride").catch(() => undefined);

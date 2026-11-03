@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **On a phone or tablet the view opens as a tab in the main area, not in the sidebar drawer.** The drawer lost about 155 px to Obsidian's own tab picker, and the chat ended above the keyboard. In the tab, the answer area of the chat grew from 5.9 to 13 lines at 390 × 844 (before the context change below). A view that is still saved in the drawer moves to a tab when you open it. On the desktop nothing changes: the right sidebar.
+- **The context row of the chat is smaller.** The header is one line now: *N notes*, a minus and a plus for the number of automatic notes, and two icon buttons (add the active note, add a note…; the text is the tooltip). With more than two notes the list folds into the label (*5 notes*, tap to open it).
 - **Chat on a phone, with the keyboard open:** no empty strip is left between **Send** and the keyboard any more, and the floating navigation bar no longer covers the lower row of buttons (main area). The space below the chat is set once by the kit (class `okit-chat-host`); vault-rag has no rule of its own for it.
 - **Model row:** in the folded row the model name stays readable and the thinking level shows as a block character (`▄`) next to the brain icon; the list of levels still shows the full names (`▄ Medium`).
 - **Past chats:** the history button stays hidden on a phone while *Keep past chats* is `0` (it showed up there without a function).

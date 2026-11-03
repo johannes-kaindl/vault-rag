@@ -286,6 +286,13 @@ const W28_PUNKTE = {
   abbruchModell: "Abbruch des Voll-Reindex unter fremdem Modell auf der Platte: index.bin bleibt Byte für Byte gleich",
 } as const;
 
+/** Wo öffnet der Hub (Welle 30)? Am Desktop in der rechten Seitenleiste, ein zweites Öffnen nimmt denselben Hub. Der Handy-Weg (Tab im Hauptbereich, ein Hub in der Schublade zieht um) braucht die Mobil-Emulation, die Obsidian neu lädt: er ist in `npm run chat-layout` gemessen (Elternkette des Wirts), nicht hier. */
+const HUB_ORT_PUNKT = "Hub-Ort: am Desktop öffnet der Hub in der rechten Seitenleiste, ein zweites Öffnen nimmt denselben Hub";
+
+/** Laden ohne Fehler (Welle 30, Task registerView): zweimal nacheinander aus- und einschalten wirft nichts und meldet keinen Fehler in der Konsole. „Attempting to register an existing view type“ kam nur,
+ *  wenn ein Aufrufer zwei Ladevorgänge überlappen ließ (Messung Welle 28, Dach c1064c5 behebt es im Treiber), nicht aus dem Plugin. */
+const LADEN_PUNKT = "Laden: zweimal aus- und einschalten nacheinander wirft nichts und schreibt keinen Fehler in die Konsole (kein „existing view type“)";
+
 const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch wenn beim Laden ein Pop-out aktiv ist";
 
   const PUNKT_TREU = "Umformulieren: zum Modell gehen nur Platzhalter, ein Ergebnis mit allen Links bleibt anwendbar";
@@ -362,6 +369,8 @@ const PUNKTE = [
   REFORMAT_PRESET_PUNKT,
   ...PAUSE_PUNKTE,
   POPOUT_PUNKT,
+  LADEN_PUNKT,
+  HUB_ORT_PUNKT,
   PUNKT_TREU,
   PUNKT_SPERRE,
   PUNKT_UMBRUCH,
@@ -831,6 +840,38 @@ async function main(): Promise<void> {
     // Obsidian-Plugin nimmt (`app.plugins.plugins[id].api`) — nicht über internen Code.
     // Genau das können Unit-Tests strukturell nicht: dass der Vertrag am echten
     // Plugin-Objekt hängt und über die Renderer-Grenze JSON-tauglich ankommt.
+    // Laden ohne Fehler: ganz am Anfang, solange noch nichts Zustand hält (der Index lädt danach neu). Die Konsole wird per Haken auf console.error und window.onerror gelesen.
+    try {
+      const laden = await main.evaluate<{ fehler: string[]; gegen: number; wirft: string | null; da: boolean }>(`
+        const fehler = []; const alt = console.error; const orig = window.onerror;
+        console.error = (...a) => { fehler.push(a.map(String).join(" ")); return alt.apply(console, a); };
+        const onrej = (e) => fehler.push("unhandled: " + String(e.reason));
+        window.addEventListener("unhandledrejection", onrej);
+        let wirft = null;
+        try {
+          for (let i = 0; i < 2; i++) { await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)}); await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)}); }
+          await new Promise(r => setTimeout(r, 800));
+        } catch (e) { wirft = String(e); }
+        const sauber = fehler.slice();
+        // Gegenprobe (CORE-TEST-13): zwei überlappende Ladevorgänge MÜSSEN den Fehler erzeugen, sonst sähe der Haken ihn nicht und „keine Fehler“ hieße nichts.
+        fehler.length = 0;
+        try {
+          await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+          await Promise.allSettled([app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)}), app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)})]);
+          await new Promise(r => setTimeout(r, 500));
+          await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)}); await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+        } catch (e) { wirft = wirft ?? ("Gegenprobe: " + String(e)); }
+        const gegen = fehler.filter((f) => f.includes("existing view type")).length;
+        console.error = alt; window.removeEventListener("unhandledrejection", onrej);
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        for (let i = 0; i < 80 && !(p && p.api && p.api.status().indexed); i++) await new Promise(r => setTimeout(r, 250));
+        return { fehler: sauber, gegen, wirft, da: !!p && !!p.api };`);
+      const detail = `geworfen: ${laden.wirft ?? "nichts"} · Konsolenfehler bei sequentiellem Laden: ${laden.fehler.length === 0 ? "keine" : laden.fehler.join(" | ").slice(0, 200)} · Plugin wieder da: ${laden.da} · Gegenprobe (überlappendes Laden): ${laden.gegen}× „existing view type“`;
+      if (laden.gegen === 0) unmeasured(LADEN_PUNKT, `die Gegenprobe (zwei überlappende Ladevorgänge) erzeugte den bekannten Fehler nicht: der Haken sähe ihn nicht — ${detail}`);
+      else record(LADEN_PUNKT, laden.wirft === null && laden.fehler.length === 0 && laden.da, detail);
+    } catch (e) {
+      unmeasured(LADEN_PUNKT, `Neuladen nicht messbar: ${String(e)} — nichts gemessen`);
+    }
     const probe = await main.evaluate<ApiProbe>(`
       const api = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].api;
       if (!api) return { present: false };
@@ -3391,6 +3432,23 @@ async function main(): Promise<void> {
       } catch (e) {
         unmeasured(W7I.n3, `Chat-Panel nicht erreichbar: ${String(e)} — nichts gemessen`);
         unmeasured(W7I.n4, `Chat-Panel nicht erreichbar: ${String(e)} — nichts gemessen`);
+      }
+
+      // Hub-Ort (Welle 30): ohne offenen Hub öffnet openHub am Desktop in der rechten Seitenleiste; ein zweiter Aufruf legt keinen zweiten an.
+      try {
+        const ort = await main.evaluate<{ vorher: number; n1: number; seite1: boolean; n2: number; mobil: boolean }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; const ws = app.workspace;
+          ws.detachLeavesOfType("vault-retrieval-hub"); await new Promise(r => setTimeout(r, 300));
+          const vorher = ws.getLeavesOfType("vault-retrieval-hub").length;
+          await p.openHub("related"); await new Promise(r => setTimeout(r, 500));
+          const l1 = ws.getLeavesOfType("vault-retrieval-hub");
+          const seite1 = l1.length === 1 && l1[0].getRoot() === ws.rightSplit;
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 500));
+          return { vorher, n1: l1.length, seite1, n2: ws.getLeavesOfType("vault-retrieval-hub").length, mobil: document.body.classList.contains("is-mobile") };`);
+        record(HUB_ORT_PUNKT, !ort.mobil && ort.vorher === 0 && ort.n1 === 1 && ort.seite1 && ort.n2 === 1,
+          `Desktop (is-mobile ${ort.mobil}) · vorher ${ort.vorher} Hubs · danach ${ort.n1} · in der rechten Seitenleiste: ${ort.seite1} · nach dem zweiten Öffnen ${ort.n2}`);
+      } catch (e) {
+        unmeasured(HUB_ORT_PUNKT, `Hub nicht erreichbar: ${String(e)} — nichts gemessen`);
       }
 
       // Gesendeter Body. Haken auf XMLHttpRequest.prototype.send: die Anfrage wird gelesen und

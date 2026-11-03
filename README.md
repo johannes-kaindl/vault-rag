@@ -17,7 +17,7 @@ Vault Retrieval turns your notes into a searchable knowledge base. Retrieval —
 
 ## Features
 
-Everything lives in **one sidebar view** with tabs: related notes, search, chat, reformat, plus Smart Apply once you enable it. Panels stay mounted, so a running chat stream or a pending Smart Apply survives switching tabs.
+Everything lives in **one sidebar view** (on a phone or tablet it opens as a tab in the main area, not in the drawer) with tabs: related notes, search, chat, reformat, plus Smart Apply once you enable it. Panels stay mounted, so a running chat stream or a pending Smart Apply survives switching tabs.
 
 - **Related notes** — a side panel ranks the notes most similar to the one you're reading. Cosine similarity over a compact note-level index, computed on-device — works fully offline, including on mobile.
 - **Semantic search** — find notes by *meaning*, not just keywords.

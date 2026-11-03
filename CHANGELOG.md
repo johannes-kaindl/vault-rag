@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - **"Reindex vault" no longer writes the old index after hours of work.** With the Endpoint Manager as the source of the endpoint, every embedding request resolves the connection again, and each resolution replaced the plugin's indexer with a fresh one seeded from the index before the run. The full reindex then built and wrote the index from that fresh indexer, not from the one that had done the work, so a run of two hours ended with the old index on disk (an empty one in the reported case, `count: 0`) and no message. The reindex now keeps the indexer it started with, as the delta reindex already did. Present since 0.47.1; reported from a 2,030-note vault (llm-setup).
+- **"Cancel reindex" reaches the run that is actually working.** The command and disabling the plugin asked the plugin's current indexer to stop. With the Endpoint Manager that indexer is replaced during a run (see above), so the request landed on the new one and the full reindex, the delta reindex or the automatic repair went on to the end. The request now goes to every indexer that is running (reported from the same 2,030-note vault, llm-setup).
 
 ### Changed
 

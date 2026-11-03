@@ -46,7 +46,7 @@ interface Aufbau {
 }
 
 /** Ein Objekt mit den Mitgliedern, die `reindexVault` liest. `tausche` = true: der Embedder ersetzt `fake.liveIndexer` beim ersten Aufruf durch einen neu gesäten. */
-function bauen(tausche: boolean, pfade: string[]): Aufbau {
+function bauen(tausche: boolean, pfade: string[], nachTausch?: (fake: Record<string, unknown>) => void): Aufbau {
   const a = adapter();
   let tausch = 0;
   const fake: Record<string, unknown> = {};
@@ -59,6 +59,7 @@ function bauen(tausche: boolean, pfade: string[]): Aufbau {
         const neu = new LiveIndexer(a as never, "_vaultrag", embedder as unknown as Embedder, MODEL, { dim: DIM });
         neu.init(leererIndex());
         fake.liveIndexer = neu;
+        nachTausch?.(fake);
       }
       return texts.map((t, i) => { const v = new Float32Array(DIM); v[(t.length + i) % DIM] = 1; return v; });
     }),
@@ -67,6 +68,9 @@ function bauen(tausche: boolean, pfade: string[]): Aufbau {
   li.init(leererIndex());
   Object.assign(fake, {
     liveIndexer: li,
+    // die echten Methoden des Plugins, die `reindexVault` und der Abbruch benutzen
+    runningIndexers: new Set<LiveIndexer>(),
+    whileRunning: (VaultRagPlugin.prototype as unknown as Record<string, unknown>).whileRunning,
     index: leererIndex(),
     indexHealthy: true,
     pause: { isPaused: () => false },
@@ -118,5 +122,25 @@ describe("reindexVault: der Indexer, der gerechnet hat, schreibt", () => {
     expect(x.tauschZaehler()).toBe(1);   // der Tausch hat stattgefunden, sonst misst der Test nichts
     expect(zeilenAufPlatte(x.platte)).toBe(pfade.length);
     expect((x.fake.index as { count: number }).count).toBe(pfade.length);
+  });
+});
+
+describe("Abbruch trifft den Indexer, der gerade rechnet", () => {
+  const viele = Array.from({ length: 300 }, (_, i) => `n${i}.md`);
+
+  it("ein Abbruch nach dem Tausch beendet den Lauf an der nächsten Gruppengrenze, die fertigen Notizen bleiben auf der Platte", async () => {
+    // Der Befehl „cancel-reindex“ kommt, nachdem der Indexer ersetzt wurde (im Embedder, gleich nach dem Tausch).
+    const x = bauen(true, viele, (fake) => (VaultRagPlugin.prototype as unknown as { cancelRunningReindex(this: unknown): void }).cancelRunningReindex.call(fake));
+    await lauf(x);
+    const aufPlatte = zeilenAufPlatte(x.platte);
+    expect(x.tauschZaehler()).toBe(1);
+    expect(aufPlatte).toBeGreaterThan(0);
+    expect(aufPlatte).toBeLessThan(viele.length);
+  });
+
+  it("Kontrolle: ohne Abbruch läuft dieselbe Pfadliste bis zum Ende", async () => {
+    const x = bauen(true, viele);
+    await lauf(x);
+    expect(zeilenAufPlatte(x.platte)).toBe(viele.length);
   });
 });

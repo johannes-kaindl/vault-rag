@@ -149,6 +149,9 @@ export default class VaultRagPlugin extends Plugin {
   private smartApply: SmartApply | null = null;
   private templateRanker?: TemplateRanker;
   private liveIndexer!: LiveIndexer;
+  /** Die Indexer, die gerade einen Reindex rechnen (Voll-, Delta-Reindex, Auto-Heal). `this.liveIndexer` kann mitten im Lauf ersetzt werden (Endpunkt-Manager: jede
+   *  Auflösung sät neu); der Abbruch muss die Instanz treffen, die rechnet, nicht die neue. */
+  private readonly runningIndexers = new Set<LiveIndexer>();
   private pendingQueue!: PendingQueue;
   private debounceTimers = new Map<string, number>();
   embeddingProgress: EmbeddingProgress = {
@@ -543,7 +546,7 @@ export default class VaultRagPlugin extends Plugin {
       name: t("command.cancelReindex"),
       callback: () => {
         if (this.embeddingProgress.reindex === null) { new Notice(t("main.noReindexRunning")); return; }
-        this.liveIndexer.cancelReindex();
+        this.cancelRunningReindex();
       },
     });
 
@@ -1509,8 +1512,8 @@ export default class VaultRagPlugin extends Plugin {
         this.stampGap.load(base.paths, candidateStamps);
         if (plan.kind === "restore-and-reindex") {
           const { missing } = diffIndexVsVault([...base.paths], this.vaultMarkdownPaths());
-          const report = await this.underEmbedOp("auto-heal", () => li.healMissing(missing, (p) => this.app.vault.adapter.read(p),
-            undefined, (p) => this.stampOf(p)));
+          const report = await this.underEmbedOp("auto-heal", () => this.whileRunning(li, () => li.healMissing(missing, (p) => this.app.vault.adapter.read(p),
+            undefined, (p) => this.stampOf(p))));
           if (!canPersistHealedIndex(report.failed.length)) {
             li.markUnready(); // halb geheilten Index NICHT verteilen
             return;
@@ -1971,7 +1974,19 @@ export default class VaultRagPlugin extends Plugin {
    * und wird geschrieben.
    */
   onunload(): void {
-    this.liveIndexer?.cancelReindex();
+    this.cancelRunningReindex();
+  }
+
+  /** Bittet den laufenden Reindex (Voll-Reindex, Delta-Reindex, Auto-Heal), an der nächsten Gruppengrenze aufzuhören. */
+  private cancelRunningReindex(): void {
+    for (const li of this.runningIndexers) li.cancelReindex();
+    this.liveIndexer?.cancelReindex();   // verpufft, wenn dort kein Lauf aktiv ist
+  }
+
+  /** Merkt `li` für den Abbruch, solange `fn` läuft. */
+  private async whileRunning<T>(li: LiveIndexer, fn: () => Promise<T>): Promise<T> {
+    this.runningIndexers.add(li);
+    try { return await fn(); } finally { this.runningIndexers.delete(li); }
   }
 
   async reindexVault(): Promise<void> {
@@ -1996,7 +2011,7 @@ export default class VaultRagPlugin extends Plugin {
     // `buildIndex`/`persist` auf `this.liveIndexer` schrieben den Stand von vor dem Lauf (llm-setup, 2026-11-03: 2 h 14 min Rechenzeit, `count: 0`).
     const li = this.liveIndexer;
     try {
-      const report = await this.underEmbedOp("reindex", () => li.reindexAll(
+      const report = await this.underEmbedOp("reindex", () => this.whileRunning(li, () => li.reindexAll(
         allPaths,
         (p) => this.app.vault.adapter.read(p),
         (done, _indexed, tot) => {
@@ -2005,7 +2020,7 @@ export default class VaultRagPlugin extends Plugin {
           notice.setMessage(t("main.indexingProgress", done, tot));
         },
         (p) => this.stampOf(p),
-      ));
+      )));
       // Voll-Reindex hat den ganzen Vault gelesen → frischeste Leer-Klassifikation. Nach einem
       // ABBRUCH gilt das nicht: `skippedEmpty` kennt dann nur die bis dahin gesehenen leeren
       // Notizen, und ein Ersetzen wuerfe alle uebrigen bekannten Leeren weg — sie erschienen
@@ -2085,7 +2100,7 @@ export default class VaultRagPlugin extends Plugin {
     this.embeddingProgress.reindex = { done: 0, total: embeddable.length };
     this.updateStatusBar();
     try {
-      const report = await this.underEmbedOp("heal", () => li.healMissing(
+      const report = await this.underEmbedOp("heal", () => this.whileRunning(li, () => li.healMissing(
         embeddable,
         (p) => this.app.vault.adapter.read(p),
         (done, _indexed, tot) => {
@@ -2094,7 +2109,7 @@ export default class VaultRagPlugin extends Plugin {
           notice.setMessage(t("main.healingProgress", done, tot));
         },
         (p) => this.stampOf(p),
-      ));
+      )));
       // Leer-Set aktualisieren: bekannte Leere bleiben, frisch entdeckte kommen dazu.
       this.emptyNotePaths = new Set([...knownEmpty, ...report.skippedEmpty]);
       // buildIndex ERST nach erfolgreichem persist (wie handleModify/drainPending): ändert sich die

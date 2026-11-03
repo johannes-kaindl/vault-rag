@@ -302,7 +302,7 @@ const POPOUT_PUNKT = "Der Index-Ordner wird im Hauptfenster ausgeblendet, auch w
   const PUNKT_UMBRUCH = "Umformulieren: „Absatz-Umbrüche entfernen“ zieht den Absatz zusammen und lässt den Codeblock stehen";
 
   const W7I = {
-    n1: "Anfrage-Abschnitt: klappt auf und zeigt Familie, Backend und die drei Modi",
+    n1: "Anfrage-Abschnitt: klappt auf und zeigt Familie, Backend und die drei Modi, ohne die Zeile „Stufenwahl im Chat“",
     n2: "Anfrage-Abschnitt: eine Überschreibung setzen und zurücksetzen — der Abschnitt bleibt dabei offen",
     n3: "Chat: die Denk-Steuerung der Modellzeile schaltet mit dem Dropdown zwischen aus und an um (Symbol, Wert und gespeicherte Stufe stimmen überein)",
     n4: "Chat: die Stufenwahl ist ein Dropdown (kein Knopf) und speichert die gewählte Stufe",
@@ -3308,8 +3308,10 @@ async function main(): Promise<void> {
         const n1 = await readSection();
         const headPrefix = KR.head("\u0001", "", "", "").split("\u0001")[0] ?? "";
         const modeNames = (["grounded", "structured", "transform"] as const).map((m) => KR.modeHeading(m));
-        record(W7I.n1, n1.found && n1.open && n1.text.includes(headPrefix) && modeNames.every((m) => n1.text.includes(m)),
-          `gefunden: ${n1.found} · offen: ${n1.open} · Kopfzeile: ${n1.text.includes(headPrefix)} · Modi: ${modeNames.filter((m) => n1.text.includes(m)).join(", ")}`);
+        // Seit Kit 0.76.0 folgt die Zeile „Stufenwahl im Chat“ allein der Option `levelPicker` des Plugins; vault-rag setzt sie nicht (die Modellzeile zeigt die Stufen immer als Dropdown), die Zeile darf nicht erscheinen.
+        const stufenwahlZeile = /Level picker in chat|Stufenwahl im Chat/.test(n1.text);
+        record(W7I.n1, n1.found && n1.open && n1.text.includes(headPrefix) && modeNames.every((m) => n1.text.includes(m)) && !stufenwahlZeile,
+          `gefunden: ${n1.found} · offen: ${n1.open} · Kopfzeile: ${n1.text.includes(headPrefix)} · Modi: ${modeNames.filter((m) => n1.text.includes(m)).join(", ")} · Zeile „Stufenwahl im Chat“: ${stufenwahlZeile ? "ERSCHEINT" : "nicht vorhanden"}`);
 
         // N2: Temperatur im ERSTEN Modus (grounded) setzen, dann zuruecksetzen.
         const setOverride = await st.evaluate<boolean>(`

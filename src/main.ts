@@ -53,7 +53,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { timeFromStampedName } from "./vendor/kit/rotation";
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
-import { hubPlacement, type HubLocation } from "./hub_placement";
+import { openChatLeaf } from "./vendor/kit-obsidian/chat-leaf";
 import type { HubPanel, TabId } from "./hub_panel";
 import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, findStaleVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal, decideHealWrite, backupAgeMs } from "./vendor/kit/index-guard";
 import { loadIndexStore, loadBackupCandidate } from "./index_store";
@@ -788,20 +788,13 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
+  /** Öffnet den Hub (Tab im Hauptbereich am Mobilgerät, rechte Seitenleiste am Desktop) und zeigt `tab`.
+   *  Die Wahl und das Umziehen eines in der Schublade gespeicherten Hubs liegen seit obsidian-kit 0.77.0 im Kit (`openChatLeaf`). */
   async openHub(tab: TabId): Promise<void> {
-    const { workspace } = this.app;
-    const existing = workspace.getLeavesOfType(VIEW_TYPE_HUB);
-    const first = existing[0];
-    const open: HubLocation = !first ? "none" : first.getRoot() === workspace.rootSplit ? "main" : "side";
-    const place = hubPlacement(open, Platform.isMobile);
-    // Ein Hub, der am Handy noch in der Schublade steht (das Layout überlebt das Update): schließen, als Tab neu öffnen.
-    if (place === "move-to-tab") for (const l of existing) l.detach();
-    const leaf = place === "existing" ? first : place === "sidebar" ? workspace.getRightLeaf(false) : workspace.getLeaf("tab");
+    const leaf = await openChatLeaf(this.app.workspace, VIEW_TYPE_HUB);
     if (!leaf) return;
-    if (place !== "existing") await leaf.setViewState({ type: VIEW_TYPE_HUB, active: true });
     const view = leaf.view;
     if (view instanceof VaultRetrievalView) view.showTab(tab);
-    void this.app.workspace.revealLeaf(leaf);
   }
 
   private migrateOldLeaves(): void {

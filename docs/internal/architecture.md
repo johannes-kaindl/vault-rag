@@ -195,9 +195,6 @@ hub_panel.ts      HubPanel-Interface + TabId ("related"|"search"|"chat"|"smart-a
                   onFileOpen/destroy).
                   Bleibt bewusst lokal, obwohl das Kit ein `HubPanel<Id>` mitbringt: er ist
                   strukturell zuweisbar, und die Doku hier gehört zu DIESEN Panels.
-hub_placement.ts reine Wahl, wo `openHub` den Hub öffnet (`hubPlacement(open, isMobile)`: Tab im Hauptbereich am
-                  Handy, rechte Seitenleiste am Desktop; ein Hub in der Schublade zieht am Handy um). `main.ts` ist Kante
-                  und ungetestet, die Wahl liegt deshalb hier.
 hub_view.ts       VaultRetrievalView (ItemView, VIEW_TYPE_HUB="vault-retrieval-hub") — EIN
                   Sidebar-View mit Tab-Leiste statt fünf Views; hält alle Panels dauerhaft gemountet
                   (State-Persistenz), blendet nur per `is-hidden` um (kein render-from-scratch).

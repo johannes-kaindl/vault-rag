@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.76.1, src/obsidian/run-exclusive.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.77.0, src/obsidian/run-exclusive.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Hintereinander je Schlüssel: der nächste Lauf startet, wenn der vorige fertig ist, auch wenn er fehlschlug.
  *
  *  Herkunft: dateiprivat in `share-export.ts` (je Export-Ordner), dort herausgelöst, als der Chat-Verlauf (`chat-archive`) dieselbe Zusage brauchte:

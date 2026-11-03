@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.76.1, src/obsidian/chat-archive-css.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.77.0, src/obsidian/chat-archive-css.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** CSS des Chat-Verlaufs (nur Wirte mit `archive`): wie die anderen `*_CSS`-Konstanten laut Kit-Vertrag in die `styles.css` des Plugins kopiert, nicht importiert. Nur
  *  Theme-Variablen, keine festen Größen (UI-STANDARD § 1). Der Store-CSS-Lint (`tests/kit-css-store.test.ts`) fährt sie automatisch.
  *

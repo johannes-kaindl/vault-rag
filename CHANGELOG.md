@@ -14,7 +14,7 @@ All notable changes to this project are documented here. The format follows
 - **Model row:** in the folded row the model name stays readable and the thinking level shows as a block character (`▄`) next to the brain icon; the list of levels still shows the full names (`▄ Medium`).
 - **Past chats:** the history button stays hidden on a phone while *Keep past chats* is `0` (it showed up there without a function).
 - **Copy buttons of the answers** are easier to hit with a thumb on a phone (a larger touch area, the look is unchanged).
-- Kit: obsidian-kit 0.74.0 → 0.76.1 (through 0.75.0 and 0.76.0; 0.75.0 `block-writer` and 0.76.0 `askChoice` and the status indicator are not used by vault-rag). The setting "Level picker in chat" is already gone since 0.48.0, so the kit's change to that row has no effect here.
+- Kit: obsidian-kit 0.74.0 → 0.77.0 (through 0.75.0, 0.76.0 and 0.76.1; 0.77.0 `openChatLeaf` now decides where the view opens, replacing the plugin's own `hubPlacement` with the same behaviour, and falls back to the drawer instead of failing when the main area has no tab group; 0.75.0 `block-writer` and 0.76.0 `askChoice` and the status indicator are not used by vault-rag). The setting "Level picker in chat" is already gone since 0.48.0, so the kit's change to that row has no effect here.
 
 ## [0.48.0] — 2026-11-01
 

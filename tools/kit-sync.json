@@ -1,7 +1,7 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.76.1"
+      "ref": "0.77.0"
     },
     "code-kit": {
       "ref": "0.40.0"
@@ -140,6 +140,7 @@
         "plugin-api",
         "chat-window",
         "chat-host",
+        "chat-leaf",
         "chat-window-strings",
         "model-bar",
         "model-bar-strings",

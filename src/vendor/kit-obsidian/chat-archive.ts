@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.76.1, src/obsidian/chat-archive.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.77.0, src/obsidian/chat-archive.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Speicher des Chat-Verlaufs: eine `.json` je Chat in einem Vault-Ordner, über einen schmalen Adapter (`app.vault.adapter` erfüllt ihn).
  *  **Kein `obsidian`-Import** (Entscheidung des Masters F-G2, 2026-10-27): Adapter, Uhr und `normalizePath` kommen als Parameter, damit der Speicher
  *  später nach `src/pure/` oder code-kit wandern kann und Koda ihn mit `payloadType: "koda-log/1"` über denselben Weg nutzt. Der Dialog (`SuggestModal`)

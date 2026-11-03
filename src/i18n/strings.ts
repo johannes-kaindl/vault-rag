@@ -478,10 +478,12 @@ export const EN = {
   "modelChoice.savedSuffix": "(saved)",
 
   // context_panel.ts
-  "context.count": "Context ({0})",
+  "context.count": "Context {0}",
   "context.auto": "Auto {0}",
-  "context.addActive": "+ Active note",
-  "context.addNote": "+ Note",
+  "context.addActive": "Add the active note",
+  "context.addNote": "Add a note…",
+  "context.autoFewer": "Fewer automatic notes",
+  "context.autoMore": "More automatic notes",
 
   // mcp/client_snippets.ts (Dropdown-Optionen im MCP-Setup)
   "mcpClient.label.claudeCode": "Claude Code (CLI)",
@@ -1010,10 +1012,12 @@ export const DE = {
   "modelChoice.savedSuffix": "(gespeichert)",
 
   // context_panel.ts
-  "context.count": "Kontext ({0})",
+  "context.count": "Kontext {0}",
   "context.auto": "Auto {0}",
-  "context.addActive": "+ Aktive Notiz",
-  "context.addNote": "+ Notiz",
+  "context.addActive": "Aktive Notiz hinzufügen",
+  "context.addNote": "Notiz hinzufügen…",
+  "context.autoFewer": "Weniger automatische Notizen",
+  "context.autoMore": "Mehr automatische Notizen",
 
   // mcp/client_snippets.ts (Dropdown-Optionen im MCP-Setup)
   "mcpClient.label.claudeCode": "Claude Code (CLI)",

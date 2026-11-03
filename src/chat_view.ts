@@ -59,7 +59,7 @@ export class ChatPanel implements HubPanel {
   private convo: { name: string; created: string } | null = null;
 
   constructor(private deps: ChatViewDeps) {
-    this.panel = new ContextPanel(deps, deps.autoK);
+    this.panel = new ContextPanel(deps, deps.autoK, (el, name) => setIcon(el, name));
   }
 
   /** Baut das Fenster in den Container. Wiederholbar: ein zweiter Aufruf (nach `destroy()`) zeichnet mit dem gehaltenen Verlauf neu. */

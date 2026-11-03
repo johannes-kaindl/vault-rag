@@ -141,8 +141,12 @@
 .vault-rag-sa-conn-refresh { margin-left: 6px; display: inline-flex; align-items: center; }
 .vault-rag-sa-conn-refresh svg { width: 14px; height: 14px; }
 .vault-rag-chat-context { border-top: 1px solid var(--background-modifier-border); padding-top: 6px; flex: 0 0 auto; max-height: 30vh; overflow-y: auto; }
-.vault-rag-ctx-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; flex-wrap: wrap; }
-.vault-rag-ctx-k { display: flex; align-items: center; gap: 2px; }
+.vault-rag-ctx-head { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.vault-rag-ctx-count { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-rag-ctx-k, .vault-rag-ctx-add { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
+.vault-rag-ctx-kval { white-space: nowrap; }
+/* Tippfläche auf Mobil: 44 × 44 px, das Symbol bleibt klein (ohne diese Regel zeichnet Obsidian die Knöpfe 30 × 26). */
+.is-mobile .vault-rag-ctx-head button.clickable-icon { min-width: calc(var(--size-4-10) + var(--size-4-1)); min-height: calc(var(--size-4-10) + var(--size-4-1)); }
 .vault-rag-ctx-list { display: flex; flex-wrap: wrap; gap: 4px; }
 .vault-rag-ctx-chip { font-size: 11px; padding: 2px 6px; border-radius: 10px; cursor: pointer; background: var(--background-modifier-border); }
 .vault-rag-ctx-chip.is-pinned { background: var(--interactive-accent); color: var(--text-on-accent); }

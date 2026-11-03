@@ -9,6 +9,9 @@ export interface ContextPanelDeps {
   isPaused?: () => boolean;
 }
 
+/** Setzt das Symbol `name` in das Element (Obsidians `setIcon`). */
+export type IconSetter = (el: HTMLElement, name: string) => void;
+
 const MIN_QUERY = 3;
 const BUFFER = 20;
 
@@ -25,24 +28,34 @@ export class ContextPanel {
   private countEl: HTMLElement | null = null;
   private kEl: HTMLElement | null = null;
 
-  constructor(private deps: ContextPanelDeps, public autoK: number) {}
+  /** `setIcon` kommt von außen (Kante `chat_view.ts`): dieses Modul bleibt frei von `obsidian`. Ohne die Funktion bleiben die Symbolknöpfe leer (Tests). */
+  constructor(private deps: ContextPanelDeps, public autoK: number, private setIcon: IconSetter = () => undefined) {}
 
   /** Wie viele Auto-Treffer gelten JETZT: während der Pause 0, der gespeicherte `autoK` bleibt dabei unberührt. */
   effectiveK(): number { return this.deps.isPaused?.() ? 0 : this.autoK; }
 
   mount(el: HTMLElement): void {
     el.empty();
+    // Eine Zeile (Schritt 1, Welle 30): Beschriftung, Auto-Zähler mit Minus und Plus, aktive Notiz, Notiz wählen — alle vier Knöpfe als Symbole, der Text steht im Tooltip. Mit Textknöpfen
+    // umbrach die Kopfzeile am Handy in zwei Zeilen à 44 px und ließ der Antwort bei 390 × 508 keinen Platz (Messung Welle 29).
     const head = el.createDiv({ cls: "vault-rag-ctx-head" });
     this.countEl = head.createSpan({ cls: "vault-rag-ctx-count", text: t("context.count", 0) });
     const kWrap = head.createDiv({ cls: "vault-rag-ctx-k" });
-    kWrap.createEl("button", { cls: "vault-rag-ctx-kdec", text: "−" }).addEventListener("click", () => this.setAutoK(this.autoK - 1));
+    this.iconButton(kWrap, "vault-rag-ctx-kdec", "minus", t("context.autoFewer")).addEventListener("click", () => this.setAutoK(this.autoK - 1));
     this.kEl = kWrap.createSpan({ cls: "vault-rag-ctx-kval" });
     this.renderK();
-    kWrap.createEl("button", { cls: "vault-rag-ctx-kinc", text: "+" }).addEventListener("click", () => this.setAutoK(this.autoK + 1));
-    head.createEl("button", { cls: "vault-rag-ctx-active", text: t("context.addActive") }).addEventListener("click", () => this.addActive());
-    head.createEl("button", { cls: "vault-rag-ctx-pick", text: t("context.addNote") }).addEventListener("click", () => void this.addViaPicker());
+    this.iconButton(kWrap, "vault-rag-ctx-kinc", "plus", t("context.autoMore")).addEventListener("click", () => this.setAutoK(this.autoK + 1));
+    const add = head.createDiv({ cls: "vault-rag-ctx-add" });
+    this.iconButton(add, "vault-rag-ctx-active", "file-text", t("context.addActive")).addEventListener("click", () => this.addActive());
+    this.iconButton(add, "vault-rag-ctx-pick", "file-plus", t("context.addNote")).addEventListener("click", () => void this.addViaPicker());
     this.listEl = el.createDiv({ cls: "vault-rag-ctx-list" });
     this.render();
+  }
+
+  private iconButton(parent: HTMLElement, cls: string, icon: string, label: string): HTMLElement {
+    const b = parent.createEl("button", { cls: `clickable-icon ${cls}`, attr: { "aria-label": label } });
+    this.setIcon(b, icon);
+    return b;
   }
 
   async setQuery(q: string): Promise<void> {

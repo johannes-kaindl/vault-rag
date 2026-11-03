@@ -52,6 +52,7 @@ interface Messung {
   /** Tippflächen in px (Breite × Höhe), Soll mobil mindestens 44 × 44. */
   tippflaechen: Record<string, [number, number] | null>;
   zeilen: { logZeilen: number; zeilenhoehe: number; logHoehe: number };
+  kette: string[];
   abstandUnten: number;
   reihenfolgeVonOben: string[];
   zustandszeile: string;
@@ -68,13 +69,16 @@ const MESS_JS = `
     knopfreihe: box(f(".okit-chat-buttons-start") || f(".okit-chat-buttons")), neu: box(f(".okit-chat-new")), verlaufKnopf: box(f(".okit-chat-archive")), senden: box(f(".okit-chat-send")),
     modellzeile: box(f(".okit-model-bar")), dropdown: box(f(".okit-model-bar-select")), denkstufe: box(f(".okit-thinking-control")), neuLaden: box(f(".okit-model-bar-refresh")),
     zustandszeile: box(f(".okit-chat-statusbar")), quellen: box(f(".vault-rag-chat-sources")),
+    // Rahmen, nur für die Maße (nicht in Überdeckung, Reihenfolge und Abstand): Hub-Tab-Leiste, Wirt des Chats, Kopfzeile des Kontexts, der Container der App
+    hubTabs: box(document.querySelector(".okit-hub-tabs")), wirt: box(document.querySelector(".vault-rag-chat-host")), kontextKopf: box(f(".vault-rag-ctx-head")), appContainer: box(document.querySelector(".app-container")),
   };
+  const RAHMEN = ["chat", "verlauf", "knopfreihe", "hubTabs", "wirt", "kontextKopf", "appContainer"];
   const nachRect = (b) => b ? [b.w, b.h] : null;
   const log = f(".okit-chat-log");
   const body = f(".okit-stream-body") || log;
   const cs = body ? getComputedStyle(body) : null;
   let lh = cs ? parseFloat(cs.lineHeight) : NaN; if (!Number.isFinite(lh)) lh = cs ? parseFloat(cs.fontSize) * 1.5 : 20;
-  const namen = Object.keys(teile).filter((k) => !["chat", "verlauf", "knopfreihe"].includes(k) && teile[k]);
+  const namen = Object.keys(teile).filter((k) => !RAHMEN.includes(k) && teile[k]);
   const ue = [];
   for (let i = 0; i < namen.length; i++) for (let j = i + 1; j < namen.length; j++) {
     const a = teile[namen[i]], b = teile[namen[j]];
@@ -82,16 +86,23 @@ const MESS_JS = `
     const innen = (x, y) => x.x >= y.x - 1 && x.right <= y.right + 1 && x.y >= y.y - 1 && x.bottom <= y.bottom + 1;
     if (dx > 1 && dy > 1 && !innen(a, b) && !innen(b, a)) ue.push(namen[i] + " × " + namen[j] + " (" + dx.toFixed(0) + "×" + dy.toFixed(0) + " px)");
   }
-  const unten = Object.entries(teile).filter(([k, b]) => b && k !== "chat" && k !== "verlauf").map(([, b]) => b.bottom);
+  const unten = Object.entries(teile).filter(([k, b]) => b && !RAHMEN.includes(k)).map(([, b]) => b.bottom);
   const tiefster = unten.length ? Math.max(...unten) : 0;
   const mb = f(".okit-model-bar");
+  // Elternkette des Wirts (Höhe, Innenabstand unten, Überlauf): zeigt, wo der Chat Platz verliert.
+  const kette = [];
+  for (let el = document.querySelector(".vault-rag-chat-host"); el && el !== document.body; el = el.parentElement) {
+    const b = el.getBoundingClientRect(), cs2 = getComputedStyle(el);
+    kette.push((el.tagName.toLowerCase() + "." + [...el.classList].slice(0, 3).join(".")) + " " + b.top.toFixed(0) + "–" + b.bottom.toFixed(0) + " pb " + cs2.paddingBottom + " ov " + cs2.overflowY + " " + cs2.display);
+  }
   return {
+    kette,
     viewport: [innerWidth, innerHeight], isMobile: document.body.classList.contains("is-mobile"),
     teile, ueberdeckungen: ue,
     tippflaechen: { neu: nachRect(teile.neu), verlaufKnopf: nachRect(teile.verlaufKnopf), senden: nachRect(teile.senden), neuLaden: nachRect(teile.neuLaden) },
     zeilen: { logZeilen: teile.verlauf ? +(teile.verlauf.h / lh).toFixed(1) : 0, zeilenhoehe: +lh.toFixed(2), logHoehe: teile.verlauf ? teile.verlauf.h : 0 },
-    abstandUnten: +(innerHeight - tiefster).toFixed(1),
-    reihenfolgeVonOben: Object.entries(teile).filter(([k, b]) => b && !["chat", "verlauf", "knopfreihe"].includes(k)).sort((a, b) => a[1].y - b[1].y || a[1].x - b[1].x).map(([k, b]) => k + "@" + Math.round(b.y)),
+    abstandUnten: +(((document.querySelector(".app-container")?.getBoundingClientRect().bottom) ?? innerHeight) - tiefster).toFixed(1),
+    reihenfolgeVonOben: Object.entries(teile).filter(([k, b]) => b && !RAHMEN.includes(k)).sort((a, b) => a[1].y - b[1].y || a[1].x - b[1].x).map(([k, b]) => k + "@" + Math.round(b.y)),
     zustandszeile: (f(".okit-chat-status")?.textContent || "").trim(),
     modellzeileSichtbar: mb ? getComputedStyle(mb).visibility !== "hidden" : null,
   };
@@ -111,6 +122,8 @@ function kurz(m: Messung): string {
     `  Tippflächen (B×H): ${Object.entries(m.tippflaechen).map(([k, v]) => `${k} ${v ? v.join("×") : "—"}`).join(" · ")}`,
     `  Überdeckungen: ${m.ueberdeckungen.length === 0 ? "keine" : m.ueberdeckungen.join("; ")}`,
     `  Kontext ${b(t.kontext)} · Eingabe ${b(t.eingabe)} · Knopfreihe ${b(t.knopfreihe)} · Senden ${b(t.senden)} · Modellzeile ${b(t.modellzeile)} (${m.modellzeileSichtbar === null ? "—" : m.modellzeileSichtbar ? "sichtbar" : "ausgeblendet"}) · Dropdown ${b(t.dropdown)} · Zustandszeile „${m.zustandszeile}“ ${b(t.zustandszeile)}`,
+    `  Rahmen: Container ${b(t.appContainer ?? null)} · Hub-Tabs ${b(t.hubTabs ?? null)} · Wirt ${b(t.wirt ?? null)} · Kontext-Kopf ${b(t.kontextKopf ?? null)}`,
+    `  Kette: ${m.kette.join(" ← ")}`,
     `  Reihenfolge von oben: ${m.reihenfolgeVonOben.join(" > ")}`,
   ].join("\n");
 }
@@ -134,7 +147,7 @@ async function main(): Promise<void> {
   const port = Number(flag("--port"));
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("--port <1024-65535> ist Pflicht (9222 gehoert der regulaeren Instanz).");
   const tag = flag("--tag") ?? "lauf";
-  const out = flag("--out") ?? "/tmp/vr-w29";
+  const out = flag("--out") ?? "/tmp/vr-w30";
   mkdirSync(out, { recursive: true });
 
   let cdp: Cdp | null = await attachTo("workspace", port, STAGING_VAULT);
@@ -181,11 +194,20 @@ async function main(): Promise<void> {
 
     for (const [schema, name] of [["moonstone", "hell"], ["obsidian", "dunkel"]] as const) {
       await cdp.evaluate(`app.vault.setConfig("theme", ${q(schema)}); app.updateTheme(); app.workspace.trigger("css-change"); await new Promise((r) => setTimeout(r, 600)); return true;`);
-      for (const mitTastatur of [false, true]) {
-        await cdp.send("Emulation.setDeviceMetricsOverride", { width: BREITE, height: mitTastatur ? HOEHE - TASTATUR : HOEHE, deviceScaleFactor: 2, mobile: true });
+      // Drei Zustände: ohne Tastatur · "tastatur" (Viewport um die Tastatur verkleinert, wie bisher, vergleichbar mit Welle 29) · "geraet" (wie Obsidian am iPhone, Messung des Masters 2026-11-03:
+      // innerHeight bleibt 844, nur der App-Container wird um die Tastatur kürzer und beide Variablen stehen auf der Tastaturhöhe; die Falte `max-height: 640px` greift dort nie).
+      for (const modus of ["ohne", "tastatur", "geraet"] as const) {
+        const mitTastatur = modus !== "ohne";
+        await cdp.evaluate(`for (const el of [document.documentElement, document.body]) { el.style.removeProperty("--keyboard-height"); el.style.removeProperty("--safe-area-inset-bottom"); }
+          const a = document.querySelector(".app-container"); if (a) a.style.height = ""; return true;`);
+        await cdp.send("Emulation.setDeviceMetricsOverride", { width: BREITE, height: modus === "tastatur" ? HOEHE - TASTATUR : HOEHE, deviceScaleFactor: 2, mobile: true });
+        if (modus === "geraet") {
+          await cdp.evaluate(`for (const el of [document.documentElement, document.body]) { el.style.setProperty("--keyboard-height", "${TASTATUR}px"); el.style.setProperty("--safe-area-inset-bottom", "${TASTATUR}px"); }
+            const a = document.querySelector(".app-container"); if (a) a.style.height = "${HOEHE - TASTATUR}px"; return true;`);
+        }
         await cdp.evaluate(mitTastatur ? `document.querySelector(".okit-chat-input")?.focus(); return true;` : `document.activeElement?.blur?.(); return true;`);
         await sleep(900);
-        const zustand = `${tag}-${name}-${mitTastatur ? "tastatur" : "ohne"}`;
+        const zustand = `${tag}-${name}-${modus}`;
         const m = await messe(cdp, zustand);
         messungen.push(m);
         console.log(kurz(m));
@@ -198,6 +220,7 @@ async function main(): Promise<void> {
   } finally {
     if (cdp) {
       await cdp.send("Emulation.clearDeviceMetricsOverride").catch(() => undefined);
+      await cdp.evaluate(`for (const el of [document.documentElement, document.body]) { el.style.removeProperty("--keyboard-height"); el.style.removeProperty("--safe-area-inset-bottom"); } const a = document.querySelector(".app-container"); if (a) a.style.height = ""; return true;`).catch(() => undefined);
       await cdp.evaluate(`
         const p = app.plugins.plugins[${q(PLUGIN_ID)}];
         ${gesichert ? `p.settings.embeddingEndpoints = ${JSON.stringify(gesichert.emb)}; p.settings.chatEndpoints = ${JSON.stringify(gesichert.chat)}; p.settings.chatKeep = ${gesichert.keep}; await p.saveSettings();` : ""}

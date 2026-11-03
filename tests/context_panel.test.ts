@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
+import { makeFakeEl } from "./__mocks__/obsidian";
+import { setLang } from "../src/vendor/kit/i18n";
+import "../src/i18n/strings";
 import { ContextPanel, ContextPanelDeps } from "../src/context_panel";
 
 function deps(over: Partial<ContextPanelDeps> = {}): ContextPanelDeps {
@@ -116,5 +119,38 @@ describe("ContextPanel", () => {
     expect(p.autoDocs).toEqual(["b.md", "c.md"]);
     p.reset();
     expect(p.autoDocs).toEqual(["a.md", "b.md"]);
+  });
+});
+
+// Kopfzeile (Schritt 1, Welle 30): vier Symbolknöpfe, der Text steht im Tooltip; sonst umbricht die Zeile am Handy in zwei.
+describe("ContextPanel — Kopfzeile aus Symbolknöpfen", () => {
+  beforeAll(() => { setLang("en"); });
+  function mounted(icons: Array<[string, string]> = []) {
+    const el = makeFakeEl();
+    const p = new ContextPanel(deps(), 5, (b: HTMLElement, name: string) => { icons.push([b.className, name]); });
+    p.mount(el);
+    return { el, p };
+  }
+  it("Minus, Plus, aktive Notiz und Notiz wählen sind Symbole mit Tooltip, keine Textknöpfe", () => {
+    const icons: Array<[string, string]> = [];
+    const { el } = mounted(icons);
+    const names = Object.fromEntries(icons.map(([cls, name]) => [cls.split(" ").pop(), name]));
+    expect(names).toEqual({ "vault-rag-ctx-kdec": "minus", "vault-rag-ctx-kinc": "plus", "vault-rag-ctx-active": "file-text", "vault-rag-ctx-pick": "file-plus" });
+    for (const cls of ["kdec", "kinc", "active", "pick"]) {
+      const b = el.querySelector(`.vault-rag-ctx-${cls}`);
+      expect(b.textContent).toBe("");
+      expect(b.getAttribute("aria-label")).toBeTruthy();
+    }
+  });
+  it("die Beschriftung ist kurz: „Context 0“ statt „Context (0)“", () => {
+    const { el } = mounted();
+    expect(el.querySelector(".vault-rag-ctx-count").textContent).toBe("Context 0");
+  });
+  it("die Knöpfe wirken weiter (Minus senkt den Auto-Zähler, Plus hebt ihn)", () => {
+    const { el, p } = mounted();
+    el.querySelector(".vault-rag-ctx-kdec")._listeners.click[0]();
+    expect(p.autoK).toBe(4);
+    el.querySelector(".vault-rag-ctx-kinc")._listeners.click[0]();
+    expect(p.autoK).toBe(5);
   });
 });

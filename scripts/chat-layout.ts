@@ -149,6 +149,12 @@ async function stubLage(cdp: Cdp, stub: LlmStub): Promise<unknown> {
     return gesichert;`);
 }
 
+/** Mobil-Emulation mit der Safe-Area des iPhones (unten 34 px): ohne sie ist `env(safe-area-inset-bottom)` in der Emulation 0 und die schwebende Navigationsleiste verdeckt die untere Zeile (Kit-Pilot chat-tastatur). */
+async function metrik(cdp: Cdp, hoehe: number, safe = 34): Promise<void> {
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: BREITE, height: hoehe, deviceScaleFactor: 2, mobile: true });
+  await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 0, bottom: safe, left: 0, right: 0 } });
+}
+
 async function main(): Promise<void> {
   // Standard 844 und 336 (iPhone 6,1 Zoll, Container 508); `--hoehe 874 --tastatur 328` ist die Lage der Gerätemessung des Masters (iPhone 2026-11-03, Container 546).
   HOEHE = Number(flag("--hoehe") ?? HOEHE_STANDARD);
@@ -182,7 +188,7 @@ async function main(): Promise<void> {
     cdp = neu;
     await requireVisible(cdp);
     await bereiteInstanzVor(cdp, { pluginIds: [PLUGIN_ID], nurVault: STAGING_VAULT, sprache: "en" });
-    await cdp.send("Emulation.setDeviceMetricsOverride", { width: BREITE, height: HOEHE, deviceScaleFactor: 2, mobile: true });
+    await metrik(cdp, HOEHE);
     await sleep(1200);
     if (!(await cdp.evaluate<boolean>(`return document.body.classList.contains("is-mobile");`))) throw new Error("is-mobile nach emulateMobile(true) nicht gesetzt");
 
@@ -203,14 +209,15 @@ async function main(): Promise<void> {
 
     for (const [schema, name] of [["moonstone", "hell"], ["obsidian", "dunkel"]] as const) {
       await cdp.evaluate(`app.vault.setConfig("theme", ${q(schema)}); app.updateTheme(); app.workspace.trigger("css-change"); await new Promise((r) => setTimeout(r, 600)); return true;`);
-      // Drei Zustände: ohne Tastatur · "tastatur" (Viewport um die Tastatur verkleinert, wie bisher, vergleichbar mit Welle 29) · "geraet" (wie Obsidian am iPhone, Messung des Masters 2026-11-03:
+      // Drei Zustände: ohne Tastatur · "tastatur" (nur der Viewport um die Tastatur verkleinert, ohne die Variablen des Geräts: die Falte greift, wie in Welle 29; KEIN Gerätezustand, nur zum Vergleich) · "geraet" (wie Obsidian am iPhone, Messung des Masters 2026-11-03:
       // innerHeight bleibt 844, nur der App-Container wird um die Tastatur kürzer und beide Variablen stehen auf der Tastaturhöhe; die Falte `max-height: 640px` greift dort nie).
       for (const modus of ["ohne", "tastatur", "geraet"] as const) {
         const mitTastatur = modus !== "ohne";
         await cdp.evaluate(`for (const el of [document.documentElement, document.body]) { el.style.removeProperty("--keyboard-height"); el.style.removeProperty("--safe-area-inset-bottom"); }
           const a = document.querySelector(".app-container"); if (a) a.style.height = ""; return true;`);
-        await cdp.send("Emulation.setDeviceMetricsOverride", { width: BREITE, height: modus === "tastatur" ? HOEHE - TASTATUR : HOEHE, deviceScaleFactor: 2, mobile: true });
+        await metrik(cdp, modus === "tastatur" ? HOEHE - TASTATUR : HOEHE, modus === "tastatur" ? 0 : 34);
         if (modus === "geraet") {
+          // Nur der Gerätezustand setzt die Variablen wie Obsidian am iPhone (Master 2026-11-03: --keyboard-height und --safe-area-inset-bottom auf der Tastaturhöhe) und kürzt den App-Container.
           await cdp.evaluate(`for (const el of [document.documentElement, document.body]) { el.style.setProperty("--keyboard-height", "${TASTATUR}px"); el.style.setProperty("--safe-area-inset-bottom", "${TASTATUR}px"); }
             const a = document.querySelector(".app-container"); if (a) a.style.height = "${HOEHE - TASTATUR}px"; return true;`);
         }
@@ -230,6 +237,7 @@ async function main(): Promise<void> {
   } finally {
     if (cdp) {
       await cdp.send("Emulation.clearDeviceMetricsOverride").catch(() => undefined);
+      await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top: 0, bottom: 0, left: 0, right: 0 } }).catch(() => undefined);
       await cdp.evaluate(`for (const el of [document.documentElement, document.body]) { el.style.removeProperty("--keyboard-height"); el.style.removeProperty("--safe-area-inset-bottom"); } const a = document.querySelector(".app-container"); if (a) a.style.height = ""; return true;`).catch(() => undefined);
       await cdp.evaluate(`
         const p = app.plugins.plugins[${q(PLUGIN_ID)}];

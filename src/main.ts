@@ -53,6 +53,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { timeFromStampedName } from "./vendor/kit/rotation";
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
+import { hubPlacement } from "./hub_placement";
 import type { HubPanel, TabId } from "./hub_panel";
 import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, findStaleVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal, decideHealWrite, backupAgeMs } from "./vendor/kit/index-guard";
 import { loadIndexStore, loadBackupCandidate } from "./index_store";
@@ -788,10 +789,12 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   async openHub(tab: TabId): Promise<void> {
-    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_HUB);
-    const leaf = existing.length ? existing[0] : this.app.workspace.getRightLeaf(false);
+    const { workspace } = this.app;
+    const existing = workspace.getLeavesOfType(VIEW_TYPE_HUB);
+    const place = hubPlacement(existing.length > 0, Platform.isMobile);
+    const leaf = place === "existing" ? existing[0] : place === "tab" ? workspace.getLeaf("tab") : workspace.getRightLeaf(false);
     if (!leaf) return;
-    if (!existing.length) await leaf.setViewState({ type: VIEW_TYPE_HUB, active: true });
+    if (place !== "existing") await leaf.setViewState({ type: VIEW_TYPE_HUB, active: true });
     const view = leaf.view;
     if (view instanceof VaultRetrievalView) view.showTab(tab);
     void this.app.workspace.revealLeaf(leaf);

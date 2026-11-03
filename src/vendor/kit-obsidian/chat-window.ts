@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.74.0, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.76.1, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /**
  * Chat-Fenster (UI-STANDARD §8, Baustein 12): Verlauf, Eingabe, Ablauf, Abbruch, Fehlerzeile und Leerzustand eines Fach-Chats.
  *
@@ -71,6 +71,7 @@ import type { ThinkingLevel } from "../kit/sampling-profiles";
 import type { ChatArchive } from "./chat-archive";
 import type { ChatArchiveStringsOverride } from "./chat-archive-strings";
 import { openChatArchive } from "./chat-archive-dialog";
+import { markChatHost } from "./chat-host";
 import { confirmAction } from "./confirm";
 
 export type { ChatAnswerEntry, ChatExtEntry, ChatHistory, ChatModelMessage, JsonValue } from "../kit/chat-history";
@@ -305,6 +306,9 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
 
   // ── Gerüst ──────────────────────────────────────────────────────────────────────────────────────
   const rootEl = parent.createDiv({ cls: "okit-chat" });
+  // Host markieren (0.76.0, seit 0.76.1 über `markChatHost` aus chat-host.ts): der view-content, in dem das Fenster steht, trägt okit-chat-host; die Regel in CHAT_WINDOW_CSS (= CHAT_HOST_CSS) setzt dort auf dem Handy
+  // im Hauptbereich den Abstand für die schwebende Navigationsleiste und nimmt ihn bei offener Tastatur zurück (einmal im Kit statt je Plugin).
+  const unmarkHost = markChatHost(parent);
   for (const c of (opts.cls ?? "").split(/\s+/)) if (c !== "") rootEl.addClass(c);
   const headerEl = rootEl.createDiv({ cls: "okit-chat-header" });
   const emptyEl = rootEl.createDiv({ cls: "okit-chat-empty okit-chat-hidden" });
@@ -1070,6 +1074,7 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     headerOff = null;
     composerOff = null;
     for (const off of offs) callOff(off);
+    unmarkHost();
     rootEl.remove();
   };
 
@@ -1156,6 +1161,9 @@ export const CHAT_WINDOW_CSS = `
 .okit-chat-copy { color: var(--text-faint); height: auto; padding: var(--size-2-1) var(--size-2-2); }
 .okit-chat-copy.is-copied { color: var(--text-success); }
 .okit-chat-copy .svg-icon { width: var(--icon-xs); height: var(--icon-xs); }
+/* Tippfläche auf Mobil (0.76.0): der Kopierknopf misst 26 × 22 px (Richtwert 44). Eine unsichtbare Trefffläche aus 44 × 44 px um den Mittelpunkt, Optik und Layout unverändert (ein Pseudo-Element zählt für Klicks zum Knopf). Gemessen im Pilot mit elementFromPoint. */
+.is-mobile .okit-chat-copy { position: relative; }
+.is-mobile .okit-chat-copy::after { content: ""; position: absolute; top: 50%; left: 50%; width: calc(var(--size-4-10) + var(--size-4-1)); height: calc(var(--size-4-10) + var(--size-4-1)); transform: translate(-50%, -50%); }
 .okit-chat-note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--size-4-2); font-size: var(--font-ui-small); }
 .okit-chat-note:empty { display: none; }
 .okit-chat-error { color: var(--text-error); }
@@ -1185,8 +1193,8 @@ export const CHAT_WINDOW_CSS = `
 .okit-chat-empty-text { margin: 0; color: var(--text-muted); }
 .okit-chat-hint { color: var(--text-faint); font-size: var(--font-ui-small); }
 .okit-chat--input-top { flex-direction: column; }
-/* Tippfläche auf Mobil: Neu und Verlauf sind 44 px groß (Obsidian setzt ein Symbolknopf dort sonst nur auf Symbolgröße plus Rand, gemessen 30 × 26). Das Symbol bleibt klein und mittig, nur der Knopf wächst. */
-.is-mobile button.clickable-icon.okit-chat-new, .is-mobile button.clickable-icon.okit-chat-archive { min-width: calc(var(--size-4-10) + var(--size-4-1)); min-height: calc(var(--size-4-10) + var(--size-4-1)); display: flex; align-items: center; justify-content: center; }
+/* Tippfläche auf Mobil: Neu und Verlauf sind 44 px groß (Obsidian setzt ein Symbolknopf dort sonst nur auf Symbolgröße plus Rand, gemessen 30 × 26). Das Symbol bleibt klein und mittig, nur der Knopf wächst. Mit :not(.okit-chat-hidden): die Regel setzt display, und mit ihrer Spezifität schlüge sie das Verbergen (0.76.0: der Verlauf-Knopf stand bei Aufbewahrung 0 am Handy sichtbar da). */
+.is-mobile button.clickable-icon.okit-chat-new:not(.okit-chat-hidden), .is-mobile button.clickable-icon.okit-chat-archive:not(.okit-chat-hidden) { min-width: calc(var(--size-4-10) + var(--size-4-1)); min-height: calc(var(--size-4-10) + var(--size-4-1)); display: flex; align-items: center; justify-content: center; }
 /* Kompakter Composer bei geringer Höhe. Die Höhe fragt ein @media ab (die Wurzel hat keine feste Höhe, ein Container mit Höhenabfrage bräuchte eine), die Breite ein Container auf der Wurzel; alles in einem Block, damit Neukopieren genügt. */
 @media (max-height: 640px) {
   .okit-chat { container-type: inline-size; container-name: okit-chat; }
@@ -1199,9 +1207,11 @@ export const CHAT_WINDOW_CSS = `
     .okit-chat-composer > .okit-chat-buttons-start { grid-column: 1; order: 3; }
     .okit-chat-composer > .okit-model-bar { grid-column: 2 / -1; order: 4; width: auto; }
     .okit-chat-composer > .okit-model-bar .okit-model-bar-row { flex-wrap: nowrap; }
-    .okit-chat-composer > .okit-model-bar .okit-model-bar-select { min-width: 4em; }
-    /* Das Symbol vor der Denkstufe fällt in der gefalteten Zeile weg (es zeigt den Zustand nur ein zweites Mal), damit der Modellname lesbar bleibt. */
-    .okit-chat-composer > .okit-model-bar .okit-thinking-icon { display: none; }
+    .okit-chat-composer > .okit-model-bar .okit-model-bar-select { min-width: 6em; }
+    /* Der Modellname behält den Platz, die Denkstufe schrumpft auf ihr Zeichen (0.76.0, Entscheidung Johannes 2026-11-02): der Eintrag des Dropdowns beginnt mit dem Zeichen der Stufe, das geschlossene Dropdown wird
+       darauf beschnitten; die aufgeklappte Liste und der Name (aria-label) tragen den vollen Stufennamen. Das Symbol davor bleibt, es sagt, wofür das Zeichen steht.
+       Breite = Innenabstand + ein Zeichen (gemessen im Pilot: bei 3,2 em, genau dem Standard-Innenabstand, bleibt kein Platz und das Zeichen verschwindet ganz; mit dem Standard-Innenabstand und Platz für das Zeichen verlöre der Name 20 px und würde gekürzt). */
+    .okit-chat-composer > .okit-model-bar .okit-thinking-control select { width: calc(var(--size-2-3) + var(--size-4-6) + 1.2em); min-width: 0; padding-inline: var(--size-2-3) var(--size-4-6); text-overflow: clip; }
     /* Auf Mobil reserviert die Zustandszeile hier keinen Platz mehr: sie ersetzt, solange die Antwort läuft, die Modellzeile (die Zeile ist dann gesperrt) an derselben Stelle der unteren Zeile, ohne Höhensprung
        und ohne ein anderes Element zu überdecken. Fertig, gestoppt und Fehler stehen im Gespräch selbst (Zeile, Hinweis), die Zustandszeile fehlt dann. Die Höhe der unteren Zeile ist die Tippfläche (44 px). */
     .is-mobile .okit-chat:not(.okit-chat--input-top) .okit-chat-statusbar {
@@ -1211,6 +1221,13 @@ export const CHAT_WINDOW_CSS = `
     .is-mobile .okit-chat:not(.okit-chat--input-top) .okit-chat-composer.is-live > .okit-model-bar { visibility: hidden; }
   }
 }
+/* Host-Abstand im Hauptbereich auf dem Handy (0.76.0, Befund der Realprobe am iPhone: 215 px leere Fläche zwischen Senden und Tastatur). Die schwebende Navigationsleiste liegt über dem unteren Rand und braucht Platz
+   (--navbar-height plus die echte Safe-Area); bei offener Tastatur verkleinert Obsidian den App-Container selbst und die Leiste ist weg, dann braucht der Host nichts. Zwei Fallen: Obsidian setzt bei offener Tastatur
+   die Variable --safe-area-inset-bottom auf die Tastaturhöhe (328 px, darum env() statt der Variable: es bleibt der echte Wert), und es gibt keine Tastaturklasse, nur --keyboard-height (0px, offen die Tastaturhöhe):
+   die Zehn macht daraus einen Schalter (Leiste plus Safe-Area sind unter 100 px, 10 x Tastaturhöhe weit darüber, max() fängt es bei 0 ab). Mit der Host-Klasse und vier Klassen: die Regel schlägt Obsidians
+   .workspace-leaf-content .view-content (max(var(--safe-area-inset-bottom), var(--size-4-8))), die bei offener Tastatur selbst 328 px ergäbe. Nur im Hauptbereich; in einer Seitenleiste deckt die Schublade die Leiste ab.
+   Ungemessen: eine angedockte (nicht schwebende) Leiste, dort bleibt Obsidians Regel. */
+.is-mobile.is-floating-nav .mod-root .view-content.okit-chat-host { box-sizing: border-box; padding-bottom: max(0px, calc(var(--navbar-height) + env(safe-area-inset-bottom) - 10 * var(--keyboard-height, 0px))); }
 /* Ans Ende UND mit der Wurzelklasse davor: die Regeln oben setzen display auf flex, und bei gleicher Spezifität gewönne die spätere. Im Fake-DOM der Tests
    unsichtbar, im echten Renderer blieb der Verlauf unter dem Leerzustand stehen (Pilot, 2026-10-23). */
 .okit-chat .okit-chat-hidden { display: none; }

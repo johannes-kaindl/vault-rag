@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Chat on a phone, with the keyboard open:** no empty strip is left between **Send** and the keyboard any more, and the floating navigation bar no longer covers the lower row of buttons (main area). The space below the chat is set once by the kit (class `okit-chat-host`); vault-rag has no rule of its own for it.
+- **Model row:** in the folded row the model name stays readable and the thinking level shows as a block character (`▄`) next to the brain icon; the list of levels still shows the full names (`▄ Medium`).
+- **Past chats:** the history button stays hidden on a phone while *Keep past chats* is `0` (it showed up there without a function).
+- **Copy buttons of the answers** are easier to hit with a thumb on a phone (a larger touch area, the look is unchanged).
+- Kit: obsidian-kit 0.74.0 → 0.76.1 (through 0.75.0 and 0.76.0; 0.75.0 `block-writer` and 0.76.0 `askChoice` and the status indicator are not used by vault-rag). The setting "Level picker in chat" is already gone since 0.48.0, so the kit's change to that row has no effect here.
+
 ## [0.48.0] — 2026-11-01
 
 ### Added

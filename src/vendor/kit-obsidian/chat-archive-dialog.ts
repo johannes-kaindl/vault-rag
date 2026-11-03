@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.74.0, src/obsidian/chat-archive-dialog.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.76.1, src/obsidian/chat-archive-dialog.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Dialog „Vergangene Chats“ (UI-STANDARD § 8, Baustein Chat-Verlauf): `SuggestModal` mit Suche, Titel und Datum je Zeile und zwei Zeilenaktionen, Export und Löschen.
  *
  *  Die Klasse ist dünn. Was sich ohne Obsidians Dialog prüfen lässt, steht außerhalb und wird ohne Stub getestet: `filterArchiveEntries`, `formatArchiveDate`,

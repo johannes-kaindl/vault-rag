@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.74.0, src/obsidian/chat-archive-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.76.1, src/obsidian/chat-archive-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Default-Texte (EN/DE) für den Chat-Verlauf (`chat-archive`: Speicher, später Dialog und Einstellungen) — nach dem Muster von `chat-window-strings.ts`.
  *
  *  Herkunft des Wortlauts: eigene Formulierung nach dem Ton der Kit-Texte (`chat-window-strings.ts`, `share-export.ts`); kein Plugin hat einen Verlauf,

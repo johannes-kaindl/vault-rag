@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.74.0, src/obsidian/chat-archive-settings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.76.1, src/obsidian/chat-archive-settings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { Setting, setIcon, type App } from "obsidian";
 import type { SettingDefinitionRender } from "obsidian";
 import { MAX_KEEP_CHATS } from "../kit/chat-archive";

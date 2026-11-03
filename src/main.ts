@@ -53,7 +53,7 @@ import { migrateIndex, onlyContainsIndexFiles, hasAllRequiredFiles, INDEX_REQUIR
 import { timeFromStampedName } from "./vendor/kit/rotation";
 import { BACKUP_SUBDIR, backupDirName, selectBackupsToDelete, sortBackupsNewestFirst, BackupEntry } from "./index_backup";
 import { VaultRetrievalView, VIEW_TYPE_HUB } from "./hub_view";
-import { hubPlacement } from "./hub_placement";
+import { hubPlacement, type HubLocation } from "./hub_placement";
 import type { HubPanel, TabId } from "./hub_panel";
 import { isSuspiciousShrink, PersistBlockedError, diffIndexVsVault, findDeadVectorPaths, findStaleVectorPaths, canPersistHealedIndex, embeddingModelMatchesIndex, assertModelSafeToPersist, planAutoHeal, decideHealWrite, backupAgeMs } from "./vendor/kit/index-guard";
 import { loadIndexStore, loadBackupCandidate } from "./index_store";
@@ -791,8 +791,12 @@ export default class VaultRagPlugin extends Plugin {
   async openHub(tab: TabId): Promise<void> {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(VIEW_TYPE_HUB);
-    const place = hubPlacement(existing.length > 0, Platform.isMobile);
-    const leaf = place === "existing" ? existing[0] : place === "tab" ? workspace.getLeaf("tab") : workspace.getRightLeaf(false);
+    const first = existing[0];
+    const open: HubLocation = !first ? "none" : first.getRoot() === workspace.rootSplit ? "main" : "side";
+    const place = hubPlacement(open, Platform.isMobile);
+    // Ein Hub, der am Handy noch in der Schublade steht (das Layout überlebt das Update): schließen, als Tab neu öffnen.
+    if (place === "move-to-tab") for (const l of existing) l.detach();
+    const leaf = place === "existing" ? first : place === "sidebar" ? workspace.getRightLeaf(false) : workspace.getLeaf("tab");
     if (!leaf) return;
     if (place !== "existing") await leaf.setViewState({ type: VIEW_TYPE_HUB, active: true });
     const view = leaf.view;

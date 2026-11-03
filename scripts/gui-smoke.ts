@@ -840,38 +840,6 @@ async function main(): Promise<void> {
     // Obsidian-Plugin nimmt (`app.plugins.plugins[id].api`) — nicht über internen Code.
     // Genau das können Unit-Tests strukturell nicht: dass der Vertrag am echten
     // Plugin-Objekt hängt und über die Renderer-Grenze JSON-tauglich ankommt.
-    // Laden ohne Fehler: ganz am Anfang, solange noch nichts Zustand hält (der Index lädt danach neu). Die Konsole wird per Haken auf console.error und window.onerror gelesen.
-    try {
-      const laden = await main.evaluate<{ fehler: string[]; gegen: number; wirft: string | null; da: boolean }>(`
-        const fehler = []; const alt = console.error; const orig = window.onerror;
-        console.error = (...a) => { fehler.push(a.map(String).join(" ")); return alt.apply(console, a); };
-        const onrej = (e) => fehler.push("unhandled: " + String(e.reason));
-        window.addEventListener("unhandledrejection", onrej);
-        let wirft = null;
-        try {
-          for (let i = 0; i < 2; i++) { await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)}); await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)}); }
-          await new Promise(r => setTimeout(r, 800));
-        } catch (e) { wirft = String(e); }
-        const sauber = fehler.slice();
-        // Gegenprobe (CORE-TEST-13): zwei überlappende Ladevorgänge MÜSSEN den Fehler erzeugen, sonst sähe der Haken ihn nicht und „keine Fehler“ hieße nichts.
-        fehler.length = 0;
-        try {
-          await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
-          await Promise.allSettled([app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)}), app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)})]);
-          await new Promise(r => setTimeout(r, 500));
-          await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)}); await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
-        } catch (e) { wirft = wirft ?? ("Gegenprobe: " + String(e)); }
-        const gegen = fehler.filter((f) => f.includes("existing view type")).length;
-        console.error = alt; window.removeEventListener("unhandledrejection", onrej);
-        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
-        for (let i = 0; i < 80 && !(p && p.api && p.api.status().indexed); i++) await new Promise(r => setTimeout(r, 250));
-        return { fehler: sauber, gegen, wirft, da: !!p && !!p.api };`);
-      const detail = `geworfen: ${laden.wirft ?? "nichts"} · Konsolenfehler bei sequentiellem Laden: ${laden.fehler.length === 0 ? "keine" : laden.fehler.join(" | ").slice(0, 200)} · Plugin wieder da: ${laden.da} · Gegenprobe (überlappendes Laden): ${laden.gegen}× „existing view type“`;
-      if (laden.gegen === 0) unmeasured(LADEN_PUNKT, `die Gegenprobe (zwei überlappende Ladevorgänge) erzeugte den bekannten Fehler nicht: der Haken sähe ihn nicht — ${detail}`);
-      else record(LADEN_PUNKT, laden.wirft === null && laden.fehler.length === 0 && laden.da, detail);
-    } catch (e) {
-      unmeasured(LADEN_PUNKT, `Neuladen nicht messbar: ${String(e)} — nichts gemessen`);
-    }
     const probe = await main.evaluate<ApiProbe>(`
       const api = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].api;
       if (!api) return { present: false };
@@ -4275,6 +4243,39 @@ async function main(): Promise<void> {
         record(HEAL_ALT_PUNKT, alt.names > 0 && !nach.indexed && nach.onDisk && nennt,
           `${alt.names} Backup(s) auf „vor 8 Tagen“ · Index geladen: ${nach.indexed} · Container auf Platte noch defekt: ${nach.onDisk} · Notice mit Grund: ${nennt}${eigene.length ? "" : " (keine eigene Notice)"}`);
       }
+    }
+
+    // Laden ohne Fehler (Welle 30): ganz am Ende, weil das Neuladen den nicht gespeicherten Zustand der Stub-Lage verwirft (am Anfang kippten 25 spätere Punkte). Die Konsole wird per Haken auf console.error gelesen.
+    try {
+      const laden = await main.evaluate<{ fehler: string[]; gegen: number; wirft: string | null; da: boolean }>(`
+        const fehler = []; const alt = console.error; const orig = window.onerror;
+        console.error = (...a) => { fehler.push(a.map(String).join(" ")); return alt.apply(console, a); };
+        const onrej = (e) => fehler.push("unhandled: " + String(e.reason));
+        window.addEventListener("unhandledrejection", onrej);
+        let wirft = null;
+        try {
+          for (let i = 0; i < 2; i++) { await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)}); await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)}); }
+          await new Promise(r => setTimeout(r, 800));
+        } catch (e) { wirft = String(e); }
+        const sauber = fehler.slice();
+        // Gegenprobe (CORE-TEST-13): zwei überlappende Ladevorgänge MÜSSEN den Fehler erzeugen, sonst sähe der Haken ihn nicht und „keine Fehler“ hieße nichts.
+        fehler.length = 0;
+        try {
+          await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+          await Promise.allSettled([app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)}), app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)})]);
+          await new Promise(r => setTimeout(r, 500));
+          await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)}); await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+        } catch (e) { wirft = wirft ?? ("Gegenprobe: " + String(e)); }
+        const gegen = fehler.filter((f) => f.includes("existing view type")).length;
+        console.error = alt; window.removeEventListener("unhandledrejection", onrej);
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        for (let i = 0; i < 80 && !(p && p.api && p.api.status().indexed); i++) await new Promise(r => setTimeout(r, 250));
+        return { fehler: sauber, gegen, wirft, da: !!p && !!p.api };`);
+      const detail = `geworfen: ${laden.wirft ?? "nichts"} · Konsolenfehler bei sequentiellem Laden: ${laden.fehler.length === 0 ? "keine" : laden.fehler.join(" | ").slice(0, 200)} · Plugin wieder da: ${laden.da} · Gegenprobe (überlappendes Laden): ${laden.gegen}× „existing view type“`;
+      if (laden.gegen === 0) unmeasured(LADEN_PUNKT, `die Gegenprobe (zwei überlappende Ladevorgänge) erzeugte den bekannten Fehler nicht: der Haken sähe ihn nicht — ${detail}`);
+      else record(LADEN_PUNKT, laden.wirft === null && laden.fehler.length === 0 && laden.da, detail);
+    } catch (e) {
+      unmeasured(LADEN_PUNKT, `Neuladen nicht messbar: ${String(e)} — nichts gemessen`);
     }
     } // Ende nachlauf
 

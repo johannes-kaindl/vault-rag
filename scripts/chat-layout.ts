@@ -26,9 +26,11 @@ import { capture } from "../../tools/obsidian-cdp/shot.js";
 const STAGING_VAULT = "vault-rag";
 const PLUGIN_ID = "vault-retrieval";
 const BREITE = 390;
-const HOEHE = 844;
+const HOEHE_STANDARD = 844;
+let HOEHE = HOEHE_STANDARD;
 /** iOS-Tastatur mit Vorschlagsleiste, iPhone 6,1 Zoll, hochkant. */
-const TASTATUR = 336;
+const TASTATUR_STANDARD = 336;
+let TASTATUR = TASTATUR_STANDARD;
 const q = (s: string): string => JSON.stringify(s);
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -144,6 +146,9 @@ async function stubLage(cdp: Cdp, stub: LlmStub): Promise<unknown> {
 }
 
 async function main(): Promise<void> {
+  // Standard 844 und 336 (iPhone 6,1 Zoll, Container 508); `--hoehe 874 --tastatur 328` ist die Lage der Gerätemessung des Masters (iPhone 2026-11-03, Container 546).
+  HOEHE = Number(flag("--hoehe") ?? HOEHE_STANDARD);
+  TASTATUR = Number(flag("--tastatur") ?? TASTATUR_STANDARD);
   const port = Number(flag("--port"));
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("--port <1024-65535> ist Pflicht (9222 gehoert der regulaeren Instanz).");
   const tag = flag("--tag") ?? "lauf";

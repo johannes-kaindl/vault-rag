@@ -142,9 +142,11 @@ describe("ContextPanel — Kopfzeile aus Symbolknöpfen", () => {
       expect(b.getAttribute("aria-label")).toBeTruthy();
     }
   });
-  it("die Beschriftung ist kurz: „Context 0“ statt „Context (0)“", () => {
-    const { el } = mounted();
-    expect(el.querySelector(".vault-rag-ctx-count").textContent).toBe("Context 0");
+  it("die Beschriftung ist kurz: „0 notes“ statt „Context (0)“, bei einer Notiz im Singular", () => {
+    const { el, p } = mounted();
+    expect(el.querySelector(".vault-rag-ctx-count").textContent).toBe("0 notes");
+    p.pin("a.md");
+    expect(el.querySelector(".vault-rag-ctx-count").textContent).toBe("1 note");
   });
   it("die Knöpfe wirken weiter (Minus senkt den Auto-Zähler, Plus hebt ihn)", () => {
     const { el, p } = mounted();
@@ -152,5 +154,60 @@ describe("ContextPanel — Kopfzeile aus Symbolknöpfen", () => {
     expect(p.autoK).toBe(4);
     el.querySelector(".vault-rag-ctx-kinc")._listeners.click[0]();
     expect(p.autoK).toBe(5);
+  });
+});
+
+// Schritt 2 (Welle 30): ab mehr als zwei Notizen klappt die Liste ein, die Beschriftung der Kopfzeile ist dann der Schalter („5 notes“, Tippen klappt auf).
+// Die Chips bleiben im DOM (der Smoke liest sie), nur die Klasse `is-collapsed` blendet sie aus.
+describe("ContextPanel — Notizen einklappen ab mehr als zwei", () => {
+  beforeAll(() => { setLang("en"); });
+  function mounted() {
+    const el = makeFakeEl();
+    const p = new ContextPanel(deps(), 0);
+    p.mount(el);
+    return { el, p };
+  }
+  const list = (el: any) => el.querySelector(".vault-rag-ctx-list");
+  const toggle = (el: any) => el.querySelector(".vault-rag-ctx-toggle");
+  it("zwei Notizen: Liste offen, Beschriftung ist kein Schalter", () => {
+    const { el, p } = mounted();
+    p.pin("a.md"); p.pin("b.md");
+    expect(list(el).hasClass("is-collapsed")).toBe(false);
+    expect(toggle(el)).toBeNull();
+    expect(el.querySelector(".vault-rag-ctx-count").textContent).toBe("2 notes");
+  });
+  it("drei Notizen: Liste eingeklappt, die Chips bleiben im DOM, die Beschriftung ist ein Schalter", () => {
+    const { el, p } = mounted();
+    p.pin("a.md"); p.pin("b.md"); p.pin("c.md");
+    expect(list(el).hasClass("is-collapsed")).toBe(true);
+    expect(el.querySelectorAll(".vault-rag-ctx-chip").length).toBe(3);
+    expect(toggle(el)).not.toBeNull();
+    expect(toggle(el).getAttribute("aria-expanded")).toBe("false");
+    expect(toggle(el).textContent).toBe("3 notes");
+  });
+  it("Tippen klappt auf, noch einmal klappt zu", () => {
+    const { el, p } = mounted();
+    p.pin("a.md"); p.pin("b.md"); p.pin("c.md");
+    toggle(el)._listeners.click[0]();
+    expect(list(el).hasClass("is-collapsed")).toBe(false);
+    expect(toggle(el).getAttribute("aria-expanded")).toBe("true");
+    toggle(el)._listeners.click[0]();
+    expect(list(el).hasClass("is-collapsed")).toBe(true);
+    expect(toggle(el).getAttribute("aria-expanded")).toBe("false");
+  });
+  it("zurück auf zwei Notizen: Liste wieder offen, kein Schalter mehr", () => {
+    const { el, p } = mounted();
+    p.pin("a.md"); p.pin("b.md"); p.pin("c.md");
+    p.unpin("c.md");
+    expect(list(el).hasClass("is-collapsed")).toBe(false);
+    expect(toggle(el)).toBeNull();
+  });
+  it("auch Auto-Treffer zählen mit (gepinnt plus automatisch)", async () => {
+    const el = makeFakeEl();
+    const p = new ContextPanel(deps(), 3);
+    p.mount(el);
+    await p.setQuery("eine frage");
+    expect(p.autoDocs.length).toBe(3);
+    expect(list(el).hasClass("is-collapsed")).toBe(true);
   });
 });

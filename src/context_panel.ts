@@ -12,6 +12,8 @@ export interface ContextPanelDeps {
 /** Setzt das Symbol `name` in das Element (Obsidians `setIcon`). */
 export type IconSetter = (el: HTMLElement, name: string) => void;
 
+/** Ab mehr als so vielen Notizen klappt die Liste ein. */
+const COLLAPSE_ABOVE = 2;
 const MIN_QUERY = 3;
 const BUFFER = 20;
 
@@ -25,7 +27,9 @@ export class ContextPanel {
   private lastQuery = "";
   private queryGeneration = 0;
   private listEl: HTMLElement | null = null;
-  private countEl: HTMLElement | null = null;
+  private countHost: HTMLElement | null = null;
+  /** Ab so vielen Notizen (gepinnt plus automatisch) klappt die Liste ein; Tippen auf die Beschriftung klappt sie auf. */
+  private expanded = false;
   private kEl: HTMLElement | null = null;
 
   /** `setIcon` kommt von außen (Kante `chat_view.ts`): dieses Modul bleibt frei von `obsidian`. Ohne die Funktion bleiben die Symbolknöpfe leer (Tests). */
@@ -39,7 +43,7 @@ export class ContextPanel {
     // Eine Zeile (Schritt 1, Welle 30): Beschriftung, Auto-Zähler mit Minus und Plus, aktive Notiz, Notiz wählen — alle vier Knöpfe als Symbole, der Text steht im Tooltip. Mit Textknöpfen
     // umbrach die Kopfzeile am Handy in zwei Zeilen à 44 px und ließ der Antwort bei 390 × 508 keinen Platz (Messung Welle 29).
     const head = el.createDiv({ cls: "vault-rag-ctx-head" });
-    this.countEl = head.createSpan({ cls: "vault-rag-ctx-count", text: t("context.count", 0) });
+    this.countHost = head.createDiv({ cls: "vault-rag-ctx-count" });
     const kWrap = head.createDiv({ cls: "vault-rag-ctx-k" });
     this.iconButton(kWrap, "vault-rag-ctx-kdec", "minus", t("context.autoFewer")).addEventListener("click", () => this.setAutoK(this.autoK - 1));
     this.kEl = kWrap.createSpan({ cls: "vault-rag-ctx-kval" });
@@ -116,7 +120,10 @@ export class ContextPanel {
 
   private render(): void {
     const el = this.listEl; if (!el) return; el.empty();
-    this.countEl?.setText(t("context.count", this.currentPaths().length));
+    const n = this.currentPaths().length;
+    this.renderCount(n);
+    // Eingeklappt bleiben die Chips im DOM (Smoke und Tests lesen sie), nur die Klasse blendet sie aus.
+    el.toggleClass("is-collapsed", n > COLLAPSE_ABOVE && !this.expanded);
     for (const p of this.pinned) {
       const chip = el.createSpan({ cls: "vault-rag-ctx-chip is-pinned", text: `📌 ${this.basename(p)} ✕` });
       chip.addEventListener("click", () => this.unpin(p));
@@ -125,6 +132,18 @@ export class ContextPanel {
       const chip = el.createSpan({ cls: "vault-rag-ctx-chip is-auto", text: `${this.basename(p)} ✕` });
       chip.addEventListener("click", () => this.excludeAuto(p));
     }
+  }
+
+  /** Beschriftung der Kopfzeile: bis zwei Notizen ein Text, darüber der Schalter zum Auf- und Zuklappen der Liste (mit Pfeil und `aria-expanded`). */
+  private renderCount(n: number): void {
+    const host = this.countHost; if (!host) return;
+    host.empty();
+    const text = n === 1 ? t("context.countOne") : t("context.count", n);
+    if (n <= COLLAPSE_ABOVE) { host.createSpan({ cls: "vault-rag-ctx-label", text }); return; }
+    const btn = host.createEl("button", { cls: "vault-rag-ctx-toggle", attr: { "aria-expanded": String(this.expanded) } });
+    this.setIcon(btn.createSpan({ cls: "vault-rag-ctx-toggle-icon" }), this.expanded ? "chevron-down" : "chevron-right");
+    btn.createSpan({ text });
+    btn.addEventListener("click", () => { this.expanded = !this.expanded; this.render(); });
   }
 
   private basename(p: string): string { return p.split("/").pop()?.replace(/\.md$/, "") ?? p; }

@@ -143,6 +143,12 @@
 .vault-rag-chat-context { border-top: 1px solid var(--background-modifier-border); padding-top: 6px; flex: 0 0 auto; max-height: 30vh; overflow-y: auto; }
 .vault-rag-ctx-head { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
 .vault-rag-ctx-count { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Schalter der eingeklappten Liste: ein Textknopf ohne Rahmen, Pfeil davor; auf Mobil 44 px hoch wie die Symbolknöpfe. */
+.vault-rag-ctx-toggle { display: inline-flex; align-items: center; gap: 2px; background: none; box-shadow: none; padding: 0 var(--size-4-1); color: var(--text-muted); font-size: inherit; cursor: pointer; }
+.is-mobile .vault-rag-ctx-toggle { min-height: calc(var(--size-4-10) + var(--size-4-1)); }
+.vault-rag-ctx-toggle-icon { display: inline-flex; }
+.vault-rag-ctx-toggle-icon svg { width: var(--icon-xs); height: var(--icon-xs); }
+.vault-rag-ctx-list.is-collapsed { display: none; }
 .vault-rag-ctx-k, .vault-rag-ctx-add { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
 .vault-rag-ctx-kval { white-space: nowrap; }
 /* Tippfläche auf Mobil: 44 × 44 px, das Symbol bleibt klein (ohne diese Regel zeichnet Obsidian die Knöpfe 30 × 26). */

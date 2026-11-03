@@ -478,7 +478,8 @@ export const EN = {
   "modelChoice.savedSuffix": "(saved)",
 
   // context_panel.ts
-  "context.count": "Context {0}",
+  "context.count": "{0} notes",
+  "context.countOne": "1 note",
   "context.auto": "Auto {0}",
   "context.addActive": "Add the active note",
   "context.addNote": "Add a note…",
@@ -1012,7 +1013,8 @@ export const DE = {
   "modelChoice.savedSuffix": "(gespeichert)",
 
   // context_panel.ts
-  "context.count": "Kontext {0}",
+  "context.count": "{0} Notizen",
+  "context.countOne": "1 Notiz",
   "context.auto": "Auto {0}",
   "context.addActive": "Aktive Notiz hinzufügen",
   "context.addNote": "Notiz hinzufügen…",

@@ -1,11 +1,26 @@
 // Reine Markdown-Struktur-Transforms (kein obsidian, in Node testbar).
 import { renderMarkdownTable } from "./vendor/kit/markdown-table";
 
+/** Teilt an jedem `|`, vor dem kein `\` steht (früher als Regex mit Lookbehind; iOS-Safari vor 16.4 parst
+ *  Lookbehind nicht, das ganze Bundle lädt dann nicht). Gleiche Semantik: nur das unmittelbar vorangehende Zeichen zählt. */
+function splitUnescapedPipes(s: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "|" && (i === 0 || s[i - 1] !== "\\")) {
+      out.push(s.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(s.slice(start));
+  return out;
+}
+
 function splitCells(line: string): string[] {
   let s = line.trim();
   if (s.startsWith("|")) s = s.slice(1);
   if (s.endsWith("|")) s = s.slice(0, -1);
-  return s.split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, "|"));
+  return splitUnescapedPipes(s).map(c => c.trim().replace(/\\\|/g, "|"));
 }
 
 function isDelimiterRow(cells: string[]): boolean {

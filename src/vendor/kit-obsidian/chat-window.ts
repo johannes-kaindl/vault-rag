@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.77.0, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.80.3, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /**
  * Chat-Fenster (UI-STANDARD §8, Baustein 12): Verlauf, Eingabe, Ablauf, Abbruch, Fehlerzeile und Leerzustand eines Fach-Chats.
  *
@@ -381,10 +381,11 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   };
 
   const growInput = (): void => {
-    // Per Skript statt `field-sizing` (Store-CSS-Lint): erst auf `auto`, dann auf die Inhaltshöhe; die Höchsthöhe steht im CSS.
-    inputEl.setCssProps({ height: "auto" });
+    // Per Skript statt `field-sizing` (Store-CSS-Lint): erst die gesetzte Höhe entfernen (die Zeilenhöhe des Feldes gilt wieder, wie bei `auto`), dann auf die Inhaltshöhe; die Höchsthöhe steht im CSS.
+    // Die Höhe geht über die Custom Property `--okit-input-height` (die CSS-Regel `.okit-chat-input` liest sie): eslint-plugin-obsidianmd 0.5.0 meldet in `setCssProps` JEDE normale CSS-Eigenschaft als `no-static-styles-assignment`, auch mit berechnetem Wert; nur `--name` ist erlaubt (gemessen 2026-11-05, kuro-gamification, settings-assistant, vault-rag).
+    inputEl.style.removeProperty("--okit-input-height");
     const h = inputEl.scrollHeight ?? 0;
-    if (h > 0) inputEl.setCssProps({ height: `${h}px` });
+    if (h > 0) inputEl.setCssProps({ "--okit-input-height": `${h}px` });
   };
 
   const focusInput = (): void => { inputEl.focus(); };
@@ -1177,7 +1178,7 @@ export const CHAT_WINDOW_CSS = `
 .okit-chat-buttons-start { grid-column: 1; order: 2; }
 .okit-chat-send { grid-column: 3; order: 3; }
 .okit-chat-composer-extra:empty { display: none; }
-.okit-chat-input { width: 100%; resize: none; max-height: 12em; overflow-y: auto; }
+.okit-chat-input { width: 100%; height: var(--okit-input-height, auto); resize: none; max-height: 12em; overflow-y: auto; }
 .okit-chat-buttons-start { display: flex; align-items: center; gap: var(--size-2-2); }
 .okit-chat-new svg { width: var(--icon-s); height: var(--icon-s); }
 .okit-chat-new:disabled { opacity: 0.4; cursor: not-allowed; }

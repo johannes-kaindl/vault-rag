@@ -138,7 +138,10 @@
         "endpoint-status-text",
         "anthropic-transport",
         "plugin-api",
-        "chat-window",
+        {
+          "name": "chat-window",
+          "ref": "0.80.3"
+        },
         "chat-host",
         "chat-leaf",
         "chat-window-strings",

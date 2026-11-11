@@ -75,7 +75,7 @@ index_backup.ts   Pure-core Namens-/Rotationslogik für geräte-lokale Index-Bac
 retriever.ts      Retriever(index).related(path, {k,minSim,exclude}) → Hit[];
                   Brute-Force-Cosinus auf normalisierten Vektoren, Top-k über minSim.
 retrieval_facade.ts  Gemeinsame obsidian-freie Fassade über Retriever/Embedder für UI + MCP:
-                  RetrievalFacade(deps).embedQuery/searchVector/search/related/readNote →
+                  RetrievalFacade(deps).embedQuery/embedNote/searchVector/search/related/readNote →
                   getypte Result-Unions (hits/no-index/offline/not-indexed/…), nie throw.
                   resolveNotePath (Path-Guard) lebt hier. Kein this.retriever-Feld mehr.
 chunker.ts        Frontmatter-Strip + Heading-Split (Port von HyperForge chunker.py).
@@ -260,7 +260,7 @@ reformat_selection_state.ts  Pure Bereitschafts-/Anzeige-Logik (Slice C.2): `Ref
                   `isRangeStale` · `groupTransforms` (teilt die Registry in die zwei Panel-Gruppen).
 reformat_progress.ts    Pure `waitingMessage(elapsedMs)` für die Vorschau, solange kein Token da
                   ist. Bewusst ohne Diagnose — der Endpoint sagt nicht, ob geladen oder gedacht wird.
-                  Dazu `truncationKey(finishReason)` → i18n-**Schlüssel** oder null: nur `"length"`
+                  Dazu `canApplyWithoutReview(out)` (Einstellung `reformatPreview` aus: vollständig, unbeanstandet, nicht leer → ohne Vorschau einsetzen) und `truncationKey(finishReason)` → i18n-**Schlüssel** oder null: nur `"length"`
                   ist ein Befund, und der Text entsteht erst an der Anzeigestelle (i18n Teil 3 —
                   entstünde er hier, läge zwischen Erzeugung und Senke keine Literalstelle mehr,
                   die der Sink-Guard sehen könnte).

@@ -11,6 +11,17 @@ describe("DEFAULT_SETTINGS Endpunkte", () => {
   });
 });
 
+describe("DEFAULT_SETTINGS Umformatieren", () => {
+  it("die Vorschau vor dem Einsetzen eines LLM-Ergebnisses ist an", () => {
+    expect(DEFAULT_SETTINGS.reformatPreview).toBe(true);
+  });
+  it("eine Konfiguration ohne den Schlüssel (Update von 0.49.0) bekommt an, nicht aus", () => {
+    const merged = mergeSettings(DEFAULT_SETTINGS, { k: 9 } as Partial<typeof DEFAULT_SETTINGS>);
+    expect(merged.reformatPreview).toBe(true);
+    expect(mergeSettings(DEFAULT_SETTINGS, { reformatPreview: false } as Partial<typeof DEFAULT_SETTINGS>).reformatPreview).toBe(false);
+  });
+});
+
 describe("fillMissingRowModels — Prä-0.31 globales Modellfeld in die Zeilen ziehen", () => {
   it("eine Zeile ohne Modell bekommt den alten globalen Wert", () => {
     expect(fillMissingRowModels([{ url: "u" }], "qwen3")).toEqual([{ url: "u", model: "qwen3" }]);

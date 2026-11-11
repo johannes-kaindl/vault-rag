@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Reformat: the two groups of the tab are named by what concerns you.** *Without LLM · instant* and *With LLM* (before: *Instant · offline* and *With preview · local LLM*, which was wrong for a cloud model and for the preview you can now switch off).
+
+### Added
+
+- **Reformat: an on/off setting for the preview** (Settings → Reformat, *Preview before applying*, on by default). Off inserts a finished model result straight away, and Ctrl/Cmd+Z undoes it. A result that was cut off, came back empty or lost links still opens the preview, so it never replaces your selection unseen.
+
 ### Fixed
 
 - **Smart Apply reads the whole note when it guesses the type and ranks the templates.** The note was sent to the embedding server as one text, and a server whose context is shorter than the note (Ollama's default is 4096 tokens) cut it silently: a long note was judged by its first pages only, and so was a long template. The note is now split into pieces the way the index splits it, so the type guess, the template list and the fallback for notes that are not indexed yet see all of it, in the same vector space as the index.

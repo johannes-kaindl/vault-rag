@@ -36,3 +36,14 @@ export function waitingMessage(elapsedMs: number): string {
 export function truncationKey(finishReason?: string): string | null {
   return finishReason === "length" ? "reformatPreview.truncated" : null;
 }
+
+/**
+ * Darf ein LLM-Ergebnis ohne Vorschau eingesetzt werden (Einstellung „Vorschau“ aus)?
+ *
+ * Nur ein vollständiges: nicht abgeschnitten (`finish_reason` ungleich `length`), von der Link-Zählung nicht
+ * beanstandet (`blocked`) und nicht leer. In jedem anderen Fall öffnet sich die Vorschau trotz ausgeschalteter
+ * Einstellung, denn ein Textstumpf oder ein Ergebnis ohne die Links der Auswahl würde die Auswahl sonst still ersetzen.
+ */
+export function canApplyWithoutReview(out: { text: string; finishReason?: string; blocked?: string }): boolean {
+  return out.blocked === undefined && truncationKey(out.finishReason) === null && out.text.trim().length > 0;
+}

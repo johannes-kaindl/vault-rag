@@ -403,6 +403,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
   /** Umformatieren: eigene LLM-Funktionen (Titel + Anweisung) neben den eingebauten. */
   private reformatGroup(): SettingDefinitionGroup {
     return { type: "group", heading: t("settings.reformat.group"), items: [
+      { name: t("settings.reformat.preview.name"), desc: t("settings.reformat.preview.desc"),
+        control: { type: "toggle", key: "reformatPreview" } },
       { name: t("settings.reformat.presets.name"), desc: t("settings.reformat.presets.desc"), render: this.renderReformatPresets },
     ] };
   }

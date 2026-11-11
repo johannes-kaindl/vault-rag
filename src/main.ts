@@ -1246,6 +1246,7 @@ export default class VaultRagPlugin extends Plugin {
     const messages = def.buildMessages(prot.masked, instr);
 
     new ReformatPreviewModal(this.app, {
+      autoApply: !this.settings.reformatPreview,
       original: core,
       stream: (onToken, signal, onReset) => this.chatClient
         .stream(messages, onToken, () => {}, signal, {

@@ -1,5 +1,5 @@
 import { App, Modal, ButtonComponent, Notice } from "obsidian";
-import { waitingMessage, truncationKey } from "./reformat_progress";
+import { waitingMessage, truncationKey, canApplyWithoutReview } from "./reformat_progress";
 import { t } from "./vendor/kit/i18n";
 import { buildStreamArea, type StreamArea } from "./vendor/kit-obsidian/stream-area";
 import { writeClipboard } from "./vendor/kit/clipboard";
@@ -14,6 +14,10 @@ export interface ReformatPreviewOpts {
   stream: (onToken: (t: string) => void, signal: AbortSignal, onReset?: () => void) => Promise<{ text: string; finishReason?: string; blocked?: string }>;
   /** Wird bei „Anwenden" mit dem finalen Ergebnis aufgerufen. */
   onApply: (result: string) => void;
+  /** Einstellung „Vorschau“ aus: das erste vollständige Ergebnis wird sofort eingesetzt und das Fenster schließt sich. Das Fenster bleibt als
+   *  Fortschrittsanzeige mit Abbrechen (Verwerfen) und ist nur dann eine Vorschau, wenn das Ergebnis abgeschnitten, leer oder von der
+   *  Link-Zählung beanstandet ist. „Neu generieren“ setzt immer eine Vorschau voraus. */
+  autoApply?: boolean;
 }
 
 /** Zeigt Ur-Text vs. gestreamtes Ergebnis; Anwenden/Neu generieren/Kopieren/Verwerfen.
@@ -43,7 +47,7 @@ export class ReformatPreviewModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.addClass("vault-rag-reformat-modal");
-    contentEl.createEl("h2", { text: t("reformatPreview.title") });
+    contentEl.createEl("h2", { text: t(this.opts.autoApply === true ? "reformatPreview.titleAuto" : "reformatPreview.title") });
     contentEl.createEl("p", { cls: "vault-rag-reformat-label", text: t("reformatPreview.original") });
     contentEl.createEl("pre", { cls: "vault-rag-reformat-original", text: this.opts.original });
     contentEl.createEl("p", { cls: "vault-rag-reformat-label", text: t("reformatPreview.result") });
@@ -55,7 +59,7 @@ export class ReformatPreviewModal extends Modal {
     this.area.bodyEl.addClass("vault-rag-reformat-result");
     const row = contentEl.createDiv({ cls: "modal-button-container" });
     new ButtonComponent(row).setButtonText(t("reformatPreview.discard")).onClick(() => this.close());
-    new ButtonComponent(row).setButtonText(t("reformatPreview.regenerate")).onClick(() => void this.run());
+    new ButtonComponent(row).setButtonText(t("reformatPreview.regenerate")).onClick(() => void this.run(false));
     this.copyBtn = new ButtonComponent(row).setButtonText(t("reformatPreview.copy"))
       .setDisabled(true)
       .onClick(() => {
@@ -71,10 +75,10 @@ export class ReformatPreviewModal extends Modal {
     this.applyBtn = new ButtonComponent(row).setButtonText(t("reformatPreview.apply")).setCta()
       .setDisabled(true)
       .onClick(() => { this.opts.onApply(this.result); this.close(); });
-    void this.run();
+    void this.run(this.opts.autoApply === true);
   }
 
-  private async run(): Promise<void> {
+  private async run(auto = false): Promise<void> {
     this.controller?.abort();
     this.stopWaitTimer();
     const ctrl = new AbortController();
@@ -112,6 +116,8 @@ export class ReformatPreviewModal extends Modal {
       if (this.controller !== ctrl) return;
       this.stopWaitTimer();
       this.result = out.text;
+      if (auto && canApplyWithoutReview(out)) { this.opts.onApply(out.text); this.close(); return; }
+      this.contentEl.querySelector("h2")?.setText(t("reformatPreview.title")); // das Ergebnis braucht eine Prüfung: ab hier ist es eine Vorschau
       this.area?.setTail(out.text);
       // Abgeschnitten ist nicht kaputt: der Text bleibt anwendbar, der Hinweis nennt nur den Grund.
       const key = truncationKey(out.finishReason);
@@ -121,6 +127,7 @@ export class ReformatPreviewModal extends Modal {
     } catch (e) {
       if (this.controller !== ctrl) return;
       this.stopWaitTimer();
+      this.contentEl.querySelector("h2")?.setText(t("reformatPreview.title"));
       this.area?.setTail(t("reformatPreview.error", e instanceof Error ? e.message : String(e)));
       this.applyBtn?.setDisabled(true);
       this.copyBtn?.setDisabled(true);

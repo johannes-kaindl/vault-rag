@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { ReformatPanel, type ReformatPanelDeps } from "../src/reformat_panel";
+import { buildTransforms } from "../src/reformat_transforms";
 import { makeFakeEl } from "./__mocks__/obsidian";
 import "../src/i18n/strings"; // i18n-Texte registrieren
 
@@ -52,6 +53,16 @@ function mkPanel(over: Partial<ReformatPanelDeps> = {}) {
   panel.mount(container);
   return { panel, container, llm, deps };
 }
+
+describe("ReformatPanel — Gruppen nach dem Merkmal benennen, das den Nutzer betrifft (Task Umformatieren)", () => {
+  it("heißen „Without LLM · instant“ und „With LLM“, nicht nach Vorschau und Ort des Modells", () => {
+    const { container } = mkPanel({ transforms: () => buildTransforms([]) });
+    const titles = all(container, "vault-rag-reformat-group-title").map((n: any) => n.textContent);
+    expect(titles).toEqual(["Without LLM · instant", "With LLM", "Custom instruction"]);
+    // Gegenprobe: die alten Beschriftungen sind weg (die Vorschau ist eine Einstellung, das Modell kann auch in der Cloud laufen)
+    for (const alt of ["With preview", "local LLM", "Instant · offline"]) expect(titles.join("|")).not.toContain(alt);
+  });
+});
 
 describe("ReformatPanel — Modellzeile (Welle 27, V5)", () => {
   it("trägt die Modellzeile des Kits mit dem Namen „Reformat (chat model)“ und der Denk-Steuerung darin", () => {

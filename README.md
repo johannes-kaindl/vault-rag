@@ -45,7 +45,7 @@ Everything lives in **one sidebar view** (on a phone or tablet it opens as a tab
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/smart-apply.png" width="820" alt="The Smart Apply diff gate before applying: a relevance-ranked template list with Meeting note preselected at 100 percent, and below it each block of the messy note shown under the heading it will move to, with 8 of 8 blocks assigned and nothing left over">
 
-- **Reformat a selection** — select any block of text and run the reformat command (command palette or editor context menu) to reshape it. Mechanical transforms (transpose a table, table → list, wrap in a callout) apply instantly, no LLM involved. Shape-changing transforms (→ list, → prose, → table, → Mermaid diagram, or your own free-text instruction) stream a preview from your chat LLM that you review and can regenerate before applying. Every transform is also available from the reformat tab in the sidebar, which shows what is currently selected and greys the buttons out (with the reason) when it cannot run.
+- **Reformat a selection** — select any block of text and run the reformat command (command palette or editor context menu) to reshape it. Mechanical transforms (transpose a table, table → list, wrap in a callout) apply instantly, no LLM involved. Shape-changing transforms (→ list, → prose, → table, → Mermaid diagram, or your own free-text instruction) stream a preview from your chat LLM that you review and can regenerate before applying (or insert the result straight away if you switch the preview off in the settings). Every transform is also available from the reformat tab in the sidebar, which shows what is currently selected and greys the buttons out (with the reason) when it cannot run.
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/reformat.png" width="820" alt="The reformat preview: the original prose selection above, the generated Markdown table below, with Discard, Regenerate and Apply buttons">
 
@@ -121,6 +121,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 | Excluded paths | Paths skipped by indexing (dot-folders are always skipped). Only this list counts: Obsidian's own “Excluded files” setting is not read | `Templates/`, `Archive/` |
 | Progress in status bar | Shows embedding progress (`● indexed \| ⏳ pending`); revealed automatically during a reindex | off |
 | Debounce | How long after a save the note is re-embedded | `3000` ms |
+| Preview before applying | Reformatting with the model shows the result in a window first. Off inserts a finished result straight away (a cut-off result or one that lost links still opens the preview) | on |
 | Smart Apply | Off by default; enabling it adds the tab, the command and the template settings | off |
 | Context budget | Max characters fed as context (ceiling follows the model window) | `12000` |
 | Model requests | Collapsible section *Request*: what is sent per mode (chat, Smart Apply, reformat), overrides per model family, thinking level, last request and deviations; replaces the old temperature and thinking switches | by model family |

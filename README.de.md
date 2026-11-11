@@ -45,7 +45,7 @@ Alles lebt in **einer Sidebar-Ansicht** mit Tabs: Ähnlich, Suche, Chat, Umforma
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/smart-apply.png" width="820" alt="Das Smart-Apply-Diff-Gate vor dem Anwenden: die relevanz-sortierte Vorlagenliste mit vorgewählter Meeting note bei 100 Prozent, darunter jeder Block der unaufgeräumten Notiz unter der Überschrift, unter die er wandert, mit 8 von 8 zugeordneten Blöcken und nichts Übrigem">
 
-- **Auswahl umformatieren** — einen Abschnitt markieren und den Umformatieren-Befehl ausführen (Befehlspalette oder Kontextmenü). Mechanische Transformationen (Tabelle kippen, Tabelle → Liste, in Callout einpacken) laufen sofort und ohne LLM. Formverändernde (→ Liste, → Fließtext, → Tabelle, → Mermaid oder eine eigene Freitext-Anweisung) streamen eine Vorschau vom Chat-LLM, die du prüfst und neu erzeugen lassen kannst. Alle Transformationen gibt es auch im Umformatieren-Tab, der die aktuelle Auswahl anzeigt und die Buttons mit Begründung ausgraut, wenn gerade nichts geht.
+- **Auswahl umformatieren** — einen Abschnitt markieren und den Umformatieren-Befehl ausführen (Befehlspalette oder Kontextmenü). Mechanische Transformationen (Tabelle kippen, Tabelle → Liste, in Callout einpacken) laufen sofort und ohne LLM. Formverändernde (→ Liste, → Fließtext, → Tabelle, → Mermaid oder eine eigene Freitext-Anweisung) streamen eine Vorschau vom Chat-LLM, die du prüfst und neu erzeugen lassen kannst (oder setzen das Ergebnis sofort ein, wenn du die Vorschau in den Einstellungen ausschaltest). Alle Transformationen gibt es auch im Umformatieren-Tab, der die aktuelle Auswahl anzeigt und die Buttons mit Begründung ausgraut, wenn gerade nichts geht.
 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-rag/main/docs/images/reformat.png" width="820" alt="Die Umformatieren-Vorschau: oben der ursprüngliche Fließtext, darunter die erzeugte Markdown-Tabelle, mit den Knöpfen Verwerfen, Neu erzeugen und Anwenden">
 
@@ -121,6 +121,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 | Ausschluss-Pfade | Pfade, die nicht indiziert werden (Dot-Ordner immer). Nur diese Liste zählt: Obsidians eigene Einstellung „Ausgeschlossene Dateien“ wird nicht gelesen | `Templates/`, `Archive/` |
 | Fortschritt in Statusleiste | Zeigt den Embedding-Fortschritt; beim Reindex automatisch eingeblendet | aus |
 | Debounce | Wie lange nach dem Speichern neu eingebettet wird | `3000` ms |
+| Vorschau vor dem Einsetzen | Beim Umformatieren mit dem Modell zeigt ein Fenster zuerst das Ergebnis. Aus setzt ein fertiges Ergebnis sofort ein (ein abgeschnittenes oder eines, das Links verloren hat, öffnet die Vorschau trotzdem) | an |
 | Smart Apply | Standardmäßig aus; aktiviert Tab, Befehl und Template-Einstellungen | aus |
 | Kontext-Budget | Maximale Zeichenzahl als Kontext (Obergrenze folgt dem Modellfenster) | `12000` |
 | Modell-Anfragen | Einklappbarer Abschnitt *Anfrage*: was je Modus (Chat, Smart Apply, Umformatieren) gesendet wird, Überschreibungen je Modellfamilie, Denkstufe, letzte Anfrage und Abweichungen; ersetzt die alten Regler für Temperatur und Denken | nach Modellfamilie |

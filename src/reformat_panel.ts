@@ -67,7 +67,7 @@ export class ReformatPanel implements HubPanel {
     const plainLlm = groups.llm.filter(d => !d.freetext);
 
     this.renderGroup(container, t("panel.reformat.groupInstant"), groups.mechanical);
-    this.renderGroup(container, t("panel.reformat.groupPreview"), plainLlm);
+    this.renderGroup(container, t("panel.reformat.groupLlm"), plainLlm);
 
     const ft = freetext[0];
     if (ft) {

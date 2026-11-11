@@ -51,6 +51,8 @@ export interface VaultRagSettings {
   // Integrator (Spec 2026-09-07, §5)
   /** Eigene LLM-Funktionen der Umformatieren-Leiste (Titel + Anweisung); die eingebauten bleiben fest und stehen nicht hier. */
   reformatPresets: ReformatPreset[];
+  /** Vorschau vor dem Einsetzen eines LLM-Ergebnisses beim Umformatieren (Standard an). Aus: ein vollständiges Ergebnis wird direkt eingesetzt; ein abgeschnittenes oder von der Link-Zählung beanstandetes öffnet die Vorschau trotzdem. Die Sofort-Transforms ohne LLM haben nie eine. */
+  reformatPreview: boolean;
   integratorEnabled: boolean;
   /** Pfad-Praefixe wie `exclude`. Leer = automatischer Ausloeser aus, nur Kommandos. */
   integratorFolders: string[];
@@ -177,6 +179,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   smartApplyMaxTokens: 4096,
   smartApplyDefaultMode: "deterministisch",
   reformatPresets: [],
+  reformatPreview: true,
   integratorEnabled: false,
   integratorFolders: [],
   linkTarget: "section",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { waitingMessage, COLD_START_HINT_AFTER_MS, truncationKey } from "../src/reformat_progress";
+import { waitingMessage, COLD_START_HINT_AFTER_MS, truncationKey, canApplyWithoutReview } from "../src/reformat_progress";
 
 describe("waitingMessage", () => {
   it("zeigt von Anfang an, dass gewartet wird — mit Sekundenzahl", () => {
@@ -51,5 +51,22 @@ describe("truncationKey", () => {
 
   it("ein Server ohne finish_reason erzeugt keinen Befund", () => {
     expect(truncationKey(undefined)).toBeNull();
+  });
+});
+
+describe("canApplyWithoutReview — wann ein LLM-Ergebnis ohne Vorschau eingesetzt werden darf", () => {
+  it("vollständig (finish_reason stop oder fehlend), Links stimmen, nicht leer: ja", () => {
+    expect(canApplyWithoutReview({ text: "- a\n- b", finishReason: "stop" })).toBe(true);
+    expect(canApplyWithoutReview({ text: "- a" })).toBe(true);
+  });
+  it("abgeschnitten (length): nein — die Auswahl würde durch einen Textstumpf ersetzt", () => {
+    expect(canApplyWithoutReview({ text: "- a", finishReason: "length" })).toBe(false);
+  });
+  it("Link-Zählung schlägt an (blocked): nein", () => {
+    expect(canApplyWithoutReview({ text: "- a", finishReason: "stop", blocked: "Links geändert" })).toBe(false);
+  });
+  it("leer oder nur Leerraum: nein", () => {
+    expect(canApplyWithoutReview({ text: "" })).toBe(false);
+    expect(canApplyWithoutReview({ text: " \n\t" })).toBe(false);
   });
 });

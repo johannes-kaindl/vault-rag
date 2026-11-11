@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.50.0] — 2026-11-11
+
 ### Changed
 
 - **Reformat: the two groups of the tab are named by what concerns you.** *Without LLM · instant* and *With LLM* (before: *Instant · offline* and *With preview · local LLM*, which was wrong for a cloud model and for the preview you can now switch off).

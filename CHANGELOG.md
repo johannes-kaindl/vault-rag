@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The README on the Store page shows its feature list properly again.** The screenshots were followed directly by the next list item, so the Store rendered those items as raw Markdown (`**bold**` with asterisks). Both README files now have a blank line after every screenshot.
+
 ## [0.49.0] — 2026-11-03
 
 ### Fixed

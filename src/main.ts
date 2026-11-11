@@ -478,8 +478,8 @@ export default class VaultRagPlugin extends Plugin {
             templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir),
           typeOf: async (p) => extractType(await this.app.vault.adapter.read(p)),
           embed: async (text) => {
-            const e = await this.facadeFor("smart-apply").embedQuery(text);
-            if (e.kind !== "vec") throw new Error(t(e.kind === "paused" ? "main.embedderPaused" : "main.embedderOffline"));
+            const e = await this.facadeFor("smart-apply").embedNote(text); // ganze Notiz in Chunks wie der Index, nicht als ein Text (den der Server still kürzt)
+            if (e.kind !== "vec") throw new Error(e.kind === "empty" ? "empty note" : t(e.kind === "paused" ? "main.embedderPaused" : "main.embedderOffline"));
             return e.vec;
           },
           // Weiterhin gebraucht: detectType() (template_matcher.ts) ruft deps.search() für den
@@ -506,8 +506,8 @@ export default class VaultRagPlugin extends Plugin {
         // indexierter Vorlagen/Notizen komplett.
         indexVector: (p) => this.index?.vectorFor(p) ?? null,
         embed: async (text) => {
-          const e = await this.facadeFor("template-ranker").embedQuery(text);
-          if (e.kind !== "vec") throw new Error(t(e.kind === "paused" ? "main.embedderPaused" : "main.embedderOffline"));
+          const e = await this.facadeFor("template-ranker").embedNote(text); // ganze Notiz in Chunks wie der Index, nicht als ein Text (den der Server still kürzt)
+          if (e.kind !== "vec") throw new Error(e.kind === "empty" ? "empty note" : t(e.kind === "paused" ? "main.embedderPaused" : "main.embedderOffline"));
           return e.vec;
         },
       });

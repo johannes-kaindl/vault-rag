@@ -63,6 +63,64 @@ describe("RetrievalFacade.embedQuery", () => {
   });
 });
 
+describe("RetrievalFacade.embedNote — ganze Notiz in Chunks statt als ein Text (Bericht 0.48.0, 4096 Token)", () => {
+  /** Absätze mit je ~80 Zeichen; das Ende trägt eine Marke, die in keinem der ersten Chunks steht. */
+  const longNote = (): string => {
+    const para = (i: number): string => `Absatz ${i}: ${"lorem ipsum dolor sit amet ".repeat(3)}`.trim();
+    return Array.from({ length: 200 }, (_, i) => para(i)).join("\n\n") + "\n\nENDMARKE am Schluss der Notiz";
+  };
+  /** Vektor nach Inhalt: Chunk mit der Marke zeigt auf Achse 2, alle anderen auf Achse 1. */
+  const byContent = async (texts: string[]): Promise<Float32Array[]> =>
+    texts.map(t => (t.includes("ENDMARKE") ? new Float32Array([0, 1]) : new Float32Array([1, 0])));
+
+  it("die Notiz über 13.500 Zeichen geht in Chunks von höchstens 800 Zeichen, nichts davon fehlt", async () => {
+    const note = longNote();
+    expect(note.length).toBeGreaterThan(13500);
+    const seen: string[][] = [];
+    const f = new RetrievalFacade(deps({ embed: async (texts) => { seen.push(texts); return byContent(texts); } }));
+    const r = await f.embedNote(note);
+    expect(r.kind).toBe("vec");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.length).toBeGreaterThan(10);
+    expect(Math.max(...seen[0]!.map(t => t.length))).toBeLessThanOrEqual(800);
+    expect(seen[0]!.some(t => t.includes("ENDMARKE"))).toBe(true); // das Ende der Notiz wird eingebettet
+  });
+  it("der Vektor ist der Mittelwert der Chunk-Vektoren, normalisiert (wie die Zeile im Index), das Ende zählt mit", async () => {
+    const f = new RetrievalFacade(deps({ embed: byContent }));
+    const r = await f.embedNote(longNote());
+    if (r.kind !== "vec") throw new Error("kein Vektor");
+    expect(r.vec[1]!).toBeGreaterThan(0);                 // der Chunk mit der Marke geht in den Vektor ein
+    expect(r.vec[0]!).toBeGreaterThan(r.vec[1]!);         // aber nur mit seinem Anteil
+    expect(Math.hypot(r.vec[0]!, r.vec[1]!)).toBeCloseTo(1, 5);
+  });
+  it("Gegenprobe: embedQuery schickt dieselbe Notiz als EIN Text (der Weg, der gekürzt wurde)", async () => {
+    const seen: string[][] = [];
+    const note = longNote();
+    const f = new RetrievalFacade(deps({ embed: async (texts) => { seen.push(texts); return byContent(texts); } }));
+    await f.embedQuery(note);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toHaveLength(1);
+    expect(seen[0]![0]!.length).toBe(note.length);
+  });
+  it("Frontmatter wird nicht eingebettet", async () => {
+    const seen: string[][] = [];
+    const f = new RetrievalFacade(deps({ embed: async (texts) => { seen.push(texts); return byContent(texts); } }));
+    await f.embedNote("---\ntype: Meeting\n---\nNur der Text");
+    expect(seen[0]).toEqual(["Nur der Text"]);
+  });
+  it("paused vor Ready-Check und embed; no-index; offline; leere Notiz ohne embed", async () => {
+    let embeds = 0;
+    const count = async (texts: string[]): Promise<Float32Array[]> => { embeds++; return byContent(texts); };
+    expect(await new RetrievalFacade(deps({ isPaused: () => true, embed: count })).embedNote("x")).toEqual({ kind: "paused" });
+    expect(await new RetrievalFacade(deps({ getIndex: () => null, embed: count })).embedNote("x")).toEqual({ kind: "no-index" });
+    expect(await new RetrievalFacade(deps({ embedderReady: async () => false, embed: count })).embedNote("x")).toEqual({ kind: "offline" });
+    expect(await new RetrievalFacade(deps({ embed: async () => { throw new Error("net"); } })).embedNote("x")).toEqual({ kind: "offline" });
+    expect(embeds).toBe(0);
+    expect(await new RetrievalFacade(deps({ embed: count })).embedNote("---\ntype: x\n---\n")).toEqual({ kind: "empty" });
+    expect(embeds).toBe(0);
+  });
+});
+
 describe("RetrievalFacade.searchVector", () => {
   it("no-index wenn kein Index", () => {
     const f = new RetrievalFacade(deps({ getIndex: () => null }));

@@ -121,7 +121,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 | Ausschluss-Pfade | Pfade, die nicht indiziert werden (Dot-Ordner immer). Nur diese Liste zählt: Obsidians eigene Einstellung „Ausgeschlossene Dateien“ wird nicht gelesen | `Templates/`, `Archive/` |
 | Fortschritt in Statusleiste | Zeigt den Embedding-Fortschritt; beim Reindex automatisch eingeblendet | aus |
 | Debounce | Wie lange nach dem Speichern neu eingebettet wird | `3000` ms |
-| Vorschau vor dem Einsetzen | Beim Umformatieren mit dem Modell zeigt ein Fenster zuerst das Ergebnis. Aus setzt ein fertiges Ergebnis sofort ein (ein abgeschnittenes oder eines, das Links verloren hat, öffnet die Vorschau trotzdem) | an |
+| Vorschau vor dem Einsetzen (LLM-Ergebnisse) | Beim Umformatieren mit dem Modell zeigt ein Fenster zuerst das Ergebnis. Aus setzt ein fertiges Ergebnis sofort ein (ein abgeschnittenes oder eines, das Links verloren hat, öffnet die Vorschau trotzdem) | an |
 | Smart Apply | Standardmäßig aus; aktiviert Tab, Befehl und Template-Einstellungen | aus |
 | Kontext-Budget | Maximale Zeichenzahl als Kontext (Obergrenze folgt dem Modellfenster) | `12000` |
 | Modell-Anfragen | Einklappbarer Abschnitt *Anfrage*: was je Modus (Chat, Smart Apply, Umformatieren) gesendet wird, Überschreibungen je Modellfamilie, Denkstufe, letzte Anfrage und Abweichungen; ersetzt die alten Regler für Temperatur und Denken | nach Modellfamilie |

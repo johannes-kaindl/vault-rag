@@ -121,7 +121,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 | Excluded paths | Paths skipped by indexing (dot-folders are always skipped). Only this list counts: Obsidian's own “Excluded files” setting is not read | `Templates/`, `Archive/` |
 | Progress in status bar | Shows embedding progress (`● indexed \| ⏳ pending`); revealed automatically during a reindex | off |
 | Debounce | How long after a save the note is re-embedded | `3000` ms |
-| Preview before applying | Reformatting with the model shows the result in a window first. Off inserts a finished result straight away (a cut-off result or one that lost links still opens the preview) | on |
+| Preview before applying (model results) | Reformatting with the model shows the result in a window first. Off inserts a finished result straight away (a cut-off result or one that lost links still opens the preview) | on |
 | Smart Apply | Off by default; enabling it adds the tab, the command and the template settings | off |
 | Context budget | Max characters fed as context (ceiling follows the model window) | `12000` |
 | Model requests | Collapsible section *Request*: what is sent per mode (chat, Smart Apply, reformat), overrides per model family, thinking level, last request and deviations; replaces the old temperature and thinking switches | by model family |

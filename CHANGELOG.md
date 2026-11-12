@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **Deleting or renaming a note no longer needs the embedding server.** With the server unreachable the index kept the old row forever (a deleted note stayed searchable as a dead entry, a renamed one under its old name). The row is now removed or moved right away; nothing is embedded. On a phone without a reachable server the index stays untouched, as before.
 - **Re-checking the embedding connection no longer swaps the indexer.** Every check (settings change, endpoint manager update) built a new indexer, even when endpoint and model were unchanged; that was the root of the 2026-11-03 data loss in a full reindex and also lifted a write protection set after a failed load. A new indexer is now built only when the model changes.
 - **Closing the Vault Retrieval pane no longer wipes the chat.** The chat history, the search text and the state of Reformat and Smart Apply were built anew each time the pane opened, so closing the tab (or moving the hub out of the drawer on a phone) lost them. The plugin now keeps them while no hub is open.
 - **An empty index no longer pins an embedding model.** If a wrong endpoint (for example a chat model) had once produced an empty index, the correct embedding endpoint was skipped as "different model" and the notice demanded a full rebuild. An index without notes now accepts any embedding endpoint. Writing into such an index still needs "Reindex vault" once.

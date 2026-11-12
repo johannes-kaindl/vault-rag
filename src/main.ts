@@ -1847,12 +1847,21 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
+  /** Darf ein Lösch- oder Umbenenn-Ereignis den Index ohne erreichbaren Embedder schreiben? Am Desktop ja (die Zeile braucht keinen Vektor). Ein Handy ohne erreichbaren Endpunkt
+   *  schreibt nicht: der Index-Ordner ist gesynct, sein Stand dort kann hinter dem des Desktops liegen, und ein Schreibvorgang von dort ginge als Rückschritt an alle Geräte
+   *  (`.claude/rules/index-heilung.md`, `wait-for-sync`). Die Zeile bleibt dann stehen, bis der Desktop sie abräumt. */
+  private async mayWriteIndexWithoutEmbedder(): Promise<boolean> {
+    return !Platform.isMobile || (await this.embedderReady());
+  }
+
   private async handleDelete(path: string): Promise<void> {
     if (path.startsWith(".")) return;
     // Vor jedem Early-Return: die Inbox muss dem Vault folgen, auch waehrend eines Index-Ordner-Wechsels.
     if (this.integratorStore.remove(path)) void this.saveIntegratorStore();
     if (this.isSwitchingIndexDir) return;
-    if (!(await this.embedderReady())) return;
+    if (!(await this.mayWriteIndexWithoutEmbedder())) return;
+    // Kein Embedder nötig: `remove` und `persist` rechnen keinen Vektor. Die frühere Bedingung `embedderReady()` stammte aus dem ersten Wiring (a4c1f92, „offline: defer to
+    // next HyperForge reindex“, als ein externer Reindex den Index baute); ohne Erreichbarkeit blieb die Zeile für immer stehen (Pallas-Index 2026-11-12: 3.113 tote Zeilen).
     // liveIndexer VOR der Serialisierung snapshotten (Minor 6): ein paralleler Instanz-Swap
     // (resolveAndReconnectEmbedder) darf die laufende Operation nicht unter der Hand wechseln.
     const li = this.liveIndexer;
@@ -1881,29 +1890,27 @@ export default class VaultRagPlugin extends Plugin {
     // Vor jedem Early-Return: die Inbox muss dem Vault folgen, auch waehrend eines Index-Ordner-Wechsels.
     if (this.integratorStore.rename(oldPath, newPath)) void this.saveIntegratorStore();
     if (this.isSwitchingIndexDir) return;
-    if (await this.embedderReady()) {
-      // liveIndexer VOR der Serialisierung snapshotten (Minor 6, analog handleDelete).
-      const li = this.liveIndexer;
-      await this.runIndexOp(async () => {
-        try {
-          li.rename(oldPath, newPath);
-          this.stampGap.moved(oldPath, newPath);
-          if (this.emptyNotePaths.delete(oldPath)) this.emptyNotePaths.add(newPath);
-          // buildIndex ERST nach erfolgreichem persist — siehe handleModify/handleDelete.
-          await li.persist("live");
-          this.index = li.buildIndex();
-          this.indexHealthy = true;
-          this.syncProgress();
-          this.refresh();
-        } catch (e) {
-          if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, t("main.persistBlockedRename")), 8000); }
-          else console.warn("vault-rag: handleRename failed", e);
-        }
-      });
-    } else {
-      await this.pendingQueue.add(newPath);
-      this.syncProgress();
-    }
+    if (!(await this.mayWriteIndexWithoutEmbedder())) { await this.pendingQueue.add(newPath); this.syncProgress(); return; }
+    // Kein Embedder nötig: die Zeile zieht samt Vektor und Stempel um, ein Umbenennen ändert den Inhalt nicht. Früher legte der Zweig ohne Embedder nur den neuen Pfad in die
+    // Warteschlange, und die Zeile unter dem alten Pfad blieb tot stehen (siehe handleDelete).
+    // liveIndexer VOR der Serialisierung snapshotten (Minor 6, analog handleDelete).
+    const li = this.liveIndexer;
+    await this.runIndexOp(async () => {
+      try {
+        li.rename(oldPath, newPath);
+        this.stampGap.moved(oldPath, newPath);
+        if (this.emptyNotePaths.delete(oldPath)) this.emptyNotePaths.add(newPath);
+        // buildIndex ERST nach erfolgreichem persist — siehe handleModify/handleDelete.
+        await li.persist("live");
+        this.index = li.buildIndex();
+        this.indexHealthy = true;
+        this.syncProgress();
+        this.refresh();
+      } catch (e) {
+        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, t("main.persistBlockedRename")), 8000); }
+        else console.warn("vault-rag: handleRename failed", e);
+      }
+    });
   }
 
   private async maybeDrainPending(): Promise<void> {

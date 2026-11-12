@@ -292,6 +292,9 @@ const HUB_ORT_PUNKT = "Hub-Ort: am Desktop öffnet der Hub in der rechten Seiten
 /** Hub-Zustand (Welle 33, Task „Hub-Zustand geht beim Schließen des Blatts verloren“): der Chat-Verlauf steht nach dem Schließen des Blatts und erneutem Öffnen im neuen Blatt wieder da. */
 const HUB_ZUSTAND_PUNKT = "Hub-Zustand: der Chat-Verlauf steht nach dem Schließen des Blatts und erneutem Öffnen im neuen Blatt wieder da";
 
+/** Neu säen (Welle 33, Task „Neu säen ohne Änderung …“): eine Auflösung der Embedding-Verbindung ohne Modellwechsel ersetzt den LiveIndexer nicht; ein Modellwechsel tut es (Gegenprobe). */
+const NEU_SAEEN_PUNKT = "Neu säen: zweimal auflösen ohne Modellwechsel lässt den Indexer, ein Modellwechsel ersetzt ihn";
+
 /** Laden ohne Fehler (Welle 30, Task registerView): zweimal nacheinander aus- und einschalten wirft nichts und meldet keinen Fehler in der Konsole. „Attempting to register an existing view type“ kam nur,
  *  wenn ein Aufrufer zwei Ladevorgänge überlappen ließ (Messung Welle 28, Dach c1064c5 behebt es im Treiber), nicht aus dem Plugin. */
 const LADEN_PUNKT = "Laden: zweimal aus- und einschalten nacheinander wirft nichts und schreibt keinen Fehler in die Konsole (kein „existing view type“)";
@@ -3452,6 +3455,24 @@ async function main(): Promise<void> {
           `Marke vor dem Füllen im Blatt: ${z.markeVorher} · zweites Blatt bei offenem ersten: gleiche Panels ${z.zweitesGleich}, Marke ${z.zweitesMarke} · nach Schließen und Öffnen: gleiche Panels ${z.gleich}, Marke im neuen Blatt ${z.markeDa} · Hubs danach ${z.anzahl}`);
       } catch (e) {
         unmeasured(HUB_ZUSTAND_PUNKT, `Hub nicht erreichbar: ${String(e)} — nichts gemessen`);
+      }
+
+      // Neu säen (Welle 33): echte Auflösung zweimal, Indexer-Identität vorher/nachher; Gegenprobe mit einem erfundenen Modell, danach echte Auflösung zur Wiederherstellung.
+      try {
+        const n = await main.evaluate<{ gleich1: boolean; gleich2: boolean; gegen: boolean; zurueck: boolean }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          const li0 = p.liveIndexer;
+          await p.resolveAndReconnectEmbedder(); const gleich1 = p.liveIndexer === li0;
+          await p.resolveAndReconnectEmbedder(); const gleich2 = p.liveIndexer === li0;
+          const echt = p.embeddingModelInUse;
+          p.applyEmbeddingResolution({ state: "active", skipped: [], source: { kind: "local", config: { url: "http://127.0.0.1:1" }, model: "gegenprobe-modell", sentModel: "gegenprobe-modell" } });
+          const gegen = p.liveIndexer !== li0 && p.embeddingModelInUse === "gegenprobe-modell";
+          await p.resolveAndReconnectEmbedder();
+          return { gleich1, gleich2, gegen, zurueck: p.embeddingModelInUse === echt };`);
+        record(NEU_SAEEN_PUNKT, n.gleich1 && n.gleich2 && n.gegen && n.zurueck,
+          `erste Auflösung: Indexer gleich ${n.gleich1} · zweite: ${n.gleich2} · Gegenprobe (anderes Modell): ersetzt ${n.gegen} · danach wieder das echte Modell: ${n.zurueck}`);
+      } catch (e) {
+        unmeasured(NEU_SAEEN_PUNKT, `Plugin nicht erreichbar: ${String(e)} — nichts gemessen`);
       }
 
       // Gesendeter Body. Haken auf XMLHttpRequest.prototype.send: die Anfrage wird gelesen und

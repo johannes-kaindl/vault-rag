@@ -851,6 +851,9 @@ export default class VaultRagPlugin extends Plugin {
     this.activeEmbeddingEndpoint = r.state === "active" && cfg ? normalizeEndpoint(cfg.url) : null;
     if (this.activeEmbeddingEndpoint !== null) this.embeddingReachedThisSession = true;
     this.searchOnlyEndpoint = r.state === "skipped-model" && r.source.kind === "local" && cfg ? normalizeEndpoint(cfg.url) : null;
+    // Der Indexer trägt nur das Modell, nie die URL (sein Embedder löst den Endpunkt bei jedem Aufruf selbst auf): ohne Modellwechsel bliebe ein Neusäen ein Austausch
+    // gegen einen gleichen — und höbe einen gesetzten Schreibschutz (`markUnready`) auf. Jeder Bau eines Indexers nimmt `embeddingModelInUse`, der Vergleich ist also der mit seinem Modell.
+    const modellWechsel = m !== this.embeddingModelInUse;
     this.embeddingModelInUse = m;
     // Die DURCHSETZUNG des Modell-Schutzes hängt nicht hier, sondern an der Schreiboperation
     // (LiveIndexer.persist → assertModelSafeToPersist, Wahrheit aus dem Container auf Platte).
@@ -860,6 +863,7 @@ export default class VaultRagPlugin extends Plugin {
       r.state === "no-model" && cfg ? [cfg.url] : [],
       indexModel,
     );
+    if (!modellWechsel) return;
     // Die Stempel des Vorgängers gehen mit: ein `VectorIndex` trägt keine, und ein Indexer ohne sie schriebe nach dem nächsten Update für jede nicht
     // angefasste Zeile `[0, 0]` (Welle 27, Task „Stempel gehen verloren …“). Der Snapshot ist eine Kopie; nachgestempelt wird nichts.
     const vorgaenger = this.liveIndexer;

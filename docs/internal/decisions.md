@@ -4,6 +4,11 @@ Das Warum von `vault-rag`: Designentscheidungen und begründete Abweichungen von
 
 ## Bewusste Designentscheidungen
 
+- **Die Hub-Panels leben im Plugin, nicht im Blatt (Welle 33, 2026-11-12).** `registerView` ruft die Fabrik bei jeder View-Erzeugung; baute sie die Panels jedes Mal neu, ging der Chat-Verlauf mit dem Blatt verloren (gemessen 2026-11-03). `PanelPool` (`panel_pool.ts`) legt die Panels beim Schließen zurück und gibt sie der nächsten View. Ein zweites Blatt bei offenem ersten bekommt eigene Panels (ein Panel passt nur in einen Container); schließen beide, gilt der Satz des zuletzt geschlossenen. Der Schlüssel (`chatK`, `smartApplyEnabled`, `integratorEnabled`) verwirft zurückgelegte Panels, wenn sich ändert, was `buildPanels` beim Bauen einliest. Grenze: das Suchfeld zeichnet nach dem `mount` leer (eigene Task).
+- **Ein leerer Index hält kein Modell fest (Welle 33).** `indexedModel()` gibt bei `count: 0` kein Modell weiter: sonst blieb der richtige Endpunkt als „anderes Modell“ übersprungen, weil ein falscher einmal einen leeren Index gestempelt hatte (jkaindl-docs, 2026-11-03). Die Schreib-Guards des Indexers lesen den Stempel weiter von der Platte; dort ist es eine Aufgabe des code-kit (Task im Cockpit). Im Plugin wird der leere Container nicht neu gestempelt: ein per Sync eintreffender echter Index könnte überschrieben werden.
+- **Ein Neusäen des LiveIndexer gibt es nur bei Modellwechsel (Welle 33).** Der Indexer trägt das Modell, nicht die URL (sein Embedder löst den Endpunkt je Aufruf selbst auf). Ein Neusäen bei jeder Auflösung war die Ursache des Voll-Reindex-Fehlers vom 2026-11-03 und hob einen gesetzten Schreibschutz auf.
+- **Ein abgebrochener Voll-Reindex schreibt nur bei passendem Platten-Modell (Welle 33).** Der Kit-Abbruch schreibt unter fremdem Modell nichts; `reindexVault` stempelte danach den Bestand mit `persist("reindex")` unter das neue Modell. Jetzt prüft `checkModelAgainstDisk("heal")`; bei fremdem Modell bleiben Platte, Index und Gesundheitsflag, die Meldung sagt es.
+
 - **Retrieval ≠ Generierung.** Retrieval läuft über den lokalen Index; Chat/Composer (spätere Slices)
   über lokale LLMs. Das Panel selbst braucht **keinen** Daemon, kein VPN, kein On-Device-LLM.
 - **Slices statt Monolith:** **A Related-Notes** (✅ gebaut + live) · **B Chat** · **C Inline-Composer** ·

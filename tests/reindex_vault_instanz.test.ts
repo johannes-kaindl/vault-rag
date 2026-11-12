@@ -144,3 +144,88 @@ describe("Abbruch trifft den Indexer, der gerade rechnet", () => {
     expect(zeilenAufPlatte(x.platte)).toBe(viele.length);
   });
 });
+
+/**
+ * Abbruch des Voll-Reindex unter fremdem Modell (Task „Abbruch des Voll-Reindex unter fremdem Modell …“, Welle 28/33):
+ * Der Kit-Abbruch schreibt bei fremdem Modell nichts und behält den Bestand im Speicher; `reindexVault` rief danach trotzdem
+ * `persist("reindex")` und stempelte den Bestand von Modell A unter den Namen von Modell B (Index im falschen Vektorraum, Zahl, Dimension und CRC unauffällig).
+ */
+describe("Abbruch unter fremdem Modell: die Platte bleibt, wie sie war", () => {
+  const MODELL_A = "modell-a";
+  const MODELL_B = "modell-b";
+  const viele = Array.from({ length: 300 }, (_, i) => `n${i}.md`);
+
+  function manifestAufPlatte(platte: Map<string, ArrayBuffer | string>): { embedding_model: string; count: number } {
+    const roh = [...platte.entries()].find(([p]) => p.endsWith(CONTAINER_FILE))?.[1] as ArrayBuffer;
+    return decodeContainer(roh).manifest as unknown as { embedding_model: string; count: number };
+  }
+
+  /** Platte und Speicher tragen Modell A; der rechnende Indexer und sein Embedder nennen Modell B. Der Abbruch kommt im ersten `embed`. */
+  async function fremdesModell(diskModell: string): Promise<{ platteVorher: ArrayBuffer; platte: Map<string, ArrayBuffer | string>; fake: Record<string, unknown>; indexVorher: unknown }> {
+    const a = adapter();
+    const lesen = async (p: string) => `# ${p}\nEin Inhalt, lang genug für genau einen Chunk in der Notiz.`;
+    const vektor = async (texts: string[]) => texts.map((t, i) => { const v = new Float32Array(DIM); v[(t.length + i) % DIM] = 1; return v; });
+    // Bestand von Modell A auf die Platte legen
+    const alt = new LiveIndexer(a as never, "_vaultrag", { ping: async () => true, embed: vektor } as unknown as Embedder, diskModell, { dim: DIM });
+    alt.init(parseIndex({ schema_version: 1, embedding_model: diskModell, index_dim: DIM, scale: 127, count: 0, granularity: "note", quant: "int8" }, [], new ArrayBuffer(0)));
+    await alt.reindexAll(["alt1.md", "alt2.md", "alt3.md"], lesen);
+    await alt.persist("reindex");
+    const platteVorher = (a.written.get("_vaultrag/" + CONTAINER_FILE) as ArrayBuffer).slice(0);
+    const indexVorher = alt.buildIndex();
+
+    const fake: Record<string, unknown> = {};
+    const embedder = {
+      ping: async () => true,
+      embed: vi.fn(async (texts: string[]) => {
+        (VaultRagPlugin.prototype as unknown as { cancelRunningReindex(this: unknown): void }).cancelRunningReindex.call(fake);
+        return vektor(texts);
+      }),
+    };
+    const li = new LiveIndexer(a as never, "_vaultrag", embedder as unknown as Embedder, MODELL_B, { dim: DIM });
+    li.init(indexVorher);
+    Object.assign(fake, {
+      liveIndexer: li,
+      runningIndexers: new Set<LiveIndexer>(),
+      whileRunning: (VaultRagPlugin.prototype as unknown as Record<string, unknown>).whileRunning,
+      index: indexVorher,
+      indexHealthy: true,
+      pause: { isPaused: () => false },
+      embedderReady: async () => true,
+      vaultMarkdownPaths: () => viele,
+      statusBarEl: {},
+      setStatusBarVisible: () => undefined,
+      updateStatusBar: () => undefined,
+      embeddingProgress: { isEmbedding: false, reindex: null as unknown, embeddedNotes: 0 },
+      emptyNotePaths: new Set<string>(),
+      underEmbedOp: async (_op: string, fn: () => Promise<unknown>) => fn(),
+      stampOf: () => [1, 1] as [number, number],
+      stampGap: { settle: () => undefined },
+      refresh: () => undefined,
+      snapshotIndex: async () => undefined,
+      persistBlockedMessage: (e: unknown) => String(e),
+      adoptOwnIndexWrite: async () => undefined,
+      syncProgress: () => undefined,
+      settings: { showStatusBar: true },
+      app: { vault: { adapter: { read: lesen } } },
+    });
+    return { platteVorher, platte: a.written, fake, indexVorher };
+  }
+
+  it("Modell auf der Platte ≠ Modell des Indexers: index.bin bleibt Byte für Byte gleich, der Index im Speicher bleibt dasselbe Objekt", async () => {
+    const x = await fremdesModell(MODELL_A);
+    await lauf({ fake: x.fake, platte: x.platte, tauschZaehler: () => 0 });
+    const jetzt = x.platte.get("_vaultrag/" + CONTAINER_FILE) as ArrayBuffer;
+    expect(manifestAufPlatte(x.platte).embedding_model).toBe(MODELL_A);
+    expect(Buffer.from(jetzt).equals(Buffer.from(x.platteVorher))).toBe(true);
+    expect(x.fake.index).toBe(x.indexVorher);
+  });
+
+  it("Gegenprobe: passt das Modell auf der Platte, schreibt der Abbruch den Zwischenstand (mehr als die drei alten Zeilen, Modell unverändert)", async () => {
+    const x = await fremdesModell(MODELL_B);
+    await lauf({ fake: x.fake, platte: x.platte, tauschZaehler: () => 0 });
+    const m = manifestAufPlatte(x.platte);
+    expect(m.embedding_model).toBe(MODELL_B);
+    expect(m.count).toBeGreaterThan(3);
+    expect(m.count).toBeLessThan(viele.length + 3);
+  });
+});

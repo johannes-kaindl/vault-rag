@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cancelling "Reindex vault" with a different embedding model no longer rewrites the index.** If the index on disk came from another model than the one now connected, a cancelled run stamped the old vectors with the new model's name (a mixed-up index that count, dimension and checksum cannot detect). Now nothing is written, the notice says the index is unchanged.
+
 ## [0.50.0] — 2026-11-11
 
 ### Changed

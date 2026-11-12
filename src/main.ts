@@ -2037,6 +2037,13 @@ export default class VaultRagPlugin extends Plugin {
         for (const p of liveRemoved) next.delete(p);
         this.emptyNotePaths = next;
       }
+      // Nach einem Abbruch schreibt der Kit-Indexer den Zwischenstand selbst, aber nur, wenn das Modell auf der Platte zu seinem passt; sonst behält er den
+      // Bestand von Modell A im Speicher. `persist("reindex")` prüft kein Modell und stempelte diesen Bestand unter den Namen von Modell B (Index im falschen
+      // Vektorraum, Zahl, Dimension und CRC unauffällig). Darum: nach Abbruch nur bei passendem Platten-Modell ein zweites Mal absichern, sonst nichts anfassen.
+      if (report.cancelled && !(await li.checkModelAgainstDisk("heal")).allowed) {
+        notice.setMessage(t("main.indexingCancelledUnchanged", report.added, total));
+        return;
+      }
       this.index = li.buildIndex();
       if (!report.cancelled) this.stampGap.settle();   // ein Voll-Reindex stempelt jede Zeile (ein Abbruch mischt, dann bleibt die Zahl wie sie war)
       await li.persist("reindex");

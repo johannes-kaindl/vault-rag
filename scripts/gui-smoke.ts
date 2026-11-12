@@ -289,6 +289,9 @@ const W28_PUNKTE = {
 /** Wo öffnet der Hub (Welle 30)? Am Desktop in der rechten Seitenleiste, ein zweites Öffnen nimmt denselben Hub. Der Handy-Weg (Tab im Hauptbereich, ein Hub in der Schublade zieht um) braucht die Mobil-Emulation, die Obsidian neu lädt: er ist in `npm run chat-layout` gemessen (Elternkette des Wirts), nicht hier. */
 const HUB_ORT_PUNKT = "Hub-Ort: am Desktop öffnet der Hub in der rechten Seitenleiste, ein zweites Öffnen nimmt denselben Hub";
 
+/** Hub-Zustand (Welle 33, Task „Hub-Zustand geht beim Schließen des Blatts verloren“): der Chat-Verlauf steht nach dem Schließen des Blatts und erneutem Öffnen im neuen Blatt wieder da. */
+const HUB_ZUSTAND_PUNKT = "Hub-Zustand: der Chat-Verlauf steht nach dem Schließen des Blatts und erneutem Öffnen im neuen Blatt wieder da";
+
 /** Laden ohne Fehler (Welle 30, Task registerView): zweimal nacheinander aus- und einschalten wirft nichts und meldet keinen Fehler in der Konsole. „Attempting to register an existing view type“ kam nur,
  *  wenn ein Aufrufer zwei Ladevorgänge überlappen ließ (Messung Welle 28, Dach c1064c5 behebt es im Treiber), nicht aus dem Plugin. */
 const LADEN_PUNKT = "Laden: zweimal aus- und einschalten nacheinander wirft nichts und schreibt keinen Fehler in die Konsole (kein „existing view type“)";
@@ -3419,6 +3422,36 @@ async function main(): Promise<void> {
           `Desktop (is-mobile ${ort.mobil}) · vorher ${ort.vorher} Hubs · danach ${ort.n1} · in der rechten Seitenleiste: ${ort.seite1} · nach dem zweiten Öffnen ${ort.n2}`);
       } catch (e) {
         unmeasured(HUB_ORT_PUNKT, `Hub nicht erreichbar: ${String(e)} — nichts gemessen`);
+      }
+
+      // Hub-Zustand (Welle 33): Verlauf ins Chat-Panel legen, Blatt schließen, Hub neu öffnen. Gegenprobe im selben Punkt: ein zweites Blatt bei offenem ersten
+      // bekommt eigene Panels und zeigt die Marke NICHT; nur so ist „steht im neuen Blatt“ mehr als ein Treffer im Textinhalt irgendeines Blatts.
+      try {
+        const z = await main.evaluate<{ markeVorher: boolean; zweitesGleich: boolean; zweitesMarke: boolean; gleich: boolean; markeDa: boolean; anzahl: number }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; const ws = app.workspace; const TYP = "vault-retrieval-hub";
+          const MARKE = "hubzustand-marke-" + Date.now(); const warte = (ms) => new Promise(r => setTimeout(r, ms));
+          const chatPanel = (leaf) => leaf.view.panelById("chat");
+          ws.detachLeavesOfType(TYP); await warte(300);
+          await p.openHub("chat"); await warte(500);
+          const a = ws.getLeavesOfType(TYP)[0]; const panelA = chatPanel(a);
+          const markeVorher = a.view.contentEl.textContent.includes(MARKE);
+          panelA.history = { entries: [{ kind: "user", id: 1, text: MARKE }], nextId: 2 };
+          // Gegenprobe: zweites Blatt bei offenem ersten
+          const b = ws.getRightLeaf(true); await b.setViewState({ type: TYP, active: false }); await warte(500);
+          const panelB = chatPanel(b); const zweitesGleich = panelB === panelA; const zweitesMarke = b.view.contentEl.textContent.includes(MARKE);
+          ws.detachLeavesOfType(TYP); await warte(300);
+          await p.openHub("chat"); await warte(500);
+          const c = ws.getLeavesOfType(TYP)[0];
+          const gleich = chatPanel(c) === panelA; const markeDa = c.view.contentEl.textContent.includes(MARKE);
+          // Aufräumen: leerer Verlauf, frisches Blatt (spätere Punkte erwarten einen leeren Chat)
+          panelA.history = { entries: [], nextId: 1 };
+          ws.detachLeavesOfType(TYP); await warte(300);
+          await p.openHub("chat"); await warte(500);
+          return { markeVorher, zweitesGleich, zweitesMarke, gleich, markeDa, anzahl: ws.getLeavesOfType(TYP).length };`);
+        record(HUB_ZUSTAND_PUNKT, !z.markeVorher && !z.zweitesGleich && !z.zweitesMarke && z.gleich && z.markeDa && z.anzahl === 1,
+          `Marke vor dem Füllen im Blatt: ${z.markeVorher} · zweites Blatt bei offenem ersten: gleiche Panels ${z.zweitesGleich}, Marke ${z.zweitesMarke} · nach Schließen und Öffnen: gleiche Panels ${z.gleich}, Marke im neuen Blatt ${z.markeDa} · Hubs danach ${z.anzahl}`);
+      } catch (e) {
+        unmeasured(HUB_ZUSTAND_PUNKT, `Hub nicht erreichbar: ${String(e)} — nichts gemessen`);
       }
 
       // Gesendeter Body. Haken auf XMLHttpRequest.prototype.send: die Anfrage wird gelesen und

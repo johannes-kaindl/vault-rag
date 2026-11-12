@@ -7,6 +7,7 @@ import { getLang, pickLang, setLang, t } from "./vendor/kit/i18n";
 import { VectorIndex } from "./vendor/kit/vector-index";
 import { Hit } from "./vendor/kit/vector-index";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
+import { PanelPool } from "./panel_pool";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
 import { findEndpointManager, onEndpointManagerChanged } from "./vendor/kit-obsidian/endpoint-source";
@@ -583,7 +584,10 @@ export default class VaultRagPlugin extends Plugin {
 
     // Hub: EIN registerView statt vier — buildPanels() ans Ende von onload, damit
     // this.smartApply/this.templateRanker (oben im smartApplyEnabled-Block gebaut) bereits existieren.
-    this.registerView(VIEW_TYPE_HUB, (leaf: WorkspaceLeaf) => new VaultRetrievalView(leaf, this.buildPanels(), "related"));
+    this.registerView(VIEW_TYPE_HUB, (leaf: WorkspaceLeaf) => {
+      const key = this.hubPanelKey();
+      return new VaultRetrievalView(leaf, this.hubPanels.take(key), "related", (panels) => this.hubPanels.give(panels, key));
+    });
     this.addRibbonIcon("layers", "Vault Retrieval", () => void this.openHub("related"));
     this.addCommand({ id: "open-related", name: t("command.openRelated"), callback: () => void this.openHub("related") });
     this.addCommand({ id: "open-semantic-search", name: t("command.openSemanticSearch"), callback: () => void this.openHub("search") });
@@ -673,6 +677,14 @@ export default class VaultRagPlugin extends Plugin {
     }));
 
     this.app.workspace.onLayoutReady(() => this.migrateOldLeaves());
+  }
+
+  /** Die Panels des Hubs überleben das Blatt (Chat-Verlauf, Suchtext, Stand von Umformatieren und Smart Apply); s. `PanelPool`. */
+  private readonly hubPanels = new PanelPool<HubPanel[]>(() => this.buildPanels());
+
+  /** Was `buildPanels` beim Bauen aus den Einstellungen liest (nicht als Getter) und welche Tabs es baut: ändert es sich, sind zurückgelegte Panels veraltet. */
+  private hubPanelKey(): string {
+    return [this.settings.chatK, this.settings.smartApplyEnabled, this.settings.integratorEnabled].join("|");
   }
 
   private buildPanels(): HubPanel[] {

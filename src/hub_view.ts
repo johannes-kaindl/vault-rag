@@ -7,7 +7,8 @@ export const VIEW_TYPE_HUB = "vault-retrieval-hub";
 export class VaultRetrievalView extends ItemView {
   private ctrl: HubController<TabId> | null = null;
 
-  constructor(leaf: WorkspaceLeaf, private panels: HubPanel[], private navState: TabId) {
+  /** `onRelease` bekommt die Panels, wenn das Blatt schließt: das Plugin hält sie für die nächste View (Chat-Verlauf und Panel-Zustand überleben das Blatt). */
+  constructor(leaf: WorkspaceLeaf, private panels: HubPanel[], private navState: TabId, private onRelease?: (panels: HubPanel[]) => void) {
     super(leaf);
   }
 
@@ -25,6 +26,7 @@ export class VaultRetrievalView extends ItemView {
     this.ctrl?.destroy();
     this.ctrl = null;
     this.contentEl.empty();
+    this.onRelease?.(this.panels);
   }
 
   private emitFileOpen(): void {

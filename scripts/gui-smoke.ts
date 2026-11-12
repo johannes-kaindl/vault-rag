@@ -3444,7 +3444,8 @@ async function main(): Promise<void> {
           // Gegenprobe: zweites Blatt bei offenem ersten
           const b = ws.getRightLeaf(true); await b.setViewState({ type: TYP, active: false }); await warte(500);
           const panelB = chatPanel(b); const zweitesGleich = panelB === panelA; const zweitesMarke = b.view.contentEl.textContent.includes(MARKE);
-          ws.detachLeavesOfType(TYP); await warte(300);
+          // Das Blatt, das zuletzt schließt, legt seine Panels zurück: erst das zweite, dann das erste (mit detachLeavesOfType zugleich entschiede die Reihenfolge des Obsidian-Aufrufs).
+          b.detach(); await warte(300); a.detach(); await warte(300);
           await p.openHub("chat"); await warte(500);
           const c = ws.getLeavesOfType(TYP)[0];
           const gleich = chatPanel(c) === panelA; const markeDa = c.view.contentEl.textContent.includes(MARKE);

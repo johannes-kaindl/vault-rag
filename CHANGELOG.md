@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **An empty index no longer pins an embedding model.** If a wrong endpoint (for example a chat model) had once produced an empty index, the correct embedding endpoint was skipped as "different model" and the notice demanded a full rebuild. An index without notes now accepts any embedding endpoint. Writing into such an index still needs "Reindex vault" once.
 - **Cancelling "Reindex vault" with a different embedding model no longer rewrites the index.** If the index on disk came from another model than the one now connected, a cancelled run stamped the old vectors with the new model's name (a mixed-up index that count, dimension and checksum cannot detect). Now nothing is written, the notice says the index is unchanged.
 
 ## [0.50.0] — 2026-11-11

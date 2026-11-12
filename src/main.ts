@@ -389,8 +389,8 @@ export default class VaultRagPlugin extends Plugin {
       },
       // Modell-Guard: ein Endpunkt mit fremdem Embedding-Modell darf den geladenen Index NICHT bedienen
       // (anderer Vektorraum, stille Vergiftung). Das Kit kennt den Index nicht — diese Closure liest ihn live.
-      accept: (_cfg, model) => embeddingModelMatchesIndex(model, this.index?.manifest.embedding_model)
-        ? true : { skip: this.index?.manifest.embedding_model ?? "" },
+      accept: (_cfg, model) => embeddingModelMatchesIndex(model, this.indexedModel())
+        ? true : { skip: this.indexedModel() ?? "" },
       isSearchOnly: (cfg) => this.searchOnlyEndpoint !== null && normalizeEndpoint(cfg.url) === this.searchOnlyEndpoint,
       onResolved: (r) => { this.applyEmbeddingResolution(r); },
     });
@@ -826,7 +826,7 @@ export default class VaultRagPlugin extends Plugin {
    *  gebaut wird (Embedder und LiveIndexer/Manifest MÜSSEN dasselbe Modell nennen), und die Meldung zu übersprungenen
    *  Endpunkten. Synchron, damit der Aufrufer von `resolve` danach den übernommenen Stand sieht. */
   private applyEmbeddingResolution(r: EmbeddingResolution): void {
-    const indexModel = this.index?.manifest.embedding_model;
+    const indexModel = this.indexedModel();
     const cfg = r.source.config;
     // Ohne aufgelösten Endpunkt bleibt die Zeile mit passendem Modell (sonst die erste) als Modellangabe des LiveIndexers
     // stehen — nie ein leeres Modell: leer passt auf alles und schaltet den Modell-Guard beim nächsten Persist ab.
@@ -995,7 +995,15 @@ export default class VaultRagPlugin extends Plugin {
    *  Getter statt öffentlichem `index`: die UI braucht genau diesen String, nicht den Index
    *  (VaultRagPluginHost soll eine schmale Vertragsfläche bleiben). */
   get indexEmbeddingModel(): string | undefined {
-    return this.index?.manifest.embedding_model;
+    return this.indexedModel();
+  }
+
+  /** Das Embedding-Modell, das der geladene Index festhält. Ein Index ohne Zeile hält keines fest: sein Stempel stammt von einem Endpunkt, der nie einen Vektor
+   *  geliefert hat (llm-setup, 2026-11-03: ein Chat-Modell als Embedding-Endpunkt, dreimal `count: 0`), und der Guard schützte sonst einen Vektorraum mit null Vektoren.
+   *  Das gilt für die Auswahl des Endpunkts; die Schreib-Guards des Indexers lesen den Stempel weiter von der Platte (Kit, `readDiskState`). */
+  private indexedModel(): string | undefined {
+    const m = this.index?.manifest;
+    return m && m.count > 0 ? m.embedding_model : undefined;
   }
 
   /** Embedder-Reachability mit EINEM Re-Resolve-Retry: aktiven pingen; schlägt fehl,

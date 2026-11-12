@@ -8,6 +8,7 @@ import { VectorIndex } from "./vendor/kit/vector-index";
 import { Hit } from "./vendor/kit/vector-index";
 import { RelatedPanel, VIEW_TYPE_RELATED } from "./view";
 import { PanelPool } from "./panel_pool";
+import { DeadRowGrace } from "./dead_rows";
 import { DEFAULT_SETTINGS, VaultRagSettings, VaultRagSettingTab, RestoreBackupModal } from "./settings";
 // Endpunkt-Wahrheit direkt aus dem puren Modul, nicht durch das obsidian-gekoppelte ./settings.
 import { findEndpointManager, onEndpointManagerChanged } from "./vendor/kit-obsidian/endpoint-source";
@@ -114,6 +115,8 @@ export default class VaultRagPlugin extends Plugin {
   /** Die Lücke im Stempel-Wächter (Zeilen mit `[0, 0]`) für die Index-Zustand-Zeile; wird beim Laden gezählt und bei Live-Änderungen nachgeführt (`stamp_gap.ts`). */
   private readonly stampGap = new StampGap();
   /** Die Meldungen nach dem Laden zählen mit: derselbe Pfad in drei Reloads derselben Sitzung wird einmal als Befund genannt. */
+  /** Merkliste der Zeilen ohne Datei (pro Rechner und Vault, nicht gesynct): eine Zeile wird erst nach einer Frist entfernt, s. `dead_rows.ts`. */
+  private readonly deadRows = new DeadRowGrace(window.localStorage, `vault-rag.dead-rows:${this.app.vault.getName()}`);
   private readonly staleFindings = new RecurringFindings();
   private readonly deadFindings = new RecurringFindings();
   /** Das Fenster „Index vervollständigen“ kommt höchstens einmal je Sitzung. */
@@ -677,6 +680,12 @@ export default class VaultRagPlugin extends Plugin {
     }));
 
     this.app.workspace.onLayoutReady(() => this.migrateOldLeaves());
+    // Tote Zeilen (Notiz nicht mehr im Vault): eine erste Beobachtung kurz nach dem Start, danach stündlich; entfernt wird erst nach der Frist (`dead_rows.ts`), nur am Desktop.
+    this.app.workspace.onLayoutReady(() => {
+      const first = window.setTimeout(() => void this.sweepDeadRows(), 120000);
+      this.register(() => window.clearTimeout(first));
+      this.registerInterval(window.setInterval(() => void this.sweepDeadRows(), 3600000));
+    });
   }
 
   /** Die Panels des Hubs überleben das Blatt (Chat-Verlauf, Suchtext, Stand von Umformatieren und Smart Apply); s. `PanelPool`. */
@@ -2097,8 +2106,56 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
+  /** Entfernt Zeilen, deren Notiz nicht mehr im Vault liegt (verschoben, umbenannt oder gelöscht, ohne dass ein Ereignis ankam). Nur am Desktop und nur für Zeilen, deren Datei hier seit
+   *  `DEAD_ROW_GRACE_MS` durchgehend fehlt (`dead_rows.ts`: ein Sync-Rückstand darf eine lebende Zeile nicht töten). Verweigert, wenn es die Hälfte des Index oder mehr wäre
+   *  (`isSuspiciousShrink`: ein halb synchronisierter Vault). Schreibt mit dem Grund `heal`: der Modell-Guard gilt, der Schrumpf-Guard der Live-Änderungen (±1) nicht. */
+  async sweepDeadRows(): Promise<{ removed: number; waiting: number; refused: boolean }> {
+    const nichts = { removed: 0, waiting: 0, refused: false };
+    if (Platform.isMobile) return nichts;   // der Desktop räumt ab; ein Handy schriebe einen Stand zurück, der hinter dem des Desktops liegen kann
+    const li = this.liveIndexer;
+    const index = this.index;
+    if (!index || !li.isReady() || !this.indexHealthy) return nichts;
+    if (this.isSwitchingIndexDir || this.indexOpsRunning > 0 || this.embeddingProgress.isEmbedding) return nichts;
+    if (this.vaultMarkdownPaths().length === 0) return nichts;   // Vault noch nicht geladen: „alles fehlt“ ist dann keine Beobachtung
+    const gone = index.paths.filter((p) => this.app.vault.getAbstractFileByPath(p) === null);
+    const obs = this.deadRows.observe(gone);
+    if (obs.due.length === 0) return { removed: 0, waiting: obs.waiting, refused: false };
+    if (isSuspiciousShrink(index.count, index.count - obs.due.length)) {
+      new Notice(t("main.deadRowsRefused", obs.due.length, index.count), 10000);
+      return { removed: 0, waiting: obs.waiting, refused: true };
+    }
+    await this.snapshotIndex();   // den Stand vor dem Entfernen sichern (läuft über runIndexOp, darum davor und nicht darin)
+    let removed = 0;
+    await this.runIndexOp(async () => {
+      try {
+        const gate = await li.checkModelAgainstDisk("heal");
+        if (!gate.allowed) return;
+        // Zwischen Beobachtung und Schreiben kann eine Datei zurückgekehrt sein (Sync, Umbenennen zurück): nur wer noch fehlt.
+        const still = obs.due.filter((p) => this.app.vault.getAbstractFileByPath(p) === null);
+        for (const p of still) { li.remove(p); this.stampGap.stamped(p); this.emptyNotePaths.delete(p); }
+        // buildIndex ERST nach erfolgreichem persist (wie handleDelete): ein geblockter Persist darf `this.index` nicht umschreiben.
+        await li.persist("heal");
+        this.index = li.buildIndex();
+        this.deadRows.forget(still);
+        removed = still.length;
+      } catch (e) {
+        if (e instanceof PersistBlockedError) { this.indexHealthy = false; new Notice(this.persistBlockedMessage(e, t("main.persistBlockedGeneric")), 8000); }
+        else console.warn("vault-rag: sweepDeadRows failed", e);
+      }
+    });
+    if (removed > 0) {
+      new Notice(t("main.deadRowsRemoved", removed), 8000);
+      this.syncProgress();
+      this.refresh();
+      void this.snapshotIndex();
+    }
+    await this.adoptOwnIndexWrite();
+    return { removed, waiting: obs.waiting + obs.due.length - removed, refused: false };
+  }
+
   /** Delta-Reindex: nur im Vault vorhandene, aber nicht indizierte Notizen nachziehen. */
   async healVault(): Promise<void> {
+    await this.sweepDeadRows();   // braucht keinen Embedder; wer hier fällig ist, wird mit dem Delta-Reindex abgeräumt
     if (this.pause.isPaused()) new Notice(t("main.embedderPaused"));
     if (!(await this.embedderReady())) {
       new Notice(t("main.embeddingUnreachableHealAborted"));

@@ -295,6 +295,9 @@ const HUB_ZUSTAND_PUNKT = "Hub-Zustand: der Chat-Verlauf steht nach dem Schließ
 /** Neu säen (Welle 33, Task „Neu säen ohne Änderung …“): eine Auflösung der Embedding-Verbindung ohne Modellwechsel ersetzt den LiveIndexer nicht; ein Modellwechsel tut es (Gegenprobe). */
 const NEU_SAEEN_PUNKT = "Neu säen: zweimal auflösen ohne Modellwechsel lässt den Indexer, ein Modellwechsel ersetzt ihn";
 
+/** Tote Zeilen (Welle 33, Task „Tote Zeilen im Index aufräumen“): eine Zeile ohne Datei wird erst nach der Frist (24 h, Uhr über den Speicher des Geräts gestellt) entfernt; lebende Zeilen und eine frisch beobachtete tote bleiben. */
+const TOTE_ZEILEN_PUNKT = "Tote Zeilen: eine Zeile ohne Datei verschwindet nach der Frist aus index.bin, lebende und frisch beobachtete bleiben";
+
 /** Laden ohne Fehler (Welle 30, Task registerView): zweimal nacheinander aus- und einschalten wirft nichts und meldet keinen Fehler in der Konsole. „Attempting to register an existing view type“ kam nur,
  *  wenn ein Aufrufer zwei Ladevorgänge überlappen ließ (Messung Welle 28, Dach c1064c5 behebt es im Treiber), nicht aus dem Plugin. */
 const LADEN_PUNKT = "Laden: zweimal aus- und einschalten nacheinander wirft nichts und schreibt keinen Fehler in die Konsole (kein „existing view type“)";
@@ -379,6 +382,7 @@ const PUNKTE = [
   HUB_ORT_PUNKT,
   HUB_ZUSTAND_PUNKT,
   NEU_SAEEN_PUNKT,
+  TOTE_ZEILEN_PUNKT,
   PUNKT_TREU,
   PUNKT_SPERRE,
   PUNKT_UMBRUCH,
@@ -3476,6 +3480,33 @@ async function main(): Promise<void> {
           `erste Auflösung: Indexer gleich ${n.gleich1} · zweite: ${n.gleich2} · Gegenprobe (anderes Modell): ersetzt ${n.gegen} · danach wieder das echte Modell: ${n.zurueck}`);
       } catch (e) {
         unmeasured(NEU_SAEEN_PUNKT, `Plugin nicht erreichbar: ${String(e)} — nichts gemessen`);
+      }
+
+      // Tote Zeilen (Welle 33): zwei erfundene Zeilen ohne Datei in den Index legen (A: Frist abgelaufen, B: gerade erst beobachtet), fegen, von der Platte neu laden (Wahrheit ist index.bin).
+      try {
+        const z = await main.evaluate<{ real: number; r1Entfernt: number; r1Wartet: number; vorA: boolean; r2Entfernt: number; r2Wartet: number; nachA: boolean; nachB: boolean; echteDanach: number; r3Entfernt: number; nachB3: boolean; echteEnde: number }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; const li = p.liveIndexer;
+          const key = "vault-rag.dead-rows:" + app.vault.getName(); const A = "geisterzeile-w33-a.md", B = "geisterzeile-w33-b.md";
+          const proto = [...li.noteVectors.values()][0]; const real = p.index.paths.length; const TAG = 25 * 3600 * 1000;
+          const add = async (n) => { li.noteVectors.set(n, proto.slice()); await li.persist("live"); p.index = li.buildIndex(); };
+          const vonPlatte = async () => { await p.loadIndex(); return p.index.paths; };
+          try {
+            localStorage.removeItem(key);
+            await add(A);
+            const r1 = await p.sweepDeadRows(); const vorA = (await vonPlatte()).includes(A);
+            localStorage.setItem(key, JSON.stringify({ [A]: Date.now() - TAG }));
+            await add(B);
+            const r2 = await p.sweepDeadRows(); const nach = await vonPlatte();
+            const nachA = nach.includes(A), nachB = nach.includes(B), echteDanach = nach.filter((x) => !x.startsWith("geisterzeile-w33")).length;
+            localStorage.setItem(key, JSON.stringify({ [B]: Date.now() - TAG }));
+            const r3 = await p.sweepDeadRows(); const ende = await vonPlatte();
+            return { real, r1Entfernt: r1.removed, r1Wartet: r1.waiting, vorA, r2Entfernt: r2.removed, r2Wartet: r2.waiting, nachA, nachB, echteDanach, r3Entfernt: r3.removed, nachB3: ende.includes(B), echteEnde: ende.filter((x) => !x.startsWith("geisterzeile-w33")).length };
+          } finally { localStorage.removeItem(key); }`);
+        record(TOTE_ZEILEN_PUNKT,
+          z.r1Entfernt === 0 && z.r1Wartet === 1 && z.vorA && z.r2Entfernt === 1 && z.r2Wartet === 1 && !z.nachA && z.nachB && z.echteDanach === z.real && z.r3Entfernt === 1 && !z.nachB3 && z.echteEnde === z.real,
+          `erste Beobachtung: entfernt ${z.r1Entfernt}, wartet ${z.r1Wartet}, Zeile A auf der Platte ${z.vorA} · nach der Frist für A: entfernt ${z.r2Entfernt}, wartet ${z.r2Wartet}, A noch da ${z.nachA}, B (frisch) noch da ${z.nachB} · echte Zeilen ${z.real} → ${z.echteDanach} · B nach seiner Frist: entfernt ${z.r3Entfernt}, noch da ${z.nachB3}, echte Zeilen am Ende ${z.echteEnde}`);
+      } catch (e) {
+        unmeasured(TOTE_ZEILEN_PUNKT, `Plugin nicht erreichbar: ${String(e)} — nichts gemessen`);
       }
 
       // Gesendeter Body. Haken auf XMLHttpRequest.prototype.send: die Anfrage wird gelesen und

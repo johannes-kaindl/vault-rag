@@ -190,6 +190,8 @@ chat_error.ts     Fehlerklassen des Chat-Transports (`ChatHttpError`, `ChatTimeo
                   Kit-Fenster erwartet (die Serverbegründung eines HTTP-Fehlers bleibt erhalten).
 smart_apply_view.ts SmartApplyPanel (HubPanel) — Diff-Gate-Cockpit (Scan-Guard, Frontmatter-Diff,
                   Body-Reflow, Relevanz-Rangliste, Rohtext on-demand).
+dead_rows.ts     DeadRowGrace — Frist für Zeilen ohne Datei (rein; Merkliste im Speicher des Geräts), von `main.ts`
+                  `sweepDeadRows` benutzt.
 panel_pool.ts    PanelPool — hält die Hub-Panels über das Schließen eines Blatts (rein, kein obsidian-Import;
                   `main.ts` ruft `take`/`give`, `hub_view.ts` gibt beim Schließen zurück).
 hub_panel.ts      HubPanel-Interface + TabId ("related"|"search"|"chat"|"smart-apply"|"reformat"|

@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Dead index entries are cleaned up.** Notes that were moved, renamed or deleted while Obsidian was closed (or by another program) left their old entry in the index, so searches could list notes that no longer exist (in one real vault 3,113 of 14,990 entries, 21 %). On the desktop the plugin now removes an entry once its note has been missing for a full day, checked at start, hourly and when you run "Complete the index"; a notice says how many were removed. It refuses to remove half the index or more (a half-synced vault), never runs on a phone, and takes a backup first. A note that comes back (late sync) restarts the clock.
+
 ### Fixed
 
 - **Deleting or renaming a note no longer needs the embedding server.** With the server unreachable the index kept the old row forever (a deleted note stayed searchable as a dead entry, a renamed one under its old name). The row is now removed or moved right away; nothing is embedded. On a phone without a reachable server the index stays untouched, as before.

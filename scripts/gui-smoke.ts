@@ -3498,6 +3498,8 @@ async function main(): Promise<void> {
             await add(B);
             const r2 = await p.sweepDeadRows(); const nach = await vonPlatte();
             const nachA = nach.includes(A), nachB = nach.includes(B), echteDanach = nach.filter((x) => !x.startsWith("geisterzeile-w33")).length;
+            // Die Sicherung nach dem ersten Fegen läuft im Hintergrund über dieselbe Kette; solange sie läuft, fegt sich nichts (indexOpsRunning > 0): abwarten.
+            for (let i = 0; i < 100 && p.indexOpsRunning > 0; i++) await new Promise((r) => setTimeout(r, 100));
             localStorage.setItem(key, JSON.stringify({ [B]: Date.now() - TAG }));
             const r3 = await p.sweepDeadRows(); const ende = await vonPlatte();
             return { real, r1Entfernt: r1.removed, r1Wartet: r1.waiting, vorA, r2Entfernt: r2.removed, r2Wartet: r2.waiting, nachA, nachB, echteDanach, r3Entfernt: r3.removed, nachB3: ende.includes(B), echteEnde: ende.filter((x) => !x.startsWith("geisterzeile-w33")).length };

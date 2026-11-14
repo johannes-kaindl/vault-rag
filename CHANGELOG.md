@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.52.0] — 2026-11-14
+
 ### Changed
 
 - **The status bar entry is now on by default.** New installs show the indexed-notes count in the status bar right away; "Progress in status bar" in the embedding settings still turns it off. Nothing changes for existing installs: a saved choice (on or off) is kept, only a missing or invalid value falls back to "on". During a reindex or a pause the entry still appears even when the switch is off. It now uses the shared status bar component of the library (obsidian-kit 0.88.0).

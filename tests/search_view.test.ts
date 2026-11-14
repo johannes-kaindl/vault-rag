@@ -85,3 +85,54 @@ describe("SearchPanel", () => {
     expect(states(container).some((s: any) => s.textContent.includes("No matches"))).toBe(true);
   });
 });
+
+describe("SearchPanel — Zustand über das Schließen des Blatts (PanelPool: dieselbe Instanz, neuer Container)", () => {
+  const eingabe = (container: any) => container.children.find((c: any) => c.className?.includes("vault-rag-search-input"));
+
+  it("der letzte Suchtext steht nach destroy() und erneutem mount() wieder im Feld, die Treffer dazu ohne neue Suche", async () => {
+    const search = vi.fn(async () => ({ kind: "hits", hits: [{ path: "a.md", score: 0.9 }] }) as SearchResult);
+    const { panel } = mkPanel(search);
+    eingabe((panel as any).container).value = "hallo welt";
+    await panel.runQuery("hallo welt");
+    panel.destroy();
+    const neu = makeFakeEl();
+    panel.mount(neu);
+    expect(eingabe(neu).value).toBe("hallo welt");
+    expect(hits(neu).length).toBe(1);
+    expect(search).toHaveBeenCalledTimes(1);
+  });
+
+  it("Gegenprobe: ein frisches Panel startet leer, mit dem Hinweis und ohne Suche", () => {
+    const search = vi.fn(async () => ({ kind: "hits", hits: [] }) as SearchResult);
+    const { container } = mkPanel(search);
+    expect(eingabe(container).value ?? "").toBe("");
+    expect(hits(container).length).toBe(0);
+    expect(states(container).length).toBe(1);
+    expect(search).not.toHaveBeenCalled();
+  });
+
+  it("Gegenprobe: ändert sich der Text nach dem Ergebnis, werden die alten Treffer nicht gezeigt, sondern der neue Text läuft", async () => {
+    const search = vi.fn(async (q: string) => ({ kind: "hits", hits: q === "alte frage" ? [{ path: "a.md", score: 0.9 }] : [] }) as SearchResult);
+    const { panel } = mkPanel(search);
+    await panel.runQuery("alte frage");
+    // Der Nutzer tippt weiter und schließt vor dem Entprellen: nur der Text ist gemerkt, kein Ergebnis dazu.
+    (panel as any).lastQuery = "neue frage";
+    panel.destroy();
+    const neu = makeFakeEl();
+    panel.mount(neu);
+    expect(hits(neu).length).toBe(0);
+    await Promise.resolve();
+    expect(search).toHaveBeenLastCalledWith("neue frage");
+  });
+
+  it("ein Text unter drei Zeichen wird gemerkt, löst aber keine Suche aus", async () => {
+    const search = vi.fn(async () => ({ kind: "hits", hits: [] }) as SearchResult);
+    const { panel } = mkPanel(search);
+    await panel.runQuery("ab");
+    panel.destroy();
+    const neu = makeFakeEl();
+    panel.mount(neu);
+    expect(eingabe(neu).value).toBe("ab");
+    expect(search).not.toHaveBeenCalled();
+  });
+});

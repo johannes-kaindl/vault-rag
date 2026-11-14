@@ -114,3 +114,36 @@ describe("ReformatPanel — Modellzeile (Welle 27, V5)", () => {
     expect(first(container, "okit-model-bar-select").disabled ?? false).toBe(false);
   });
 });
+
+describe("ReformatPanel — Freitext überlebt das Schließen des Blatts und den Neuaufbau", () => {
+  const feld = (c: any) => first(c, "vault-rag-reformat-panel-instruction");
+  const tippe = (c: any, text: string) => { const f = feld(c); f.value = text; f.dispatchEvent({ type: "input" }); };
+
+  it("der Text steht nach destroy() und erneutem mount() wieder im Feld", () => {
+    const { panel, container } = mkPanel({ transforms: () => buildTransforms([]) });
+    tippe(container, "kürzer und sachlicher");
+    panel.destroy();
+    const neu = makeFakeEl();
+    panel.mount(neu);
+    expect(feld(neu).value).toBe("kürzer und sachlicher");
+  });
+
+  it("rebuild() (Einstellungen geändert) behält den Text", () => {
+    const { panel, container } = mkPanel({ transforms: () => buildTransforms([]) });
+    tippe(container, "als Liste");
+    panel.rebuild();
+    expect(feld(container).value).toBe("als Liste");
+  });
+
+  it("Gegenprobe: nach dem Ausführen ist das Feld leer, auch nach erneutem mount()", () => {
+    const { panel, container, deps } = mkPanel({ transforms: () => buildTransforms([]), getReadiness: () => ({ kind: "ready", text: "abc" }) as never });
+    tippe(container, "als Liste");
+    const runBtn = all(container, "vault-rag-reformat-btn").pop();
+    runBtn.click();
+    expect(deps.run).toHaveBeenCalled();
+    panel.destroy();
+    const neu = makeFakeEl();
+    panel.mount(neu);
+    expect(feld(neu).value ?? "").toBe("");
+  });
+});

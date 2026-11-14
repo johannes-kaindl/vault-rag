@@ -29,6 +29,9 @@ export class SearchPanel implements HubPanel {
   private inputEl: HTMLInputElement | null = null;
   private resultsEl: HTMLElement | null = null;
   private timer: number | null = null;
+  /** Der Suchtext und das Ergebnis zu genau diesem Text überleben `destroy()` und ein erneutes `mount()` (das Panel bleibt dieselbe Instanz, `PanelPool`). */
+  private lastQuery = "";
+  private lastResult: { query: string; result: SearchResult } | null = null;
 
   constructor(private deps: SearchDeps) {}
 
@@ -40,9 +43,15 @@ export class SearchPanel implements HubPanel {
     input.placeholder = t("panel.search.placeholder");
     this.inputEl = input;
     this.resultsEl = c.createDiv({ cls: "vault-rag-search-results" });
-    input.addEventListener("input", () => this.schedule(input.value ?? ""));
+    input.addEventListener("input", () => { this.lastQuery = input.value ?? ""; this.schedule(this.lastQuery); });
     input.addEventListener("keydown", (e: KeyboardEvent) => { if (e.key === "Enter") void this.runQuery(input.value ?? ""); });
-    this.renderState(t("panel.search.prompt"));
+    // Nach dem Schließen und Öffnen des Blatts: der letzte Text steht wieder im Feld, die Treffer dazu sofort (ohne Netz); ein Text ohne Ergebnis (das Blatt
+    // schloss vor dem Entprellen) läuft jetzt.
+    input.value = this.lastQuery;
+    const q = this.lastQuery.trim();
+    if (this.lastResult && this.lastResult.query === q) this.renderResult(this.lastResult.result);
+    else if (q.length >= MIN_QUERY) { this.renderState(t("panel.search.prompt")); void this.runQuery(q); }
+    else this.renderState(t("panel.search.prompt"));
   }
 
   private schedule(query: string): void {
@@ -51,9 +60,12 @@ export class SearchPanel implements HubPanel {
   }
 
   async runQuery(query: string): Promise<void> {
+    this.lastQuery = query;
     const q = query.trim();
     if (q.length < MIN_QUERY) { this.renderState(t("panel.search.prompt")); return; }
-    this.renderResult(await this.deps.search(q));
+    const result = await this.deps.search(q);
+    this.lastResult = { query: q, result };
+    this.renderResult(result);
   }
 
   renderResult(result: SearchResult): void {

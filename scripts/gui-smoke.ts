@@ -294,6 +294,9 @@ const HUB_ORT_PUNKT = "Hub-Ort: am Desktop öffnet der Hub in der rechten Seiten
 /** Hub-Zustand (Welle 33, Task „Hub-Zustand geht beim Schließen des Blatts verloren“): der Chat-Verlauf steht nach dem Schließen des Blatts und erneutem Öffnen im neuen Blatt wieder da. */
 const HUB_ZUSTAND_PUNKT = "Hub-Zustand: der Chat-Verlauf steht nach dem Schließen des Blatts und erneutem Öffnen im neuen Blatt wieder da";
 
+/** Such-Zustand (Welle 34, Task „Suchtext und Trefferliste überleben das Schließen des Blatts nicht“): der Suchtext und das Ergebnis dazu stehen nach dem Schließen des Blatts und erneutem Öffnen wieder da. */
+const SUCH_ZUSTAND_PUNKT = "Such-Zustand: der Suchtext und das Ergebnis stehen nach dem Schließen des Blatts und erneutem Öffnen wieder da";
+
 /** Neu säen (Welle 33, Task „Neu säen ohne Änderung …“): eine Auflösung der Embedding-Verbindung ohne Modellwechsel ersetzt den LiveIndexer nicht; ein Modellwechsel tut es (Gegenprobe). */
 const NEU_SAEEN_PUNKT = "Neu säen: zweimal auflösen ohne Modellwechsel lässt den Indexer, ein Modellwechsel ersetzt ihn";
 
@@ -384,6 +387,7 @@ const PUNKTE = [
   LADEN_PUNKT,
   HUB_ORT_PUNKT,
   HUB_ZUSTAND_PUNKT,
+  SUCH_ZUSTAND_PUNKT,
   NEU_SAEEN_PUNKT,
   TOTE_ZEILEN_PUNKT,
   PUNKT_TREU,
@@ -3541,6 +3545,38 @@ async function main(): Promise<void> {
           `Marke vor dem Füllen im Blatt: ${z.markeVorher} · zweites Blatt bei offenem ersten: gleiche Panels ${z.zweitesGleich}, Marke ${z.zweitesMarke} · nach Schließen und Öffnen: gleiche Panels ${z.gleich}, Marke im neuen Blatt ${z.markeDa} · Hubs danach ${z.anzahl}`);
       } catch (e) {
         unmeasured(HUB_ZUSTAND_PUNKT, `Hub nicht erreichbar: ${String(e)} — nichts gemessen`);
+      }
+
+      // Such-Zustand (Welle 34): Text ins Suchfeld, Ergebnis abwarten, Blatt schließen, Hub neu öffnen. Gegenprobe im selben Punkt: ein zweites Blatt bei offenem ersten
+      // hat eigene Panels und ein leeres Feld; nur so ist „steht im neuen Blatt“ mehr als ein Rest im Feld irgendeines Blatts.
+      try {
+        const s = await main.evaluate<{ vorher: string; zweitesFeld: string; vorherErgebnis: string; feldDa: string; ergebnisDa: string; gleich: boolean; anzahl: number }>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; const ws = app.workspace; const TYP = "vault-retrieval-hub";
+          const MARKE = "suchzustand marke " + Date.now(); const warte = (ms) => new Promise(r => setTimeout(r, ms));
+          const feld = (leaf) => leaf.view.contentEl.querySelector(".vault-rag-search-input");
+          const erg = (leaf) => (leaf.view.contentEl.querySelector(".vault-rag-search-results")?.textContent ?? "");
+          ws.detachLeavesOfType(TYP); await warte(300);
+          await p.openHub("search"); await warte(500);
+          const a = ws.getLeavesOfType(TYP)[0]; const panelA = a.view.panelById("search");
+          const vorher = feld(a).value;
+          feld(a).value = MARKE; feld(a).dispatchEvent(new Event("input", { bubbles: true }));
+          { const t0 = Date.now(); while (!panelA.lastResult && Date.now() - t0 < 15000) await warte(200); }
+          const vorherErgebnis = erg(a);
+          const b = ws.getRightLeaf(true); await b.setViewState({ type: TYP, active: false }); await warte(500);
+          const zweitesFeld = feld(b).value;
+          b.detach(); await warte(300); a.detach(); await warte(300);
+          await p.openHub("search"); await warte(700);
+          const c = ws.getLeavesOfType(TYP)[0];
+          const feldDa = feld(c).value; const ergebnisDa = erg(c); const gleich = c.view.panelById("search") === panelA;
+          // Aufräumen: Zustand leeren, frisches Blatt (spätere Punkte erwarten einen leeren Hub)
+          panelA.lastQuery = ""; panelA.lastResult = null;
+          ws.detachLeavesOfType(TYP); await warte(300);
+          await p.openHub("chat"); await warte(500);
+          return { vorher, zweitesFeld, vorherErgebnis, feldDa, ergebnisDa, gleich, anzahl: ws.getLeavesOfType(TYP).length, marke: MARKE };`);
+        record(SUCH_ZUSTAND_PUNKT, s.vorher === "" && s.zweitesFeld === "" && s.feldDa.startsWith("suchzustand marke ") && s.vorherErgebnis !== "" && s.ergebnisDa === s.vorherErgebnis && s.gleich && s.anzahl === 1,
+          `Feld vor dem Tippen „${s.vorher}“ · zweites Blatt bei offenem ersten: Feld „${s.zweitesFeld}“ · nach Schließen und Öffnen: gleiche Panels ${s.gleich}, Feld „${s.feldDa}“, Ergebnis „${s.ergebnisDa.slice(0, 60)}“ gleich dem vor dem Schließen „${s.vorherErgebnis.slice(0, 60)}“ · Hubs danach ${s.anzahl}`);
+      } catch (e) {
+        unmeasured(SUCH_ZUSTAND_PUNKT, `Hub nicht erreichbar: ${String(e)} — nichts gemessen`);
       }
 
       // Neu säen (Welle 33): echte Auflösung zweimal, Indexer-Identität vorher/nachher; Gegenprobe mit einem erfundenen Modell, danach echte Auflösung zur Wiederherstellung.

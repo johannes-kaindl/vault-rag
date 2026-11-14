@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows
 - **The model dropdown follows the shared component (obsidian-kit 0.88.0).** The chat model row lists the models of all endpoints grouped by endpoint when the endpoint manager is installed; Smart Apply keeps a plain list that follows the chat endpoint.
 - **gpt-oss models send `reasoning_effort: minimal` again when thinking is off** (code-kit 0.68.0, intended behaviour). The thinking dropdown for gpt-oss gains the level "minimal" and starts there; "off" is still not offered because the model cannot switch thinking off.
 
+### Fixed
+
+- **Closing the Vault Retrieval pane no longer wipes your search.** The search text and its results (and the text you typed into the free-form instruction of Reformat) are kept when you close and reopen the pane, or when a settings change rebuilds the Reformat panel. The results are shown as they were, without a new search.
+
 ## [0.51.1] — 2026-11-14
 
 ### Security

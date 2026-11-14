@@ -34,6 +34,8 @@ export class ReformatPanel implements HubPanel {
   private buttons: HTMLButtonElement[] = [];
   private instructionEl: HTMLTextAreaElement | null = null;
   private bar: ModelBar | null = null;
+  /** Der Text im Freitext-Feld überlebt `destroy()`, ein erneutes `mount()` (Blatt zu und auf, `PanelPool`) und `rebuild()` (Einstellungen). */
+  private instructionText = "";
 
   constructor(private deps: ReformatPanelDeps) {}
 
@@ -77,12 +79,15 @@ export class ReformatPanel implements HubPanel {
       ta.setAttr("rows", "2");
       ta.setAttr("placeholder", t("panel.reformat.instructionPlaceholder"));
       this.instructionEl = ta;
+      ta.value = this.instructionText;
+      ta.addEventListener("input", () => { this.instructionText = ta.value; });
       const btn = row.createEl("button", { cls: "vault-rag-reformat-btn", text: t("panel.reformat.run") });
       btn.addEventListener("click", () => {
         const instr = ta.value.trim();
         if (!instr) return;
         this.deps.run(ft, instr);
         ta.value = "";
+        this.instructionText = "";
       });
       this.buttons.push(btn);
     }

@@ -17,3 +17,4 @@ index-backups/
 scripts/_tmp_*
 .fresh-vault.mjs
 .modell-runde.mjs
+.blick-en.mjs

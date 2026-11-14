@@ -15,4 +15,12 @@ describe("Kit-CSS steht wortgleich in styles.css", () => {
   it("der Wächter findet überhaupt Konstanten (sonst prüft er nichts)", () => {
     expect(findVendoredCss("src/vendor/kit-obsidian").length).toBeGreaterThan(0);
   });
+  // Eine Kit-Konstante kann eine andere einsetzen (`${COPY_BUTTON_CSS}` in `STREAM_AREA_CSS`): der Rohtext der Quelle in styles.css trägt dann ein ungültiges `${…}`,
+  // und `missingKitCss` meldet es nicht (Befund svg-studio 0.1.3, Store „Caution": Unknown word COPY_BUTTON_CSS). Nach jedem Kopieren oder Pin gilt: keins.
+  it("styles.css enthält kein ungelöstes ${…} aus einer Kit-Konstante", () => {
+    expect(readFileSync("styles.css", "utf8").match(/\$\{[^}\n]*\}/g) ?? []).toEqual([]);
+  });
+  it("Gegenprobe: der Wächter erkennt ein ${…} in einem CSS-Text", () => {
+    expect("a { color: red; }\n${COPY_BUTTON_CSS}\n".match(/\$\{[^}\n]*\}/g)).toEqual(["${COPY_BUTTON_CSS}"]);
+  });
 });

@@ -119,7 +119,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 | Hide index folder in file explorer | Hides the index folder from the file explorer for a cleaner workspace (cosmetic; data and sync are unaffected) | on |
 | Similarity / top-k | Retrieval thresholds | `0.3` · `20` |
 | Excluded paths | Paths skipped by indexing (dot-folders are always skipped). Only this list counts: Obsidian's own “Excluded files” setting is not read | `Templates/`, `Archive/` |
-| Progress in status bar | Shows embedding progress (`● indexed \| ⏳ pending`); revealed automatically during a reindex | off |
+| Progress in status bar | Shows embedding progress (`● indexed \| ⏳ pending`); revealed automatically during a reindex or a pause when switched off | on |
 | Debounce | How long after a save the note is re-embedded | `3000` ms |
 | Preview before applying (model results) | Reformatting with the model shows the result in a window first. Off inserts a finished result straight away (a cut-off result or one that lost links still opens the preview) | on |
 | Smart Apply | Off by default; enabling it adds the tab, the command and the template settings | off |

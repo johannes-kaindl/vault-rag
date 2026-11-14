@@ -20,8 +20,8 @@ describe("settings", () => {
     expect(DEFAULT_SETTINGS.embeddingEndpoints).toEqual([{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }]);
   });
 
-  it("showStatusBar-Default ist false", () => {
-    expect(DEFAULT_SETTINGS.showStatusBar).toBe(false);
+  it("showStatusBar-Default ist true (Welle 34: Statusleiste standardmäßig an)", () => {
+    expect(DEFAULT_SETTINGS.showStatusBar).toBe(true);
   });
 
   it("debounceMs-Default ist 3000", () => {

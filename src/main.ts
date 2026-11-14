@@ -16,6 +16,7 @@ import { probeEndpoint } from "./http";
 import { describeModel, type EndpointSourceResult } from "./vendor/kit/endpoint-source";
 import { createLlmConnection, type LlmConnection } from "./vendor/kit-obsidian/llm-connection";
 import type { ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
+import { createStatusBarItem, statusBarEnabled, type StatusBarItemHandle } from "./vendor/kit-obsidian/status-bar-item";
 import type { EmbeddingConnection, EmbeddingResolution } from "./vendor/kit-obsidian/embedding-connection";
 import { thinkingLevelTexts, thinkingOffTexts, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import { createChatArchive, type ChatArchive } from "./vendor/kit-obsidian/chat-archive";
@@ -164,7 +165,8 @@ export default class VaultRagPlugin extends Plugin {
     pendingNotes: 0,
     reindex: null,
   };
-  private statusBarEl: HTMLElement | null = null;
+  /** Der Statusleisten-Eintrag (Kit `status-bar-item`); entsteht in `onload`, sobald die Einstellungen geladen sind. */
+  private statusBar: StatusBarItemHandle | null = null;
   private folderHide: FolderHideHandle | null = null;
   private isSwitchingIndexDir = false;
   private indexHealthy = true;
@@ -182,8 +184,8 @@ export default class VaultRagPlugin extends Plugin {
   /** Pause-Schalter für Embeddings: pro Rechner (`window.localStorage`, alle Vaults, nicht gesynct, Spec 2026-09-17 E4) —
    *  bewusst NICHT `App#saveLocalStorage`, das ist je Vault; die knappe Ressource ist die Maschine, nicht der Vault. */
   readonly pause = new EmbeddingPause(window.localStorage);
-  /** Die Statusleiste wurde nur wegen der Pause eingeblendet und geht beim Fortsetzen wieder auf die Einstellung zurück. */
-  private pauseRevealedStatusBar = false;
+  /** Gibt die Statusleiste wieder frei, die nur wegen der Pause eingeblendet wurde (Kit `reveal()`); `null`, solange keine Pause sie hält. */
+  private releasePauseStatusBar: (() => void) | null = null;
   /** Lebensdauer-Anker für gerendertes Markdown (Chat-Antworten): lebt mit dem Plugin, räumt Listener beim Entladen. */
   private readonly markdownComponent = new Component();
   /** Auto-Heal höchstens einmal je Gefahrenzustand-Episode (Reset bei gesundem Load). */
@@ -316,6 +318,8 @@ export default class VaultRagPlugin extends Plugin {
       embeddingModel?: string; chatModel?: string;
     }) | null;
     this.settings = mergeSettings(DEFAULT_SETTINGS, loaded as Partial<VaultRagSettings> | null);
+    // Statusleiste: ein gespeicherter Boolean gilt (auch `false`), alles andere (Schlüssel fehlt, kein Boolean) fällt auf die Vorgabe „an“ (Kit `statusBarEnabled`).
+    this.settings.showStatusBar = statusBarEnabled(this.settings.showStatusBar);
     // Migration: der Prä-0.26-Chat-System-Prompt war hart deutsch und wurde beim ersten
     // Speichern in jede data.json kopiert. Wer ihn nie angefasst hat, bekommt jetzt den
     // sprachabhängigen Default (leeres Feld) statt eines deutschen Satzes in englischer UI.
@@ -566,7 +570,21 @@ export default class VaultRagPlugin extends Plugin {
       callback: () => void (async () => { new RestoreBackupModal(this.app, await this.listBackups(), (n) => void this.restoreBackup(n)).open(); })(),
     });
 
-    if (this.settings.showStatusBar) this.setStatusBarVisible(true);
+    this.statusBar = createStatusBarItem({
+      plugin: this,
+      visible: this.settings.showStatusBar,
+      text: null,
+      // Während der Pause ist der Eintrag ein Knopf (Zustands-Knopf-Regel §8: Text + `aria-pressed`, nie nur Farbe).
+      onCreate: (el) => {
+        el.addEventListener("click", () => { if (this.pause.isPaused()) this.setEmbeddingPaused(false); });
+        el.addEventListener("keydown", (e: KeyboardEvent) => {
+          if (!this.pause.isPaused() || (e.key !== "Enter" && e.key !== " ")) return;
+          e.preventDefault(); this.setEmbeddingPaused(false);
+        });
+      },
+      render: (el) => this.statusPauseAttrs(el, this.pause.isPaused()),
+    });
+    this.updateStatusBar();
     if (this.pause.isPaused()) this.onPauseChange(true);   // die Pause überlebt den Neustart: Anzeige sofort wieder da
     this.refreshIndexFolderHiding();
 
@@ -1007,6 +1025,13 @@ export default class VaultRagPlugin extends Plugin {
       source: () => ({ ...this.llm.source(), defaultModel: this.chatModelInUse }),
       modelInUse: () => this.settings.smartApplyModel?.trim() ?? "",
       setModel: async (m) => { this.settings.smartApplyModel = m; await this.saveSettings(); },
+      // Seit Kit 0.87.0 Pflicht. Smart Apply hält nur einen Modellnamen (`smartApplyModel`), keine Endpunkt-Wahl: die Zeile bleibt eine Liste ohne Gruppen, der Endpunkt folgt dem Chat.
+      endpoints: () => [],
+      activeEndpointId: () => this.llm.activeEndpointId(),
+      modelsOf: (id, opts) => this.llm.modelsOf(id, opts),
+      choice: () => ({}),
+      setChoice: () => Promise.reject(new Error("Smart Apply speichert keinen Endpunkt")),
+      subscribe: (cb) => this.llm.subscribe(cb),
     };
   }
 
@@ -2041,8 +2066,7 @@ export default class VaultRagPlugin extends Plugin {
     const notice = new Notice(t("main.indexingProgress", 0, total), 0);
     // Statusleiste fürs Reindex einblenden (falls aus), damit man die Notice wegklicken kann
     // und den Fortschritt unten weiterverfolgt; am Ende auf das Setting zurücksetzen.
-    const statusReveal = !this.statusBarEl;
-    if (statusReveal) this.setStatusBarVisible(true);
+    const releaseStatus = this.statusBar?.reveal();
     this.embeddingProgress.isEmbedding = true;
     this.embeddingProgress.reindex = { done: 0, total };
     this.updateStatusBar();
@@ -2101,7 +2125,7 @@ export default class VaultRagPlugin extends Plugin {
       this.embeddingProgress.isEmbedding = false;
       await this.adoptOwnIndexWrite();   // Zwischenstände und Endstand von `index.bin` sind eigene Schreibvorgänge
       this.syncProgress();
-      if (statusReveal) this.setStatusBarVisible(this.settings.showStatusBar);
+      releaseStatus?.();
       window.setTimeout(() => notice.hide(), 4000);
     }
   }
@@ -2190,8 +2214,7 @@ export default class VaultRagPlugin extends Plugin {
     const { embeddable, knownEmpty } = splitHealTargets(missing, this.emptyNotePaths);
     if (embeddable.length === 0) { new Notice(healResultMessage(0, knownEmpty.length, 0)); return; }
     const notice = new Notice(t("main.healingProgress", 0, embeddable.length), 0);
-    const statusReveal = !this.statusBarEl;
-    if (statusReveal) this.setStatusBarVisible(true);
+    const releaseStatus = this.statusBar?.reveal();
     this.embeddingProgress.isEmbedding = true;
     this.embeddingProgress.reindex = { done: 0, total: embeddable.length };
     this.updateStatusBar();
@@ -2224,7 +2247,7 @@ export default class VaultRagPlugin extends Plugin {
       this.embeddingProgress.isEmbedding = false;
       await this.adoptOwnIndexWrite();   // Zwischenstände und Endstand von `index.bin` sind eigene Schreibvorgänge
       this.syncProgress();
-      if (statusReveal) this.setStatusBarVisible(this.settings.showStatusBar);
+      releaseStatus?.();
       window.setTimeout(() => notice.hide(), 4000);
     }
   }
@@ -2264,8 +2287,8 @@ export default class VaultRagPlugin extends Plugin {
 
   /** Die Pause hat sich geändert (hier oder in einem anderen Vault-Fenster): Statusleiste, Panels, Nachziehen beim Fortsetzen. */
   private onPauseChange(paused: boolean): void {
-    if (paused && !this.statusBarEl) { this.pauseRevealedStatusBar = true; this.setStatusBarVisible(true); }
-    else if (!paused && this.pauseRevealedStatusBar) { this.pauseRevealedStatusBar = false; this.setStatusBarVisible(this.settings.showStatusBar); }
+    if (paused && !this.releasePauseStatusBar) this.releasePauseStatusBar = this.statusBar?.reveal() ?? null;
+    else if (!paused && this.releasePauseStatusBar) { this.releasePauseStatusBar(); this.releasePauseStatusBar = null; }
     this.updateStatusBar();
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_HUB)) {
       const v = leaf.view;
@@ -2276,30 +2299,25 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   private updateStatusBar(): void {
-    if (!this.statusBarEl) return;
-    if (!this.indexHealthy) {
-      this.statusBarEl.setText(t("status.indexCorrupt"));
-      return;
-    }
+    const bar = this.statusBar;
+    if (!bar) return;
+    if (!this.indexHealthy) { bar.set(t("status.indexCorrupt")); return; }
     const p = this.embeddingProgress;
-    const paused = this.pause.isPaused();
-    this.statusPauseAttrs(paused);
-    if (paused) {
-      this.statusBarEl.setText(p.pendingNotes > 0 ? t("status.pausedPending", p.pendingNotes) : t("status.paused"));
+    if (this.pause.isPaused()) {
+      bar.set(p.pendingNotes > 0 ? t("status.pausedPending", p.pendingNotes) : t("status.paused"));
     } else if (p.reindex) {
-      this.statusBarEl.setText(t("status.reindexing", p.reindex.done.toLocaleString(), p.reindex.total.toLocaleString()));
+      bar.set(t("status.reindexing", p.reindex.done.toLocaleString(), p.reindex.total.toLocaleString()));
     } else if (p.isEmbedding) {
-      this.statusBarEl.setText(t("status.embedding"));
+      bar.set(t("status.embedding"));
     } else if (p.pendingNotes > 0) {
-      this.statusBarEl.setText(t("status.countPending", p.embeddedNotes.toLocaleString(), p.pendingNotes));
+      bar.set(t("status.countPending", p.embeddedNotes.toLocaleString(), p.pendingNotes));
     } else {
-      this.statusBarEl.setText(t("status.count", p.embeddedNotes.toLocaleString()));
+      bar.set(t("status.count", p.embeddedNotes.toLocaleString()));
     }
   }
 
   /** Während der Pause ist die Statusleiste ein Knopf (Zustands-Knopf-Regel §8: Text + `aria-pressed`, nie nur Farbe). */
-  private statusPauseAttrs(paused: boolean): void {
-    const el = this.statusBarEl; if (!el) return;
+  private statusPauseAttrs(el: HTMLElement, paused: boolean): void {
     if (paused) {
       el.setAttribute("role", "button"); el.setAttribute("aria-pressed", "true"); el.setAttribute("tabindex", "0");
       el.setAttribute("aria-label", t("status.pausedTooltip"));
@@ -2308,20 +2326,9 @@ export default class VaultRagPlugin extends Plugin {
     }
   }
 
+  /** Der Schalter in den Einstellungen; Reindex und Pause blenden die Leiste unabhängig davon vorübergehend ein. */
   setStatusBarVisible(show: boolean): void {
-    if (show && !this.statusBarEl) {
-      this.statusBarEl = this.addStatusBarItem();
-      const el = this.statusBarEl;
-      el.addEventListener("click", () => { if (this.pause.isPaused()) this.setEmbeddingPaused(false); });
-      el.addEventListener("keydown", (e: KeyboardEvent) => {
-        if (!this.pause.isPaused() || (e.key !== "Enter" && e.key !== " ")) return;
-        e.preventDefault(); this.setEmbeddingPaused(false);
-      });
-      this.updateStatusBar();
-    } else if (!show && this.statusBarEl) {
-      this.statusBarEl.remove();
-      this.statusBarEl = null;
-    }
+    this.statusBar?.setVisible(show);
   }
 
   private syncProgress(): void {

@@ -44,7 +44,10 @@
           "ref": "0.60.0"
         },
         "run-state",
-        "sampling-profiles",
+        {
+          "name": "sampling-profiles",
+          "ref": "0.68.0"
+        },
         {
           "name": "safe-markdown",
           "ref": "0.68.0"
@@ -65,7 +68,11 @@
         "anthropic-wire",
         "chat-archive",
         "filename-template",
-        "local-stamp"
+        "local-stamp",
+        {
+          "name": "error-message",
+          "ref": "0.68.0"
+        }
       ]
     },
     {
@@ -133,26 +140,47 @@
         },
         "embedding-connection",
         "endpoint-list",
-        "endpoint-plumbing",
+        {
+          "name": "endpoint-plumbing",
+          "ref": "0.88.0"
+        },
         "endpoint-secrets",
-        "endpoint-source",
+        {
+          "name": "endpoint-source",
+          "ref": "0.88.0"
+        },
         "folder-hide",
         "folder-suggest",
         "help-setting",
         "link-settings",
         "hit-list",
         "hub",
-        "llm-connection",
-        "llm-connection-strings",
+        {
+          "name": "llm-connection",
+          "ref": "0.88.0"
+        },
+        {
+          "name": "llm-connection-strings",
+          "ref": "0.88.0"
+        },
         "model-picker",
-        "request-section",
-        "status-indicator",
+        {
+          "name": "request-section",
+          "ref": "0.88.0"
+        },
+        {
+          "name": "status-indicator",
+          "ref": "0.88.0"
+        },
         "request-session",
         "secrets",
         "settings_walker",
         "shortcuts-bridge",
         "stream-area",
-        "thinking-control",
+        {
+          "name": "thinking-control",
+          "ref": "0.88.0"
+        },
         "endpoint-status-text",
         "anthropic-transport",
         "plugin-api",
@@ -163,15 +191,25 @@
         "chat-host",
         "chat-leaf",
         "chat-window-strings",
-        "model-bar",
-        "model-bar-strings",
+        {
+          "name": "model-bar",
+          "ref": "0.88.0"
+        },
+        {
+          "name": "model-bar-strings",
+          "ref": "0.88.0"
+        },
         "stable-writer",
         "chat-archive-dialog",
         "chat-archive",
         "chat-archive-strings",
         "chat-archive-css",
         "run-exclusive",
-        "chat-archive-settings"
+        "chat-archive-settings",
+        {
+          "name": "status-bar-item",
+          "ref": "0.88.0"
+        }
       ],
       "rewrite": [
         [

@@ -119,7 +119,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 | Index-Ordner ausblenden | Versteckt den Ordner im Datei-Explorer (kosmetisch; Daten und Sync bleiben unberührt) | an |
 | Ähnlichkeit / Top-k | Retrieval-Schwellen | `0.3` · `20` |
 | Ausschluss-Pfade | Pfade, die nicht indiziert werden (Dot-Ordner immer). Nur diese Liste zählt: Obsidians eigene Einstellung „Ausgeschlossene Dateien“ wird nicht gelesen | `Templates/`, `Archive/` |
-| Fortschritt in Statusleiste | Zeigt den Embedding-Fortschritt; beim Reindex automatisch eingeblendet | aus |
+| Fortschritt in Statusleiste | Zeigt den Embedding-Fortschritt; beim Reindex und während der Pause automatisch eingeblendet, auch wenn ausgeschaltet | an |
 | Debounce | Wie lange nach dem Speichern neu eingebettet wird | `3000` ms |
 | Vorschau vor dem Einsetzen (LLM-Ergebnisse) | Beim Umformatieren mit dem Modell zeigt ein Fenster zuerst das Ergebnis. Aus setzt ein fertiges Ergebnis sofort ein (ein abgeschnittenes oder eines, das Links verloren hat, öffnet die Vorschau trotzdem) | an |
 | Smart Apply | Standardmäßig aus; aktiviert Tab, Befehl und Template-Einstellungen | aus |

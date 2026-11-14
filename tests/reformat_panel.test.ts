@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { ReformatPanel, type ReformatPanelDeps } from "../src/reformat_panel";
 import { buildTransforms } from "../src/reformat_transforms";
 import { makeFakeEl } from "./__mocks__/obsidian";
+import { OHNE_GRUPPEN } from "./helpers/model_bar_llm";
 import "../src/i18n/strings"; // i18n-Texte registrieren
 
 function all(el: any, cls: string): any[] {
@@ -20,6 +21,7 @@ function mkLlm() {
     source: () => ({ defaultModel: "fast-model" }),
     modelInUse: () => "fast-model",
     setModel: vi.fn(async () => {}),
+    ...OHNE_GRUPPEN,
   };
 }
 function mkThinking() {

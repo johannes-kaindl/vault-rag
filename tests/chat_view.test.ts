@@ -3,6 +3,7 @@ import { ChatPanel } from "../src/chat_view";
 import { ChatHttpError, ChatNetworkError, ChatNoEndpointError, ChatTimeoutError } from "../src/chat_error";
 import { makeFakeEl } from "./__mocks__/obsidian";
 import { setLang } from "../src/vendor/kit/i18n";
+import { OHNE_GRUPPEN } from "./helpers/model_bar_llm";
 import "../src/i18n/strings"; // Register i18n strings
 
 // Jede gebaute Modellzeile wird mitgezählt (Pass-through): der Test zur Abmelde-Rückgabe liest, wie oft `destroy` an welcher Zeile ankam.
@@ -68,6 +69,7 @@ function mkPanel(opts: { stream?: Stream; assemble?: any; inputPosition?: () => 
     setModel: vi.fn(async (_m: string) => {}),
     modelInUse: () => "m1",
     source: () => ({ family: null, model: "m1", sentModel: "m1", kind: "local" }),
+    ...OHNE_GRUPPEN,
   };
   const assemble = opts.assemble ?? vi.fn(async (paths: string[]) => ({ text: paths.map((p) => `## ${p}\nINHALT`).join("\n\n"), sources: paths }));
   const embed = opts.embed ?? vi.fn(async () => new Float32Array([1, 0]));

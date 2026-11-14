@@ -58,7 +58,7 @@ const t0 = jetzt();
 const log0 = logZaehler(t0);
 const sb = await main.evaluate<{ paused: boolean; text: string }>(`${P}
   app.commands.executeCommandById("vault-retrieval:pause-embedding"); await new Promise(r => setTimeout(r, 500));
-  return { paused: p.embeddingPaused(), text: p.statusBarEl ? p.statusBarEl.textContent : "" };`);
+  return { paused: p.embeddingPaused(), text: p.statusBar.el ? p.statusBar.el.textContent : "" };`);
 console.log(`pausiert=${sb.paused} · Statusleiste „${sb.text}“`);
 const api1 = await main.evaluate<unknown>(`${P} return await p.api.search("similarity between vectors");`);
 console.log("api.search während der Pause:", JSON.stringify(api1));

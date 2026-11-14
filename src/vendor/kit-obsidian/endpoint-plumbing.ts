@@ -1,10 +1,11 @@
-// vendored from obsidian-kit@0.77.0, src/obsidian/endpoint-plumbing.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.88.0, src/obsidian/endpoint-plumbing.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Die Verdrahtung der lokalen Endpunkt-Liste, die `createLlmConnection` (Chat) und `createLlmConnection` mit
  *  `capability: "embedding"` gemeinsam brauchen: der synchrone `persist`-Wächter, Erreichbarkeit und Modellliste einer Zeile
  *  (`GET /v1/models`, 5 s), die hydrierte Kopie mit Schlüssel und die Modellwahl eines Panels. Eigenes Modul statt zwei
  *  Kopien (Bibliothek ab Eins). Origin: der Block in `llm-connection.ts` bis 0.53.0. */
 import { requestUrl, type App } from "obsidian";
 import { normalizeEndpoint } from "../kit/endpoint";
+import { errorMessage } from "../kit/error-message";
 import { applyEndpointEdit, authHeaders, type EndpointConfig } from "../kit/endpoint_config";
 import { classifyEndpointStatus, extractModelIds, type EndpointStatus } from "../kit/endpoint_diagnostics";
 import type { ModelListClient } from "../kit/model-list-cache";
@@ -53,7 +54,7 @@ export interface EndpointPlumbing<S extends PlumbingSettings> {
   listOf: (cfg: EndpointConfig) => Promise<string[]>;
   clientFor: (cfg: EndpointConfig) => { probe(): Promise<EndpointStatus> } & ModelListClient;
   /** Modellwahl eines Panels (`setModel`): Manager → nur `choice.model`; lokal → Modell der aktiven Zeile. */
-  applyModel: (m: string, resolve: (opts?: { force?: boolean }) => Promise<EndpointSourceResult>) => Promise<void>;
+  applyModel: (m: string, resolve: (opts?: { force?: boolean }) => Promise<EndpointSourceResult>, activeId?: string) => Promise<void>;
   /** Kontextlänge des Zeilen-Modells (`model-context`): mit dem Schlüssel der Zeile, 5 s je Versuch, nie ein Fehler. */
   modelContext: EndpointContextSource;
 }
@@ -88,7 +89,7 @@ export function createEndpointPlumbing<S extends PlumbingSettings>(o: EndpointPl
       const status = classifyEndpointStatus({ kind: "response", status: res.status, body });
       return { status, ids: status.reachable ? extractModelIds(body) : [] };
     } catch (e) {
-      return { status: classifyEndpointStatus({ kind: "error", message: e instanceof Error ? e.message : String(e) }), ids: [] };
+      return { status: classifyEndpointStatus({ kind: "error", message: errorMessage(e) }), ids: [] };
     }
   }
   const probeOf = o.probe ?? (async (cfg: EndpointConfig) => (await fetchStatus(cfg)).status.reachable);
@@ -106,10 +107,14 @@ export function createEndpointPlumbing<S extends PlumbingSettings>(o: EndpointPl
     };
   };
 
-  async function applyModel(m: string, resolve: (opts?: { force?: boolean }) => Promise<EndpointSourceResult>): Promise<void> {
+  /** `activeId` (seit 0.87.0): der Endpunkt, den die Verbindung gerade benutzt. Mit Manager bindet die Modellwahl ihn, wenn die Wahl noch keinen Endpunkt trägt:
+   *  ein Modellname gilt nur auf seinem Endpunkt (Spec § 4.10). Eine gespeicherte Wahl mit Endpunkt behält ihn; eine Alt-Wahl `{ model }` wird nur durch eine NEUE Wahl
+   *  umgeschrieben, nie beim Laden. Ist der aktive Endpunkt unbekannt (vor der ersten Auflösung), bleibt es bei der Wahl, wie sie ist. */
+  async function applyModel(m: string, resolve: (opts?: { force?: boolean }) => Promise<EndpointSourceResult>, activeId?: string): Promise<void> {
     if (findEndpointManager(o.app)) {
       const { model: _old, ...rest } = o.getSettings().choice ?? {};
-      await persist({ choice: m ? { ...rest, model: m } : rest } as Partial<S>);
+      const bound = rest.endpointId === undefined && activeId !== undefined ? { ...rest, endpointId: activeId } : rest;
+      await persist({ choice: m ? { ...bound, model: m } : bound } as Partial<S>);
       await resolve({ force: true });
       return;
     }

@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The status bar entry is now on by default.** New installs show the indexed-notes count in the status bar right away; "Progress in status bar" in the embedding settings still turns it off. Nothing changes for existing installs: a saved choice (on or off) is kept, only a missing or invalid value falls back to "on". During a reindex or a pause the entry still appears even when the switch is off. It now uses the shared status bar component of the library (obsidian-kit 0.88.0).
+- **The model dropdown follows the shared component (obsidian-kit 0.88.0).** The chat model row lists the models of all endpoints grouped by endpoint when the endpoint manager is installed; Smart Apply keeps a plain list that follows the chat endpoint.
+- **gpt-oss models send `reasoning_effort: minimal` again when thinking is off** (code-kit 0.68.0, intended behaviour). The thinking dropdown for gpt-oss gains the level "minimal" and starts there; "off" is still not offered because the model cannot switch thinking off.
+
 ## [0.51.1] — 2026-11-14
 
 ### Security

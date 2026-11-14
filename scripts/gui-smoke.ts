@@ -2745,7 +2745,7 @@ async function main(): Promise<void> {
           const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
           app.commands.executeCommandById("vault-retrieval:pause-embedding");
           await new Promise(r => setTimeout(r, 400));
-          const el = p.statusBarEl;
+          const el = p.statusBar.el;
           return { paused: p.embeddingPaused(), text: el ? el.textContent : "", pressed: el ? el.getAttribute("aria-pressed") : null, role: el ? el.getAttribute("role") : null };`);
         record(PAUSE_PUNKTE[0]!, sb.paused && sb.text.includes("⏸") && sb.pressed === "true" && sb.role === "button",
           `pausiert=${String(sb.paused)} · Text „${sb.text}“ · aria-pressed=${String(sb.pressed)} · role=${String(sb.role)}`);

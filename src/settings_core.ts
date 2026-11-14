@@ -160,7 +160,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   exclude: ["Templates/", "Archive/"],
   embeddingEndpoints: [{ url: "http://localhost:11434", model: "qwen3-embedding:8b" }],
   embeddingChoice: {},
-  showStatusBar: false,
+  showStatusBar: true,
   debounceMs: 3000,
   chatEndpoints: [{ url: "http://localhost:1234", model: "qwen3" }],
   chatChoice: {},

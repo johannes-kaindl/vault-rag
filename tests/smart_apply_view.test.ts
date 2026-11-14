@@ -9,6 +9,7 @@ import { makeFakeEl } from "./__mocks__/obsidian";
 import { blockCountLabel, MODE_LABELS } from "../src/smart_apply_view";
 import "../src/i18n/strings"; // Register i18n strings
 import { t } from "../src/vendor/kit/i18n";
+import { OHNE_GRUPPEN } from "./helpers/model_bar_llm";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -114,6 +115,7 @@ function mkLlm(over: Partial<SmartApplyViewDeps["llm"]> = {}): SmartApplyViewDep
     source: () => ({ defaultModel: "fast-model" }),
     modelInUse: () => "fast-model",
     setModel: vi.fn(async () => {}),
+    ...OHNE_GRUPPEN,
     ...over,
   } as never;
 }
@@ -283,10 +285,10 @@ describe("SmartApplyPanel — Cockpit", () => {
     expect(aus.component.getValue()).toBe("off");
     expect(aus.icon).toBe("brain");
   });
-  it("Denk-Dropdown: Familie ohne Abschaltmöglichkeit (gpt-oss) bietet „aus“ nicht an und zeigt die niedrigste Stufe", () => {
+  it("Denk-Dropdown: Familie ohne Abschaltmöglichkeit (gpt-oss) bietet „aus“ nicht an und zeigt die niedrigste Stufe („minimal“ seit code-kit 0.65.0)", () => {
     const dd = stufenwahl(mkPanel({ thinking: mkThinking({ level: "off", family: "gpt-oss" }).deps as SmartApplyViewDeps["thinking"] }).container);
-    expect(Object.keys(dd.component.options)).toEqual(["low", "medium", "high"]);
-    expect(dd.component.getValue()).toBe("low");
+    expect(Object.keys(dd.component.options)).toEqual(["minimal", "low", "medium", "high"]);
+    expect(dd.component.getValue()).toBe("minimal");
   });
   it("Denk-Dropdown: onShow zeichnet neu (die Stufe kann in den Einstellungen geändert worden sein)", () => {
     const t = mkThinking({ level: "off" });

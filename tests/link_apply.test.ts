@@ -33,7 +33,7 @@ function notiz(start: string, opt: { editor?: string; vorProcess?: () => void; f
 }
 
 const compute = (text: string) => appendSectionLink(text, "Verwandte Notizen", "Notes/B.md");
-const eingabe = (path = "A.md", expectHash: number | null = null) => ({ path, expectHash, hash: hashText, compute });
+const eingabe = (path = "A.md", expectHash: number | null = null) => ({ path, expectHash, hash: hashText, compute, persistWaitMs: 0 });
 
 describe("applyLinkAtomic — vault.process", () => {
   it("schreibt den Link in den Stand, den process liest, und behält eine Änderung aus der Lücke (applyLinkNow)", async () => {
@@ -118,9 +118,28 @@ describe("applyLinkAtomic — offener Quell-Editor", () => {
     const text = "---\nverwandt:\n  - \"[[Notes/C|C]]\"\ntitel: x\n---\nText\n";
     const n = notiz(text, { editor: text });
     const rechnen = (t: string) => ({ ok: true as const, changed: true, content: t.replace("titel: x", "titel: x\nneu: 1") });
-    const r = await applyLinkAtomic(n.ports, { path: "A.md", expectHash: null, hash: hashText, compute: rechnen });
+    const r = await applyLinkAtomic(n.ports, { path: "A.md", expectHash: null, hash: hashText, compute: rechnen, persistWaitMs: 0 });
     expect(r.kind).toBe("written");
     expect(n.st.editor).toBe(rechnen(text).content);
+  });
+
+  it("wartet nach dem Editor-Schreiben, bis die Platte den Text trägt (Obsidian speichert den Editor entzögert)", async () => {
+    const n = notiz("# A\n\nText", { editor: "# A\n\nText" });
+    // „Speichern“ nach 120 ms: die Platte übernimmt den Editorstand erst dann
+    const ports = { ...n.ports, vault: { ...n.ports.vault, read: async () => n.st.disk } };
+    setTimeout(() => { n.st.disk = n.st.editor ?? ""; }, 120);
+    const r = await applyLinkAtomic(ports, { ...eingabe(), persistWaitMs: 2000 });
+    expect(r.kind).toBe("written");
+    expect(n.st.disk).toBe(n.st.editor);
+    expect(n.st.disk).toContain("[[Notes/B|B]]");
+  });
+
+  it("speichert Obsidian nicht innerhalb der Frist, bleibt es bei written (der Text steht im Editor)", async () => {
+    const n = notiz("# A", { editor: "# A" });
+    const r = await applyLinkAtomic(n.ports, { ...eingabe(), persistWaitMs: 100 });
+    expect(r.kind).toBe("written");
+    expect(n.st.disk).toBe("# A");
+    expect(n.st.editor).toContain("[[Notes/B|B]]");
   });
 
   it("Wirft der Editor beim Ersetzen, kommt write-failed", async () => {

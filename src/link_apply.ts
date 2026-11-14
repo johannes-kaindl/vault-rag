@@ -22,6 +22,8 @@ export interface LinkApplyInput {
   /** Hash des Notiztexts zur Berechnungszeit (acceptLink); `null` = kein Guard (applyLinkNow). */
   expectHash: number | null;
   hash: (text: string) => number;
+  /** Wie lange nach einem Editor-Schreiben auf die Platte gewartet wird (ms); Standard 3000. Obsidian speichert den Editor erst nach rund 2 s. */
+  persistWaitMs?: number;
 }
 
 /** Position `offset` im Text als Zeile/Zeichen (UTF-16, wie CodeMirror/Obsidian). */
@@ -40,6 +42,16 @@ function replaceDiff(editor: EditorHandle, cur: string, next: string): void {
   let b = 0;
   while (b < max - a && cur.charCodeAt(cur.length - 1 - b) === next.charCodeAt(next.length - 1 - b)) b++;
   editor.replaceRange(next.slice(a, next.length - b), posAt(cur, a), posAt(cur, cur.length - b));
+}
+
+/** Wartet, bis die Datei auf der Platte `next` trägt (Obsidian speichert den Editor entzögert), höchstens `maxMs`. Kommt es nicht dazu, bleibt der Text im Editor
+ *  und Obsidian speichert ihn selbst; der Aufrufer meldet trotzdem Erfolg. */
+async function waitPersisted(ports: WritePorts, path: string, next: string, maxMs: number): Promise<void> {
+  const until = Date.now() + maxMs;
+  while (Date.now() < until) {
+    try { if ((await ports.vault.read(path)) === next) return; } catch { return; }
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
+  }
 }
 
 type Decision = { outcome: LinkApplyOutcome; next: string | null };
@@ -62,6 +74,8 @@ export async function applyLinkAtomic(ports: WritePorts, input: LinkApplyInput):
     const d = decide(input, editorText);
     if (d.next !== null) {
       try { replaceDiff(editor, editorText, d.next); } catch { return { kind: "error", reason: "write-failed" }; }
+      // Der Vertrag bleibt „geschrieben heißt auf der Platte“: wer danach `adapter.read` ruft (Plugin-API, Tests), sieht den Link.
+      await waitPersisted(ports, path, d.next, input.persistWaitMs ?? 3000);
     }
     return d.outcome;
   }

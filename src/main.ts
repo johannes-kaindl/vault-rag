@@ -19,6 +19,7 @@ import type { ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
 import { createStatusBarItem, statusBarEnabled, type StatusBarItemHandle } from "./vendor/kit-obsidian/status-bar-item";
 import { obsidianWritePorts } from "./vendor/kit-obsidian/write-ports";
 import { applyLinkAtomic } from "./link_apply";
+import { swapNote } from "./note_edit";
 import type { EmbeddingConnection, EmbeddingResolution } from "./vendor/kit-obsidian/embedding-connection";
 import { thinkingLevelTexts, thinkingOffTexts, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import { createChatArchive, type ChatArchive } from "./vendor/kit-obsidian/chat-archive";
@@ -485,7 +486,7 @@ export default class VaultRagPlugin extends Plugin {
       this.smartApply = new SmartApply(
         {
           read: (p) => this.app.vault.adapter.read(p),
-          write: (p, data) => this.app.vault.adapter.write(p, data),
+          swap: (p, expected, next) => this.swapNoteText(p, expected, next),
           listTemplates: async () =>
             templateFilesUnder(this.app.vault.getMarkdownFiles().map(f => f.path), this.settings.templateDir),
           typeOf: async (p) => extractType(await this.app.vault.adapter.read(p)),
@@ -1755,6 +1756,11 @@ export default class VaultRagPlugin extends Plugin {
     return this.settings.linkTarget === "frontmatter"
       ? appendFrontmatterLink(text, this.settings.linkField, target)
       : appendSectionLink(text, this.settings.linkHeading, target);
+  }
+
+  /** Smart Apply tauscht den Text einer Nutzernotiz atomar (Prüfung im selben Zug wie das Schreiben), nie mit `adapter.read` + `adapter.write`. */
+  private swapNoteText(path: string, expected: string, next: string): Promise<boolean> {
+    return swapNote(obsidianWritePorts(this.app), path, expected, next);
   }
 
   /** Annehmen aus der Inbox: Hash-Guard gegen den Stand der Berechnung (Spec §4). Prüfung und Schreiben laufen in EINEM

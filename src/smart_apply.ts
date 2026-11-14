@@ -46,7 +46,9 @@ export interface SmartApplyParams {
 
 export interface SmartApplyDeps {
   read: (path: string) => Promise<string>;
-  write: (path: string, text: string) => Promise<void>;
+  /** Tauscht den Text der Notiz `expected` gegen `next`, atomar: `true` = ersetzt, `false` = die Notiz trägt im Augenblick des Schreibens nicht mehr `expected`
+   *  (nichts geschrieben). Wirft, wenn die Notiz fehlt oder das Schreiben scheitert. Kein Lesen, `await`, Schreiben: was dazwischen in der Notiz geschähe, ginge verloren. */
+  swap: (path: string, expected: string, next: string) => Promise<boolean>;
   listTemplates: () => Promise<string[]>;
   embed: (text: string) => Promise<Float32Array>;
   search: (vec: Float32Array, opts: { k: number; minSim: number; exclude: string[] }) => { path: string; score: number }[];
@@ -143,12 +145,6 @@ export function assembleProposedText(ctx: AssemblyContext, sel: ApplySelection, 
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
-
-function djb2(s: string): number {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  return h;
-}
 
 function normalizeStr(s: string): string {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
@@ -528,35 +524,35 @@ export class SmartApply {
   }
 
   /**
-   * SOLE WRITER. Stale-hash guard: re-reads file, computes djb2 hash, compares to
-   * hash of proposal.originalText. Mismatch → {written:false, reason:"stale"}.
+   * SOLE WRITER. Stale-Guard: tauscht `proposal.originalText` atomar gegen den fertigen Text (`deps.swap` prüft im selben Zug, ob die Notiz noch
+   * genau den Stand der Berechnung trägt). Weicht sie ab → {written:false, reason:"stale"}.
    * If !proposal.hardOk → {written:false, reason:"blocked"}.
    * Else: build the final text FRESH from the granular selection (never the preview
    * proposal.proposedText — the user may have deselected inferred keys/additions after
-   * the preview was rendered), then single write call, return
-   * {written:true, undo: () => write(notePath, originalText)}.
+   * the preview was rendered), then ein einziger Tausch, return
+   * {written:true, undo, redo}. Rückgängig und Wiederholen tauschen ebenso und weigern sich, wenn die Notiz seither geändert wurde
+   * (sonst überschrieben sie fremde Änderungen mit einem alten Stand).
    */
   async persistApply(proposal: ApplyProposal, selection: ApplySelection, auditTrail: boolean): Promise<ApplyResult> {
     if (!proposal.hardOk) {
       return { written: false, reason: "blocked" };
     }
 
-    // Stale-hash guard
-    const currentText = await this.deps.read(proposal.notePath);
-    if (djb2(currentText) !== djb2(proposal.originalText)) {
+    const finalText = assembleProposedText(proposal.assembly, selection, auditTrail);
+    if (!(await this.deps.swap(proposal.notePath, proposal.originalText, finalText))) {
       return { written: false, reason: "stale" };
     }
 
-    const finalText = assembleProposedText(proposal.assembly, selection, auditTrail);
-    await this.deps.write(proposal.notePath, finalText);
-
     const originalText = proposal.originalText;
     const notePath = proposal.notePath;
+    const tausche = async (von: string, nach: string): Promise<void> => {
+      if (!(await this.deps.swap(notePath, von, nach))) throw new Error(t("smartApply.undoNoteChanged"));
+    };
 
     return {
       written: true,
-      undo: () => this.deps.write(notePath, originalText),
-      redo: () => this.deps.write(notePath, finalText),
+      undo: () => tausche(finalText, originalText),
+      redo: () => tausche(originalText, finalText),
     };
   }
 }

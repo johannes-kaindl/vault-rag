@@ -193,6 +193,7 @@ export const EN = {
   // smart_apply_view.ts
   "smartApply.noActiveNote": "No active markdown note — open a note and try again.",
   "smartApply.error": "Smart Apply: {0}",
+  "smartApply.undoNoteChanged": "The note changed after Smart Apply — nothing was overwritten.",
   "smartApply.label": "Smart Apply",
   "smartApply.runLabel": "Apply to active note",
   "smartApply.modeDeterministic": "Deterministic",
@@ -738,6 +739,7 @@ export const DE = {
 
   "smartApply.noActiveNote": "Keine aktive Markdown-Notiz — öffne eine Notiz und versuche es erneut.",
   "smartApply.error": "Smart Apply: {0}",
+  "smartApply.undoNoteChanged": "Die Notiz hat sich nach Smart Apply geändert — nichts wurde überschrieben.",
   "smartApply.label": "Smart Apply",
   "smartApply.runLabel": "Auf aktive Notiz anwenden",
   "smartApply.modeDeterministic": "Deterministisch",

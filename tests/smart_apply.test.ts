@@ -78,13 +78,23 @@ function makeClient(returnContent: string, returnReasoning = "", finishReason?: 
 function makeDeps(overrides: Partial<SmartApplyDeps> = {}): SmartApplyDeps {
   return {
     read: async () => testNoteText,
-    write: vi.fn(),
+    swap: async () => true,
     listTemplates: async () => ["Templates/Meeting.md"],
     embed: async () => new Float32Array(3).fill(0.1),
     search: () => [],
     typeOf: async () => null,
     app: () => ({}),
     ...overrides,
+  };
+}
+
+/** Eine Notiz im Speicher für `deps.swap`: tauscht nur, wenn sie noch `expected` trägt (wie `swapNote`), und meldet jedes Schreiben an `writeFn(path, text)`. */
+function notiz(writeFn: (path: string, text: string) => void, cell: { text: string }): SmartApplyDeps["swap"] {
+  return async (path, expected, next) => {
+    if (cell.text !== expected) return false;
+    cell.text = next;
+    writeFn(path, next);
+    return true;
   };
 }
 
@@ -279,20 +289,20 @@ describe("SmartApply", () => {
   });
 
   it("persistApply stale-hash → kein Write", async () => {
-    let fileContent = testNoteText;
+    const cell = { text: testNoteText };
     const writeFn = vi.fn();
     const deps = makeDeps({
       read: async (p) => {
         if (p === TEMPLATE_PATH) return templateText;
-        return fileContent;
+        return cell.text;
       },
-      write: writeFn,
+      swap: notiz(writeFn, cell),
     });
     const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
 
     // Simulate the file being modified externally
-    fileContent = testNoteText + "\n<!-- external edit -->";
+    cell.text = testNoteText + "\n<!-- external edit -->";
 
     const result = await sa.persistApply(proposal, proposal.selection, false);
     expect(result.written).toBe(false);
@@ -307,7 +317,7 @@ describe("SmartApply", () => {
         if (p === TEMPLATE_PATH) return templateText;
         return testNoteText;
       },
-      write: writeFn,
+      swap: notiz(writeFn, { text: testNoteText }),
     });
     const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
@@ -327,7 +337,7 @@ describe("SmartApply", () => {
         if (p === TEMPLATE_PATH) return templateText;
         return testNoteText;
       },
-      write: writeFn,
+      swap: notiz(writeFn, { text: testNoteText }),
     });
     const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
@@ -342,6 +352,46 @@ describe("SmartApply", () => {
     expect(writeFn).toHaveBeenCalledWith(NOTE_PATH, testNoteText);
   });
 
+  it("undo weigert sich, wenn die Notiz seither geändert wurde — kein Write, die fremde Änderung bleibt", async () => {
+    const cell = { text: testNoteText };
+    const writeFn = vi.fn();
+    const deps = makeDeps({
+      read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),
+      swap: notiz(writeFn, cell),
+    });
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
+    const result = await sa.persistApply(proposal, proposal.selection, false);
+    expect(result.written).toBe(true);
+
+    const fremd = cell.text + "\nvon Hand ergänzt";
+    cell.text = fremd;
+    writeFn.mockClear();
+    await expect(result.undo!()).rejects.toThrow(/changed|geändert/);
+    expect(writeFn).not.toHaveBeenCalled();
+    expect(cell.text).toBe(fremd);
+  });
+
+  it("redo weigert sich ebenso, wenn die Notiz nach dem Rückgängig geändert wurde", async () => {
+    const cell = { text: testNoteText };
+    const writeFn = vi.fn();
+    const deps = makeDeps({
+      read: async (p) => (p === TEMPLATE_PATH ? templateText : testNoteText),
+      swap: notiz(writeFn, cell),
+    });
+    const sa = new SmartApply(deps, makeClient(validAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
+    const proposal = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "deterministisch", () => {}, () => {});
+    const result = await sa.persistApply(proposal, proposal.selection, false);
+    await result.undo!();
+    expect(cell.text).toBe(testNoteText);
+
+    cell.text = testNoteText + "\nnach dem Rückgängig getippt";
+    writeFn.mockClear();
+    await expect(result.redo!()).rejects.toThrow();
+    expect(writeFn).not.toHaveBeenCalled();
+    expect(cell.text).toBe(testNoteText + "\nnach dem Rückgängig getippt");
+  });
+
   it("Idempotenz: erneute Anwendung auf bereits angewandte Notiz → leeres diff", async () => {
     const writeFn = vi.fn();
     let currentContent = testNoteText;
@@ -351,7 +401,7 @@ describe("SmartApply", () => {
         if (p === TEMPLATE_PATH) return templateText;
         return currentContent;
       },
-      write: writeFn,
+      swap: notiz(writeFn, { text: testNoteText }),
     });
     const sa = new SmartApply(deps, () => makeClient(clientJson)(), () => ({ model: 'm', maxTokens: 2048 }));
 
@@ -826,7 +876,7 @@ datum:
 
   it("persistApply schreibt mit finaler Auswahl (nicht der Preview)", async () => {
     const writeFn = vi.fn();
-    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
+    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), swap: notiz(writeFn, { text: testNoteText }) };
     const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
     // Preview (default selection) has the inferred "datum" value ("System") in it:
@@ -840,7 +890,7 @@ datum:
 
   it("auditTrail=true schreibt smartapply_erschlossen ins Frontmatter", async () => {
     const writeFn = vi.fn();
-    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
+    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), swap: notiz(writeFn, { text: testNoteText }) };
     const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
     await sa.persistApply(p, { inferredKeys: new Set(["datum"]), additionIds: new Set() }, true);
@@ -850,7 +900,7 @@ datum:
 
   it("redo wendet die FINALE Auswahl erneut an (nicht die Default-Preview)", async () => {
     const writeFn = vi.fn();
-    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), write: writeFn };
+    const deps = { ...makeGatingDeps(TEMPLATE_PATH, templateText), swap: notiz(writeFn, { text: testNoteText }) };
     const sa = new SmartApply(deps, makeClient(gatingAssignmentJSON()), () => ({ model: 'm', maxTokens: 2048 }));
     const p = await sa.propose(NOTE_PATH, TEMPLATE_PATH, "additiv", noop, noop);
     // Preview (Default-Auswahl) enthält den erschlossenen Wert "System":
@@ -860,7 +910,8 @@ datum:
     const appliedText = writeFn.mock.calls[0][1] as string;
     expect(appliedText).not.toContain("System");
     expect(res.redo).toBeDefined();
-    // redo muss GENAU den angewendeten Text wiederherstellen (die finale Auswahl), nicht die Preview:
+    // redo gibt es erst nach dem Rückgängig; er muss GENAU den angewendeten Text wiederherstellen (die finale Auswahl), nicht die Preview:
+    await res.undo!();
     writeFn.mockClear();
     await res.redo!();
     expect(writeFn).toHaveBeenCalledTimes(1);

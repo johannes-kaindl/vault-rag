@@ -6,7 +6,8 @@
 // verloren, und der Hash-Guard von `acceptLink` prüfte den Stand der Berechnung, nicht den beim Schreiben. Jetzt läuft Prüfung
 // UND Rechnung in `vault.process` (liest und schreibt in einem Zug) oder, bei einer im Quellmodus offenen Notiz, auf dem Stand
 // des Editors (Strg+Z wirkt, kein getipptes Zeichen geht verloren).
-import type { WritePorts, EditorHandle } from "./vendor/kit/block-writer";
+import type { WritePorts } from "./vendor/kit/block-writer";
+import { editAtomic, type EditDecision } from "./note_edit";
 import type { WriteResult } from "./link_writer";
 
 export type LinkApplyOutcome =
@@ -26,35 +27,7 @@ export interface LinkApplyInput {
   persistWaitMs?: number;
 }
 
-/** Position `offset` im Text als Zeile/Zeichen (UTF-16, wie CodeMirror/Obsidian). */
-function posAt(text: string, offset: number): { line: number; ch: number } {
-  let line = 0;
-  let last = -1;
-  for (let i = text.indexOf("\n"); i !== -1 && i < offset; i = text.indexOf("\n", i + 1)) { line++; last = i; }
-  return { line, ch: offset - (last + 1) };
-}
-
-/** Ersetzt im Editor nur die Spanne, in der `cur` und `next` sich unterscheiden: Cursor, Auswahl und Undo-Verlauf der übrigen Notiz bleiben. */
-function replaceDiff(editor: EditorHandle, cur: string, next: string): void {
-  let a = 0;
-  const max = Math.min(cur.length, next.length);
-  while (a < max && cur.charCodeAt(a) === next.charCodeAt(a)) a++;
-  let b = 0;
-  while (b < max - a && cur.charCodeAt(cur.length - 1 - b) === next.charCodeAt(next.length - 1 - b)) b++;
-  editor.replaceRange(next.slice(a, next.length - b), posAt(cur, a), posAt(cur, cur.length - b));
-}
-
-/** Wartet, bis die Datei auf der Platte `next` trägt (Obsidian speichert den Editor entzögert), höchstens `maxMs`. Kommt es nicht dazu, bleibt der Text im Editor
- *  und Obsidian speichert ihn selbst; der Aufrufer meldet trotzdem Erfolg. */
-async function waitPersisted(ports: WritePorts, path: string, next: string, maxMs: number): Promise<void> {
-  const until = Date.now() + maxMs;
-  while (Date.now() < until) {
-    try { if ((await ports.vault.read(path)) === next) return; } catch { return; }
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
-  }
-}
-
-type Decision = { outcome: LinkApplyOutcome; next: string | null };
+type Decision = EditDecision<LinkApplyOutcome>;
 
 function decide(input: LinkApplyInput, text: string): Decision {
   if (input.expectHash !== null && input.hash(text) !== input.expectHash) return { outcome: { kind: "stale" }, next: null };
@@ -65,28 +38,6 @@ function decide(input: LinkApplyInput, text: string): Decision {
 }
 
 export async function applyLinkAtomic(ports: WritePorts, input: LinkApplyInput): Promise<LinkApplyOutcome> {
-  const { path } = input;
-  // Offener Quell-Editor: sein Stand ist der, den der Nutzer sieht (und der noch nicht gespeichert sein muss). Mit `\r` im Text
-  // (CRLF) stimmen Editor-Offsets und Rohtext nicht sicher überein; dort bleibt der Weg über `vault.process`.
-  const editor = ports.editorFor(path);
-  const editorText = editor?.getValue();
-  if (editor && editorText !== undefined && !editorText.includes("\r")) {
-    const d = decide(input, editorText);
-    if (d.next !== null) {
-      try { replaceDiff(editor, editorText, d.next); } catch { return { kind: "error", reason: "write-failed" }; }
-      // Der Vertrag bleibt „geschrieben heißt auf der Platte“: wer danach `adapter.read` ruft (Plugin-API, Tests), sieht den Link.
-      await waitPersisted(ports, path, d.next, input.persistWaitMs ?? 3000);
-    }
-    return d.outcome;
-  }
-  const box: { d: Decision | null } = { d: null };
-  try {
-    await ports.vault.process(path, (current) => {
-      box.d = decide(input, current);
-      return box.d.next ?? current;
-    });
-  } catch {
-    return { kind: "error", reason: box.d === null ? "not-found" : "write-failed" };
-  }
-  return box.d?.outcome ?? { kind: "error", reason: "not-found" };
+  const r = await editAtomic<LinkApplyOutcome>(ports, input.path, (text) => decide(input, text), input.persistWaitMs);
+  return r.kind === "done" ? r.outcome : { kind: "error", reason: r.reason };
 }

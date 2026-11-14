@@ -4,7 +4,7 @@ import type { RelatedResult } from "./retrieval_facade";
 import type { LinkProposal } from "./integrator_store";
 import { wikilinkFor } from "./link_writer";
 
-/** djb2 — dieselbe Funktion wie der Stale-Guard von Smart Apply (smart_apply.ts). */
+/** djb2 des Notiztexts (Stale-Guard des Integrators; Smart Apply vergleicht seit Welle 34 den Text selbst, `swapNote`). */
 export function hashText(s: string): number {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;

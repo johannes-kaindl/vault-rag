@@ -67,11 +67,11 @@ describe("ReformatPanel — Gruppen nach dem Merkmal benennen, das den Nutzer be
 });
 
 describe("ReformatPanel — Modellzeile (Welle 27, V5)", () => {
-  it("trägt die Modellzeile des Kits mit dem Namen „Reformat (chat model)“ und der Denk-Steuerung darin", () => {
+  it("trägt die Modellzeile des Kits mit dem Namen „Chat model“ und der Denk-Steuerung darin", () => {
     const { container } = mkPanel();
     const bar = first(container, "okit-model-bar");
     expect(bar).toBeTruthy();
-    expect(first(bar, "okit-model-bar-label").textContent).toBe("Reformat (chat model)");
+    expect(first(bar, "okit-model-bar-label").textContent).toBe("Chat model");
     expect(all(bar, "okit-thinking-control").length).toBe(1);
     expect(all(container, "okit-model-bar").length).toBe(1);
   });

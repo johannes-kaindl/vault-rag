@@ -20,3 +20,5 @@ Gotchas zum Verlinken mit Review-Inbox (`src/integrator*.ts`, `src/link_writer.t
   Notiz dazwischen, verweigert `acceptLink` das Schreiben und markiert die Karte als veraltet — dieselbe
   Bauart wie der Stale-Guard von Smart Apply. Nach dem eigenen Schreiben wird der Hash auf den neuen
   Stand gesetzt, sonst waere der zweite Klick auf derselben Karte immer „veraltet".
+
+- **Eine Nutzernotiz wird nie mit `adapter.read` + `adapter.write` geändert** (Welle 34). Dazwischen liegt ein `await`; was dort in der Notiz geschieht, geht verloren, und die Prüfung gilt für einen Stand, den es beim Schreiben nicht mehr gibt. Der Weg ist `applyLinkAtomic` (`src/link_apply.ts`): Hash-Guard und Rechnung laufen im `vault.process`-Callback, bei einer im Quellmodus offenen Notiz auf dem Editorstand (nur die geänderte Spanne wird ersetzt). Ausnahme CRLF: `vault.process`. Rot-Probe: `main.ts` auf den alten Stand setzen, dann sind drei Tests in `tests/link_schreiben_atomar.test.ts` rot.

@@ -17,6 +17,8 @@ import { describeModel, type EndpointSourceResult } from "./vendor/kit/endpoint-
 import { createLlmConnection, type LlmConnection } from "./vendor/kit-obsidian/llm-connection";
 import type { ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
 import { createStatusBarItem, statusBarEnabled, type StatusBarItemHandle } from "./vendor/kit-obsidian/status-bar-item";
+import { obsidianWritePorts } from "./vendor/kit-obsidian/write-ports";
+import { applyLinkAtomic } from "./link_apply";
 import type { EmbeddingConnection, EmbeddingResolution } from "./vendor/kit-obsidian/embedding-connection";
 import { thinkingLevelTexts, thinkingOffTexts, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import { createChatArchive, type ChatArchive } from "./vendor/kit-obsidian/chat-archive";
@@ -1755,41 +1757,37 @@ export default class VaultRagPlugin extends Plugin {
       : appendSectionLink(text, this.settings.linkHeading, target);
   }
 
-  /** Annehmen aus der Inbox: Hash-Guard gegen den Stand der Berechnung (Spec §4). */
+  /** Annehmen aus der Inbox: Hash-Guard gegen den Stand der Berechnung (Spec §4). Prüfung und Schreiben laufen in EINEM
+   *  `vault.process` (oder auf dem offenen Quell-Editor), nicht als Lesen, `await`, Schreiben: was dazwischen in der Notiz geschähe, ginge sonst verloren. */
   async acceptLink(path: string, target: string): Promise<AcceptOutcome> {
     const p = this.integratorStore.get(path);
     if (!p) return { kind: "error", reason: "not-found" };
-    let text: string;
-    try { text = await this.app.vault.adapter.read(path); } catch { return { kind: "error", reason: "not-found" }; }
-    if (hashText(text) !== p.noteHash) {
+    const r = await applyLinkAtomic(obsidianWritePorts(this.app), {
+      path, expectHash: p.noteHash, hash: hashText, compute: (text) => this.writeLinkInto(text, target),
+    });
+    if (r.kind === "stale") {
       this.integratorStore.markStale(path); await this.saveIntegratorStore();
       return { kind: "stale" };
     }
-    const r = this.writeLinkInto(text, target);
-    if (!r.ok) return { kind: "error", reason: r.reason };
-    if (r.changed) {
-      try { await this.app.vault.adapter.write(path, r.content); } catch { return { kind: "error", reason: "write-failed" }; }
-    }
+    if (r.kind === "error") return { kind: "error", reason: r.reason };
     this.integratorStore.resolve(path, target, "accepted");
     // Der Text hat sich durch UNS geaendert: der naechste Klick auf derselben Karte darf nicht
     // als stale gelten. Hash auf den geschriebenen Stand setzen.
     this.integratorStore.updateHash(path, hashText(r.content));
     await this.saveIntegratorStore();
-    return { kind: r.changed ? "written" : "unchanged" };
+    return { kind: r.kind };
   }
 
-  /** Sofort schreiben, ohne Inbox und ohne Hash-Guard — die Plugin-API-Flaeche (Spec §8). */
+  /** Sofort schreiben, ohne Inbox und ohne Hash-Guard — die Plugin-API-Flaeche (Spec §8). Gleicher atomarer Weg wie `acceptLink`. */
   async applyLinkNow(path: string, target: string): Promise<ApiApplyResult> {
     if (!this.settings.integratorEnabled) return { ok: false, reason: "disabled" };
     if (this.settings.exclude.some(e => path.startsWith(e))) return { ok: false, reason: "excluded" };
-    let text: string;
-    try { text = await this.app.vault.adapter.read(path); } catch { return { ok: false, reason: "not-found" }; }
-    const r = this.writeLinkInto(text, target);
-    if (!r.ok) return { ok: false, reason: r.reason };
-    if (r.changed) {
-      try { await this.app.vault.adapter.write(path, r.content); } catch { return { ok: false, reason: "write-failed" }; }
-    }
-    return { ok: true, changed: r.changed };
+    const r = await applyLinkAtomic(obsidianWritePorts(this.app), {
+      path, expectHash: null, hash: hashText, compute: (text) => this.writeLinkInto(text, target),
+    });
+    if (r.kind === "error") return { ok: false, reason: r.reason };
+    if (r.kind === "stale") return { ok: false, reason: "write-failed" };   // ohne Guard unerreichbar; nur der Typ verlangt den Zweig
+    return { ok: true, changed: r.kind === "written" };
   }
 
   /** Hotkey-Weg durch die Inbox: die Karte der aktiven Notiz zuerst, sonst die neueste; darin das erste Ziel.

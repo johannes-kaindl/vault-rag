@@ -118,7 +118,11 @@
         "folder-hide",
         "frontmatter",
         "tool-provider",
-        "override-guard"
+        "override-guard",
+        {
+          "name": "block-writer",
+          "ref": "0.89.0"
+        }
       ],
       "rewrite": [
         [
@@ -218,6 +222,10 @@
         "chat-archive-settings",
         {
           "name": "status-bar-item",
+          "ref": "0.89.0"
+        },
+        {
+          "name": "write-ports",
           "ref": "0.89.0"
         }
       ],

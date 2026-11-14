@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.88.0, src/obsidian/llm-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.89.0, src/obsidian/llm-connection.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Die LLM-Anbindung eines Fachplugins als EINE Komposition: Endpunkt-Quelle (Manager oder lokale
  *  Liste mit Schlüsselbund), gemerkte Auflösung, Modellliste, Anfrage-Parameter je Modus, Client mit
  *  Transport und Fristen, Prüfung der Antwort und beide Settings-Abschnitte.
@@ -42,7 +42,7 @@
  *
  *  **Endpunktwahl und Abo (seit 0.87.0, Modellzeile mit Gruppen):** `endpoints()`, `activeEndpointId()`, `modelsOf(id)`, `choice()`, `setChoice(c)` und `subscribe(cb)` tragen `buildModelBar` (Interface `ModelBarConnection`). `setChoice` ist der eine Weg, die Wahl zu schreiben (Modellzeile und
  *  Endpunkt-Dropdown des Einstellungs-Tabs), löst mit `force` neu auf und meldet über `subscribe` (mehrere Zuhörer, an denselben Stellen und unter derselben Wiedereintrittssperre wie `onResolved`; **ein Zuhörer darf `resolve()` nicht rufen**). Eine verwaiste Wahl
- *  (`disabled`, `not-found`, `secret-missing`) fällt auf „Automatisch“ zurück und nimmt `choice.model` nicht mit (`source().reason` nennt den Grund); `setModel` mit Manager bindet den aktiven Endpunkt, wenn die Wahl keinen trägt.
+ *  (`disabled`, `not-found`, `secret-missing`) fällt auf „Automatisch“ zurück und nimmt `choice.model` nicht mit (`source().reason` nennt den Grund); `setModel` mit Manager bindet den aktiven Endpunkt, wenn die Wahl keinen trägt. Der aktive Endpunkt ist `source.endpointId` (die `id` des Managers, gelesen; seit Welle 34, vorher aus `list()` geraten): ohne brauchbare `id` ist er unbekannt, `activeEndpointId()` `undefined`, und `setModel` bindet nichts.
  *
  *  Vertrag an `persist`: es übernimmt den Patch in die Settings des Plugins SYNCHRON (bevor es
  *  speichert) — die Endpunkt-Liste liest ihre Zeilen danach über `getSettings()` zurück. */
@@ -58,7 +58,7 @@ import {
 } from "../kit/sampling-profiles";
 import {
   resolveEndpointSource, describeModel, sanitizeChoice,
-  type Capability, type EndpointChoice, type EndpointSourceResult, type LlmEndpointManagerApi, type ShortcutTransportConfig,
+  type Capability, type EndpointChoice, type EndpointSourceResult, type ShortcutTransportConfig,
 } from "../kit/endpoint-source";
 import {
   createChatClient, JIT_FIRST_CHUNK_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS,
@@ -72,7 +72,7 @@ import { createObsidianBackendProbe, fetchLoadedModelsAt } from "./backend-probe
 import type { LoadedModel } from "../kit/capabilities";
 import { buildEndpointList } from "./endpoint-list";
 import { prepareLocalEndpoints } from "./endpoint-secrets";
-import { createEndpointPlumbing } from "./endpoint-plumbing";
+import { createEndpointPlumbing, managerModelList } from "./endpoint-plumbing";
 import { createEmbeddingConnection, type EmbeddingConnection, type EmbeddingConnectionOptions } from "./embedding-connection";
 import { buildEndpointSourceSection, findEndpointManager, openEndpointManagerSettings } from "./endpoint-source";
 import { buildRequestSection, type RequestSectionState } from "./request-section";
@@ -268,8 +268,9 @@ export interface LlmConnection {
   /** Der Endpunkt, den die Verbindung nach der letzten Auflösung wirklich benutzt: die Wahl, wenn sie sich materialisieren ließ, sonst der automatische.
    *  Vor der ersten Auflösung, ohne Manager und ohne Endpunkt `undefined`. */
   activeEndpointId(): string | undefined;
-  /** Die Modellliste eines bestimmten Endpunkts (`api.models(id)`), wirft nie. Fehler, `ApiError` und Wurf sind `{ models: [], reachable: false }`; eine leere Liste ist
-   *  `reachable: true` (der Manager unterscheidet Offline nicht von „keine Liste“, Spec § 4.7). Ohne Manager `reachable: false`. */
+  /** Die Modellliste eines bestimmten Endpunkts, wirft nie (`managerModelList`). Mit `api.modelList` (additiv in API v1, optional) kommt die Erreichbarkeit vom Manager: ein gestoppter Server ist
+   *  `{ models: [], reachable: false }`, ein Server ohne Liste `{ models: [], reachable: true }`. Nur im Rückfall auf `api.models(id)` (Manager ohne `modelList`) gilt: eine leere Liste ist `reachable: true`
+   *  (der Manager unterscheidet Offline dort nicht von „keine Liste“, Spec § 4.7). Fehler, `ApiError`, eine Antwort falscher Form und ein Wurf sind `{ models: [], reachable: false }`. Ohne Manager `reachable: false`. */
   modelsOf(endpointId: string, opts?: { force?: boolean }): Promise<ModelListResult>;
   /** Die gespeicherte Wahl des Plugins (`getSettings().choice`, bereinigt). */
   choice(): EndpointChoice;
@@ -347,7 +348,6 @@ function createChatConnection(o: LlmConnectionOptions): LlmConnection {
   // Seit dem letzten `invalidate()` abgeschlossen? Steuert die Auflösung beim Zeichnen der Einstellungen (ein „kein Endpunkt“
   // wird nicht gemerkt, löst aber auch keine Endlosschleife aus).
   let freshSinceInvalidate = false;
-  let lastManagerEntry: string | undefined;
   const subscribers = new Set<() => void>();
 
   async function resolveNow(): Promise<EndpointSourceResult> {
@@ -366,26 +366,17 @@ function createChatConnection(o: LlmConnectionOptions): LlmConnection {
       ...(manager && s.choice ? { choice: s.choice } : {}),
       backendOf,
     }, async (cfg) => (o.managerOnly ? false : probeOf(cfg)));
-    // Eine verwaiste Wahl (`reason`) hat die Auflösung nicht benutzt: aktiv ist der automatische Endpunkt, auch wenn die Wahl noch in `list()` steht (abgeschaltet).
-    lastManagerEntry = manager ? managerEntryId(manager, r.reason ? undefined : s.choice) : undefined;
+    // Der aktive Endpunkt steht im Ergebnis (`r.endpointId`, die `id` des `ResolvedEndpoint`): gelesen, nicht aus `list()` geraten (Welle 34, Paket 9). Eine verwaiste Wahl (`reason`) hat die Auflösung nicht benutzt,
+    // das Ergebnis trägt dann die `id` des automatischen Endpunkts. Ohne brauchbare `id` bleibt der Endpunkt unbekannt.
     return r;
   }
 
-  function managerEntryId(api: LlmEndpointManagerApi, choice: EndpointChoice | undefined): string | undefined {
-    const entries = api.list({ capability: o.capability, ...(anthropicTransports() ? { transports: anthropicTransports() } : {}) });
-    if (choice?.endpointId && entries.some((e) => e.id === choice.endpointId)) return choice.endpointId;
-    // „Automatisch“: der erste Eintrag der automatischen Liste (bei `"explicit"` ohne Claude), derselbe, den `resolve()` nimmt.
-    // `list()` filtert abgeschaltete Einträge nicht, `resolve()` überspringt sie: der erste eingeschaltete ist der, den „Automatisch“ nimmt.
-    const auto = autoTransports() ? api.list({ capability: o.capability, transports: autoTransports() }) : entries;
-    return auto.find((e) => e.enabled)?.id;
-  }
-
   /** Dieselbe Quelle für die Anzeige? Was ein Konsument in `onResolved` neu zeichnet: Modell, gesendetes Modell, Familie samt Anzeigefamilie und Herkunft, Backend samt Herkunft,
-   *  Endpunkt (Art, Adresse, Kennung), Transport und Grund. Jedes Merkmal hat einen Einzelfall in `tests/llm-connection.test.ts`.
+   *  Endpunkt (Art, Adresse, Kennung, Manager-Endpunkt `endpointId`), Transport und Grund. Jedes Merkmal hat einen Einzelfall in `tests/llm-connection.test.ts`.
    *  **Bewusst nicht verglichen: `shortcut`** (die Konfiguration des Shortcuts-Transports): sie hängt am Endpunkt, und der Endpunkt samt `transport` ist verglichen; zeichnet ein Konsument
    *  sie einmal selbst, kommt sie mit einem Einzelfall hinein (Entscheidung Welle 33). Ebenso nicht: `defaultModel` und `models` (die Tabelle des Managers; was daraus zu sehen ist, steht in `sentModel` und `family`). */
   function sameSource(a: EndpointSourceResult | null, b: EndpointSourceResult): boolean {
-    return a !== null && a.kind === b.kind && a.config?.url === b.config?.url && a.config?.id === b.config?.id && a.model === b.model
+    return a !== null && a.kind === b.kind && a.config?.url === b.config?.url && a.config?.id === b.config?.id && a.endpointId === b.endpointId && a.model === b.model
       && a.sentModel === b.sentModel && a.family === b.family && a.displayFamily === b.displayFamily && a.familySource === b.familySource
       && a.backend === b.backend && a.backendSource === b.backendSource && a.reason === b.reason && a.transport === b.transport;
   }
@@ -436,12 +427,9 @@ function createChatConnection(o: LlmConnectionOptions): LlmConnection {
     const r = await resolveInternal(undefined, true);
     if (r.kind === "manager") {
       const api = findEndpointManager(o.app);
-      const id = lastManagerEntry;
+      const id = r.endpointId;
       if (!api || !id) return { models: [], reachable: false };
-      try {
-        const list = await api.models(id, opts?.force ? { force: true } : undefined);
-        return "error" in list ? { models: [], reachable: false } : { models: list, reachable: true };
-      } catch { return { models: [], reachable: false }; }
+      return managerModelList(api, id, opts);
     }
     if (!r.config) return { models: [], reachable: false };
     const key = normalizeEndpoint(r.config.url);
@@ -469,7 +457,7 @@ function createChatConnection(o: LlmConnectionOptions): LlmConnection {
 
   async function setModel(m: string): Promise<void> {
     pendingModel = m;
-    try { await plumbing.applyModel(m, resolve, activeEndpointId()); }
+    try { await plumbing.applyModel(m, resolve, activeEndpointId(), shown?.reason !== undefined && shown.config !== null); }
     finally { if (pendingModel === m) pendingModel = null; }
   }
 
@@ -483,14 +471,11 @@ function createChatConnection(o: LlmConnectionOptions): LlmConnection {
     const list = api.list(optInTransports() ? { capability: o.capability, transports: optInTransports() } : { capability: o.capability });
     return list.filter((e) => e.enabled).map((e) => ({ id: e.id, label: e.label, ...(e.defaultModel ? { defaultModel: e.defaultModel } : {}) }));
   }
-  const activeEndpointId = (): string | undefined => (shown?.kind === "manager" && shown.config ? lastManagerEntry : undefined);
+  const activeEndpointId = (): string | undefined => (shown?.kind === "manager" && shown.config ? shown.endpointId : undefined);
   async function modelsOf(endpointId: string, opts?: { force?: boolean }): Promise<ModelListResult> {
     const api = findEndpointManager(o.app);
     if (!api) return { models: [], reachable: false };
-    try {
-      const list = await api.models(endpointId, opts?.force ? { force: true } : undefined);
-      return "error" in list ? { models: [], reachable: false } : { models: list, reachable: true };
-    } catch { return { models: [], reachable: false }; }
+    return managerModelList(api, endpointId, opts);
   }
   const choice = (): EndpointChoice => sanitizeChoice(o.getSettings().choice);
   /** Die eine Stelle, die die Wahl schreibt (CORE-META-16): die Modellzeile und das Endpunkt-Dropdown des Einstellungs-Tabs. */

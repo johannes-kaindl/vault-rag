@@ -111,7 +111,10 @@
       "modules": [
         "callout",
         "endpoint-secret-hook",
-        "endpoint-source",
+        {
+          "name": "endpoint-source",
+          "ref": "0.89.0"
+        },
         "folder-hide",
         "frontmatter",
         "tool-provider",
@@ -149,12 +152,12 @@
         "endpoint-list",
         {
           "name": "endpoint-plumbing",
-          "ref": "0.88.0"
+          "ref": "0.89.0"
         },
         "endpoint-secrets",
         {
           "name": "endpoint-source",
-          "ref": "0.88.0"
+          "ref": "0.89.0"
         },
         "folder-hide",
         "folder-suggest",
@@ -164,20 +167,20 @@
         "hub",
         {
           "name": "llm-connection",
-          "ref": "0.88.0"
+          "ref": "0.89.0"
         },
         {
           "name": "llm-connection-strings",
-          "ref": "0.88.0"
+          "ref": "0.89.0"
         },
         "model-picker",
         {
           "name": "request-section",
-          "ref": "0.88.0"
+          "ref": "0.89.0"
         },
         {
           "name": "status-indicator",
-          "ref": "0.88.0"
+          "ref": "0.89.0"
         },
         "request-session",
         "secrets",
@@ -186,7 +189,7 @@
         "stream-area",
         {
           "name": "thinking-control",
-          "ref": "0.88.0"
+          "ref": "0.89.0"
         },
         "endpoint-status-text",
         "anthropic-transport",
@@ -200,11 +203,11 @@
         "chat-window-strings",
         {
           "name": "model-bar",
-          "ref": "0.88.0"
+          "ref": "0.89.0"
         },
         {
           "name": "model-bar-strings",
-          "ref": "0.88.0"
+          "ref": "0.89.0"
         },
         "stable-writer",
         "chat-archive-dialog",
@@ -215,7 +218,7 @@
         "chat-archive-settings",
         {
           "name": "status-bar-item",
-          "ref": "0.88.0"
+          "ref": "0.89.0"
         }
       ],
       "rewrite": [
@@ -238,7 +241,10 @@
       "source": "obsidian-kit",
       "from": "src/testing",
       "modules": [
-        "kit-css",
+        {
+          "name": "kit-css",
+          "ref": "0.89.0"
+        },
         "obsidian-mock"
       ]
     },

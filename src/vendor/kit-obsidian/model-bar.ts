@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.88.0, src/obsidian/model-bar.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.89.0, src/obsidian/model-bar.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /**
  * Modellzeile (UI-STANDARD § 8, neu in 0.67.0): eine Zeile, in der man sieht, welches Modell eine Aufgabe benutzt, und es wechselt — Dropdown mit den Modellen
  * des aktiven Endpunkts (seit 0.87.0 aller Endpunkte, gruppiert), „Endpunkte verwalten …“, Neu-laden-Knopf und optional die Denk-Steuerung. Läuft eigenständig in jeder Seitenleiste und im
@@ -38,7 +38,7 @@
  *
  * - **Eine Wahl legt Endpunkt UND Modell für dieses Plugin fest** (`llm.setChoice({ endpointId, model })`), nie das Modell eines anderen Plugins; der Endpunkt wechselt nur, weil der Nutzer ein Modell unter einem anderen Endpunkt gewählt hat. Der Wert eines
  *   Eintrags trägt Endpunkt und Modell (ein Modellname ist nur je Endpunkt eindeutig; die Kennung steht URI-kodiert, das Trennzeichen kann in keinem Namen vorkommen).
- * - **Ein Endpunkt, der nicht antwortet, verschwindet nicht:** seine Gruppe bleibt mit einem gesperrten Eintrag („nicht erreichbar“, bei leerer Liste „keine Modelle gemeldet“, solange der Manager Offline nicht von „keine Liste“ trennt), „Standard (…)“ bleibt wählbar.
+ * - **Ein Endpunkt, der nicht antwortet, verschwindet nicht:** seine Gruppe bleibt mit einem gesperrten Eintrag („nicht erreichbar“, bei leerer Liste „keine Modelle gemeldet“, solange der Manager Offline nicht von „keine Liste“ trennt; ein Manager mit `modelList` trennt es: dann zeigt ein gestoppter Endpunkt „nicht erreichbar“ statt einer leeren Liste), „Standard (…)“ bleibt wählbar.
  *   Ein gewähltes, nicht gelistetes Modell bleibt gewählt, markiert „(gespeichert)“.
  * - **Laden:** der aktive Endpunkt zuerst (`llm.models()`, wie bisher), danach die übrigen parallel im Hintergrund (`llm.modelsOf(id)`); jede Gruppe zeichnet, sobald ihre Liste da ist, ein hängender Host hält nur seine Gruppe auf „lädt …“. Neu laden holt alle mit `force`.
  *   `onRefreshed` meldet weiter einmal je Laden das Ergebnis des aktiven Endpunkts.

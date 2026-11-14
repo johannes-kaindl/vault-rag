@@ -1,4 +1,4 @@
-// vendored from code-kit@0.40.0, src/ts/pure/live-indexer.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.69.1, src/ts/pure/live-indexer.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/live_indexer.ts, 2026-10-11 (Änderungen: Dimension als Option statt Konstante INDEX_DIM, Embedder-Interface statt der Klasse EmbeddingClient, IndexStorage statt VaultAdapter, `now` injizierbar, source_dim aus dem beobachteten Vektor, Dimensions-Guard, `noUncheckedIndexedAccess`-clean; Ablauf und Guards sonst unverändert; die Warnungen in der Konsole tragen nicht mehr den Namen des ersten Nutzers)
 /** The indexer: holds one vector per note in memory, keeps them current note by note (`update`, `remove`, `rename`),
  *  rebuilds all (`reindexAll`) or only the missing ones (`healMissing`), and writes the container with the guards of
@@ -708,15 +708,31 @@ export class LiveIndexer {
    *  dekodierbar — z. B. während ein fremder Prozess/Sync ihn gerade neu schreibt, oder CRC/Magic
    *  nicht passt). Kein Container vorhanden gilt hingegen als legitim frisch (`count 0`, Modell
    *  leer = „nichts zu schützen") — `loadIndexStore` migriert Legacy-Tripel, bevor im
-   *  Plugin-Lebenszyklus der erste Live-Persist laufen kann. */
+   *  Plugin-Lebenszyklus der erste Live-Persist laufen kann.
+   *
+   *  **Ein Container ohne Zeile gilt wie „kein Container"** (`count 0`, Modell leer, Dimension unbekannt): `count === 0`
+   *  UND kein Pfad UND null Matrix-Bytes. Ein Endpunkt, der nie einen Vektor geliefert hat, darf kein Modell und keine
+   *  Dimension festhalten — es gibt auf Platte nichts, was ein anderer Vektorraum beschädigen könnte (Welle 34; vorher
+   *  sperrte so ein Container den Wechsel mit `model-mismatch`/`dim-mismatch`). Beide Guards in `persistVectors` und
+   *  `checkModelAgainstDisk` lesen das hier und brauchen keine eigene Regel. Mit mindestens einer Zeile bleiben Modell
+   *  und Dimension gesperrt.
+   *
+   *  **Ein Manifest, das seinem Körper widerspricht, ist keine Wahrheit** und liefert `null`: `count 0` mit Pfaden oder
+   *  Matrix-Bytes, oder `count > 0` ohne Pfade. `decodeContainer` prüft das nicht (nur Magic, CRC, Header, Schema,
+   *  `paths` als Strings), also steht die Prüfung hier. */
   private async readDiskState(): Promise<{ count: number; model: string; dim: number | undefined } | null> {
     const containerPath = `${this.indexDir}/${CONTAINER_FILE}`;
     let exists: boolean;
     try { exists = await this.adapter.exists(containerPath); } catch { return null; }
     if (!exists) return { count: 0, model: "", dim: undefined };
     try {
-      const { manifest } = decodeContainer(await this.adapter.readBinary(containerPath));
+      const { manifest, paths, matrix } = decodeContainer(await this.adapter.readBinary(containerPath));
       if (typeof manifest.count !== "number") return null;
+      if (manifest.count === 0) {
+        if (paths.length > 0 || matrix.byteLength > 0) return null;
+        return { count: 0, model: "", dim: undefined };
+      }
+      if (paths.length === 0) return null;
       const model = (manifest as { embedding_model?: unknown }).embedding_model;
       const dim = (manifest as { index_dim?: unknown }).index_dim;
       return { count: manifest.count, model: typeof model === "string" ? model : "", dim: typeof dim === "number" ? dim : undefined };

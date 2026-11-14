@@ -24,7 +24,10 @@
         "index-delta",
         "index-guard",
         "index-store",
-        "live-indexer",
+        {
+          "name": "live-indexer",
+          "ref": "0.69.1"
+        },
         "retrieval-facade",
         "vector-index",
         "endpoint",

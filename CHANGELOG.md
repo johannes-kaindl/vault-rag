@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **An empty index on disk no longer pins an embedding model.** After an endpoint that never delivered a vector, or an aborted first run, the indexer keeps writing with the model you chose now, instead of demanding "re-index the vault". An index with at least one note stays bound to its model and dimension as before.
 - **Closing the Vault Retrieval pane no longer wipes your search.** The search text and its results (and the text you typed into the free-form instruction of Reformat) are kept when you close and reopen the pane, or when a settings change rebuilds the Reformat panel. The results are shown as they were, without a new search.
 
 ## [0.51.1] — 2026-11-14

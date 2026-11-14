@@ -35,11 +35,20 @@
         "model-choice",
         "model-list-cache",
         "reasoning",
-        { "name": "redact", "ref": "0.60.0" },
-        { "name": "rotation", "ref": "0.60.0" },
+        {
+          "name": "redact",
+          "ref": "0.60.0"
+        },
+        {
+          "name": "rotation",
+          "ref": "0.60.0"
+        },
         "run-state",
         "sampling-profiles",
-        "safe-markdown",
+        {
+          "name": "safe-markdown",
+          "ref": "0.68.0"
+        },
         "secret-value",
         "secrets",
         "settings",
@@ -65,8 +74,14 @@
       "from": "src/ts/web",
       "modules": [
         "clipboard",
-        "remote-resources",
-        "link-guard"
+        {
+          "name": "remote-resources",
+          "ref": "0.68.0"
+        },
+        {
+          "name": "link-guard",
+          "ref": "0.68.0"
+        }
       ],
       "rewrite": [
         [
@@ -112,7 +127,10 @@
         "clipboard",
         "collapsible",
         "confirm",
-        "dom-guard",
+        {
+          "name": "dom-guard",
+          "ref": "0.88.0"
+        },
         "embedding-connection",
         "endpoint-list",
         "endpoint-plumbing",

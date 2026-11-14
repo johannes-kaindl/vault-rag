@@ -193,6 +193,8 @@ const PFLICHT_PUNKTE = {
 } as const;
 const CHAT_GEMMA_PUNKT = "Chat: Gemma 4 ohne Öffner — der Denktext steht im Denkblock, nicht in der Antwort";
 const CHAT_MD_PUNKT = "Chat: eine fertige Antwort erscheint als Markdown (Liste, Fettung), Fernbild bleibt draußen, die Frage bleibt Text";
+/** Linkschutz-Härtung (code-kit 0.68.0 `link-guard`, obsidian-kit 0.88.0 `dom-guard`, Welle 34). Modelltext erreicht den Wächter im Betrieb nie: `neutralizeModelMarkdown` maskiert `<` vor dem Parser. Gemessen wird deshalb das Netz selbst, am echten Fenster. */
+const LINKSCHUTZ_PUNKT = "Linkschutz-Härtung: rohes HTML im beobachteten Bereich des Chats verliert <form>, formaction, on*-Attribute und ping, der https-Link bleibt; Gegenprobe: dasselbe HTML außerhalb behält alle Marker";
 /** Chat-Fenster und Modellzeilen (Welle 26, obsidian-kit 0.67.1): am echten Fenster gemessen, nicht am Fake-DOM. `links` ist ein BEKANNTER Befund (Kit-Task Welle 27:
  *  Linkschutz in Modellantworten): das Kit-Fenster kappt in Links keine Skript-Schemata, und das Plugin hatte bis 0.45.0 denselben Zustand (dieselbe Kette, kein eigener Filter). */
 const W26_PUNKTE = {
@@ -370,6 +372,7 @@ const PUNKTE = [
   ...W16_PUNKTE,
   MCP_TOKEN_PUNKT,
   CHAT_MD_PUNKT,
+  LINKSCHUTZ_PUNKT,
   CHAT_GEMMA_PUNKT,
   ...Object.values(W26_PUNKTE),
   ...Object.values(W29_PUNKTE),
@@ -2222,6 +2225,82 @@ async function main(): Promise<void> {
           await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
           return true;`);
         await mdStub.stop();
+      }
+    }
+
+    // --- 7e1b1. Linkschutz-Härtung (Welle 34) -----------------------------------------------------------------------
+    // Rohes HTML mit on*, ping, formaction, form und einem https-Link wird per `innerHTML` MITTEN im Strom in den Bereich gesetzt, den der Beobachter
+    // des Chat-Schreibers überwacht (`.okit-stream-body` der laufenden Antwort; er lebt nur bis zum Ende der Antwort, darum ein langsamer Strom). Gegenprobe:
+    // dasselbe HTML außerhalb des Beobachters behält alle Marker, sonst wäre „gekappt“ nichts wert. Die Kappung wirkt im Beobachter-Callback, gelesen wird nach 800 ms.
+    if (nur === null) {
+      const MARKER = "__vrOnMarker";
+      const HTML_PROBE = [
+        `<a href="https://example.org/ok" onclick="window.${MARKER} = 1" ping="https://example.invalid/ping">h-ok</a>`,
+        `<p onmouseover="window.${MARKER} = 2">h-p</p>`,
+        '<form action="https://example.invalid/form"><button formaction="https://example.invalid/fa">h-form</button></form>',
+      ].join("");
+      const lsStub = await startLlmStub({ models: ["fake-model"], antwort: () => ({ stuecke: Array.from({ length: 40 }, () => "Probe läuft, bitte warten. "), takt: 400 }) });
+      const gesichertLs = await main.evaluate<unknown>(`return JSON.parse(JSON.stringify(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.chatEndpoints));`);
+      try {
+        await main.evaluate(`
+          delete window.${MARKER};
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          p.settings.chatEndpoints = [{ url: ${JSON.stringify(lsStub.url)}, model: "fake-model" }];
+          p.llm.invalidate(); await p.resolveAndReconnectChat();
+          await p.openHub("chat"); await new Promise(r => setTimeout(r, 600));
+          await ${NEU_JS}();
+          const ta = document.querySelector(".okit-chat-input");
+          ta.value = "Linkschutz-Frage"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+          document.querySelector(".okit-chat-send").click();
+          return true;`);
+        type Zahl = { anker: { h: string | null; attrs: string[] } | null; forms: number; formaction: number; on: number; ping: number };
+        const probe = `
+          const HTML = ${JSON.stringify(HTML_PROBE)};
+          const body = [...document.querySelectorAll(".okit-chat-turn.is-assistant .okit-stream-body")].pop();
+          if (!body || (body.textContent || "").length < 10) return null;
+          const zaehle = (root) => {
+            const all = Array.from(root.querySelectorAll("*"));
+            const anker = all.find((e) => e.localName === "a" && e.textContent === "h-ok");
+            return {
+              anker: anker ? { h: anker.getAttribute("href"), attrs: anker.getAttributeNames().filter((n) => n.startsWith("on") || n === "ping") } : null,
+              forms: all.filter((e) => e.localName === "form").length,
+              formaction: all.filter((e) => e.hasAttribute("formaction")).length,
+              on: all.filter((e) => e.getAttributeNames().some((n) => n.startsWith("on"))).length,
+              ping: all.filter((e) => e.hasAttribute("ping")).length,
+            };
+          };
+          const aussen = document.body.createDiv();
+          aussen.innerHTML = HTML;
+          const gegen = zaehle(aussen);
+          const innen = body.createDiv({ cls: "vr-ls-probe" });
+          innen.innerHTML = HTML;
+          await new Promise((r) => setTimeout(r, 800));
+          const mess = zaehle(innen);
+          innen.remove(); aussen.remove();
+          return { gegen, mess, marker: String(window.${MARKER}) };`;
+        const d = await pollUntil<{ gegen: Zahl; mess: Zahl; marker: string }>(main, probe, 20_000, 150).catch(() => null);
+        const nachher = lsStub.zaehler().unterwegs;
+        if (!d) unmeasured(LINKSCHUTZ_PUNKT, "kein Antwortbereich im laufenden Strom gefunden (nach 20 s)");
+        else if (nachher === 0) unmeasured(LINKSCHUTZ_PUNKT, "der Strom war nach der Probe beendet: der Beobachter war womöglich nicht mehr angehängt");
+        else {
+          const g = d.gegen;
+          const gegenWirkt = g.forms >= 1 && g.formaction >= 1 && g.on >= 2 && g.ping >= 1 && g.anker !== null && g.anker.attrs.length >= 2;
+          if (!gegenWirkt) unmeasured(LINKSCHUTZ_PUNKT, `die Gegenprobe außerhalb des Beobachters behielt nicht alle Marker (form ${g.forms}, formaction ${g.formaction}, on* ${g.on}, ping ${g.ping}, Anker ${JSON.stringify(g.anker)})`);
+          else {
+            const m = d.mess;
+            const anker = m.anker !== null && m.anker.h === "https://example.org/ok" && m.anker.attrs.length === 0;
+            record(LINKSCHUTZ_PUNKT, anker && m.forms === 0 && m.formaction === 0 && m.on === 0 && m.ping === 0 && d.marker === "undefined",
+              `im beobachteten Bereich (Strom lief): https-Anker ${m.anker ? `da, href ${String(m.anker.h)}, on*/ping [${m.anker.attrs.join(",")}]` : "FEHLT"} · form ${m.forms} · formaction ${m.formaction} · on* ${m.on} · ping ${m.ping} · Marker ${d.marker} (verlangt: undefined) · Gegenprobe außerhalb: form ${g.forms}, formaction ${g.formaction}, on* ${g.on}, ping ${g.ping}, Anker-Attribute [${g.anker?.attrs.join(",")}] (alle > 0 verlangt)`);
+          }
+        }
+      } finally {
+        await main.evaluate(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          await ${NEU_JS}();
+          p.settings.chatEndpoints = ${JSON.stringify(gesichertLs)};
+          await p.saveSettings(); p.llm.invalidate(); await p.resolveAndReconnectChat();
+          return true;`).catch(() => undefined);
+        await lsStub.stop().catch(() => undefined);
       }
     }
 

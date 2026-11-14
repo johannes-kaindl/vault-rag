@@ -170,6 +170,8 @@ export default class VaultRagPlugin extends Plugin {
   private folderHide: FolderHideHandle | null = null;
   private isSwitchingIndexDir = false;
   private indexHealthy = true;
+  /** Die Art und die Zeit der letzten Schreib-Blockade dieser Sitzung (Diagnose am Gerät); `null`, solange keine war. */
+  lastPersistBlock: { kind: string; at: number } | null = null;
   /** Chunk-lose Notizen (leer / nur Frontmatter) — nie indexierbar, zählen nicht als fehlend.
    *  Bewusst NICHT persistiert: wird bei jedem loadIndex frisch klassifiziert (selbstheilend
    *  gegenüber extern geänderten Dateien) und in-Session von den Live-Handlern gepflegt. */
@@ -933,6 +935,12 @@ export default class VaultRagPlugin extends Plugin {
   /** Wie `blockedMessage`, nur direkt aus einem gefangenen Fehler — auch aus einem `unknown`
    *  im catch-Block (alles außer `PersistBlockedError` bekommt den Fallback). */
   private persistBlockedMessage(e: unknown, fallback: string): string {
+    if (e instanceof PersistBlockedError) {
+      // Die allgemeine Meldung „Index wirkt beschädigt“ gilt für jede Art außer `model-mismatch` (shrink, unreadable, not-ready, dim-mismatch): ohne die Art lässt sich am Gerät
+      // nicht sagen, welche es war. Zum Nachlesen in der Konsole des Geräts (`app.plugins.plugins["vault-retrieval"].lastPersistBlock`), nie mit Pfad oder Schlüssel.
+      this.lastPersistBlock = { kind: e.kind ?? "unknown", at: Date.now() };
+      console.warn("vault-retrieval: Schreibschutz, Art:", this.lastPersistBlock.kind);
+    }
     return this.blockedMessage(e instanceof PersistBlockedError ? e.kind : undefined, fallback);
   }
 

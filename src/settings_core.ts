@@ -194,11 +194,6 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   request: { overrides: {}, thinking: {}, lastOnLevel: {}, levelPickerInChat: false },
 };
 
-/** Komma-getrennte Ausschluss-Pfade → getrimmte, leer-gefilterte Liste. */
-export function splitExcludePaths(input: string): string[] {
-  return input.split(",").map(x => x.trim()).filter(Boolean);
-}
-
 /** Vorlagen-Ordner normalisieren: getrimmt, mit Trailing-Slash (leer bleibt leer). */
 export function normalizeTemplateDir(input: string): string {
   const trimmed = input.trim();

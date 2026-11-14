@@ -10,7 +10,8 @@ import { copyToClipboard } from "./vendor/kit-obsidian/clipboard";
 import { FolderSuggest } from "./vendor/kit-obsidian/folder-suggest";
 import { githubHelpUrls, helpSettingDefinition } from "./vendor/kit-obsidian/help-setting";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "./vendor/kit-obsidian/settings_walker";
-import { DEFAULT_SETTINGS, type ReformatPreset, splitExcludePaths, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
+import { DEFAULT_SETTINGS, type ReformatPreset, normalizeTemplateDir, type VaultRagSettings } from "./settings_core";
+import { splitList } from "./vendor/kit/split-list";
 import type { EmbeddingConnection } from "./vendor/kit-obsidian/embedding-connection";
 import type { EndpointListStrings } from "./vendor/kit-obsidian/endpoint-list";
 import { resolveLlmConnectionStrings } from "./vendor/kit-obsidian/llm-connection-strings";
@@ -186,8 +187,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
   async setControlValue(key: string, value: unknown): Promise<void> {
     const s = this.plugin.settings as unknown as Record<string, unknown>;
     if (key === "embeddingPaused") { this.plugin.setEmbeddingPaused(value === true); return; }   // nicht in data.json
-    if (key === "exclude") s.exclude = splitExcludePaths(value as string);
-    else if (key === "integratorFolders") s.integratorFolders = splitExcludePaths(value as string);
+    if (key === "exclude") s.exclude = splitList(value as string);
+    else if (key === "integratorFolders") s.integratorFolders = splitList(value as string);
     else if (key === "templateDir") s.templateDir = normalizeTemplateDir(value as string);
     else if (key === "linkField" || key === "linkHeading") {
       const trimmed = (value as string).trim();

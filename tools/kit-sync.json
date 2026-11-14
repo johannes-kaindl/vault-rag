@@ -72,6 +72,10 @@
         {
           "name": "error-message",
           "ref": "0.68.0"
+        },
+        {
+          "name": "split-list",
+          "ref": "0.68.0"
         }
       ]
     },

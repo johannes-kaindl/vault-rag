@@ -1,6 +1,7 @@
 import { thinkingFor } from "../src/vendor/kit/sampling-profiles";
 import { describe, it, expect } from "vitest";
-import { splitExcludePaths, normalizeTemplateDir, DEFAULT_SETTINGS, stripLegacyGlobalModels } from "../src/settings_core";
+import { normalizeTemplateDir, DEFAULT_SETTINGS, stripLegacyGlobalModels } from "../src/settings_core";
+import { splitList } from "../src/vendor/kit/split-list";
 import { fillMissingRowModels } from "../src/vendor/kit/endpoint_config";
 import { mergeSettings } from "../src/vendor/kit/settings";
 
@@ -65,12 +66,12 @@ describe("stripLegacyGlobalModels — Alt-Schlüssel raus, sonst liefe die Migra
   });
 });
 
-describe("splitExcludePaths", () => {
+describe("splitList (Kit) für die Listenfelder der Einstellungen", () => {
   it("splittet komma-getrennt, trimmt, filtert leere", () => {
-    expect(splitExcludePaths("Templates/, Archive/ ,")).toEqual(["Templates/", "Archive/"]);
+    expect(splitList("Templates/, Archive/ ,")).toEqual(["Templates/", "Archive/"]);
   });
   it("leere Eingabe → leere Liste", () => {
-    expect(splitExcludePaths("   ")).toEqual([]);
+    expect(splitList("   ")).toEqual([]);
   });
 });
 

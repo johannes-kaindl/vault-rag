@@ -295,6 +295,8 @@ const HUB_ORT_PUNKT = "Hub-Ort: am Desktop öffnet der Hub in der rechten Seiten
 const HUB_ZUSTAND_PUNKT = "Hub-Zustand: der Chat-Verlauf steht nach dem Schließen des Blatts und erneutem Öffnen im neuen Blatt wieder da";
 
 /** Such-Zustand (Welle 34, Task „Suchtext und Trefferliste überleben das Schließen des Blatts nicht“): der Suchtext und das Ergebnis dazu stehen nach dem Schließen des Blatts und erneutem Öffnen wieder da. */
+/** Smart-Apply-Tausch (Welle 34, Task „Smart Apply schreibt eine Nutzernotiz mit adapter.write …“): der Tausch läuft über vault.process oder den offenen Editor, prüft den Stand beim Schreiben und lässt getippten, noch ungespeicherten Text stehen. */
+const TAUSCH_PUNKT = "Smart-Apply-Tausch: tauscht nur den erwarteten Stand, lässt ungespeichertes Tippen im Editor stehen und steht danach auf der Platte";
 const SUCH_ZUSTAND_PUNKT = "Such-Zustand: der Suchtext und das Ergebnis stehen nach dem Schließen des Blatts und erneutem Öffnen wieder da";
 
 /** Neu säen (Welle 33, Task „Neu säen ohne Änderung …“): eine Auflösung der Embedding-Verbindung ohne Modellwechsel ersetzt den LiveIndexer nicht; ein Modellwechsel tut es (Gegenprobe). */
@@ -388,6 +390,7 @@ const PUNKTE = [
   HUB_ORT_PUNKT,
   HUB_ZUSTAND_PUNKT,
   SUCH_ZUSTAND_PUNKT,
+  TAUSCH_PUNKT,
   NEU_SAEEN_PUNKT,
   TOTE_ZEILEN_PUNKT,
   PUNKT_TREU,
@@ -3585,6 +3588,47 @@ async function main(): Promise<void> {
           `Feld vor dem Tippen „${s.vorher}“ · zweites Blatt bei offenem ersten: Feld „${s.zweitesFeld}“ · nach Schließen und Öffnen: gleiche Panels ${s.gleich}, Feld „${s.feldDa}“, Ergebnis „${s.ergebnisDa.slice(0, 60)}“ gleich dem vor dem Schließen „${s.vorherErgebnis.slice(0, 60)}“ · Hubs danach ${s.anzahl}`);
       } catch (e) {
         unmeasured(SUCH_ZUSTAND_PUNKT, `Hub nicht erreichbar: ${String(e)} — nichts gemessen`);
+      }
+
+      // Smart-Apply-Tausch (Welle 34): `swapNoteText` gegen die laufende Instanz, an einer Fixture-Notiz, die kein anderer Punkt braucht; am Ende steht der Ausgangstext wieder da.
+      // Gültigkeit (CORE-TEST-22): „ungespeichert“ gilt nur, wenn die Platte das Tippen zum Zeitpunkt des Tauschs noch nicht trägt (Obsidian speichert nach rund 2 s) — alles in einem Zug, ohne Warten dazwischen.
+      try {
+        const x = await main.evaluate<Record<string, unknown>>(`
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; const ws = app.workspace; const ad = app.vault.adapter;
+          const warte = (ms) => new Promise(r => setTimeout(r, ms));
+          const PFAD = "Notes/Writing habits.md";
+          const offen = () => ws.getLeavesOfType("markdown").find(l => l.view.file && l.view.file.path === PFAD);
+          const orig = await ad.read(PFAD);
+          const out = { zuAnfang: !offen() };
+          out.falsch = await p.swapNoteText(PFAD, orig + "x", orig + "\\nFALSCH");
+          out.nachFalsch = (await ad.read(PFAD)) === orig;
+          out.ok1 = await p.swapNoteText(PFAD, orig, orig + "\\nTAUSCH-1");
+          out.platte1 = (await ad.read(PFAD)) === orig + "\\nTAUSCH-1";
+          await ws.openLinkText(PFAD, "", false); await warte(800);
+          const leaf = offen(); const view = leaf.view;
+          if (view.getMode() !== "source") { await view.setState({ ...view.getState(), mode: "source" }, { history: false }); await warte(300); }
+          out.modus = view.getMode();
+          const ed = view.editor; const letzte = ed.lastLine();
+          ed.replaceRange(" GETIPPT", { line: letzte, ch: ed.getLine(letzte).length });
+          const platteVorher = await ad.read(PFAD);
+          out.ungespeichert = !platteVorher.includes("GETIPPT");
+          out.stale = await p.swapNoteText(PFAD, platteVorher, platteVorher + "\\nTAUSCH-2");
+          out.tippenBleibt = ed.getValue().includes("GETIPPT") && !ed.getValue().includes("TAUSCH-2");
+          const edText = ed.getValue();
+          out.ok2 = await p.swapNoteText(PFAD, edText, edText + "\\nTAUSCH-3");
+          out.imEditor = ed.getValue().endsWith("TAUSCH-3");
+          out.aufPlatte = (await ad.read(PFAD)).endsWith("TAUSCH-3");
+          leaf.detach(); await warte(300);
+          const jetzt = await ad.read(PFAD);
+          await p.swapNoteText(PFAD, jetzt, orig);
+          out.zurueck = (await ad.read(PFAD)) === orig;
+          return out;`);
+        const gut = x.zuAnfang === true && x.falsch === false && x.nachFalsch === true && x.ok1 === true && x.platte1 === true && x.modus === "source"
+          && x.stale === false && x.tippenBleibt === true && x.ok2 === true && x.imEditor === true && x.aufPlatte === true && x.zurueck === true;
+        if (x.ungespeichert !== true) unmeasured(TAUSCH_PUNKT, `die Platte trug das Tippen schon beim Tausch (${JSON.stringify(x)}): der ungespeicherte Fall ist nicht hergestellt`);
+        else record(TAUSCH_PUNKT, gut, `Notiz zu: falscher Stand false ${String(x.falsch)}, richtiger true ${String(x.ok1)}, Platte ${String(x.platte1)} · Editor (${String(x.modus)}) mit ungespeichertem Tippen: Tausch gegen Plattenstand ${String(x.stale)} (Soll false), Tippen bleibt ${String(x.tippenBleibt)} · gegen den Editorstand ${String(x.ok2)}, im Editor ${String(x.imEditor)}, auf der Platte sofort ${String(x.aufPlatte)} · Ausgangstext zurück ${String(x.zurueck)}`);
+      } catch (e) {
+        unmeasured(TAUSCH_PUNKT, `Tausch nicht erreichbar: ${String(e)} — nichts gemessen`);
       }
 
       // Neu säen (Welle 33): echte Auflösung zweimal, Indexer-Identität vorher/nachher; Gegenprobe mit einem erfundenen Modell, danach echte Auflösung zur Wiederherstellung.

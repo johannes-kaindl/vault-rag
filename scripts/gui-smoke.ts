@@ -1975,14 +1975,22 @@ async function main(): Promise<void> {
             const second = c1 ? c1.links[0].path : null;
             const textBefore = await app.vault.adapter.read(${JSON.stringify(PLAIN)});
             await app.commands.executeCommandById("vault-retrieval:integrator-accept-next");
-            await new Promise(r => setTimeout(r, 800));
-            const textAfter = await app.vault.adapter.read(${JSON.stringify(PLAIN)});
+            // Die Notiz ist im Editor offen: der Link steht erst dort, die Platte folgt mit Obsidians verzögertem Speichern (rund 2 s), acceptLink wartet darauf bis zu 3 s.
             const base = second ? second.replace(/\.md$/, "") : "";
-            return { first, second, rejectedOk, written: !!second && textAfter !== textBefore && textAfter.includes("[[" + base) };
+            const t0 = Date.now();
+            let textAfter = textBefore, imEditor = false, aufPlatte = null;
+            while (Date.now() - t0 < 6000) {
+              const ed = app.workspace.getLeavesOfType("markdown").map(l => l.view).find(v => v.file && v.file.path === ${JSON.stringify(PLAIN)});
+              imEditor = !!(ed && ed.editor && ed.editor.getValue().includes("[[" + base));
+              textAfter = await app.vault.adapter.read(${JSON.stringify(PLAIN)});
+              if (textAfter !== textBefore && textAfter.includes("[[" + base)) { aufPlatte = Date.now() - t0; break; }
+              await new Promise(r => setTimeout(r, 100));
+            }
+            return { first, second, rejectedOk, imEditor, aufPlatteNachMs: aufPlatte, written: !!second && aufPlatte !== null };
           `);
           if (hk.zuWenig !== undefined) unmeasured(INTEGRATOR_PRUEFPUNKTE[7]!, `nach dem Neuberechnen ${String(hk.zuWenig)} Ziele (nötig: 2, Ablehnen und Annehmen)`);
           else record(INTEGRATOR_PRUEFPUNKTE[7]!, hk.rejectedOk === true && hk.written === true,
-            `abgelehnt ${String(hk.first)}: ${String(hk.rejectedOk)} · angenommen ${String(hk.second)}: ${String(hk.written)}`);
+            `abgelehnt ${String(hk.first)}: ${String(hk.rejectedOk)} · angenommen ${String(hk.second)}: ${String(hk.written)} (im Editor: ${String(hk.imEditor)} · auf der Platte nach ${String(hk.aufPlatteNachMs)} ms)`);
         }
 
         await main.evaluate(`app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.integratorFolders = ${JSON.stringify(foldersGesichert)};`);

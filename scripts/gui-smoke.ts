@@ -41,6 +41,9 @@
  * python3 ~/.claude/hooks/obsidian-cdp-lock.py release
  * ```
  *
+ * Der Treiber startet keine Instanz und kennt kein `--launch`. `tools/obsidian-cdp/messlauf.sh` deckt diesen Lauf noch nicht ab: zwischen Start und Smoke baut `shots --prepare` den
+ * Index an der laufenden Instanz, und das Skript kennt keinen Zwischenschritt (README dort § Messlauf in einem Aufruf). Bis dahin bleibt das Rezept oben der Weg; wer `--launch` uebergibt, bekommt diesen Hinweis.
+ *
  * **Stub-Lage (seit Welle 20):** Der volle Lauf schickt keine Anfrage an die Fixture-Endpunkte (Ollama `:11434`, LM Studio
  * `:1234`). Die jeweils erste Zeile beider Listen zeigt auf den zentralen LLM-Stub (`tools/obsidian-cdp/llm-stub.ts`), die
  * zweite bleibt der tote Fixture-Port; im `finally` stehen die Fixture-Listen wieder da (zuletzt, sonst schreibt eine
@@ -91,6 +94,7 @@ import { messeFolge, zeichneFolge } from "../../tools/obsidian-cdp/folge.js";
 import { createBilanz, parseArgs, runDriver, type Bilanz } from "../../tools/obsidian-cdp/bilanz.js";
 import { requireEigenerBuild } from "../../tools/obsidian-cdp/vault.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
+import { lehneLaunchAb } from "../../tools/obsidian-cdp/zweitinstanz.js";
 import { EN, DE } from "../src/i18n/strings";
 import { LLM_CONNECTION_STRINGS_EN, LLM_CONNECTION_STRINGS_DE } from "../src/vendor/kit-obsidian/llm-connection-strings";
 import { CHAT_WINDOW_STRINGS_EN, CHAT_WINDOW_STRINGS_DE } from "../src/vendor/kit-obsidian/chat-window-strings";
@@ -568,6 +572,7 @@ async function openSettings(main: Cdp): Promise<void> {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  lehneLaunchAb(args, "vault-rag");
   const portRoh = args.value("port");
   const port = Number(portRoh);
   if (portRoh === undefined || !Number.isInteger(port) || port < 1024 || port > 65535) {

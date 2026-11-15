@@ -44,6 +44,11 @@ async function ueberlauf(cdp: Cdp, wurzel: string): Promise<UeberlaufTreffer[]> 
   `);
 }
 
+/** Schließt alle Hinweise (Notices), damit keiner die Tab-Leiste oder eine Zeile im Bild verdeckt; wartet danach kurz auf den nächsten Frame. */
+async function schliesseHinweise(cdp: Cdp): Promise<void> {
+  await cdp.evaluate(`document.querySelectorAll(".notice").forEach((n) => n.remove()); await new Promise((r) => setTimeout(r, 300)); return true;`);
+}
+
 async function speichere(ordner: string, name: string, png: Buffer): Promise<void> {
   writeFileSync(join(ordner, name), png);
   console.log(`  Bild ${name} (${png.length} Bytes)`);
@@ -85,6 +90,7 @@ async function haupt(): Promise<void> {
     const o = await ueberlauf(main, leaf);
     console.log(`  ${tab}: Tab-Leiste ${tabs.breite}px (Inhalt ${tabs.gesamt}px) · Beschriftungen ${JSON.stringify(tabs.beschriftungen)} · Überlauf ${o.length}`);
     for (const t of o) console.log(`     - ${t.sel} „${t.text}“ ${t.scrollW}>${t.clientW}${t.gekuerzt ? " gekürzt" : ""}`);
+    await schliesseHinweise(main);
     const box = await boxOf(main, leaf);
     await speichere(bilder, `hub-${tab}.png`, await capture(main, box ?? undefined, 2));
   }
@@ -111,6 +117,7 @@ async function haupt(): Promise<void> {
   for (const t of o) console.log(`     - ${t.sel} „${t.text}“ ${t.scrollW}>${t.clientW}${t.gekuerzt ? " gekürzt" : ""}`);
   for (let i = 0; i < seiten; i++) {
     await sett.evaluate(`const c = document.querySelector(${JSON.stringify(spalte)}); c.scrollTop = ${i} * c.clientHeight; await new Promise(r => setTimeout(r, 300)); return true;`);
+    await schliesseHinweise(sett);
     await speichere(bilder, `einstellungen-${i + 1}.png`, await capture(sett));
   }
   // Endpunkt-Zeilen: Texte der Statusanzeige (der Tooltip ist ein `title`, er lässt sich nicht fotografieren, aber lesen).
@@ -123,6 +130,9 @@ async function haupt(): Promise<void> {
   for (const s of diag.status) console.log(`   Status: ${s}`);
   for (const s of diag.warn) console.log(`   Warnung: ${s}`);
   await schliesseEinstellungen(main);
+  // Offene Sockets halten den Node-Prozess am Leben (gemessen Welle 34: `messlauf.sh` hing nach „fertig“ bis zur TTL des Locks).
+  sett.close();
+  main.close();
   console.log(`\nfertig: ${bilder}`);
 }
 

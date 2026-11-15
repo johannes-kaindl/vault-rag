@@ -297,6 +297,7 @@ const HUB_ZUSTAND_PUNKT = "Hub-Zustand: der Chat-Verlauf steht nach dem Schließ
 /** Such-Zustand (Welle 34, Task „Suchtext und Trefferliste überleben das Schließen des Blatts nicht“): der Suchtext und das Ergebnis dazu stehen nach dem Schließen des Blatts und erneutem Öffnen wieder da. */
 /** Smart-Apply-Tausch (Welle 34, Task „Smart Apply schreibt eine Nutzernotiz mit adapter.write …“): der Tausch läuft über vault.process oder den offenen Editor, prüft den Stand beim Schreiben und lässt getippten, noch ungespeicherten Text stehen. */
 const TAUSCH_PUNKT = "Smart-Apply-Tausch: tauscht nur den erwarteten Stand, lässt ungespeichertes Tippen im Editor stehen und steht danach auf der Platte";
+const DIAGNOSE_TITEL_PUNKT = "Diagnose-Titel der Statusanzeige ist englisch, wenn die Oberfläche englisch ist";
 const SUCH_ZUSTAND_PUNKT = "Such-Zustand: der Suchtext und das Ergebnis stehen nach dem Schließen des Blatts und erneutem Öffnen wieder da";
 
 /** Neu säen (Welle 33, Task „Neu säen ohne Änderung …“): eine Auflösung der Embedding-Verbindung ohne Modellwechsel ersetzt den LiveIndexer nicht; ein Modellwechsel tut es (Gegenprobe). */
@@ -356,6 +357,7 @@ const PUNKTE = [
   "Chat: genau eine Zeile als aktiv markiert (keine, wenn nichts erreichbar ist)",
   "Alle Zustandstexte sind bekannte Formulierungen",
   "Alle Proben abgeschlossen",
+  DIAGNOSE_TITEL_PUNKT,
   "Zustandszeile bricht auf volle Breite um",
   "Zustandszeile steht unter den Feldern",
   "Warn-/Schlüssel-Icons bleiben in der Feldzeile",
@@ -1274,6 +1276,19 @@ async function main(): Promise<void> {
     const stillProbing = withState.filter(r => isChecking(r.state));
     record("Alle Proben abgeschlossen", stillProbing.length === 0,
       stillProbing.length ? `${stillProbing.length} Zeilen noch bei „${L.checking}" — Timeout zu kurz?` : `${withState.length} Zeilen abgeschlossen`);
+
+    // Diagnose-Titel (Task „Oberfläche einmal auf Englisch ansehen“, Punkt 4, Welle 35): die Statusanzeige einer Zeile trägt ihre Diagnose als `title`
+    // (Kit-Text `endpoint-status-text`). Auf englischer Oberfläche (die Zweitinstanz startet mit `--lang=en-US`) darf darin kein deutsches Wort stehen.
+    const diagnose = await settings.evaluate<{ lang: string; titel: string[] }>(`
+      const attr = (el) => [el.getAttribute("title"), el.getAttribute("aria-label")].filter(Boolean).join(" | ");
+      return { lang: document.documentElement.lang, titel: [...document.querySelectorAll(".okit-ep-row .okit-ep-status")].map(attr).filter(Boolean) };
+    `);
+    if (!/^en/i.test(diagnose.lang)) unmeasured(DIAGNOSE_TITEL_PUNKT, `Oberfläche steht auf „${diagnose.lang}“, nicht auf Englisch`);
+    else if (diagnose.titel.length === 0) unmeasured(DIAGNOSE_TITEL_PUNKT, "keine Statusanzeige mit Titel (alle Zeilen erreichbar oder noch ohne Probe)");
+    else {
+      const deutsch = diagnose.titel.filter(x => /[äöüß]|\b(nicht|erreichbar|Verbindung|Adresse|Netzwerk|Zeitüberschreitung)\b/.test(x));
+      record(DIAGNOSE_TITEL_PUNKT, deutsch.length === 0, deutsch.length ? `deutsch: ${deutsch.map(x => `„${x}“`).join(", ")}` : `${diagnose.titel.length} Titel englisch, z. B. „${diagnose.titel[0]}“`);
+    }
 
     // --- 5. Layout ----------------------------------------------------------
     const layoutRow = withState.find(r => r.stateWidthRatio !== null);

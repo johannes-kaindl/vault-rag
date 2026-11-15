@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.52.1] — 2026-11-15
+
 ### Changed
 
 - **The Kit components move to obsidian-kit 0.93.0 and code-kit 0.73.0.** Visible effects: a note whose front matter block is empty (`---` directly followed by `---`) now counts as a block, and a closing fence with trailing blanks (`--- `) no longer closes it, which is how Obsidian reads it; a chat title with a line break now gives a file name with a space instead of the raw character; the endpoint manager is picked up within two seconds when it is switched on or off later; the chat history reports its internal errors in English.

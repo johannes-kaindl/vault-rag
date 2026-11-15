@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The Kit components move to obsidian-kit 0.92.0 and code-kit 0.73.0.** Visible effects: a note whose front matter block is empty (`---` directly followed by `---`) now counts as a block, and a closing fence with trailing blanks (`--- `) no longer closes it, which is how Obsidian reads it; a chat title with a line break now gives a file name with a space instead of the raw character; the endpoint manager is picked up within two seconds when it is switched on or off later; the chat history reports its internal errors in English.
+- **The link a suggestion writes is built by the shared `wikilinkOf`.** Same link for every path that worked before; a path that is only `.md` or ends in `/` is now refused as unlinkable instead of producing a link to nothing.
+- **A removed frame is hidden for 250 ms before it leaves.** In rendered note text that lets raw HTML through, a removed `iframe`, `frame`, `object` or `embed` stays as a hidden empty shell for 250 ms. In return, the error dialog "A JavaScript error occurred in the main process" no longer appears for an `iframe` with an `app:`, relative or `file:` target.
+
 ## [0.52.0] — 2026-11-14
 
 ### Changed

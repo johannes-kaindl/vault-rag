@@ -1,16 +1,12 @@
-// wikilinkFor uebernommen aus mailstone/src/core/render/wikilink.ts, 2026-09-07 (angepasst: strippt .md, setzt Alias)
-//
 // Reine Textfunktionen, die einen Wikilink in eine Notiz einfuegen — obsidian-frei, damit
 // jeder Fall in Node testbar ist. Die Datei-I/O liegt in main.ts (VaultAdapter).
+// Den Link auf einen Pfad schreibt `wikilinkOf(path, { alias: true })` aus dem Kit (frueher die eigene `wikilinkFor`).
+
+import { wikilinkOf } from "./vendor/kit/frontmatter";
 
 export type WriteResult =
   | { ok: true; content: string; changed: boolean }
   | { ok: false; reason: "unlinkable" | "block-scalar" | "not-a-list" | "frontmatter-unparseable" };
-
-/** Obsidian kennt in `[[…]]` keine Fluchtsymbole: `[`/`]` verschachteln, `#` beginnt eine
- *  Ueberschriftsreferenz, `^` eine Blockreferenz, `|` den Anzeigetext. Ein Pfad mit einem
- *  dieser Zeichen ergibt keinen kaputten Link, sondern einen auf etwas ANDERES. */
-const BRICHT_WIKILINK = /[[\]#^|]/;
 
 export function linkTargetOf(path: string): string {
   return path.replace(/\.md$/i, "");
@@ -18,13 +14,6 @@ export function linkTargetOf(path: string): string {
 
 function basenameOf(target: string): string {
   return target.split("/").pop() ?? target;
-}
-
-export function wikilinkFor(path: string): string | null {
-  if (path === "" || BRICHT_WIKILINK.test(path)) return null;
-  const target = linkTargetOf(path);
-  const basename = basenameOf(target);
-  return basename === target ? `[[${target}]]` : `[[${target}|${basename}]]`;
 }
 
 function escapeRe(s: string): string {
@@ -44,7 +33,7 @@ function eolOf(text: string): "\n" | "\r\n" {
 }
 
 export function appendSectionLink(text: string, heading: string, path: string): WriteResult {
-  const link = wikilinkFor(path);
+  const link = wikilinkOf(path, { alias: true });
   if (link === null) return { ok: false, reason: "unlinkable" };
   if (containsLink(text, path)) return { ok: true, content: text, changed: false };
   const eol = eolOf(text);
@@ -106,7 +95,7 @@ function quoteLike(sample: string, value: string): string {
 
 export function appendFrontmatterLink(text: string, field: string, path: string): WriteResult {
   if (!/^[A-Za-z0-9_][\w .-]*$/.test(field)) return { ok: false, reason: "not-a-list" };
-  const link = wikilinkFor(path);
+  const link = wikilinkOf(path, { alias: true });
   if (link === null) return { ok: false, reason: "unlinkable" };
   const m = FM_RE.exec(text);
   if (!m) {

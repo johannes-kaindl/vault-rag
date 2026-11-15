@@ -11,7 +11,7 @@ import { EMPTY_CHAT, type ChatHistory, type ChatModelMessage } from "./vendor/ki
 import { buildChatWindow, type ChatSendHandlers, type ChatSendResult, type ChatWindow, type ChatWindowOptions } from "./vendor/kit-obsidian/chat-window";
 import { buildModelBar, type ModelBar, type ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
 import type { ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
-import type { ChatArchive } from "./vendor/kit-obsidian/chat-archive";
+import type { ChatArchive } from "./vendor/kit/chat-archive-store";
 
 export const VIEW_TYPE_CHAT = "vault-rag-chat";
 

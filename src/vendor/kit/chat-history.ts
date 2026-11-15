@@ -1,4 +1,4 @@
-// vendored from code-kit@0.40.0, src/ts/pure/chat-history.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.73.0, src/ts/pure/chat-history.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** The history of a chat window as pure data: rounds of one question and one answer, with the rule
  *  "only completed rounds go back to the model".
  *
@@ -259,4 +259,144 @@ export function retryLast(h: ChatHistory): ChatHistory {
 /** The empty chat, but the ids keep counting: a late call with an old id must not hit a new entry. */
 export function clearChat(h: ChatHistory): ChatHistory {
   return h.entries.length === 0 ? h : { entries: [], nextId: h.nextId };
+}
+
+// ── Shape check of a stored history ──────────────────────────────────────────────────────
+
+/** The result of {@link parseChatHistory}: the history, or the first thing that was wrong, named by its place. */
+export type ChatHistoryParse = { ok: true; history: ChatHistory } | { ok: false; problem: string };
+
+/** Nesting deeper than this is no data a plugin hangs on an answer; it is a malformed or hostile file. */
+const MAX_JSON_DEPTH = 64;
+
+const ANSWER_STATES: readonly string[] = ["streaming", "done", "aborted", "failed"];
+const MODEL_ROLES: readonly string[] = ["user", "assistant", "tool"];
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  if (typeof v !== "object" || v === null) return false;
+  const proto: unknown = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+}
+
+/** Plain JSON: `null`, booleans, strings, finite numbers, arrays and plain objects of those. No `undefined`, no hole in an
+ *  array, no class instance, no nesting beyond {@link MAX_JSON_DEPTH}. The depth cap bounds the recursion and also ends a
+ *  cycle: a cyclic value is nested without end, and the first failing branch stops the walk. */
+function isJsonValue(v: unknown, depth = 0): boolean {
+  if (v === null || typeof v === "boolean" || typeof v === "string") return true;
+  if (typeof v === "number") return Number.isFinite(v);
+  if (typeof v !== "object" || depth >= MAX_JSON_DEPTH) return false;
+  if (Array.isArray(v)) {
+    for (let i = 0; i < v.length; i++) {
+      if (!isJsonValue(v[i], depth + 1)) return false;
+    }
+    return true;
+  }
+  if (!isRecord(v)) return false;
+  for (const key of Object.keys(v)) {
+    if (!isJsonValue(v[key], depth + 1)) return false;
+  }
+  return true;
+}
+
+function optionalString(o: Record<string, unknown>, key: string): boolean {
+  return o[key] === undefined || typeof o[key] === "string";
+}
+
+function optionalNumber(o: Record<string, unknown>, key: string): boolean {
+  return o[key] === undefined || (typeof o[key] === "number" && Number.isFinite(o[key]));
+}
+
+function errorProblem(v: unknown, at: string): string | null {
+  if (!isRecord(v)) return `${at}: expected an object`;
+  if (typeof v.kind !== "string") return `${at}.kind: expected a string`;
+  if (!optionalNumber(v, "status")) return `${at}.status: expected a finite number`;
+  if (!optionalNumber(v, "seconds")) return `${at}.seconds: expected a finite number`;
+  if (!optionalString(v, "message")) return `${at}.message: expected a string`;
+  if (!optionalString(v, "detail")) return `${at}.detail: expected a string`;
+  return null;
+}
+
+function modelMessageProblem(v: unknown, at: string): string | null {
+  if (!isRecord(v)) return `${at}: expected an object`;
+  if (typeof v.role !== "string" || !MODEL_ROLES.includes(v.role)) return `${at}.role: expected "user", "assistant" or "tool"`;
+  if (typeof v.content !== "string") return `${at}.content: expected a string`;
+  if (v.tool_calls !== undefined && !isJsonValue(v.tool_calls)) return `${at}.tool_calls: expected plain JSON`;
+  if (!optionalString(v, "tool_call_id")) return `${at}.tool_call_id: expected a string`;
+  if (!optionalString(v, "name")) return `${at}.name: expected a string`;
+  return null;
+}
+
+function entryProblem(e: unknown, at: string): string | null {
+  if (!isRecord(e)) return `${at}: expected an object`;
+  if (e.kind === "user") {
+    return typeof e.text === "string" ? null : `${at}.text: expected a string`;
+  }
+  if (e.kind === "assistant") {
+    if (typeof e.text !== "string") return `${at}.text: expected a string`;
+    if (typeof e.reasoning !== "string") return `${at}.reasoning: expected a string`;
+    if (typeof e.state !== "string" || !ANSWER_STATES.includes(e.state)) return `${at}.state: expected "streaming", "done", "aborted" or "failed"`;
+    if (e.truncated !== undefined && typeof e.truncated !== "boolean") return `${at}.truncated: expected a boolean`;
+    if (e.error !== undefined) {
+      const problem = errorProblem(e.error, `${at}.error`);
+      if (problem !== null) return problem;
+    }
+    if (e.meta !== undefined && !isJsonValue(e.meta)) return `${at}.meta: expected plain JSON`;
+    return null;
+  }
+  if (e.kind === "ext") {
+    if (typeof e.type !== "string") return `${at}.type: expected a string`;
+    if (!isJsonValue(e.data)) return `${at}.data: expected plain JSON`;
+    if (e.toModel !== undefined) {
+      if (!Array.isArray(e.toModel)) return `${at}.toModel: expected an array`;
+      for (let i = 0; i < e.toModel.length; i++) {
+        const problem = modelMessageProblem(e.toModel[i], `${at}.toModel[${i}]`);
+        if (problem !== null) return problem;
+      }
+    }
+    return null;
+  }
+  return `${at}.kind: expected "user", "assistant" or "ext"`;
+}
+
+function historyProblem(value: unknown): string | null {
+  if (!isRecord(value)) return "expected an object with entries and nextId";
+  const { entries, nextId } = value;
+  if (!Array.isArray(entries)) return "entries: expected an array";
+  if (typeof nextId !== "number" || !Number.isSafeInteger(nextId) || nextId < 1) return "nextId: expected a whole number of at least 1";
+  const seen = new Set<number>();
+  for (let i = 0; i < entries.length; i++) {
+    const at = `entries[${i}]`;
+    const entry: unknown = entries[i];
+    const problem = entryProblem(entry, at);
+    if (problem !== null) return problem;
+    const id = (entry as { id?: unknown }).id;
+    if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 1) return `${at}.id: expected a whole number of at least 1`;
+    if (seen.has(id)) return `${at}.id: ${id} is used twice`;
+    if (id >= nextId) return `nextId: ${nextId} is not above the id ${id} of ${at}`;
+    seen.add(id);
+  }
+  return null;
+}
+
+/** Checks the shape of a stored history (payload type `okit-chat-history/1`) before anything works with it: a payload that
+ *  comes from a file may be hand-edited or half written by a sync, and `restoreChatHistory` and the functions above trust
+ *  the shape they get. Returns `{ ok: true, history }` or `{ ok: false, problem }` where `problem` names the first wrong
+ *  place (`entries[2].state: expected …`); **never throws**, not for a getter or a proxy that throws either.
+ *
+ *  What is checked: `entries` is an array and `nextId` a whole number above every id; each entry has a kind, a whole
+ *  id of at least 1 that is not used twice and its fields (text, reasoning, an {@link AnswerState}, `error`, `truncated`;
+ *  `type` and `toModel` of an ext entry); `meta`, `data` and `tool_calls` are plain JSON (no `undefined`, no `NaN`, no
+ *  class instance, no cycle, at most {@link MAX_JSON_DEPTH} levels deep). An unknown extra key is accepted: a newer writer
+ *  may add fields, and an older reader must not refuse the whole chat for it.
+ *
+ *  What is not checked: that rounds make sense (an answer without a question, a question without an answer are valid
+ *  states of a chat that was cut off), and no state is repaired: a `streaming` answer is accepted as it is and
+ *  `restoreChatHistory` turns it into `aborted`. The history that comes back is the payload itself, not a copy. */
+export function parseChatHistory(value: unknown): ChatHistoryParse {
+  try {
+    const problem = historyProblem(value);
+    return problem === null ? { ok: true, history: value as ChatHistory } : { ok: false, problem };
+  } catch {
+    return { ok: false, problem: "the payload could not be read" };
+  }
 }

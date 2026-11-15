@@ -1,4 +1,4 @@
-// vendored from code-kit@0.40.0, src/ts/pure/retrieval-facade.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.73.0, src/ts/pure/retrieval-facade.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/retrieval_facade.ts (ohne resolveNotePath, readNote und RetrievalDeps.readVault), 2026-10-11 (Änderungen: VectorIndex/Retriever/toIndexVector aus den Kit-Modulen; Verhalten unverändert)
 /** The search side in one place: query text → vector in the index space → cosine over the loaded index, `related` for a
  *  note that is in the index, and the expected states as VALUES (`no-index`, `offline`, `not-indexed`), never a throw.
@@ -9,8 +9,10 @@
  *  — whatever `embed` does, a failure or a timeout there is `offline` here.
  *
  *  Origin: vault-rag. Left there: `resolveNotePath` and `readNote` (the path guard and the vault read of the MCP channel;
- *  vault-rag extends this class by them). */
+ *  vault-rag extends this class by them) and the pause state (`paused` before any embed call). `embedNote` came here in 0.66.0
+ *  (from vault-rag `retrieval_facade.ts`, commit 5c7a7d3). */
 
+import { chunkMarkdown } from "./chunker";
 import { toIndexVector } from "./embed-vector";
 import { Retriever, type Hit, type RetrieveOpts, type VectorIndex } from "./vector-index";
 
@@ -28,6 +30,8 @@ export interface RetrievalDeps {
 /** Overridable per call; exclude always stays from settings(). */
 export interface RetrieveOverrides { k: number; minSim: number }
 
+/** A note without text after the frontmatter: nothing to embed, no embed call. */
+export type EmptyResult = { kind: "empty" };
 export type EmbedResult = { kind: "vec"; vec: Float32Array } | { kind: "no-index" } | { kind: "offline" };
 export type SearchResult = { kind: "hits"; hits: Hit[] } | { kind: "no-index" } | { kind: "offline" };
 export type VecSearchResult = { kind: "hits"; hits: Hit[] } | { kind: "no-index" };
@@ -41,6 +45,25 @@ export class RetrievalFacade {
     const index = this.deps.getIndex();
     if (!index) return { kind: "no-index" };
     return this.embedWith(index, text);
+  }
+
+  /** A whole note (or template) → ONE vector in the index space, by the same route as its row in the index: frontmatter off, chunks of at
+   *  most 800 characters, every chunk embedded in one batch, mean, normalised (`toIndexVector`). `embedQuery` sends the text as ONE entry,
+   *  and a server silently cuts it to its context (Ollama via /v1/embeddings: 41,600 characters gave 4,095 tokens, answer 200); right for
+   *  a short query, wrong for a whole note. A note without text gives `empty` (no embed call), the other states as `embedQuery`. */
+  async embedNote(text: string): Promise<EmbedResult | EmptyResult> {
+    const index = this.deps.getIndex();
+    if (!index) return { kind: "no-index" };
+    try {
+      if (!(await this.deps.embedderReady())) return { kind: "offline" };
+      const chunks = chunkMarkdown(text);
+      if (chunks.length === 0) return { kind: "empty" };
+      const vecs = await this.deps.embed(chunks.map((c) => c.text));
+      if (vecs.length === 0) return { kind: "offline" };
+      return { kind: "vec", vec: toIndexVector(vecs, index.dim) };
+    } catch {
+      return { kind: "offline" };
+    }
   }
 
   /** Reine Cosinus-Suche mit fertigem Query-Vektor (kein embed, kein ready-check).

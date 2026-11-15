@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.77.0, src/obsidian/chat-leaf.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.92.0, src/obsidian/chat-leaf.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { Platform, type Workspace, type WorkspaceLeaf } from "obsidian";
 
 /** Wo ein Chat-Blatt öffnet (seit 0.77.0). Eine Wahl für alle Chat-Plugins: vorher baute jedes seine eigene Fassung (settings-assistant `openChat`, vault-rag `hubPlacement`, koda-agent `chatPlacement`,
@@ -46,7 +46,7 @@ function tabLeaf(workspace: Workspace): WorkspaceLeaf | null {
  *
  *  - Desktop: ein vorhandenes Blatt (in jeder Seitenleiste oder im Hauptbereich) bleibt, sonst `getRightLeaf(false)`.
  *  - Mobilgerät: ein vorhandenes Blatt im Hauptbereich bleibt; **alle** vorhandenen Blätter außerhalb davon werden geschlossen, und die Ansicht öffnet als Tab im Hauptbereich (vault-rag: `move-to-tab`);
- *    sonst ein neuer Tab. Die Ansicht muss ihren Zustand beim Schließen verlieren können (der Chat hält ihn im Plugin, nicht im Blatt).
+ *    sonst ein neuer Tab. Die Ansicht kann ihren Zustand beim Schließen verlieren; ob das Gespräch dabei bleibt, hängt vom Plugin ab und ist vor der Hebung zu prüfen (gemessen: settings-assistant und kuro-gamification halten den Verlauf im Speicher des Plugins, vault-rag baut die Panels je Ansicht neu und verliert ihn).
  *
  *  @example const leaf = await openChatLeaf(this.app.workspace, VIEW_TYPE_CHAT); */
 export async function openChatLeaf(workspace: Workspace, viewType: string, opts: OpenChatLeafOptions = {}): Promise<WorkspaceLeaf | null> {

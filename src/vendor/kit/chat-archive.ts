@@ -1,4 +1,4 @@
-// vendored from code-kit@0.40.0, src/ts/pure/chat-archive.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.73.0, src/ts/pure/chat-archive.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** The archive of a chat window as plain data: a title from the first question, a file name, a record with a header
  *  and a payload, the clean-up after a restart, and the choice of what to delete when a keep limit is reached.
  *
@@ -112,6 +112,13 @@ function clipBytes(s: string, maxBytes: number): string {
  *  ({@link localFileStamp}; an invalid `Date` throws `RangeError`), the title is made safe for a file name
  *  ({@link sanitizeFilename}) and cut so that the whole name stays within 255 bytes of UTF-8, cut by whole code points.
  *  An empty title gives `2026-10-27 14-02.json`. `ext` goes without a dot and is never cut.
+ *
+ *  Why {@link sanitizeFilename} and not the `filename-policy` of the sanitizer (measured 2026-11-14, `tests/chat-archive.test.ts`, "against
+ *  filename-policy"): both refuse the same 13 characters (`\ / : * ? " < > | # ^ [ ]`), so a chat title never carries a link breaker either way.
+ *  They differ only in the replacement (`_` here, the settings of the policy there: `Re_ a_b` against `Re — a-b`), in white space (a run
+ *  or a control character becomes one space here; the policy keeps runs and deletes control characters) and in a dot at the end of the title
+ *  (`Notiz..json` here, `Notiz.json` there). Nothing is gained by a switch, and it would give NEW archive files another spelling than the
+ *  old ones in the same folder.
  *  @example chatFileName("Re: a/b", new Date(2026, 9, 27, 14, 2)) // → "2026-10-27 14-02 Re_ a_b.json" */
 export function chatFileName(title: string, when: Date, ext = "json"): string {
   const stamp = localFileStamp(when);

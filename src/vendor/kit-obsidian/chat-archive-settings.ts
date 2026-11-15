@@ -1,9 +1,9 @@
-// vendored from obsidian-kit@0.77.0, src/obsidian/chat-archive-settings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.92.0, src/obsidian/chat-archive-settings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { Setting, setIcon, type App } from "obsidian";
 import type { SettingDefinitionRender } from "obsidian";
 import { MAX_KEEP_CHATS } from "../kit/chat-archive";
-import { checkChatArchiveFolder } from "./chat-archive";
-import { resolveChatArchiveStrings, type ChatArchiveStrings, type ChatArchiveStringsOverride } from "./chat-archive-strings";
+import { checkChatArchiveFolder } from "../kit/chat-archive-store";
+import { resolveChatArchiveStrings, type ChatArchiveStrings, type ChatArchiveStringsOverride } from "../kit/chat-archive-strings";
 import { FolderSuggest } from "./folder-suggest";
 
 /** Einstellungszeilen des Chat-Verlaufs (Muster `link-settings.ts`, Schieber und Ordnerfeld nach `settings_walker.ts`): der Ordner (Text mit `FolderSuggest`, leer heißt

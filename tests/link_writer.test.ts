@@ -1,15 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { wikilinkFor, linkTargetOf, containsLink, appendSectionLink, appendFrontmatterLink } from "../src/link_writer";
+import { wikilinkOf } from "../src/vendor/kit/frontmatter";
+import { linkTargetOf, containsLink, appendSectionLink, appendFrontmatterLink } from "../src/link_writer";
 
-describe("wikilinkFor", () => {
+const wikilinkOfAlias = (p: string): string | null => wikilinkOf(p, { alias: true });
+
+describe("wikilinkOf mit Alias (der Link, den der Integrator schreibt)", () => {
   it("bildet [[pfad|basename]] ohne .md", () => {
-    expect(wikilinkFor("Notes/Foo bar.md")).toBe("[[Notes/Foo bar|Foo bar]]");
+    expect(wikilinkOfAlias("Notes/Foo bar.md")).toBe("[[Notes/Foo bar|Foo bar]]");
   });
   it("laesst den Alias bei Root-Notizen weg (basename === target)", () => {
-    expect(wikilinkFor("A.md")).toBe("[[A]]");
+    expect(wikilinkOfAlias("A.md")).toBe("[[A]]");
   });
   it("liefert null bei Zeichen, die Obsidian nicht klammern kann", () => {
-    for (const p of ["a#b.md", "a|b.md", "a[b.md", "a]b.md", "a^b.md", ""]) expect(wikilinkFor(p)).toBeNull();
+    for (const p of ["a#b.md", "a|b.md", "a[b.md", "a]b.md", "a^b.md", ""]) expect(wikilinkOfAlias(p)).toBeNull();
   });
   it("linkTargetOf streicht nur die Endung", () => {
     expect(linkTargetOf("Notes/Foo.md")).toBe("Notes/Foo");

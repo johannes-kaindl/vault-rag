@@ -2,7 +2,7 @@
 // gefiltert, kein LLM, kein Netz. Obsidian-frei; die Ports kommen aus main.ts.
 import type { RelatedResult } from "./retrieval_facade";
 import type { LinkProposal } from "./integrator_store";
-import { wikilinkFor } from "./link_writer";
+import { wikilinkOf } from "./vendor/kit/frontmatter";
 
 /** djb2 des Notiztexts (Stale-Guard des Integrators; Smart Apply vergleicht seit Welle 34 den Text selbst, `swapNote`). */
 export function hashText(s: string): number {
@@ -39,7 +39,7 @@ export function proposeLinks(path: string, noteText: string, deps: ProposeDeps):
   const linked = deps.existingLinks(path);
   const rejected = deps.rejected(path);
   const links = r.hits
-    .filter(h => h.path !== path && !linked.has(h.path) && !rejected.has(h.path) && wikilinkFor(h.path) !== null)
+    .filter(h => h.path !== path && !linked.has(h.path) && !rejected.has(h.path) && wikilinkOf(h.path) !== null)
     .map(h => ({ path: h.path, score: h.score }));
   if (links.length === 0) return { kind: "nothing-new" };
   return { kind: "proposal", proposal: { notePath: path, noteHash: hashText(noteText), createdAt: deps.now(), links, stale: false } };

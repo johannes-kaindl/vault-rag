@@ -24,7 +24,7 @@ import { getLang, t } from "./vendor/kit/i18n";
 import type { StampGapView } from "./stamp_gap";
 import { linkSettingDefinitions, resolveLinkSettingsStrings, type LinkSettingKey } from "./vendor/kit-obsidian/link-settings";
 import { chatArchiveSettingDefinitions } from "./vendor/kit-obsidian/chat-archive-settings";
-import { resolveChatArchiveStrings } from "./vendor/kit-obsidian/chat-archive-strings";
+import { resolveChatArchiveStrings } from "./vendor/kit/chat-archive-strings";
 
 export { DEFAULT_SETTINGS };
 export type { VaultRagSettings };

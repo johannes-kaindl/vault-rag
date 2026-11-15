@@ -1,4 +1,4 @@
-// vendored from code-kit@0.40.0, src/ts/pure/cooperative-yield.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.73.0, src/ts/pure/cooperative-yield.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Kooperatives Zeittor für CPU-lange Schleifen im Renderer — obsidian-frei, timer-frei,
  *  in Node testbar (PROF-OBS-03/04).
  *
@@ -50,6 +50,15 @@
  *     auch `NowPort` statt `ClockPort` (`obsidian/clock`): der große Port bringt
  *     `setTimeout`/`clearTimeout` mit und lüde genau die Kopplung ein, die dieser Entwurf
  *     vermeidet. Dieselbe Bauform hat `pure/timeout.ts` mit `TimeoutTimers` schon gewählt.
+ *     **Die Quelle der Pause ist Pflicht, nicht Geschmack:** eine Pause über `setTimeout`
+ *     wird in einem Fenster im Hintergrund von Chromium auf 250 ms bis 1 s gedrosselt, und
+ *     weil das Tor VOR dem `await` stempelt (Punkt 4), ist es nach einer so langen Pause
+ *     sofort wieder fällig — jede Runde wird zur Wartezeit. Gemessen in docs-mirror
+ *     (Commit 1995edb, echter Scan mit 127.177 Einträgen): über den Zeitgeber 11.559 Einträge
+ *     in 20 s, über einen `MessageChannel` 2,4 s gesamt. Der Aufrufer reicht deshalb
+ *     `web/macrotask-pause` als `yieldToUi` herein: `const pause = createMacrotaskPause();`
+ *     `createCooperativeYield({ yieldToUi: () => pause.pause() })`, und ruft `pause.close()`
+ *     beim Entladen. Die Stempel-Reihenfolge ändert das nicht.
  *  7. **`everyMs` ist load-bearing für die Kadenz-Tests der Konsumenten** (Default 250, in
  *     beiden Quellen identisch). `0` heißt „jede Runde" — `ts - last >= 0` ist immer wahr;
  *     apple-healths Verdrahtungstest nutzt genau das.

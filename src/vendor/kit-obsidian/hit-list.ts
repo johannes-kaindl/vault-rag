@@ -1,6 +1,7 @@
-// vendored from obsidian-kit@0.77.0, src/obsidian/hit-list.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.92.0, src/obsidian/hit-list.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // uebernommen aus vault-rag/src/view.ts (renderHits) und vault-rag/styles.css (vault-rag-hit*), 2026-10-11
 import type { Hit } from "../kit/vector-index";
+import { baseName } from "../kit/rel-path";
 
 /**
  * Trefferliste einer Ähnlichkeits- oder Volltextsuche: pro Treffer eine Zeile mit dem Dateinamen (ohne `.md`) und dem
@@ -19,7 +20,7 @@ export function renderHitList(
 ): void {
   for (const h of hits) {
     const row = el.createDiv({ cls: actions ? "okit-hit okit-hit-split" : "okit-hit" });
-    const name = h.path.split("/").pop()?.replace(/\.md$/, "") ?? h.path;
+    const name = baseName(h.path).replace(/\.md$/, "");
     const title = row.createSpan({ cls: "okit-hit-title", text: name });
     row.createSpan({ cls: "okit-hit-score", text: h.score.toFixed(2) });
     if (actions) { title.addEventListener("click", () => openPath(h.path)); actions(row, h); }

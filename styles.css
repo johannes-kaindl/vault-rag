@@ -311,7 +311,7 @@
 .okit-hub-panel { height: 100%; overflow: auto; }
 .okit-hub-panel.is-hidden { display: none; }
 
-/* ── Streaming-Antwortbereich — uebernommen aus obsidian-kit@0.51.2 (STREAM_AREA_CSS,
+/* ── Streaming-Antwortbereich — uebernommen aus obsidian-kit@0.92.0 (STREAM_AREA_CSS,
    src/obsidian/stream-area.ts). Das Kit injiziert kein CSS; diese Kopie ist die
    Consumer-Haelfte des Moduls (buildStreamArea in smart_apply_view.ts und
    reformat_preview_modal.ts). */
@@ -341,14 +341,8 @@
   font-size: var(--font-ui-smaller); color: var(--text-muted);
 }
 .okit-stream-reasoning > summary { cursor: var(--cursor); color: var(--text-faint); }
-/* Der Kopier-Knopf sitzt IN der Zusammenfassung, bleibt inline und nimmt der Zeile keine Höhe. */
-.okit-stream-reasoning-copy {
-  display: inline-flex; vertical-align: middle; margin-inline-start: var(--size-4-2);
-  height: auto; padding: var(--size-2-1) var(--size-2-2);
-  color: var(--text-faint);
-}
-.okit-stream-reasoning-copy.is-copied { color: var(--text-success); }
-.okit-stream-reasoning-copy .svg-icon { width: var(--icon-xs); height: var(--icon-xs); }
+/* Der Kopier-Knopf sitzt IN der Zusammenfassung, bleibt inline und nimmt der Zeile keine Höhe. Sein Aussehen steht in COPY_BUTTON_CSS (Baustein createCopyButton), die der Konsument einmal selbst kopiert. */
+.okit-stream-reasoning-copy { display: inline-flex; vertical-align: middle; margin-inline-start: var(--size-4-2); }
 .okit-stream-reasoning > pre {
   max-height: 12em; overflow-y: auto; white-space: pre-wrap;
   background: var(--background-secondary); padding: var(--size-4-2);
@@ -356,6 +350,13 @@
 /* Ein leerer Slot bleibt Flex-Item und kostet einen gap — spürbar bei einem Wirt, der die
    Statuszeile nicht nutzt (Befund aus der ersten Adoption, 2026-09-11). */
 .okit-stream-status:empty, .okit-stream-reasoning-slot:empty { display: none; }
+
+/* uebernommen aus src/vendor/kit-obsidian/copy-button.ts (COPY_BUTTON_CSS), obsidian-kit 0.92.0 */
+.okit-copy-button { color: var(--text-faint); height: auto; padding: var(--size-2-1) var(--size-2-2); }
+.okit-copy-button.is-copied { color: var(--text-success); }
+.okit-copy-button .svg-icon { width: var(--icon-xs); height: var(--icon-xs); }
+.is-mobile .okit-copy-button { position: relative; }
+.is-mobile .okit-copy-button::after { content: ""; position: absolute; top: 50%; left: 50%; width: calc(var(--size-4-10) + var(--size-4-1)); height: calc(var(--size-4-10) + var(--size-4-1)); transform: translate(-50%, -50%); }
 
 .vault-rag-mcp-snippet {
   white-space: pre-wrap;
@@ -536,7 +537,7 @@
 .okit-thinking-icon { display: inline-flex; align-items: center; margin-inline-end: var(--size-2-1); color: var(--icon-color); }
 .okit-thinking-icon svg { width: var(--icon-xs); height: var(--icon-xs); }
 
-/* uebernommen aus src/vendor/kit-obsidian/chat-window.ts (CHAT_WINDOW_CSS), obsidian-kit 0.80.3 */
+/* uebernommen aus src/vendor/kit-obsidian/chat-window.ts (CHAT_WINDOW_CSS), obsidian-kit 0.92.0 */
 .okit-chat { display: flex; flex-direction: column; min-height: 0; height: 100%; gap: var(--size-4-2); }
 .okit-chat-header:empty { display: none; }
 .okit-chat-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--size-4-3); }
@@ -558,12 +559,6 @@
 .okit-chat-steps:empty { display: none; }
 .okit-chat-actions { display: flex; gap: var(--size-4-1); }
 .okit-chat-actions:empty { display: none; }
-.okit-chat-copy { color: var(--text-faint); height: auto; padding: var(--size-2-1) var(--size-2-2); }
-.okit-chat-copy.is-copied { color: var(--text-success); }
-.okit-chat-copy .svg-icon { width: var(--icon-xs); height: var(--icon-xs); }
-/* Tippfläche auf Mobil (0.76.0): der Kopierknopf misst 26 × 22 px (Richtwert 44). Eine unsichtbare Trefffläche aus 44 × 44 px um den Mittelpunkt, Optik und Layout unverändert (ein Pseudo-Element zählt für Klicks zum Knopf). Gemessen im Pilot mit elementFromPoint. */
-.is-mobile .okit-chat-copy { position: relative; }
-.is-mobile .okit-chat-copy::after { content: ""; position: absolute; top: 50%; left: 50%; width: calc(var(--size-4-10) + var(--size-4-1)); height: calc(var(--size-4-10) + var(--size-4-1)); transform: translate(-50%, -50%); }
 .okit-chat-note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--size-4-2); font-size: var(--font-ui-small); }
 .okit-chat-note:empty { display: none; }
 .okit-chat-error { color: var(--text-error); }

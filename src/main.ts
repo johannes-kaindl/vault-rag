@@ -22,7 +22,7 @@ import { applyLinkAtomic } from "./link_apply";
 import { swapNote } from "./note_edit";
 import type { EmbeddingConnection, EmbeddingResolution } from "./vendor/kit-obsidian/embedding-connection";
 import { thinkingLevelTexts, thinkingOffTexts, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
-import { createChatArchive, type ChatArchive } from "./vendor/kit-obsidian/chat-archive";
+import { createChatArchive, type ChatArchive } from "./vendor/kit/chat-archive-store";
 import { clampChatKeep } from "./vendor/kit-obsidian/chat-archive-settings";
 import { sanitizeRequestSettings, thinkingFor, onLevelFor, type FamilyId, type ModeId, type RequestSettings } from "./vendor/kit/sampling-profiles";
 import { migrateLegacySampling, MODE_CHAT, MODE_SMART_APPLY, MODE_REFORMAT } from "./request_profile";

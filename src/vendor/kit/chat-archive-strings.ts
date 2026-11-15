@@ -1,63 +1,65 @@
-// vendored from obsidian-kit@0.77.0, src/obsidian/chat-archive-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
-/** Default-Texte (EN/DE) für den Chat-Verlauf (`chat-archive`: Speicher, später Dialog und Einstellungen) — nach dem Muster von `chat-window-strings.ts`.
+// vendored from code-kit@0.73.0, src/ts/pure/chat-archive-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+/** Default texts (EN/DE) for the chat history (`chat-archive-store`: store; the dialog and the settings rows live in obsidian-kit),
+ *  after the pattern of obsidian-kit `chat-window-strings.ts`. The German values are data, not code: they stay German.
  *
- *  Herkunft des Wortlauts: eigene Formulierung nach dem Ton der Kit-Texte (`chat-window-strings.ts`, `share-export.ts`); kein Plugin hat einen Verlauf,
- *  aus dem sie stammen könnten (Entwurf „Chat-Kopf“ § 3 liefert nur Neu, Verlauf, Hinweis, Suchfeld, Leerzustand, Zeilenaktionen und die Löschfrage,
- *  die mit dem Dialog kommen). Die Texte des Speichers sind Meldungen über `onError` und die Überschriften des Exports.
+ *  Origin of the wording: own phrasing in the tone of the kit texts (`chat-window-strings.ts`, `share-export.ts`); no plugin has a
+ *  history to take them from. The store's texts are messages through `onError` and the headings of the note export; the rest is for
+ *  the dialog and the settings rows of obsidian-kit, which vendors this file back (moved here from obsidian-kit
+ *  `src/obsidian/chat-archive-strings.ts` together with the store, wave 33: the store needs `resolveChatArchiveStrings`).
  *
- *  Überschreiben: `strings: { lang: "de", untitled: "Ohne Titel" }` — Teil-Merge über dem Default der Sprache. */
+ *  Override: `strings: { lang: "de", untitled: "Ohne Titel" }` — partial merge over the default of the language. */
 
 export interface ChatArchiveStrings {
-  /** Titel eines Chats, dessen erste Frage leer war. */
+  /** Title of a chat whose first question was empty. */
   untitled: string;
-  /** Meldung (`onError`), wenn das Speichern scheiterte (Schreibfehler, ungültige Daten). */
+  /** Message (`onError`) when saving failed (write error, invalid data). */
   saveFailed: string;
-  /** Meldung (`onError`) für einen Ordner, den der Speicher nicht benutzt (leer geht nicht, aber `..`, ein absoluter Pfad, der Konfigurationsordner). */
+  /** Message (`onError`) for a folder the store does not use (empty is fine, but `..`, an absolute path, the config folder are not). */
   invalidFolder(folder: string): string;
-  /** Meldung (`onError`), wenn die Liste sich nicht lesen ließ. */
+  /** Message (`onError`) when the list could not be read. */
   listFailed: string;
-  /** Meldung (`onError`), wenn das Löschen scheiterte. */
+  /** Message (`onError`) when deleting failed. */
   removeFailed: string;
-  /** Meldung (`onError`), wenn die Notiz nicht entstand. */
+  /** Message (`onError`) when the note was not created. */
   exportFailed: string;
-  /** Überschriften der Notiz („Als Notiz speichern“): je Runde Frage, Antwort und der zugeklappte Denkblock. */
+  /** Headings of the note ("Save as note"): per round the question, the answer and the collapsed thinking block. */
   exportQuestion: string;
   exportAnswer: string;
   exportThinking: string;
-  /** Überschrift der Einstellungsgruppe. */
+  /** Heading of the settings group. */
   settingsHeading: string;
   folderName: string;
-  /** Beschreibung der Ordner-Einstellung: Wo die Chats liegen, was leer heißt, dass ein Ordnerwechsel nichts verschiebt, und keine Zusage über einen Sync-Dienst
-   *  (ob Obsidian Sync eine `.json` im Vault mitnimmt, ist ungemessen; F-B3). */
+  /** Description of the folder setting: where the chats live, what empty means, that changing the folder moves nothing, and no promise about a sync
+   *  service (whether Obsidian Sync takes a `.json` in the vault along is unmeasured; F-B3). */
   folderDesc(defaultFolder: string): string;
-  /** Hinweis unter dem Feld, solange der eingegebene Ordner nicht benutzt werden kann (Symbol und Text, nicht nur Farbe). */
+  /** Hint under the field while the entered folder cannot be used (symbol and text, not only colour). */
   folderInvalid: string;
   keepName: string;
-  /** Beschreibung der Aufbewahrung: 0 heißt kein Verlauf, vorhandene Chats bleiben liegen, und eine Absenkung löscht den Überschuss beim nächsten Speichern. */
+  /** Description of the keep setting: 0 means no history, existing chats stay, and lowering it deletes the surplus at the next save. */
   keepDesc: string;
-  /** Dialog „Vergangene Chats“ (seit 0.73.0, Teil 2b). */
+  /** Dialog "Past chats" (since 0.73.0, part 2b). */
   placeholder: string;
-  /** Leerzustand, solange es keinen Chat gibt (UI-STANDARD § 8 „Empty-State“). */
+  /** Empty state while there is no chat (UI-STANDARD § 8 "Empty-State"). */
   empty: string;
-  /** Leerzustand, wenn es Chats gibt, die Suche aber keinen trifft. */
+  /** Empty state when there are chats but the search matches none. */
   noMatch: string;
-  /** Anweisungszeile unter dem Suchfeld: Enter öffnet, die Zeilenaktionen heißen wie die Symbole (`rowExport`, `rowDelete`). */
+  /** Instruction line under the search field: Enter opens, the row actions are named like the symbols (`rowExport`, `rowDelete`). */
   instructionOpen: string;
   instructionClose: string;
-  /** `aria-label` und Tooltip der zwei Symbole in der Zeile, zugleich Zweck der Tasten Umschalt+Enter und Alt+Enter in der Anweisungszeile. */
+  /** `aria-label` and tooltip of the two symbols in the row, also the purpose of Shift+Enter and Alt+Enter in the instruction line. */
   rowExport: string;
   rowDelete: string;
-  /** Löschbestätigung: ein Absatz, Bestätigen und Abbrechen. Löschen ist endgültig (kein Papierkorb). */
+  /** Delete confirmation: one paragraph, confirm and cancel. Deleting is final (no trash). */
   deleteMessage: string;
   deleteConfirm: string;
   deleteCancel: string;
-  /** Meldung nach dem Export; `path` ist der Pfad der neuen Notiz im Vault. */
+  /** Message after the export; `path` is the path of the new note in the vault. */
   exported(path: string): string;
-  /** Meldung, wenn sich ein gewählter Chat nicht öffnen ließ (der Speicher hat die Datei nicht angerührt). */
+  /** Message when a chosen chat could not be opened (the store did not touch the file). */
   openFailed: string;
-  /** Zeile am Dialog: so viele `.json`-Dateien im Ordner ließen sich nicht als Chat lesen und bleiben unverändert (gezählt, nicht versteckt). */
+  /** Line at the dialog: this many `.json` files in the folder could not be read as a chat and stay unchanged (counted, not hidden). */
   unreadable(n: number): string;
-  /** Datum der Zeile: heute mit Uhrzeit, gestern. Ältere Tage schreibt `Intl` in der Sprache. */
+  /** Date of the row: today with the time, yesterday. Older days are written by `Intl` in the language. */
   dateToday(time: string): string;
   dateYesterday: string;
 }
@@ -136,7 +138,7 @@ function definedOnly<T extends object>(o: T): Partial<T> {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
-/** Default der Sprache (EN ohne Angabe), Feld für Feld von `override` überlagert; ein ausdrückliches `undefined` überschreibt nichts. */
+/** The default of the language (EN without one), overlaid field by field by `override`; an explicit `undefined` overrides nothing. */
 export function resolveChatArchiveStrings(override?: ChatArchiveStringsOverride): ChatArchiveStrings {
   const base = override?.lang === "de" ? CHAT_ARCHIVE_STRINGS_DE : CHAT_ARCHIVE_STRINGS_EN;
   if (!override) return base;

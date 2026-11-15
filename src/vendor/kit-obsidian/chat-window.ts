@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.80.3, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.92.0, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /**
  * Chat-Fenster (UI-STANDARD §8, Baustein 12): Verlauf, Eingabe, Ablauf, Abbruch, Fehlerzeile und Leerzustand eines Fach-Chats.
  *
@@ -29,7 +29,7 @@
  *
  * ## Fallen beim Übernehmen
  *
- * 1. **Das Kit injiziert kein CSS.** `CHAT_WINDOW_CSS` gehört zusammen mit `STREAM_AREA_CSS` in die `styles.css` des Consumers.
+ * 1. **Das Kit injiziert kein CSS.** `CHAT_WINDOW_CSS` gehört zusammen mit `STREAM_AREA_CSS` und `COPY_BUTTON_CSS` (seit 0.89.0 nicht mehr in den beiden anderen enthalten) in die `styles.css` des Consumers.
  * 2. **`render` kommt vom Plugin** (`MarkdownRenderer.render` braucht dessen `App` und `Component`), wie beim `StableMarkdownWriter`.
  * 3. **`refresh()` zeichnet nie das Textfeld**, damit ein getippter Entwurf einen Neuaufbau überlebt.
  * 4. **Kein `role="log"`** am Verlauf: es ist implizit live und sagte jedes Token an. Angesagt wird nur die Zustandszeile.
@@ -54,22 +54,23 @@ import { Notice, setIcon, type App } from "obsidian";
 import { buildReasoningBlock, buildStreamArea, type StreamArea } from "./stream-area";
 import { createStableWriter, type StableMarkdownWriter } from "./stable-writer";
 import type { DomGuardOptions } from "./dom-guard";
-import { copyToClipboard } from "./clipboard";
+import { createCopyButton, type CopyButton } from "./copy-button";
 import { realClock, type ClockPort } from "./clock";
 import { resolveChatWindowStrings, type ChatWindowStrings, type ChatWindowStringsOverride } from "./chat-window-strings";
 import { noEndpointText, resolveLlmConnectionStrings, transportMissingText } from "./llm-connection-strings";
 import type { SourceKind } from "../kit/endpoint-source";
 import { errorMessageFromText } from "../kit/error_body";
+import { errorMessage } from "../kit/error-message";
 import { redactText, SECRET_REDACT_RULES } from "../kit/redact";
 import {
-  EMPTY_CHAT, abortAnswer, addExt, addUser, appendAnswer, canRetry, chatRounds, clearChat, failAnswer, finishAnswer, historyForModel,
+  EMPTY_CHAT, abortAnswer, addExt, addUser, appendAnswer, canRetry, chatRounds, clearChat, failAnswer, finishAnswer, historyForModel, parseChatHistory,
   resetAnswerText, retryLast, setAnswerMeta, startAnswer, updateExt,
   type ChatAnswerEntry, type ChatError, type ChatExtEntry, type ChatHistory, type ChatModelMessage, type JsonValue,
 } from "../kit/chat-history";
 import { restoreChatHistory, type ChatRecord } from "../kit/chat-archive";
 import type { ThinkingLevel } from "../kit/sampling-profiles";
-import type { ChatArchive } from "./chat-archive";
-import type { ChatArchiveStringsOverride } from "./chat-archive-strings";
+import type { ChatArchive } from "../kit/chat-archive-store";
+import type { ChatArchiveStringsOverride } from "../kit/chat-archive-strings";
 import { openChatArchive } from "./chat-archive-dialog";
 import { markChatHost } from "./chat-host";
 import { confirmAction } from "./confirm";
@@ -77,7 +78,6 @@ import { confirmAction } from "./confirm";
 export type { ChatAnswerEntry, ChatExtEntry, ChatHistory, ChatModelMessage, JsonValue } from "../kit/chat-history";
 
 /** Wie lange der Kopier-Knopf nach dem Kopieren das Häkchen zeigt. */
-const COPIED_FLASH_MS = 1500;
 /** Takt der Zeitanzeige neben der Zustandszeile. */
 const TIMER_TICK_MS = 100;
 /** Höchstlänge der Server-Begründung in der Fehlerzeile (ohne das „…“). */
@@ -298,7 +298,7 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   let runStartedAt = 0;
   let timerHandle: number | null = null;
   let statusText = "";
-  const copiedTimers = new Set<number>();
+  const copyButtons: CopyButton[] = [];
   const answerViews = new Map<number, AnswerView>();
   const roundViews = new Map<number, RoundView>();
   const extEls = new Map<number, HTMLElement>();
@@ -391,28 +391,14 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   const focusInput = (): void => { inputEl.focus(); };
 
   // ── Kopieren ────────────────────────────────────────────────────────────────────────────────────
-  const flash = (btn: HTMLElement): void => {
-    setIcon(btn, "check");
-    btn.addClass("is-copied");
-    const id = clock.setTimeout(() => {
-      copiedTimers.delete(id);
-      setIcon(btn, "copy");
-      btn.removeClass("is-copied");
-    }, COPIED_FLASH_MS);
-    copiedTimers.add(id);
-  };
-
+  // Der Knopf ist der Baustein `createCopyButton` (0.86.0); `okit-chat-copy` bleibt als Griff für Tests, Treiber und die Regeln der Konsumenten.
   const copyButton = (parentEl: HTMLElement, label: string, text: () => string): HTMLElement => {
-    const btn = parentEl.createEl("button", { cls: "clickable-icon okit-chat-copy", attr: { type: "button", "aria-label": label } });
-    setIcon(btn, "copy");
-    btn.addEventListener("click", () => {
-      const value = text();
-      const done = opts.copy !== undefined
-        ? opts.copy(value)
-        : copyToClipboard(value, strings.copied === "" ? {} : { copiedMessage: strings.copied });
-      void done.then((ok) => { if (ok && !destroyed) flash(btn); }).catch(reportError);
+    const handle = createCopyButton(parentEl, {
+      label, text, cls: "okit-chat-copy", clock,
+      ...(opts.copy !== undefined ? { copy: opts.copy, onError: reportError } : strings.copied === "" ? {} : { copiedMessage: strings.copied }),
     });
-    return btn;
+    copyButtons.push(handle);
+    return handle.el;
   };
 
   // ── Fehlerzeile ─────────────────────────────────────────────────────────────────────────────────
@@ -861,7 +847,7 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
         result = await send(historyForModel(history), handlers);
       } catch (e) {
         if (isAbortError(e) || ctl.signal.aborted) return { kind: "aborted" };
-        return { kind: "fail", error: { kind: "error", message: e instanceof Error ? e.message : String(e) } };
+        return { kind: "fail", error: { kind: "error", message: errorMessage(e) } };
       }
       if (result.ok) return { kind: "ok", r: result };
       if (result.kind === "aborted") return { kind: "aborted" };
@@ -1017,6 +1003,9 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   const load = (h: ChatHistory, source?: { name: string; created: string }): boolean => {
     if (destroyed || running) return false;
     const failed = (e: unknown): false => { reportError(e); new Notice(strings.archiveOpenFailed); return false; };
+    // Die Form zuerst (code-kit `parseChatHistory`): ein Payload mit `entries: "x"` wirft nicht, es geht still durch; der `try`/`catch` bleibt als Netz für den Rest.
+    const parsed = parseChatHistory(h);
+    if (!parsed.ok) return failed(new Error(`chat history: ${parsed.problem}`));
     let restored: ChatHistory;
     try { restored = restoreChatHistory(h); } catch (e) { return failed(e); }
     const prevHistory = history;
@@ -1067,8 +1056,8 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
     running = false;
     controller = null;
     stopTimer();
-    for (const id of copiedTimers) clock.clearTimeout(id);
-    copiedTimers.clear();
+    for (const b of copyButtons) b.dispose();
+    copyButtons.length = 0;
     for (const v of answerViews.values()) v.writer?.destroy();
     destroyed = true;
     const offs = [headerOff, composerOff];
@@ -1132,7 +1121,7 @@ export function buildChatWindow(parent: HTMLElement, opts: ChatWindowOptions): C
   };
 }
 
-/** Gehört in die `styles.css` des Consumers (zusammen mit `STREAM_AREA_CSS`) — das Kit injiziert kein CSS.
+/** Gehört in die `styles.css` des Consumers (zusammen mit `STREAM_AREA_CSS` und `COPY_BUTTON_CSS`) — das Kit injiziert kein CSS.
  *  Nur Theme-Variablen, keine harten Farben oder Größen (UI-STANDARD).
  *
  *  Der kompakte Composer (0.74.0) ist ein Höhen-`@media` am Ende: bei geringer Fensterhöhe, etwa mit offener Handy-Tastatur, liegt die Modellzeile in der unteren Zeile neben Neu und Verlauf
@@ -1159,12 +1148,6 @@ export const CHAT_WINDOW_CSS = `
 .okit-chat-steps:empty { display: none; }
 .okit-chat-actions { display: flex; gap: var(--size-4-1); }
 .okit-chat-actions:empty { display: none; }
-.okit-chat-copy { color: var(--text-faint); height: auto; padding: var(--size-2-1) var(--size-2-2); }
-.okit-chat-copy.is-copied { color: var(--text-success); }
-.okit-chat-copy .svg-icon { width: var(--icon-xs); height: var(--icon-xs); }
-/* Tippfläche auf Mobil (0.76.0): der Kopierknopf misst 26 × 22 px (Richtwert 44). Eine unsichtbare Trefffläche aus 44 × 44 px um den Mittelpunkt, Optik und Layout unverändert (ein Pseudo-Element zählt für Klicks zum Knopf). Gemessen im Pilot mit elementFromPoint. */
-.is-mobile .okit-chat-copy { position: relative; }
-.is-mobile .okit-chat-copy::after { content: ""; position: absolute; top: 50%; left: 50%; width: calc(var(--size-4-10) + var(--size-4-1)); height: calc(var(--size-4-10) + var(--size-4-1)); transform: translate(-50%, -50%); }
 .okit-chat-note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--size-4-2); font-size: var(--font-ui-small); }
 .okit-chat-note:empty { display: none; }
 .okit-chat-error { color: var(--text-error); }

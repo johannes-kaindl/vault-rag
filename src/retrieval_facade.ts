@@ -1,14 +1,13 @@
 import {
   RetrievalFacade as KitRetrievalFacade, type RetrievalDeps as KitRetrievalDeps,
-  type EmbedResult, type SearchResult, type VecSearchResult, type RelatedResult, type RetrieveOverrides,
+  type EmbedResult, type EmptyResult, type SearchResult, type VecSearchResult, type RelatedResult, type RetrieveOverrides,
 } from "./vendor/kit/retrieval-facade";
 import type { RetrieveOpts } from "./vendor/kit/vector-index";
 import { normalizeRelPath } from "./vendor/kit/rel-path";
 import { chunkMarkdown } from "./vendor/kit/chunker";
-import { toIndexVector } from "./vendor/kit/embed-vector";
 
 export type {
-  RetrieveOverrides, EmbedResult, SearchResult, VecSearchResult, RelatedResult,
+  RetrieveOverrides, EmbedResult, EmptyResult, SearchResult, VecSearchResult, RelatedResult,
 } from "./vendor/kit/retrieval-facade";
 
 /** Die Anschlüsse des Kit-Kerns plus der Vault-Lesezugriff des MCP-Kanals. */
@@ -22,9 +21,6 @@ export interface RetrievalDeps extends KitRetrievalDeps {
 
 /** Pause ist eine Entscheidung des Nutzers, kein Ausfall: ein eigener Zustand neben `offline`, nie dahinein gefaltet. */
 export type PausedResult = { kind: "paused" };
-
-/** Die Notiz hat nach Abzug des Frontmatters keinen Text: nichts zu einbetten, kein Embedding-Aufruf. */
-export type EmptyResult = { kind: "empty" };
 
 /** Warum eine vorhandene Notiz nicht im Index steht: ohne Text (nur Frontmatter oder leer, bleibt dauerhaft draußen, bis jemand Inhalt schreibt) oder mit Text
  *  (der Indexer zieht nach). `unknown`: die Datei ist nicht zu lesen oder der Pfad nicht zulässig — dann bleibt es bei der allgemeinen Antwort. */
@@ -68,25 +64,14 @@ export class RetrievalFacade {
     return this.core.embedQuery(text);
   }
   /** Eine ganze Notiz (oder Vorlage) → ein Vektor im Index-Raum, auf demselben Weg wie die Zeile im Index: Frontmatter ab, in Chunks von
-   *  höchstens 800 Zeichen, jeder Chunk eingebettet, Mittelwert, normalisiert (`LiveIndexer.embedNote`). `embedQuery` schickt den Text als EINEN
+   *  höchstens 800 Zeichen, jeder Chunk eingebettet, Mittelwert, normalisiert (Kit `RetrievalFacade.embedNote`, die Hülle setzt davor nur die Pause). `embedQuery` schickt den Text als EINEN
    *  Eintrag, und ein Server schneidet ihn still auf seinen Kontext ab (Ollama über /v1/embeddings: 41.600 Zeichen ergaben 4.095 Token, Antwort 200,
    *  Bericht zu 0.48.0); für kurze Anfragen ist das richtig, für eine ganze Notiz nicht. Darum laufen Typerkennung, Vorlagen-Ranking und der
    *  Vorlagen-Fallback über diesen Weg: sie sehen von einer Notiz so viel wie der Index. Ein Chunk ist kürzer als jeder Kontext eines
    *  Embedding-Modells, also wird nichts mehr gekürzt und es gibt nichts anzuzeigen. */
-  async embedNote(text: string): Promise<EmbedResult | PausedResult | EmptyResult> {
-    if (this.deps.isPaused?.()) return { kind: "paused" };
-    const index = this.deps.getIndex();
-    if (!index) return { kind: "no-index" };
-    try {
-      if (!(await this.deps.embedderReady())) return { kind: "offline" };
-      const chunks = chunkMarkdown(text);
-      if (chunks.length === 0) return { kind: "empty" };
-      const vecs = await this.deps.embed(chunks.map(c => c.text));
-      if (vecs.length === 0) return { kind: "offline" };
-      return { kind: "vec", vec: toIndexVector(vecs, index.dim) };
-    } catch {
-      return { kind: "offline" };
-    }
+  embedNote(text: string): Promise<EmbedResult | PausedResult | EmptyResult> {
+    if (this.deps.isPaused?.()) return Promise.resolve({ kind: "paused" });
+    return this.core.embedNote(text);
   }
   search(query: string, opts?: Partial<RetrieveOverrides>): Promise<SearchResult | PausedResult> {
     if (this.deps.isPaused?.()) return Promise.resolve({ kind: "paused" });

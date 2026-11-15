@@ -19,7 +19,7 @@ import type { ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
 import { createStatusBarItem, statusBarEnabled, type StatusBarItemHandle } from "./vendor/kit-obsidian/status-bar-item";
 import { obsidianWritePorts } from "./vendor/kit-obsidian/write-ports";
 import { applyLinkAtomic } from "./link_apply";
-import { swapNote } from "./note_edit";
+import { swapNote } from "./vendor/kit/note-edit";
 import type { EmbeddingConnection, EmbeddingResolution } from "./vendor/kit-obsidian/embedding-connection";
 import { thinkingLevelTexts, thinkingOffTexts, type ThinkingControlOptions } from "./vendor/kit-obsidian/thinking-control";
 import { createChatArchive, type ChatArchive } from "./vendor/kit/chat-archive-store";
@@ -1759,8 +1759,10 @@ export default class VaultRagPlugin extends Plugin {
   }
 
   /** Smart Apply tauscht den Text einer Nutzernotiz atomar (Prüfung im selben Zug wie das Schreiben), nie mit `adapter.read` + `adapter.write`. */
-  private swapNoteText(path: string, expected: string, next: string): Promise<boolean> {
-    return swapNote(obsidianWritePorts(this.app), path, expected, next);
+  private async swapNoteText(path: string, expected: string, next: string): Promise<boolean> {
+    const r = await swapNote(obsidianWritePorts(this.app), path, expected, next);
+    if (r.kind === "error") throw new Error(r.reason);
+    return r.kind !== "stale";
   }
 
   /** Annehmen aus der Inbox: Hash-Guard gegen den Stand der Berechnung (Spec §4). Prüfung und Schreiben laufen in EINEM

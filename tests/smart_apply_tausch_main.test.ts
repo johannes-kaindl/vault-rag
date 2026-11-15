@@ -3,7 +3,7 @@ import VaultRagPlugin from "../src/main";
 import { TFile } from "obsidian";
 import "../src/i18n/strings";
 
-/** Verdrahtung (Welle 34): Smart Apply tauscht den Notiztext über `vault.process` (Plugin-Methode `swapNoteText`), nie mit `adapter.write`. Die Regeln des Tauschs stehen in note_edit.test.ts. */
+/** Verdrahtung (Welle 34): Smart Apply tauscht den Notiztext über `vault.process` (Plugin-Methode `swapNoteText`), nie mit `adapter.write`. Die Regeln des Tauschs prüft das Kit (obsidian-kit `note-edit`). */
 function plugin(opt: { disk: string; vorProcess?: () => void }) {
   const st = { disk: opt.disk, adapterWrites: 0 };
   const file = new (TFile as unknown as new (path: string) => TFile)("A.md");   // der Mock nimmt den Pfad, die echte d.ts nicht

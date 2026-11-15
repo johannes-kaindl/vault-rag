@@ -7,7 +7,7 @@
 // UND Rechnung in `vault.process` (liest und schreibt in einem Zug) oder, bei einer im Quellmodus offenen Notiz, auf dem Stand
 // des Editors (Strg+Z wirkt, kein getipptes Zeichen geht verloren).
 import type { WritePorts } from "./vendor/kit/block-writer";
-import { editAtomic, type EditDecision } from "./note_edit";
+import { editAtomic, type EditDecision } from "./vendor/kit/note-edit";
 import type { WriteResult } from "./link_writer";
 
 export type LinkApplyOutcome =
@@ -38,6 +38,6 @@ function decide(input: LinkApplyInput, text: string): Decision {
 }
 
 export async function applyLinkAtomic(ports: WritePorts, input: LinkApplyInput): Promise<LinkApplyOutcome> {
-  const r = await editAtomic<LinkApplyOutcome>(ports, input.path, (text) => decide(input, text), input.persistWaitMs);
+  const r = await editAtomic<LinkApplyOutcome>(ports, input.path, (text) => decide(input, text), { persistWaitMs: input.persistWaitMs });
   return r.kind === "done" ? r.outcome : { kind: "error", reason: r.reason };
 }

@@ -1,7 +1,7 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.92.0"
+      "ref": "0.93.0"
     },
     "code-kit": {
       "ref": "0.73.0"
@@ -61,7 +61,8 @@
         "split-list",
         "chat-archive-strings",
         "run-exclusive",
-        "chat-archive-store"
+        "chat-archive-store",
+        "text-window"
       ]
     },
     {
@@ -93,7 +94,8 @@
         "frontmatter",
         "tool-provider",
         "override-guard",
-        "block-writer"
+        "block-writer",
+        "note-edit"
       ],
       "rewrite": [
         [

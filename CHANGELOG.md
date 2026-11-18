@@ -9,6 +9,7 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - **The Kit components move to obsidian-kit 0.95.0 and code-kit 0.75.0.** No behaviour change in vault-rag itself; the vendored modules (embedding, index, chat window, endpoint list) are re-synced.
+- **The API key field of the endpoint lists shows the shared placeholder "API key (optional)".** The longer text "API key (empty = local server)" was cut off in the narrow field; that a local server needs no key stays in the description of the list.
 
 ## [0.52.1] — 2026-11-15
 

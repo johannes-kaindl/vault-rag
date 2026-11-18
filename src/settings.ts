@@ -828,7 +828,8 @@ export class VaultRagSettingTab extends PluginSettingTab {
       secretClear: kit.secretClear,
       secretUnavailable: kit.secretUnavailable,
       addPlaceholder: t("settings.endpoint.addPlaceholder"),
-      apiKeyPlaceholder: t("settings.endpoint.keyPlaceholder"),
+      // Platzhalter ist die Kit-Vorgabe (Welle 36): ein längerer Text wird im schmalen Feld abgeschnitten; „leer = lokaler Server“ steht in der Beschreibung der Liste.
+      apiKeyPlaceholder: kit.apiKeyPlaceholder,
       modelPlaceholder: t("settings.endpoint.modelPlaceholder"),
       ariaUrl: t("settings.endpointRow.ariaUrl", label),
       ariaAdd: t("settings.endpointRow.ariaAdd", label),

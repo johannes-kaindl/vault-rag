@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.93.0, src/pure/note-edit.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.95.0, src/pure/note-edit.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // Herkunft: vault-rag `src/note_edit.ts` (Welle 34, Minion rag2; Wunsch ans Kit über das Bibliothek-Gate), aufgenommen in Welle 35. Gegenüber der Vorlage geändert, jeweils mit Grund:
 // (1) Ergebnis mit `changed`, `via`, `persisted` und dem gefangenen Fehler (Z5), (2) ein Wurf von `decide` lehnt das Promise ab, auf beiden Wegen (Z6; die Vorlage meldete ihn auf dem
 // Vault-Weg als `not-found`), (3) Optionen statt einer Zahl, mit einsetzbarem Zeitgeber, (4) `swapNote` vergleicht ohne BOM und mit `\r\n` als `\n` und schreibt in den Zeilenenden der Notiz
@@ -45,10 +45,14 @@
 //
 // - **Zeit bis zur Platte (P2):** Nach einem Schreiben über den Editor steht der Text nach 2036, 2038 und 2030 ms auf der Platte (Lauf davor: 2015, 2042, 2026 ms): Obsidian speichert den Editor nach rund 2 s, die Frist von 3000 ms trägt. `editor.undo()` stellt
 //   den alten Text her (3 von 3 in beiden Läufen).
-// - **Ungespeicherter Text (P3):** `decide` sieht den getippten, noch nicht gespeicherten Text, er bleibt erhalten, die Schreibmarke bleibt. **Gegenprobe ohne Kit-Code:** `app.vault.process` auf dieselbe Lage (Aufruf einige hundert Millisekunden nach dem Tippen) verlor in
-//   1.15.1 weder den getippten Text noch die Schreibmarke, und `editor.undo()` nahm den Zusatz zurück. `vault.process` nimmt dort also den Editorstand; das ist undokumentiertes Verhalten, gemessen an einer Version und einer kurzen Lücke. Der Editorweg bleibt, weil er die dokumentierte
-//   Schnittstelle für eine offene Notiz ist (der Editorstand ist die Quelle, die Platte hinkt rund zwei Sekunden hinterher), nicht weil `vault.process` dort Text verlöre. Eine Nebenwirkung: hängt `replaceRange` seine Änderung an Text, den der Nutzer eben getippt hat, nahm ein Strg+Z in der
-//   Messung beides zurück (Editor danach `Anfang\n` statt `Anfang\nGETIPPT`); bei `vault.process` blieb der Zusatz ein eigener Schritt. Die Ursache (Gruppierung des Verlaufs) ist nicht untersucht.
+// - **Ungespeicherter Text (P3):** `decide` sieht den getippten, noch nicht gespeicherten Text, er bleibt erhalten, die Schreibmarke bleibt. **Gegenprobe ohne Kit-Code (P3 und P9):** `app.vault.process` auf eine Notiz mit ungespeichertem Editortext arbeitet auf dem Text der PLATTE; Obsidian
+//   führt die ungespeicherte Eingabe danach nach Position in den neuen Stand ein. Hängt der Callback seinen Zusatz an die Stelle an, an der der Nutzer eben getippt hat (Ende der Notiz), hängt der Ausgang vom Takt ab: in P3 (Aufruf wenige Dutzend Millisekunden nach dem Tippen) stand das Getippte
+//   vor dem Zusatz (`Anfang\nGETIPPT\nPROCESS`), in P9 (Lücke 100 ms und 600 ms, je 7 von 7 Läufen) dahinter: Zusatz `\nAnhang` an `Anfang\n` ergab `Anfang\n\nAnhangGETIPPT`. Der Text ging nie verloren, aber seine Reihenfolge ist verdreht, und `vault.process` hat den ungespeicherten Stand nie gesehen. Wo
+//   `vault.process` an einer ANDEREN Stelle ändert, ist ungemessen. Das ist die Begründung des Editorwegs: Quelle und Ziel sind der Editorstand, nicht die Platte, die rund zwei Sekunden hinterherhinkt. Der Wert bleibt gemessen an einer Version (Obsidian 1.15.1), das Verhalten von `vault.process` ist undokumentiert.
+//   Schreibmarke: bei `vault.process` und bei `editAtomic` gleich geblieben (P3).
+// - **Undo-Abstand (P9):** `editor.undo()` nach `editAtomic` nimmt bei 100 ms Abstand zur Tastatureingabe die Änderung des Kits UND das Getippte zurück (3 von 3: Editor danach `Anfang\n` statt `Anfang\nGETIPPT`; die Änderung des Kits hängt sich an die Gruppe des Tippens), bei 600 ms (2 von 2) und 2000 ms (2 von 2)
+//   nur die Änderung des Kits (Lücke gestempelt im Seitenkontext, 101 bis 102, 602 und 2002 ms). Wo zwischen 100 und 600 ms die Grenze liegt, ist nicht gemessen (die Gruppierung des Editorverlaufs, vermutlich eine Gruppenfrist von 500 ms, ist nicht untersucht). Ein Klick im Panel liegt in der Regel darüber. Bei
+//   `vault.process` war der Zusatz in beiden Abständen ein eigener Schritt (7 von 7 und 2 von 2, Strg+Z nahm nur den Zusatz).
 // - **Lesemodus (P4):** `editorFor` liefert dort `null`, der Vault-Weg schreibt, die Ansicht zeigt `next`.
 // - **Zeilenenden (P5):** `getValue()` einer CRLF-Notiz liefert LF, nie ein `\r`: der `\r`-Zweig in `editAtomic` wird im echten Obsidian nicht erreicht. `swapNote` mit `expected` von der Platte (CRLF) und LF im Editor ergibt `swapped` über den Editor (der Fehler der vault-rag-Fassung
 //   tritt nicht auf). **Obsidian speichert eine im Quellmodus offene CRLF-Notiz als LF, gleich ob der Nutzer tippt (gemessen: Tastatureingabe ohne Kit-Code, Platte danach LF) oder das Kit schreibt; geschlossene Notizen (Vault-Weg) behalten CRLF** (gemessen: `a\r\nB\r\nc\r\n`).

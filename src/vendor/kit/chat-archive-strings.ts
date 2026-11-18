@@ -1,4 +1,4 @@
-// vendored from code-kit@0.73.0, src/ts/pure/chat-archive-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.75.0, src/ts/pure/chat-archive-strings.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Default texts (EN/DE) for the chat history (`chat-archive-store`: store; the dialog and the settings rows live in obsidian-kit),
  *  after the pattern of obsidian-kit `chat-window-strings.ts`. The German values are data, not code: they stay German.
  *

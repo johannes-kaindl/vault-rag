@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The Kit components move to obsidian-kit 0.95.0 and code-kit 0.75.0.** No behaviour change in vault-rag itself; the vendored modules (embedding, index, chat window, endpoint list) are re-synced.
+
 ## [0.52.1] — 2026-11-15
 
 ### Changed

@@ -1,4 +1,4 @@
-// vendored from code-kit@0.73.0, src/ts/pure/chat-archive.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.75.0, src/ts/pure/chat-archive.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** The archive of a chat window as plain data: a title from the first question, a file name, a record with a header
  *  and a payload, the clean-up after a restart, and the choice of what to delete when a keep limit is reached.
  *

@@ -1,4 +1,4 @@
-// vendored from code-kit@0.73.0, src/ts/pure/chat-archive-store.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.75.0, src/ts/pure/chat-archive-store.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** The store of the chat history: one `.json` per chat in a vault folder, through a narrow adapter (`app.vault.adapter` satisfies it).
  *  **No `obsidian` import** (decision of the master F-G2, 2026-10-27): adapter, clock and `normalizePath` come as parameters, so that
  *  Koda uses the same store with `payloadType: "koda-log/1"`. The dialog (`SuggestModal`) and the settings rows live in their own files

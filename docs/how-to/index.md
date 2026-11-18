@@ -64,7 +64,7 @@ replacement is refused rather than applied at a position that has moved.
 ## Restructure a note into a template (Smart Apply)
 
 Smart Apply is off by default. Enable it under **Settings → Vault Retrieval → Smart Apply**; it
-then appears as an extra sidebar tab and adds the command `Smart Apply auf aktive Notiz`.
+then appears as an extra sidebar tab and adds the command `Open Smart Apply`.
 
 1. Put your templates in the configured template folder.
 2. Open a messy note and the Smart Apply tab. The template list is ranked by relevance to the

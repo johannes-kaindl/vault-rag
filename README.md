@@ -99,7 +99,7 @@ The middle column is what you type in the command palette. On a German Obsidian,
 |---|---|---|
 | Open sidebar (per tab) | `Open related notes` · `Open semantic search` · `Open vault chat` · `Open reformat panel` | Opens the sidebar on that tab |
 | Reformat selection | `Reformat section` | Reshapes the current selection (see step 6) |
-| Smart Apply on active note | `Smart Apply on active note` | Restructures the active note into a template |
+| Smart Apply on active note | `Open Smart Apply` | Restructures the active note into a template |
 | Integrator (opt-in) | `Open integrator inbox` · `Suggest links for active note` · `Suggest links for folders` | Collects link suggestions; accept writes the link, reject remembers the target |
 | Reindex vault | `Reindex vault` | Rebuilds the whole index from the vault |
 | Complete the index | `Complete index (missing notes)` | Embeds only what the index is missing |

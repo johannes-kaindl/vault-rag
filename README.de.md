@@ -99,7 +99,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 |---|---|
 | `Verwandte Notizen öffnen` · `Semantische Suche öffnen` · `Vault Chat öffnen` · `Umformatieren-Panel öffnen` | Öffnet die Sidebar auf dem jeweiligen Tab |
 | `Abschnitt umformatieren` | Formt die aktuelle Auswahl um (siehe Schritt 6) |
-| `Smart Apply auf aktive Notiz` | Baut die aktive Notiz in ein Template um |
+| `Smart Apply öffnen` | Baut die aktive Notiz in ein Template um |
 | `Integrator-Inbox öffnen` · `Links für aktive Notiz vorschlagen` · `Links für Ordner vorschlagen` | Sammelt Verlinkungs-Vorschläge (opt-in); Annehmen schreibt den Link, Ablehnen merkt sich das Ziel |
 | `Vault neu indizieren` | Baut den kompletten Index neu aus dem Vault |
 | `Index vervollständigen (fehlende Notizen)` | Bettet nur ein, was dem Index fehlt |

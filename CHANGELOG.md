@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **The Smart Apply command is named for what it does (UI-STANDARD §11).** It opens the Smart Apply tab for the active note and starts no run; the palette now shows "Open Smart Apply" (was "Smart Apply on active note"; German: "Smart Apply öffnen", was "Smart Apply auf aktive Notiz"). The command id stays, so bound hotkeys keep working.
 - **The Kit components move to obsidian-kit 0.95.0 and code-kit 0.75.0.** No behaviour change in vault-rag itself; the vendored modules (embedding, index, chat window, endpoint list) are re-synced.
 - **The API key field of the endpoint lists shows the shared placeholder "API key (optional)".** The longer text "API key (empty = local server)" was cut off in the narrow field; that a local server needs no key stays in the description of the list.
 

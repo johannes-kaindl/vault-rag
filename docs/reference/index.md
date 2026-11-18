@@ -17,7 +17,7 @@
 | Open a past chat | `Open past chats…` | Only while the sidebar is open and *Keep past chats* is above `0`; opens the list of saved chats |
 | Open sidebar — reformat | `Open reformat panel` | |
 | Reformat selection | `Reformat section` | Also in the editor context menu |
-| Smart Apply on active note | `Smart Apply on active note` | Only when Smart Apply is enabled |
+| Smart Apply on active note | `Open Smart Apply` | Only when Smart Apply is enabled |
 | Reindex vault | `Reindex vault` | Full rebuild; needs the embedding endpoint |
 | Complete the index | `Complete index (missing notes)` | Delta-only; embeds what is missing |
 | Restore index backup | `Restore index from backup` | Picks from the kept snapshots (at most 23) |

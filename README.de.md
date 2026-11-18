@@ -121,6 +121,7 @@ Die Namen unten sind die deutschen — auf einem englischen Obsidian heißen die
 | Ausschluss-Pfade | Pfade, die nicht indiziert werden (Dot-Ordner immer). Nur diese Liste zählt: Obsidians eigene Einstellung „Ausgeschlossene Dateien“ wird nicht gelesen | `Templates/`, `Archive/` |
 | Fortschritt in Statusleiste | Zeigt den Embedding-Fortschritt; beim Reindex und während der Pause automatisch eingeblendet, auch wenn ausgeschaltet | an |
 | Debounce | Wie lange nach dem Speichern neu eingebettet wird | `3000` ms |
+| Pause zwischen Embedding-Anfragen | Beim Aufbau des Index wartet das Plugin so viel Mal die Dauer der letzten Anfrage (0, 0,5, 1 oder 2 ×), bevor es die nächste schickt, damit ein geteilter Server (Ollama bedient sein Embedding-Modell eine Anfrage nach der anderen) für kurze Anfragen anderer Geräte frei bleibt. Ein Voll-Reindex dauert bei 1 × bis zu doppelt so lang; 0 = keine Pause. Suchen und Chat-Fragen werden nie verzögert | `1 ×` |
 | Vorschau vor dem Einsetzen (LLM-Ergebnisse) | Beim Umformatieren mit dem Modell zeigt ein Fenster zuerst das Ergebnis. Aus setzt ein fertiges Ergebnis sofort ein (ein abgeschnittenes oder eines, das Links verloren hat, öffnet die Vorschau trotzdem) | an |
 | Smart Apply | Standardmäßig aus; aktiviert Tab, Befehl und Template-Einstellungen | aus |
 | Kontext-Budget | Maximale Zeichenzahl als Kontext (Obergrenze folgt dem Modellfenster) | `12000` |

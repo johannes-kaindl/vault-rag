@@ -724,8 +724,8 @@ async function main(): Promise<void> {
   const zustand = beimAbbruch(zustandZurueck, "Wirt-Zustand zurücksetzen");
 
   try {
-    // Chromium drosselt nicht-fokussierte Fenster — ohne bringToFront misst man Phantome.
-    await main.send("Page.bringToFront");
+    // Chromium drosselt nicht-fokussierte Fenster — ohne Sichtbarkeit misst man Phantome (`requireVisible` ruft `Page.bringToFront` selbst).
+    await requireVisible(main);
 
     let active = await main.evaluate<boolean>(
       `return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];`,

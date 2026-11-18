@@ -64,7 +64,6 @@ async function haupt(): Promise<void> {
 
   const main = await attachTo("workspace", port, STAGING_VAULT);
   if (!main) throw new Error(`Kein Obsidian-Hauptfenster auf Port ${port} für Vault „${STAGING_VAULT}“.`);
-  await main.send("Page.bringToFront");
   if (!(await main.evaluate<boolean>(`return !!app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];`))) {
     const r = await bereiteInstanzVor(main, { pluginIds: [PLUGIN_ID], nurVault: STAGING_VAULT, sprache: "en" });
     console.log(`Instanz vorbereitet: ${r.hinweis}`);

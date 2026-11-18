@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.53.0] — 2026-11-18
+
 ### Added
 
 - **New setting "Pause between embedding requests" (Live embedding) — reindex throttling via code-kit `throttleEmbedder`.** While the index is built, the plugin now sends one batch at a time and rests for a multiple of that batch's duration (0, 0.5, 1 or 2 ×; default 1) before the next one, so a shared Ollama (one slot for the embedding model) stays free for short requests from other devices. A full reindex takes up to twice as long with the default; set the pause to "No pause" for the fastest run. Searches and chat questions are never delayed by it.

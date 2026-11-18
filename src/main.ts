@@ -1,6 +1,7 @@
 import { EmbedCounter } from "./embed_counter";
 import { EmbeddingPause, EmbeddingPauseStorageError, EMBEDDING_PAUSE_KEY } from "./embedding_pause";
 import type { Embedder } from "./vendor/kit/embeddings-client";
+import { throttleEmbedder } from "./vendor/kit/throttle-embedder";
 import { Component, MarkdownRenderer, Plugin, WorkspaceLeaf, TFile, TAbstractFile, Notice, Platform, normalizePath, requestUrl, Editor, EditorPosition, MarkdownView, getLanguage } from "obsidian";
 import "./i18n/strings";
 import { getLang, pickLang, setLang, t } from "./vendor/kit/i18n";
@@ -33,7 +34,7 @@ import { fillMissingRowModels } from "./vendor/kit/endpoint_config";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { hydrateLocalEndpoints, migrateLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
-import { effectiveSystemPrompt, migrateSystemPrompt, normalizeChatArchiveSettings, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
+import { embedThrottleFactor, normalizeEmbedThrottle, effectiveSystemPrompt, migrateSystemPrompt, normalizeChatArchiveSettings, stripLegacyGlobalModels, stripLegacySampling, LEGACY_GLOBAL_MODEL_KEYS } from "./settings_core";
 import { mergeSettings } from "./vendor/kit/settings";
 import { loadSecretValue, persistSecretValue } from "./vendor/kit/secret-value";
 import { secretIdFor } from "./vendor/kit/secrets";
@@ -213,8 +214,22 @@ export default class VaultRagPlugin extends Plugin {
    *  nicht durch nebenläufige Events (z.B. Ordner-Bulk-Delete) fälschlich Shrink meldet und kein
    *  liveIndexer-Instanz-Swap mitten in einer Operation passiert. */
   /** Umhüllt die Embedding-Fassade: jeder `embed`-Aufruf wird unter `label()` gezählt, sonst unverändert. */
-  private countedEmbedder(label: () => string, whenPaused: "wait" | "throw"): Embedder {
-    return this.pause.gate(() => this.emb.embedder(), whenPaused, (n) => this.embedCounter.count(label(), n));
+  private countedEmbedder(label: () => string, whenPaused: "wait" | "throw", throttled = false): Embedder {
+    return this.pause.gate(() => throttled ? this.throttledEmbedder() : this.emb.embedder(), whenPaused, (n) => this.embedCounter.count(label(), n));
+  }
+  /** Der Embedder des Indexers hinter der Drossel (code-kit `throttleEmbedder`): ein Batch nach dem anderen, danach eine Pause von Faktor × Dauer des Batches,
+   *  damit ein geteilter Ollama (ein Slot für das Embedding-Modell) Raum für kurze Anfragen anderer Geräte lässt. Der Faktor wird je Aufruf gelesen; ändert er sich,
+   *  entsteht eine neue Drossel (die alte läuft mit ihren wartenden Aufrufen aus). Die Drossel steht INNERHALB des Pause-Gates, damit das Warten auf „fortsetzen“
+   *  nicht als Dauer eines Batches zählt. Abfragen (Suche, Chat) gehen nie hindurch. */
+  private throttleCache: { faktor: number; embedder: Embedder } | null = null;
+  private throttledEmbedder(): Embedder {
+    const faktor = embedThrottleFactor(this.settings);
+    if (this.throttleCache?.faktor === faktor) return this.throttleCache.embedder;
+    const embedder = faktor === 0
+      ? this.emb.embedder()
+      : throttleEmbedder(this.emb.embedder(), { faktor, slice: 32, sleep: (ms) => new Promise<void>((resolve) => { window.setTimeout(resolve, ms); }) });
+    this.throttleCache = { faktor, embedder };
+    return embedder;
   }
   /** Eine Fassade je Verbraucher: die Etikett-Bindung steht im `embed`-Anschluss, nicht in einem gemeinsamen Feld. */
   private facadeFor(label: string): RetrievalFacade {
@@ -331,6 +346,7 @@ export default class VaultRagPlugin extends Plugin {
     this.settings.chatSystemPrompt = migrateSystemPrompt(this.settings.chatSystemPrompt);
     // Verlauf vergangener Chats: ein Wert, der keine Zahl ist, bleibt aus (0), nie die 50 des Kits; eine Zahl wird auf 0 bis 500 begrenzt.
     normalizeChatArchiveSettings(this.settings, clampChatKeep);
+    normalizeEmbedThrottle(this.settings);
     // Migration: alte Einzel-Endpoint-Settings und Prä-0.19-String-Listen → EndpointConfig-Listen.
     this.settings.embeddingEndpoints = migrateEndpointList(loaded?.embeddingEndpoint, loaded?.embeddingEndpoints);
     this.settings.chatEndpoints = migrateEndpointList(loaded?.chatEndpoint, loaded?.chatEndpoints);
@@ -428,7 +444,7 @@ export default class VaultRagPlugin extends Plugin {
     });
     // Embedder und LiveIndexer immer als Paar mit DEMSELBEN Modell bauen: der Resolver läuft
     // fire-and-forget am Ende von onload, der modify-Listener kann davor feuern.
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait"), this.embeddingModelInUse, { dim: 256 });
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait", true), this.embeddingModelInUse, { dim: 256 });
     this.pendingQueue = new PendingQueue(this.app.vault.adapter, this.settings.indexDir);
     this.facade = this.facadeFor("api");
     // Sofort nach der Facade setzen: sobald das Plugin-Objekt in app.plugins.plugins auftaucht,
@@ -899,7 +915,7 @@ export default class VaultRagPlugin extends Plugin {
     // Die Stempel des Vorgängers gehen mit: ein `VectorIndex` trägt keine, und ein Indexer ohne sie schriebe nach dem nächsten Update für jede nicht
     // angefasste Zeile `[0, 0]` (Welle 27, Task „Stempel gehen verloren …“). Der Snapshot ist eine Kopie; nachgestempelt wird nichts.
     const vorgaenger = this.liveIndexer;
-    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait"), m, { dim: 256 });
+    this.liveIndexer = new LiveIndexer(this.app.vault.adapter, this.settings.indexDir, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait", true), m, { dim: 256 });
     if (this.index) this.liveIndexer.init(this.index, vorgaenger?.stampsSnapshot());
     else if (this.indexHealthy) this.liveIndexer.markFresh();
     // Gefahrenzustand (indexHealthy=false) → bewusst NICHT markFresh: bleibt not-ready (Schreibschutz).
@@ -1130,7 +1146,7 @@ export default class VaultRagPlugin extends Plugin {
       }
       this.settings.indexDir = target;
       await this.saveSettings();
-      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait"), this.embeddingModelInUse, { dim: 256 });
+      this.liveIndexer = new LiveIndexer(this.app.vault.adapter, target, this.countedEmbedder(() => `indexer:${this.embedOp}`, "wait", true), this.embeddingModelInUse, { dim: 256 });
       this.pendingQueue = new PendingQueue(this.app.vault.adapter, target);
       await this.pendingQueue.load();
       await this.loadIndex();

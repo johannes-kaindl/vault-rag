@@ -27,6 +27,9 @@ export interface VaultRagSettings {
   embeddingChoice: EndpointChoice;
   showStatusBar: boolean;
   debounceMs: number;
+  /** Pause zwischen den Embedding-Anfragen des Indexers als Vielfaches der Dauer der letzten Anfrage ("0", "0.5", "1", "2"; Vorgabe "1").
+   *  Ein geteilter Ollama bedient sein Embedding-Modell mit einem Slot: ohne Pause warten kurze Anfragen anderer Geräte hinter einem Reindex. */
+  embedThrottle: string;
   chatEndpoints: EndpointConfig[];
   chatChoice: EndpointChoice;
   chatK: number;
@@ -152,6 +155,20 @@ export function normalizeChatArchiveSettings(s: VaultRagSettings, clamp: (value:
   if (typeof s.chatFolder !== "string") s.chatFolder = "";
 }
 
+/** Erlaubte Stufen der Indexer-Pause (Schlüssel der Auswahl, Wert = Faktor). */
+export const EMBED_THROTTLE_STEPS: Readonly<Record<string, number>> = { "0": 0, "0.5": 0.5, "1": 1, "2": 2 };
+
+/** Der Faktor der Indexer-Pause. Ein gespeicherter Wert, der keine der vier Stufen ist, gilt als die Vorgabe 1 (nie als „aus“). */
+export function embedThrottleFactor(s: Pick<VaultRagSettings, "embedThrottle">): number {
+  const key = String(s.embedThrottle);
+  return Object.prototype.hasOwnProperty.call(EMBED_THROTTLE_STEPS, key) ? EMBED_THROTTLE_STEPS[key] : 1;
+}
+
+/** Eine gespeicherte Stufe, die keine der vier ist (Schlüssel fehlt, anderer Typ, von Hand geändert), wird die Vorgabe "1"; sonst zeigte die Auswahl einen Wert, der nicht wirkt. */
+export function normalizeEmbedThrottle(s: VaultRagSettings): void {
+  if (typeof s.embedThrottle !== "string" || !Object.prototype.hasOwnProperty.call(EMBED_THROTTLE_STEPS, s.embedThrottle)) s.embedThrottle = "1";
+}
+
 export const DEFAULT_SETTINGS: VaultRagSettings = {
   k: 20,
   minSim: 0.3,
@@ -162,6 +179,7 @@ export const DEFAULT_SETTINGS: VaultRagSettings = {
   embeddingChoice: {},
   showStatusBar: true,
   debounceMs: 3000,
+  embedThrottle: "1",
   chatEndpoints: [{ url: "http://localhost:1234", model: "qwen3" }],
   chatChoice: {},
   chatK: 5,

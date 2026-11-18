@@ -62,7 +62,8 @@
         "chat-archive-strings",
         "run-exclusive",
         "chat-archive-store",
-        "text-window"
+        "text-window",
+        { "name": "throttle-embedder", "ref": "0.77.0" }
       ]
     },
     {

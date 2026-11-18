@@ -158,7 +158,7 @@ describe("DEFAULT_SETTINGS Endpunkte", () => {
 });
 
 const DECLARATIVE_KEYS = [
-  "k","minSim","exclude","debounceMs","showStatusBar","hideIndexFolder",
+  "k","minSim","exclude","debounceMs","embedThrottle","showStatusBar","hideIndexFolder",
   "chatK","chatSystemPrompt","chatInputPosition","enterSends",
   "smartApplyEnabled","templateDir",
   "smartApplyMaxTokens","smartApplyDefaultMode",
@@ -327,7 +327,7 @@ describe("getSettingDefinitions – Struktur", () => {
     expect(g.heading).toBe("Live embedding");
     const items = g.items as any[];
     const controlKeys = items.filter(i => i.control).map(i => i.control.key);
-    expect(controlKeys).toEqual(["embeddingPaused", "debounceMs", "showStatusBar"]);
+    expect(controlKeys).toEqual(["embeddingPaused", "debounceMs", "embedThrottle", "showStatusBar"]);
     expect(items.filter(i => typeof i.render === "function").length).toBe(2); // Endpunkte, Status — kein globales Modellfeld mehr
   });
 

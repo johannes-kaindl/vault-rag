@@ -297,6 +297,9 @@ export class VaultRagSettingTab extends PluginSettingTab {
       { name: t("settings.embedding.debounce.name"), desc: t("settings.embedding.debounce.desc"),
         control: { type: "slider", key: "debounceMs", min: 500, max: 10000, step: 500,
           displayFormat: (v: number) => `${v / 1000} s` } },
+      { name: t("settings.embedding.throttle.name"), desc: t("settings.embedding.throttle.desc"),
+        control: { type: "dropdown", key: "embedThrottle",
+          options: { "0": t("settings.embedding.throttle.off"), "0.5": "0.5 ×", "1": "1 ×", "2": "2 ×" } } },   // i18n-exempt: Faktor-Zahlen, sprachneutral
       { name: t("settings.embedding.statusBar.name"), desc: t("settings.embedding.statusBar.desc"),
         control: { type: "toggle", key: "showStatusBar" } },
     ] };

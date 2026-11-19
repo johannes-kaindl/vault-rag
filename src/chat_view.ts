@@ -7,6 +7,7 @@ import { newTurnId } from "./lab_client";
 import { MODE_CHAT } from "./request_profile";
 import { HubPanel, TabId } from "./hub_panel";
 import { getLang, t } from "./vendor/kit/i18n";
+import { isTruncated } from "./vendor/kit/sampling-profiles";
 import { EMPTY_CHAT, type ChatHistory, type ChatModelMessage } from "./vendor/kit/chat-history";
 import { buildChatWindow, type ChatSendHandlers, type ChatSendResult, type ChatWindow, type ChatWindowOptions } from "./vendor/kit-obsidian/chat-window";
 import { buildModelBar, type ModelBar, type ModelBarConnection } from "./vendor/kit-obsidian/model-bar";
@@ -208,7 +209,7 @@ export class ChatPanel implements HubPanel {
           trace: { feature: "chat", app: d.app, contextPaths: ask.sent.sources, promptTemplate: ask.preamble, turnId: newTurnId() },
         },
       );
-      return { ok: true, content: res.content, reasoning: res.reasoning, ...(res.finishReason === "length" ? { truncated: true } : {}) };
+      return { ok: true, content: res.content, reasoning: res.reasoning, ...(isTruncated(res.finishReason) ? { truncated: true } : {}) };
     } catch (e) {
       const failure = chatSendFailure(e);
       if (failure === null) throw e;

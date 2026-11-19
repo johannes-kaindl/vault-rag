@@ -1,3 +1,5 @@
+import { isTruncated } from "./vendor/kit/sampling-profiles";
+
 /** Ab wann der Kaltstart-Hinweis eingeblendet wird. Vorher wuerde er eine schnelle
  *  Antwort unnoetig mit einer Sorge belasten, die es gar nicht gibt. */
 export const COLD_START_HINT_AFTER_MS = 5000;
@@ -34,7 +36,7 @@ export function waitingMessage(elapsedMs: number): string {
  * koennte (AGENTS.md, „i18n Teil 3").
  */
 export function truncationKey(finishReason?: string): string | null {
-  return finishReason === "length" ? "reformatPreview.truncated" : null;
+  return isTruncated(finishReason) ? "reformatPreview.truncated" : null;
 }
 
 /**

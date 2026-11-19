@@ -33,6 +33,7 @@ import {
 import type { ChatClient } from "./chat_client";
 import { MODE_SMART_APPLY } from "./request_profile";
 import { t } from "./vendor/kit/i18n";
+import { isTruncated } from "./vendor/kit/sampling-profiles";
 import { newTurnId } from "./lab_client";
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -275,9 +276,9 @@ export class SmartApply {
     // Der spezifische Befund ERSETZT den generischen; zwei Zeilen ueber eine Ursache, die
     // verschiedene Stellschrauben nennen, schicken den Nutzer an die falsche.
     const budgetImDenkenVerbraucht =
-      finishReason === "length" && content.trim() === "" && (reasoning ?? "").trim() !== "";
+      isTruncated(finishReason) && content.trim() === "" && (reasoning ?? "").trim() !== "";
     const truncationCheck = (): CheckResult[] => {
-      if (finishReason !== "length") return [];
+      if (!isTruncated(finishReason)) return [];
       return budgetImDenkenVerbraucht
         ? [{ id: "reasoning-consumed-budget", ok: false, detail: t("smartApply.check.reasoningBudget", String(p.maxTokens)) }]
         : [{ id: "output-truncated", ok: false, detail: t("smartApply.check.outputTruncated", String(p.maxTokens)) }];

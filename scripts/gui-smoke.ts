@@ -42,7 +42,7 @@
  * ```
  *
  * Der Treiber startet keine Instanz und kennt kein `--launch`; `tools/obsidian-cdp/messlauf.sh` startet sie. Zwischen Start und Smoke baut `shots --prepare` den Index:
- * `VORHER='npm run shots -- --port $PORT --prepare'` (Zwischenschritt des Skripts, Welle 35; ungemessen an vault-rag); wer `--launch` uebergibt, bekommt diesen Hinweis.
+ * `VORHER='npm run shots -- --port $PORT --prepare'` (Zwischenschritt des Skripts, Welle 35; gemessen an vault-rag in Welle 36: messlauf mit VORHER, 146 grün / 0 rot / 1 / 3); wer `--launch` uebergibt, bekommt diesen Hinweis.
  *
  * **Stub-Lage (seit Welle 20):** Der volle Lauf schickt keine Anfrage an die Fixture-Endpunkte (Ollama `:11434`, LM Studio
  * `:1234`). Die jeweils erste Zeile beider Listen zeigt auf den zentralen LLM-Stub (`tools/obsidian-cdp/llm-stub.ts`), die

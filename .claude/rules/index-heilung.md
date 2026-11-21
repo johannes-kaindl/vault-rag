@@ -69,6 +69,8 @@ Gotchas zu Auto-Heal, leeren Notizen, Index-Ordner und Reindex (`src/main.ts`, `
   Faktor-5-Fehlschätzung vom 2026-09-05 mittags hat dieselbe Ursache. Belastbar wäre ein
   Fortschritt in **Chunks**; `EmbeddingProgress.reindex` zählt Notizen.
 
+- **Das Ende eines Voll-Reindex belegt von außen nur die Sicherung unter `index-backups/<Zeitstempel>` im Plugin-Ordner, nicht der Kopf von `index.bin`.** Der Indexer schreibt während des Laufs Zwischenstände mit gültigem Kopf (Modell, `source_dim`, wachsendes `count`); `snapshotIndex` läuft erst nach dem Schluss-Persist. Stille am Embedding-Endpunkt taugt auch nicht als Signal, wenn andere Vaults denselben Endpunkt benutzen. Beleg: jkaindl-docs, 2026-11-20 auf 21: fünf Zwischenstände (503 bis 1.727) über fünf Stunden, Sicherung um 00:14:49 mit `count: 1981`, Nachzug um 00:31:52 auf 2.025; ein Wächter auf Dateigröße und einer auf Endpunkt-Stille lagen beide falsch.
+
 - **`adapter.rmdir(path, false)` löscht in Obsidian NIE ein Verzeichnis** — auch kein leeres.
   Der Adapter setzt es intern auf `fs.rm()` **ohne** `recursive` um; das wirft auf jedem
   Verzeichnis `ERR_FS_EISDIR` (`syscall: "rm"`). Gemessen 2026-08-03 in echtem Obsidian, in allen

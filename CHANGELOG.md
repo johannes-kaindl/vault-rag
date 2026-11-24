@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- **A key behind word characters is now blanked before a chat request leaves.** An API key written as `key_sk-proj-…` (or after another word character) used to stay in clear text in the request to the model and in the lab log; the Kit redaction (code-kit 0.87.0, fixes 0.79.1 and 0.82.0) reads it now and sends a placeholder, the answer is restored as before.
+
+### Fixed
+
+- **A front matter value with a line break no longer tears the block apart.** Smart Apply writes a value such as a multi-line summary so that Obsidian reads the same value back (obsidian-kit 0.100.0).
+
+### Changed
+
+- **The Kit components move to obsidian-kit 0.106.0 and code-kit 0.87.0.** Includes the link guard of the chat window (`dom-guard`) in the current version; the single pin of `throttle-embedder` is gone, it follows the code-kit pin like the rest.
+
 ## [0.53.0] — 2026-11-18
 
 ### Added

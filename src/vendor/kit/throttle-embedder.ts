@@ -1,4 +1,4 @@
-// vendored from code-kit@0.77.0, src/ts/pure/throttle-embedder.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.87.0, src/ts/pure/throttle-embedder.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // Origin: vault-rag task "Reindex drosseln — kurze Embedding-Anfragen warten hinter Batches bis zu 30 s auf dem geteilten Ollama" (2026-11-06; decision
 // Breite-Master 2026-11-15, confirmed 2026-11-18: a kit wrapper, no local build in vault-rag). Sits next to `embeddings-client` (the `Embedder` interface).
 

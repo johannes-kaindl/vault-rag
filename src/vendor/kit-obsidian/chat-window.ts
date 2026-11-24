@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.95.0, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.106.0, src/obsidian/chat-window.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /**
  * Chat-Fenster (UI-STANDARD §8, Baustein 12): Verlauf, Eingabe, Ablauf, Abbruch, Fehlerzeile und Leerzustand eines Fach-Chats.
  *

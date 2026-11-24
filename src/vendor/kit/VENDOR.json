@@ -1,11 +1,11 @@
 {
   "source": "code-kit",
   "note": "Verbatim snapshots (plus Herkunfts-Header in Zeile 1). Der Ordner heisst historisch 'kit'; die pure-Schicht kommt seit dem code-kit-Split aus code-kit, nur callout/frontmatter noch aus obsidian-kit. Never hand-edit. Pins in tools/kit-sync.json, re-vendor via tools/sync-kit.sh (zentrales kit-sync im Dach).",
-  "version": "0.75.0",
-  "sha": "e6cd8be",
-  "vendored": "backend-probe.ts, capabilities.ts, chunker.ts, cooperative-yield.ts, crc32.ts, embed-vector.ts, embeddings-client.ts, index-container.ts, index-delta.ts, index-guard.ts, index-store.ts, live-indexer.ts, retrieval-facade.ts, vector-index.ts, endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error_body.ts, i18n.ts, model-choice.ts, model-list-cache.ts, reasoning.ts, redact.ts, rotation.ts, run-state.ts, sampling-profiles.ts, safe-markdown.ts, secret-value.ts, secrets.ts, settings.ts, sse.ts, think-splitter.ts, timeout.ts, model-context.ts, probe-core.ts, rel-path.ts, markdown-table.ts, list-summary.ts, chat-history.ts, stream-blocks.ts, anthropic-wire.ts, chat-archive.ts, filename-template.ts, local-stamp.ts, error-message.ts, split-list.ts, chat-archive-strings.ts, run-exclusive.ts, chat-archive-store.ts, text-window.ts, throttle-embedder.ts (code-kit@0.77.0, a363d7d), clipboard.ts, remote-resources.ts, link-guard.ts, leave-tree.ts",
-  "obsidian_kit_version": "0.95.0",
-  "obsidian_kit_sha": "3853245",
+  "version": "0.87.0",
+  "sha": "7c6cc31",
+  "vendored": "backend-probe.ts, capabilities.ts, chunker.ts, cooperative-yield.ts, crc32.ts, embed-vector.ts, embeddings-client.ts, index-container.ts, index-delta.ts, index-guard.ts, index-store.ts, live-indexer.ts, retrieval-facade.ts, vector-index.ts, endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error_body.ts, i18n.ts, model-choice.ts, model-list-cache.ts, reasoning.ts, redact.ts, rotation.ts, run-state.ts, sampling-profiles.ts, safe-markdown.ts, secret-value.ts, secrets.ts, settings.ts, sse.ts, think-splitter.ts, timeout.ts, model-context.ts, probe-core.ts, rel-path.ts, markdown-table.ts, list-summary.ts, chat-history.ts, stream-blocks.ts, anthropic-wire.ts, chat-archive.ts, filename-template.ts, local-stamp.ts, error-message.ts, split-list.ts, chat-archive-strings.ts, run-exclusive.ts, chat-archive-store.ts, text-window.ts, throttle-embedder.ts, clipboard.ts, remote-resources.ts, link-guard.ts, leave-tree.ts",
+  "obsidian_kit_version": "0.106.0",
+  "obsidian_kit_sha": "abb26f3",
   "obsidian_kit_vendored": "callout.ts, endpoint-secret-hook.ts, endpoint-source.ts, folder-hide.ts, frontmatter.ts, tool-provider.ts, override-guard.ts, block-writer.ts, note-edit.ts",
   "license": "AGPL-3.0-or-later"
 }

@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.95.0, src/obsidian/chat-leaf.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.106.0, src/obsidian/chat-leaf.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { Platform, type Workspace, type WorkspaceLeaf } from "obsidian";
 
 /** Wo ein Chat-Blatt öffnet (seit 0.77.0). Eine Wahl für alle Chat-Plugins: vorher baute jedes seine eigene Fassung (settings-assistant `openChat`, vault-rag `hubPlacement`, koda-agent `chatPlacement`,

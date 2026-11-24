@@ -139,3 +139,16 @@ describe("Notiz ohne Frontmatter → sauber erzeugen", () => {
     expect(rt.body).toBe("\nRoher Body ohne Frontmatter.\n");
   });
 });
+
+// Datenfix obsidian-kit 0.100.0: ein Wert mit Zeilenumbruch zerriss das Frontmatter.
+describe("serializeFrontmatter – Wert mit Zeilenumbruch", () => {
+  it("wird nach dem Serialisieren wieder gleich gelesen", () => {
+    const value = "erste Zeile\nzweite Zeile: mit Doppelpunkt\n- und Strich";
+    const text = serializeFrontmatter({ title: "T", summary: value, tags: ["a", "b"] }, ["title", "summary", "tags"]) + "Body\n";
+    const back = parseFrontmatter(text);
+    expect(back.data.summary).toBe(value);
+    expect(back.data.title).toBe("T");
+    expect(back.data.tags).toEqual(["a", "b"]);
+    expect(back.body).toBe("Body\n");
+  });
+});

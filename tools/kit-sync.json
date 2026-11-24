@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.95.0"
+      "ref": "0.106.0"
     },
     "code-kit": {
-      "ref": "0.75.0"
+      "ref": "0.87.0"
     }
   },
   "targets": [
@@ -63,7 +63,7 @@
         "run-exclusive",
         "chat-archive-store",
         "text-window",
-        { "name": "throttle-embedder", "ref": "0.77.0" }
+        "throttle-embedder"
       ]
     },
     {

@@ -1,4 +1,4 @@
-// vendored from code-kit@0.75.0, src/ts/pure/run-exclusive.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.87.0, src/ts/pure/run-exclusive.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Runs jobs one after another per key: the next job starts when the previous one is done, even if it failed.
  *
  *  Origin: file-private in obsidian-kit `share-export.ts` (per export folder), lifted out when the chat history

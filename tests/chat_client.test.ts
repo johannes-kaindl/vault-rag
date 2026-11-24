@@ -163,6 +163,16 @@ describe("ChatClient", () => {
       expect(r.content).toContain("abcdefghijklmnop1234567890");
     });
 
+    // Sicherheitsfix code-kit 0.79.1: ein Schlüssel hinter Wortzeichen (`key_sk-proj-…`) blieb im Klartext. Die IBAN-Regel (0.82.0, `createPiiRedactor`)
+    // ist Opt-in und hat in vault-rag keine Wirkstelle: der Chat-Client schwärzt mit den Geheimnis-Regeln.
+    it("ein Schlüssel hinter Wortzeichen geht nicht im Klartext hinaus (code-kit 0.79.1)", async () => {
+      const KEY = "sk-proj-AbCdEfGhIjKlMnOpQrSt1234567890";
+      const { transport, bodies } = echoTransport();
+      await chat({ transport }).stream([{ role: "user", content: `Dienst key_${KEY} bitte prüfen.` }], () => {}, () => {});
+      expect(bodies[0]).not.toContain(KEY);
+      expect(bodies[0]).toMatch(/\[redacted-/);
+    });
+
     it("Roundtrip für Smart Apply: der Token bleibt im JSON-Ergebnis erhalten (restoreContent json)", async () => {
       const { transport } = echoTransport((ph) => JSON.stringify({ v: ph }));
       const r = await chat({ transport }).stream(

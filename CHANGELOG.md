@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.53.1] — 2026-11-24
+
 ### Security
 
 - **A key behind word characters is now blanked before a chat request leaves.** An API key written as `key_sk-proj-…` (or after another word character) used to stay in clear text in the request to the model and in the lab log; the Kit redaction (code-kit 0.87.0, fixes 0.79.1 and 0.82.0) reads it now and sends a placeholder, the answer is restored as before.
